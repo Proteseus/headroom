@@ -11,6 +11,7 @@
 		24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */; };
 		519E1CC03DF30BACA9A68C57 /* ModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */; };
 		6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C6E5C825AA4083B2D5D01D /* DashboardView.swift */; };
+		957C0977FADF81B7F0A09DCF /* DailyBurnCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */; };
 		CE802023FF267E5828A30C68 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98E41B964E7DEC1B013050A /* Models.swift */; };
 		D52012E3C8B42DA9E4C79C56 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */; };
 		F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */; };
@@ -33,6 +34,7 @@
 		4490B2ABE0BD42C2973881A1 /* HeadroomBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HeadroomBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarProgressBar.swift; sourceTree = "<group>"; };
 		6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBurnCard.swift; sourceTree = "<group>"; };
 		C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageStore.swift; sourceTree = "<group>"; };
 		EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsTests.swift; sourceTree = "<group>"; };
 		F98E41B964E7DEC1B013050A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -52,6 +54,7 @@
 			isa = PBXGroup;
 			children = (
 				59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */,
+				B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */,
 				05C6E5C825AA4083B2D5D01D /* DashboardView.swift */,
 				2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */,
 				F98E41B964E7DEC1B013050A /* Models.swift */,
@@ -156,6 +159,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */,
+				957C0977FADF81B7F0A09DCF /* DailyBurnCard.swift in Sources */,
 				6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */,
 				139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */,
 				CE802023FF267E5828A30C68 /* Models.swift in Sources */,

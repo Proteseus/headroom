@@ -12,13 +12,16 @@ struct UsageSnapshot: Decodable, Sendable {
     var weekPacePct: Double?
     var weekResetsIn: String?
     var today: TokenBucket?
+    var byDay: [DailyBurnDay]?
     var codex: CodexUsage?
     var cursor: CursorUsage?
     var vercel: VercelUsage?
     var git: GitUsage?
+    var github: GitHubUsage?
     var activity: [ActivityItem]?
     var local: LocalUsage?
     var supabase: SupabaseUsage?
+    var sources: [SyncSource]?
 
     static let empty = UsageSnapshot()
 
@@ -34,13 +37,16 @@ struct UsageSnapshot: Decodable, Sendable {
         weekPacePct: Double? = nil,
         weekResetsIn: String? = nil,
         today: TokenBucket? = nil,
+        byDay: [DailyBurnDay]? = nil,
         codex: CodexUsage? = nil,
         cursor: CursorUsage? = nil,
         vercel: VercelUsage? = nil,
         git: GitUsage? = nil,
+        github: GitHubUsage? = nil,
         activity: [ActivityItem]? = nil,
         local: LocalUsage? = nil,
-        supabase: SupabaseUsage? = nil
+        supabase: SupabaseUsage? = nil,
+        sources: [SyncSource]? = nil
     ) {
         self.updated = updated
         self.plan = plan
@@ -53,18 +59,22 @@ struct UsageSnapshot: Decodable, Sendable {
         self.weekPacePct = weekPacePct
         self.weekResetsIn = weekResetsIn
         self.today = today
+        self.byDay = byDay
         self.codex = codex
         self.cursor = cursor
         self.vercel = vercel
         self.git = git
+        self.github = github
         self.activity = activity
         self.local = local
         self.supabase = supabase
+        self.sources = sources
     }
 
     enum CodingKeys: String, CodingKey {
-        case updated, plan, today, codex, cursor, vercel, git, activity, local
-        case supabase
+        case updated, plan, today, codex, cursor, vercel, git, github, activity, local
+        case supabase, sources
+        case byDay = "by_day"
         case quotaOK = "quota_ok"
         case quotaError = "quota_error"
         case sessionPct = "session_pct"
@@ -211,6 +221,24 @@ struct TokenBucket: Decodable, Sendable {
     }
 }
 
+struct DailyBurnDay: Decodable, Sendable, Identifiable {
+    var date: String
+    var claude: Double?
+    var codex: Double?
+    var cursor: Double?
+    var total: Double?
+
+    var id: String { date }
+
+    func burn(for provider: UsageProvider) -> Double {
+        switch provider {
+        case .claude: claude ?? 0
+        case .codex: codex ?? 0
+        case .cursor: cursor ?? 0
+        }
+    }
+}
+
 struct CodexUsage: Decodable, Sendable {
     var ok: Bool?
     var plan: String?
@@ -267,6 +295,8 @@ struct CursorUsage: Decodable, Sendable {
 struct VercelUsage: Decodable, Sendable {
     var ok: Bool?
     var team: String?
+    var error: String?
+    var stale: Bool?
     var deployments: [Deployment]?
 }
 
@@ -303,7 +333,46 @@ struct Deployment: Decodable, Identifiable, Sendable {
 
 struct GitUsage: Decodable, Sendable {
     var ok: Bool?
+    var error: String?
+    var stale: Bool?
     var commits: [Commit]?
+}
+
+struct GitHubUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var failCount: Int?
+    var runningCount: Int?
+    var runs: [GitHubRun]?
+    var repos: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, runs, repos
+        case failCount = "fail_count"
+        case runningCount = "running_count"
+    }
+}
+
+struct GitHubRun: Decodable, Identifiable, Sendable {
+    var id: String
+    var repo: String?
+    var name: String?
+    var displayTitle: String?
+    var status: String?
+    var conclusion: String?
+    var branch: String?
+    var sha: String?
+    var shortSHA: String?
+    var url: String?
+    var ago: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, repo, name, status, conclusion, branch, sha, url, ago
+        case displayTitle = "display_title"
+        case shortSHA = "short_sha"
+    }
 }
 
 struct Commit: Decodable, Identifiable, Sendable {
@@ -356,16 +425,35 @@ struct SupabaseUsage: Decodable, Sendable {
     var ok: Bool?
     var configured: Bool?
     var error: String?
+    var stale: Bool?
     var projects: [SupabaseProject]?
     var projectCount: Int?
     var healthyCount: Int?
     var alertCount: Int?
 
     enum CodingKeys: String, CodingKey {
-        case ok, configured, error, projects
+        case ok, configured, error, projects, stale
         case projectCount = "project_count"
         case healthyCount = "healthy_count"
         case alertCount = "alert_count"
+    }
+}
+
+struct SyncSource: Decodable, Identifiable, Sendable {
+    var id: String
+    var title: String?
+    var hint: String?
+    var enabled: Bool?
+    var ok: Bool?
+    var stale: Bool?
+    var configured: Bool?
+    var error: String?
+    var detail: String?
+    var ageS: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, hint, enabled, ok, stale, configured, error, detail
+        case ageS = "age_s"
     }
 }
 
@@ -403,6 +491,8 @@ struct SupabaseService: Decodable, Identifiable, Sendable {
 struct LocalUsage: Decodable, Sendable {
     var ok: Bool?
     var host: String?
+    var error: String?
+    var stale: Bool?
     var servers: [LocalServer]?
 }
 

@@ -15,6 +15,10 @@ final class ModelsTests: XCTestCase {
           "week_pace_pct": 26.0,
           "week_resets_in": "4d",
           "today": {"total": 1234, "cost_usd": 4.25},
+          "by_day": [
+            {"date": "2026-07-22", "claude": 2.0, "codex": 1.5, "cursor": 0.5, "total": 4.0},
+            {"date": "2026-07-23", "claude": 3.5, "codex": 2.0, "cursor": 0.25, "total": 5.75}
+          ],
           "codex": {
             "ok": true,
             "plan": "Team",
@@ -116,5 +120,8 @@ final class ModelsTests: XCTestCase {
             ["storage"]
         )
         XCTAssertEqual(value.today?.costUSD, 4.25)
+        XCTAssertEqual(value.byDay?.count, 2)
+        XCTAssertEqual(value.byDay?.last?.total, 5.75)
+        XCTAssertEqual(value.byDay?.last?.burn(for: .claude), 3.5)
     }
 }

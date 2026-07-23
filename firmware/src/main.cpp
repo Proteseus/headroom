@@ -42,14 +42,17 @@ static const uint16_t COL_VERCEL = RGB565(240, 238, 234);  // Vercel-ish white
 static const uint16_t COL_GIT    = RGB565(155, 85, 200);   // brighter GitHub purple
 static const uint16_t COL_LOCAL  = RGB565(70, 175, 165);   // teal (local servers)
 static const uint16_t COL_WHITE  = RGB565(240, 238, 234);
+static const uint16_t COL_BLACK  = RGB565(0, 0, 0);
 static const uint16_t COL_DIM    = RGB565(120, 116, 110);
 static const uint16_t COL_BAR    = RGB565(42, 40, 38);     // unfilled quota track
 static const uint16_t COL_GREEN  = RGB565(95, 155, 115);   // soft sage
 static const uint16_t COL_AMBER  = RGB565(195, 155, 85);    // soft amber
 static const uint16_t COL_RED    = RGB565(175, 105, 100);   // soft dusty red
-static const uint16_t COL_CRT    = RGB565(48, 220, 120);   // boot phosphor
-static const uint16_t COL_CRT_DIM= RGB565(24, 100, 56);
-static const uint16_t COL_CRT_BG = RGB565(4, 8, 6);
+static const uint16_t COL_CRT    = RGB565(232, 168, 48);   // boot amber phosphor
+static const uint16_t COL_CRT_DIM= RGB565(140, 90, 28);
+static const uint16_t COL_CRT_BG = RGB565(12, 8, 4);
+static const uint16_t COL_CRT_HDR= RGB565(28, 18, 8);      // boot header bar
+static const uint16_t COL_CRT_SCAN= RGB565(18, 12, 4);     // scanlines
 
 // Green fringe sits on the native right edge (logical bottom at rotation 3).
 // Paint over it in-panel after every blit. Also blank a few GRAM columns past
@@ -240,9 +243,9 @@ enum Page : uint8_t {
   PAGE_COUNT  = 7
 };
 
-static const uint8_t MAX_DEPLOYS = 4;
-static const uint8_t MAX_COMMITS = 5;
-static const uint8_t MAX_SERVERS = 5;
+static const uint8_t MAX_DEPLOYS = 6;
+static const uint8_t MAX_COMMITS = 6;
+static const uint8_t MAX_SERVERS = 6;
 
 struct DeployRow {
   String project;
@@ -283,6 +286,24 @@ static String localHost = "";
 static uint8_t localN = 0;
 static ServerRow localRows[MAX_SERVERS];
 static Page page = PAGE_GLANCE;
+
+// Shared Sources panel state (same payload Mac Settings reads/writes).
+static const uint8_t MAX_SOURCES = 8;
+struct SourceRow {
+  String id;
+  String title;
+  bool enabled = true;
+  bool ok = false;
+  bool stale = false;
+};
+static uint8_t sourceN = 0;
+static SourceRow sourceRows[MAX_SOURCES];
+static bool sourceEnabled(const char *id) {
+  for (uint8_t i = 0; i < sourceN; i++) {
+    if (sourceRows[i].id.equals(id)) return sourceRows[i].enabled;
+  }
+  return true;  // older hosts without sources[] → keep showing pages
+}
 
 // ---------------- I2C helpers ----------------
 static uint8_t tcaAddr = TCA9554_ADDR;   // may be re-detected at boot
@@ -403,6 +424,21 @@ static const String &hostFor() {
   }
   resolvedHost = HOST_FALLBACK_IP;   // last resort
   return resolvedHost;
+}
+
+// Ask the host to force-refresh Sources (same endpoint Mac Settings uses).
+static bool requestSyncRefresh() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String url = "http://" + hostFor() + ":" + String(HOST_PORT) + "/sync/refresh";
+  HTTPClient http;
+  http.setConnectTimeout(1200);
+  http.setTimeout(2000);
+  if (!http.begin(url)) return false;
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST("{}");
+  http.end();
+  Serial.printf("sync refresh → HTTP %d\n", code);
+  return code >= 200 && code < 300;
 }
 
 static bool fetchUsage() {
@@ -579,6 +615,23 @@ static bool fetchUsage() {
     }
   }
 
+  // Sources panel (Mac Settings + ESP32 footer share this list).
+  sourceN = 0;
+  JsonArray sx = doc["sources"].as<JsonArray>();
+  if (!sx.isNull()) {
+    for (JsonVariant v : sx) {
+      if (sourceN >= MAX_SOURCES) break;
+      JsonObject s = v.as<JsonObject>();
+      if (s.isNull()) continue;
+      SourceRow &r = sourceRows[sourceN++];
+      r.id = String((const char *)(s["id"] | ""));
+      r.title = String((const char *)(s["title"] | r.id.c_str()));
+      r.enabled = s["enabled"].isNull() ? true : (bool)(s["enabled"] | true);
+      r.ok = s["ok"] | false;
+      r.stale = s["stale"] | false;
+    }
+  }
+
   // Pick the model with the most tokens today.
   double best = -1;
   topModel = "-";
@@ -635,7 +688,7 @@ static void bootScanlines() {
   const int16_t y0 = UI_PAD + 36;
   const int16_t y1 = scrH() - UI_PAD - 4;
   for (int16_t y = y0; y < y1; y += 3) {
-    gfx->drawFastHLine(x0, y, (int16_t)(x1 - x0), RGB565(2, 14, 8));
+    gfx->drawFastHLine(x0, y, (int16_t)(x1 - x0), COL_CRT_SCAN);
   }
 }
 
@@ -646,7 +699,7 @@ static void bootChrome() {
   gfx->drawRect(pad, pad, scrW() - pad * 2, scrH() - pad * 2, COL_CRT);
   gfx->drawRect(inner, inner, scrW() - inner * 2, scrH() - inner * 2, COL_CRT_DIM);
   gfx->fillRect(inner + 1, inner + 1, scrW() - inner * 2 - 2, 26,
-                RGB565(8, 28, 16));
+                COL_CRT_HDR);
   drawTextAt("HEADROOM", pad + 10, pad + 8, 2, COL_CRT);
   drawTextAt("ROM", scrW() - pad - 42, pad + 8, 2, COL_CRT_DIM);
   gfx->drawFastHLine(inner + 1, pad + 30, scrW() - inner * 2 - 2, COL_CRT);
@@ -658,7 +711,7 @@ static void bootFlush() {
   bootBlink ^= 1;
   const int16_t cx = scrW() - UI_PAD - 18;
   const int16_t cy = UI_PAD + 8;
-  gfx->fillRect(cx, cy, 8, 14, bootBlink ? COL_CRT : RGB565(8, 28, 16));
+  gfx->fillRect(cx, cy, 8, 14, bootBlink ? COL_CRT : COL_CRT_HDR);
   gfx->flush();
 }
 
@@ -678,12 +731,6 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
   if (bootY > scrH() - UI_PAD - 28) {
     bootChrome();
   }
-  char left[28];
-  size_t n = strlen(label);
-  if (n > 14) n = 14;
-  memcpy(left, label, n);
-  for (size_t i = n; i < 14; i++) left[i] = '.';
-  left[14] = '\0';
 
   // Right status must fit; truncate long SSIDs / hostnames.
   char right[18];
@@ -696,41 +743,57 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
   }
 
   const int16_t x0 = UI_PAD + 10;
-  drawTextAt(left, x0, bootY, 2, COL_CRT);
-  int16_t x1, y1; uint16_t tw, th;
+  const int16_t xMax = scrW() - UI_PAD - 10;
   gfx->setTextSize(2);
-  gfx->getTextBounds(right, 0, 0, &x1, &y1, &tw, &th);
+  int16_t x1, y1; uint16_t lw, lh, rw, rh, dw, dh;
+  gfx->getTextBounds(label, 0, 0, &x1, &y1, &lw, &lh);
+  gfx->getTextBounds(right, 0, 0, &x1, &y1, &rw, &rh);
+  gfx->getTextBounds(".", 0, 0, &x1, &y1, &dw, &dh);
+  if (dw < 1) dw = 6;
+
+  // Label (bright) … leaders (faded) … status
+  drawTextAt(label, x0, bootY, 2, COL_CRT);
+  const int16_t statusX = (int16_t)(xMax - (int16_t)rw);
   gfx->setTextColor(statusCol);
-  gfx->setCursor(scrW() - UI_PAD - 10 - (int16_t)tw, bootY);
+  gfx->setCursor(statusX, bootY);
   gfx->print(right);
+
+  int16_t dotX = (int16_t)(x0 + (int16_t)lw + 4);
+  const int16_t dotEnd = (int16_t)(statusX - 4);
+  gfx->setTextColor(COL_CRT_DIM);
+  while (dotX + (int16_t)dw <= dotEnd) {
+    gfx->setCursor(dotX, bootY);
+    gfx->print('.');
+    dotX = (int16_t)(dotX + (int16_t)dw + 2);
+  }
+
   bootY = (int16_t)(bootY + 20);
   bootFlush();
   delay(55);
 }
 
+// Growing dots after the label (WIFI. → WIFI.. → WIFI...), advanced by caller.
 static void bootProgress(const char *label, uint8_t step) {
-  char left[20];
-  memset(left, '.', 14);
-  left[14] = '\0';
+  char left[24];
   size_t n = strlen(label);
-  if (n > 10) n = 10;
+  if (n > 12) n = 12;
   memcpy(left, label, n);
-  int idx = 10 + (int)(step % 4);
-  if (idx < 14) left[idx] = 'o';
+  const uint8_t dots = (uint8_t)((step % 4) + 1);  // 1..4
+  for (uint8_t i = 0; i < dots; i++) left[n + i] = '.';
+  left[n + dots] = '\0';
 
   const int16_t x0 = UI_PAD + 10;
   const int16_t y = bootY;
   const int16_t bw = (int16_t)(scrW() - UI_PAD * 2 - 20);
   gfx->fillRect(x0, y, bw, 18, COL_CRT_BG);
   for (int16_t sy = y; sy < y + 18; sy += 3)
-    gfx->drawFastHLine(x0, sy, bw, RGB565(2, 14, 8));
+    gfx->drawFastHLine(x0, sy, bw, COL_CRT_SCAN);
   drawTextAt(left, x0, y, 2, COL_CRT);
   bootFlush();
 }
 
 // CodexBar-style pill progress bar + optional pace marker (where a linear
-// burn would be right now in the window). Keep provider accent even at high
-// usage — only go red when fully exhausted (CodexBar stays teal at 96%).
+// burn would be right now in the window). Keep provider accent even at 100%.
 static void drawBar(int16_t x, int16_t y, int16_t w, int16_t h,
                     float pct, float pacePct, uint16_t accent) {
   gfx->fillRoundRect(x, y, w, h, h / 2, COL_BAR);
@@ -739,8 +802,7 @@ static void drawBar(int16_t x, int16_t y, int16_t w, int16_t h,
   if (fill < h) fill = (p > 0) ? h : 0;
   if (fill > 0) {
     if (fill > w) fill = w;
-    uint16_t fillCol = (p >= 100) ? COL_RED : accent;
-    gfx->fillRoundRect(x, y, fill, h, h / 2, fillCol);
+    gfx->fillRoundRect(x, y, fill, h, h / 2, accent);
   }
   if (pacePct >= 0) {
     float pp = pacePct > 100 ? 100 : pacePct;
@@ -845,7 +907,7 @@ static uint16_t statusColor(const String &status) {
   return COL_DIM;
 }
 
-// Normalize git "ago" to whole hours for the glance column.
+// Normalize "ago" strings to whole hours for glance columns.
 static String gitHoursAgo(const String &ago) {
   if (!ago.length()) return "—";
   int days = 0, hours = 0;
@@ -907,20 +969,19 @@ static void providerHottest(const ProviderQuota &q, float *pctOut, float *paceOu
   }
 }
 
-// Quota ring: track + filled arc from 12 o'clock + white pace tick.
+// Quota ring: track + filled arc from 12 o'clock + white pace tick + black 0°.
 static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r, float pct,
                           float pacePct, uint16_t accent, const char *label) {
-  const int16_t thick = 7;
+  const int16_t thick = 6;
   gfx->fillArc(cx, cy, r, (int16_t)(r - thick), 0, 360, COL_BAR);
   if (pct >= 0) {
     float p = pct > 100 ? 100 : pct;
-    uint16_t col = (p >= 100) ? COL_RED : accent;
     float sweep = p * 3.6f;
     if (p > 0 && sweep < 2.0f) sweep = 2.0f;
     if (p >= 100 || sweep >= 359.0f) {
-      gfx->fillArc(cx, cy, r, (int16_t)(r - thick), 0, 360, col);
+      gfx->fillArc(cx, cy, r, (int16_t)(r - thick), 0, 360, accent);
     } else {
-      gfx->fillArc(cx, cy, r, (int16_t)(r - thick), -90.0f, -90.0f + sweep, col);
+      gfx->fillArc(cx, cy, r, (int16_t)(r - thick), -90.0f, -90.0f + sweep, accent);
     }
   }
   if (pacePct >= 0) {
@@ -929,6 +990,9 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r, float pct,
     gfx->fillArc(cx, cy, (int16_t)(r + 2), (int16_t)(r - thick - 1),
                  a - 2.8f, a + 2.8f, COL_WHITE);
   }
+  // Black 0° mark at 12 o'clock (start of the ring).
+  gfx->fillArc(cx, cy, (int16_t)(r + 2), (int16_t)(r - thick - 1),
+               -90.0f - 2.6f, -90.0f + 2.6f, COL_BLACK);
   gfx->setTextSize(2);
   int16_t x1, y1; uint16_t tw, th;
   gfx->getTextBounds(label, 0, 0, &x1, &y1, &tw, &th);
@@ -974,7 +1038,7 @@ static bool glanceHitAt(int16_t nx, int16_t ny, GlanceHit *out) {
 static void flashGlanceSlot(const GlanceHit &h) {
   gfx->fillRect(h.x, h.y, h.w, h.h, COL_WHITE);
   gfx->flushLogicalRect(h.x, h.y, h.w, h.h);
-  delay(85);
+  // No delay — next page paint replaces this immediately.
 }
 
 static void drawGlancePage() {
@@ -985,7 +1049,7 @@ static void drawGlancePage() {
   const int16_t padX = UI_PAD;
   const int16_t top = UI_PAD;
   const int16_t bot = UI_PAD;
-  const int16_t footY = H - bot - 10;
+  const int16_t footY = H - bot - 6;
 
   drawTextAt("Headroom", padX, top, 3, COL_WHITE);
   String when = "";
@@ -999,13 +1063,13 @@ static void drawGlancePage() {
     gfx->print(when);
   }
 
-  // 3 columns × 2 rows of tappable slots.
+  // 3 equal top slots (quota rings); lower row gives Local less width.
   const int16_t span = W - padX * 2;
   const int16_t slot = span / 3;
-  const int16_t ringR = 34;
-  const int16_t ringCy = top + 88;
-  const int16_t midY = ringCy + ringR + 32;  // split between rings and lower cols
-  const int16_t lowBottom = footY - 16;
+  const int16_t ringR = 32;
+  const int16_t ringCy = top + 74;
+  const int16_t midY = ringCy + ringR + 48;  // clear labels under rings
+  const int16_t lowBottom = footY - 4;
 
   const Page topPages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
   const Page lowPages[3] = {PAGE_VERCEL, PAGE_GIT, PAGE_LOCAL};
@@ -1023,31 +1087,44 @@ static void drawGlancePage() {
 
   gfx->drawFastHLine(padX, midY, span, COL_DIM);
 
-  // Lower row — Vercel / Git / Local glance columns.
-  const int16_t lowTop = midY + 12;
-  const int16_t colPad = 6;
-  const int16_t colW = slot - colPad * 2;
+  // Lower row — Local narrow (ports); Vercel/Git share the rest (~2–3 more chars).
+  const int16_t lowTop = midY + 6;
+  const int16_t localW = 78;
+  const int16_t wideW = (span - localW) / 2;
+  const int16_t lowW[3] = {wideW, (int16_t)(span - localW - wideW), localW};
+  const int16_t lowX[3] = {
+      padX,
+      (int16_t)(padX + lowW[0]),
+      (int16_t)(padX + lowW[0] + lowW[1])};
+  const int16_t colPad = 4;
   const int16_t dotR = 5;
-  const int16_t rowH = 22;
+  const int16_t rowH = 20;
   const int16_t textX = 14;  // gap after status dot
+  const uint8_t lowMax = 6;
 
   for (uint8_t i = 0; i < 3; i++) {
-    int16_t colX = padX + (int16_t)i * slot;
-    glanceAddHit(colX, midY, slot, (int16_t)(lowBottom - midY), lowPages[i]);
-    int16_t x = colX + colPad;
+    glanceAddHit(lowX[i], midY, lowW[i], (int16_t)(lowBottom - midY), lowPages[i]);
+    int16_t x = lowX[i] + colPad;
+    int16_t colW = lowW[i] - colPad * 2;
     int16_t y = lowTop;
 
     if (i == 0) {
-      // Vercel — one status dot + project per recent deploy.
-      drawTextAt("Vercel", x, y, 2, COL_DIM);
-      y += 26;
+      // Vercel — status dot + project + age in hours (like Git).
+      drawTextAt("Vercel", x, y, 2, COL_WHITE);
+      y += 22;
       if (vercelOk && vercelN > 0) {
-        for (uint8_t d = 0; d < vercelN && d < 4; d++) {
+        for (uint8_t d = 0; d < vercelN && d < lowMax; d++) {
           if (y > lowBottom - 18) break;
           const DeployRow &r = vercelRows[d];
           gfx->fillCircle(x + dotR, y + 8, dotR, statusColor(r.status));
-          drawTextAt(clipFit(r.project, colW - textX, 2),
-                     x + textX, y, 2, COL_WHITE);
+          String ago = gitHoursAgo(r.ago);
+          gfx->setTextSize(2);
+          int16_t x1, y1; uint16_t aw, ah;
+          String agoSp = String(" ") + ago;
+          gfx->getTextBounds(agoSp.c_str(), 0, 0, &x1, &y1, &aw, &ah);
+          String name = clipFit(r.project,
+                                (int16_t)(colW - textX - (int16_t)aw), 2);
+          drawTextAt(name + agoSp, x + textX, y, 2, COL_WHITE);
           y += rowH;
         }
       } else {
@@ -1055,10 +1132,10 @@ static void drawGlancePage() {
       }
     } else if (i == 1) {
       // Git — repo leaf (no owner) + age in hours.
-      drawTextAt("Git", x, y, 2, COL_DIM);
-      y += 26;
+      drawTextAt("Git", x, y, 2, COL_WHITE);
+      y += 22;
       if (gitOk && gitN > 0) {
-        for (uint8_t c = 0; c < gitN; c++) {
+        for (uint8_t c = 0; c < gitN && c < lowMax; c++) {
           if (y > lowBottom - 18) break;
           String repo = gitRows[c].repo;
           int slash = repo.lastIndexOf('/');
@@ -1079,10 +1156,10 @@ static void drawGlancePage() {
       }
     } else {
       // Local — one teal dot + port per listening server.
-      drawTextAt("Local", x, y, 2, COL_DIM);
-      y += 26;
+      drawTextAt("Local", x, y, 2, COL_WHITE);
+      y += 22;
       if (localOk && localN > 0) {
-        for (uint8_t s = 0; s < localN; s++) {
+        for (uint8_t s = 0; s < localN && s < lowMax; s++) {
           if (y > lowBottom - 18) break;
           gfx->fillCircle(x + dotR, y + 8, dotR, COL_LOCAL);
           String port = localRows[s].port > 0
@@ -1097,7 +1174,25 @@ static void drawGlancePage() {
     }
   }
 
-  gfx->drawFastHLine(padX, footY - 12, span, COL_DIM);
+  // Sources footer — same list as Mac Settings (green/amber/red/off).
+  if (sourceN > 0) {
+    const int16_t srcR = 3;
+    const int16_t gap = 12;
+    const int16_t totalW = (int16_t)sourceN * gap - (gap - 2 * srcR);
+    int16_t sx = padX + (span - totalW) / 2;
+    for (uint8_t i = 0; i < sourceN; i++) {
+      uint16_t col = COL_DIM;
+      if (sourceRows[i].enabled) {
+        if (sourceRows[i].ok)
+          col = sourceRows[i].stale ? COL_AMBER : COL_GREEN;
+        else
+          col = COL_RED;
+      }
+      gfx->fillCircle(sx + srcR, footY + 2, srcR, col);
+      sx += gap;
+    }
+  }
+
   drawWifiDot(padX, top);
   present();
 }
@@ -1393,7 +1488,7 @@ static void drawDashboard() {
 // Official demo also watches TP_INT (GPIO 21, active-low).
 //
 // Gestures: tap slot on Headroom → detail; tap on detail → home;
-// long-press / BOOT → home.
+// long-press → home; BOOT → next page (cycles through all, then home).
 static uint8_t touchAddr = 0;          // 0 = absent
 static volatile bool touchIrq = false;
 static bool touchDown = false;
@@ -1405,7 +1500,7 @@ static uint32_t lastGestureMs = 0;
 static int16_t touchStartX = 0, touchStartY = 0;
 static int16_t touchLastX = 0, touchLastY = 0;
 static const int16_t TAP_MAX_PX = 28;
-static const uint32_t GESTURE_DEBOUNCE_MS = 80;
+static const uint32_t GESTURE_DEBOUNCE_MS = 40;
 static const uint32_t LONG_PRESS_MS = 400;
 
 enum Gesture : uint8_t {
@@ -1413,6 +1508,9 @@ enum Gesture : uint8_t {
   GESTURE_TAP,
   GESTURE_HOME
 };
+
+// Set when GESTURE_TAP should open a glance slot (coords = touchStart*).
+static bool gestureTapHit = false;
 
 static void IRAM_ATTR onTouchIrq() { touchIrq = true; }
 
@@ -1494,7 +1592,7 @@ static void touchLogicalDelta(int16_t *dHoriz, int16_t *dVert) {
   *dVert = dNatX;
 }
 
-// Tap / long-press only. Page changes are instant.
+// Fire navigation on press (like BOOT), not on release — release felt 0.5–2s laggy.
 static Gesture consumeGesture() {
   if (!touchAddr) return GESTURE_NONE;
 
@@ -1510,6 +1608,7 @@ static Gesture consumeGesture() {
       touchDown = true;
       touchCommitted = false;
       touchLongFired = false;
+      gestureTapHit = false;
       touchDownMs = now;
       if ((now - lastGestureMs) < GESTURE_DEBOUNCE_MS) {
         touchIgnore = true;
@@ -1520,6 +1619,22 @@ static Gesture consumeGesture() {
         touchStartX = touchLastX = x;
         touchStartY = touchLastY = y;
       }
+
+      // Immediate action on finger-down (matches BOOT snappiness).
+      if (page == PAGE_GLANCE) {
+        GlanceHit hit;
+        if (haveXY && glanceHitAt(touchStartX, touchStartY, &hit)) {
+          touchCommitted = true;
+          lastGestureMs = now;
+          gestureTapHit = true;
+          return GESTURE_TAP;
+        }
+      } else {
+        // Detail page: any press goes home (tap and long-press both did).
+        touchCommitted = true;
+        lastGestureMs = now;
+        return GESTURE_HOME;
+      }
       return GESTURE_NONE;
     }
     if (touchIgnore || touchCommitted) return GESTURE_NONE;
@@ -1527,11 +1642,11 @@ static Gesture consumeGesture() {
       touchLastX = x;
       touchLastY = y;
     }
+    // Long-press home only still useful on Headroom (no-op if already home).
     int16_t dHoriz = 0, dVert = 0;
     touchLogicalDelta(&dHoriz, &dVert);
     const int16_t aH = (int16_t)abs(dHoriz);
     const int16_t aV = (int16_t)abs(dVert);
-
     if (!touchLongFired && aH <= TAP_MAX_PX && aV <= TAP_MAX_PX &&
         (now - touchDownMs) >= LONG_PRESS_MS) {
       touchLongFired = true;
@@ -1544,24 +1659,10 @@ static Gesture consumeGesture() {
 
   if (!touchDown) return GESTURE_NONE;
   touchDown = false;
-  if (touchIgnore) {
-    touchIgnore = false;
-    touchCommitted = false;
-    touchLongFired = false;
-    return GESTURE_NONE;
-  }
-  if (touchCommitted) {
-    touchCommitted = false;
-    touchLongFired = false;
-    return GESTURE_NONE;
-  }
-
-  lastGestureMs = now;
-  int16_t dHoriz = 0, dVert = 0;
-  touchLogicalDelta(&dHoriz, &dVert);
-  const int16_t aH = (int16_t)abs(dHoriz);
-  const int16_t aV = (int16_t)abs(dVert);
-  if (aH <= TAP_MAX_PX && aV <= TAP_MAX_PX) return GESTURE_TAP;
+  touchIgnore = false;
+  touchCommitted = false;
+  touchLongFired = false;
+  gestureTapHit = false;
   return GESTURE_NONE;
 }
 
@@ -1581,6 +1682,39 @@ static void goHome() {
   goToPage(PAGE_GLANCE, "home");
 }
 
+static bool pageEnabled(Page p) {
+  switch (p) {
+    case PAGE_GLANCE: return true;
+    case PAGE_CLAUDE: return sourceEnabled("claude");
+    case PAGE_CODEX:  return sourceEnabled("codex");
+    case PAGE_CURSOR: return sourceEnabled("cursor");
+    case PAGE_VERCEL: return sourceEnabled("vercel");
+    case PAGE_GIT:    return sourceEnabled("git");
+    case PAGE_LOCAL:  return sourceEnabled("local");
+    default: return true;
+  }
+}
+
+// BOOT cycles Headroom → enabled sources only → Headroom.
+static void goNextPage() {
+  Page next = page;
+  for (uint8_t i = 0; i < (uint8_t)PAGE_COUNT; i++) {
+    next = (Page)(((int)next + 1) % (int)PAGE_COUNT);
+    if (pageEnabled(next)) {
+      goToPage(next, "boot");
+      return;
+    }
+  }
+}
+
+static void forceSyncFromDesk() {
+  drawStatus("syncing…", COL_AMBER);
+  bool ok = requestSyncRefresh();
+  delay(400);
+  if (fetchUsage()) drawDashboard();
+  else drawStatus(ok ? "synced" : "sync failed", ok ? COL_GREEN : COL_RED);
+}
+
 static void pollBootButton() {
   static bool wasDown = false;
   static uint32_t lastChange = 0;
@@ -1590,7 +1724,7 @@ static void pollBootButton() {
   if (now - lastChange < 40) return;
   lastChange = now;
   wasDown = down;
-  if (down) goHome();
+  if (down) goNextPage();
 }
 
 void setup() {
@@ -1643,10 +1777,15 @@ void setup() {
 
   connectWifi();
   uint32_t t0 = millis();
+  uint32_t lastDots = 0;
   uint8_t spin = 0;
+  bootProgress("WIFI", spin++);
   while (wifiMulti.run() != WL_CONNECTED && millis() - t0 < 20000) {
-    bootProgress("WIFI", spin++);
-    delay(200);
+    if (millis() - lastDots >= 1000) {
+      bootProgress("WIFI", spin++);
+      lastDots = millis();
+    }
+    delay(50);
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -1703,15 +1842,22 @@ void loop() {
   if (g == GESTURE_TAP) {
     if (page == PAGE_GLANCE) {
       GlanceHit hit;
-      if (glanceHitAt(touchStartX, touchStartY, &hit)) {
-        flashGlanceSlot(hit);
-        goToPage(hit.target, "tap");
+      if (gestureTapHit && glanceHitAt(touchStartX, touchStartY, &hit)) {
+        if (!pageEnabled(hit.target)) {
+          drawStatus("disabled in Sources", COL_AMBER);
+          delay(350);
+          drawDashboard();
+        } else {
+          flashGlanceSlot(hit);
+          goToPage(hit.target, "tap");
+        }
       }
     } else {
       goHome();
     }
   } else if (g == GESTURE_HOME) {
-    goHome();
+    if (page == PAGE_GLANCE) forceSyncFromDesk();
+    else goHome();
   }
 
   if (wifiMulti.run() != WL_CONNECTED) {

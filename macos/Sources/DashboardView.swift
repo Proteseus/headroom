@@ -43,6 +43,7 @@ struct DashboardView: View {
                     providerSwitcher
                     if selectedDashboard == .overview {
                         quotaOverview
+                        DailyBurnCard(days: store.snapshot.byDay ?? [])
                     } else {
                         quotaCard
                     }
@@ -94,18 +95,40 @@ struct DashboardView: View {
     }
 
     private var providerSwitcher: some View {
-        Picker("Dashboard", selection: $selectedDashboardRaw) {
+        HStack(spacing: 2) {
             ForEach(DashboardSelection.allCases, id: \.rawValue) { selection in
-                Text(selection.title).tag(selection.rawValue)
+                let isSelected = selectedDashboardRaw == selection.rawValue
+                Button {
+                    selectedDashboardRaw = selection.rawValue
+                    if let provider = selection.provider {
+                        selectedProviderRaw = provider.rawValue
+                    }
+                } label: {
+                    Text(selection.title)
+                        .font(.caption.weight(isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
+                        .background {
+                            if isSelected {
+                                Capsule(style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                                    .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .onChange(of: selectedDashboardRaw) { _, value in
-            if let provider = DashboardSelection(rawValue: value)?.provider {
-                selectedProviderRaw = provider.rawValue
-            }
-        }
+        .padding(3)
+        .background(
+            Color(nsColor: .separatorColor).opacity(0.35),
+            in: Capsule(style: .continuous)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Dashboard")
     }
 
     private var quotaOverview: some View {
@@ -221,6 +244,14 @@ struct DashboardView: View {
                     ? .red : .primary
             )
             GlanceStat(
+                value: store.snapshot.github?.configured == true
+                    ? String(store.snapshot.github?.failCount ?? 0) : "—",
+                label: (store.snapshot.github?.failCount ?? 0) == 1
+                    ? "Actions fail" : "Actions fails",
+                tint: (store.snapshot.github?.failCount ?? 0) > 0
+                    ? .red : .primary
+            )
+            GlanceStat(
                 value: store.snapshot.today?.costUSD.map { $0.formatted(.currency(code: "USD")) } ?? "—",
                 label: "today"
             )
@@ -267,7 +298,7 @@ struct DashboardView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                ForEach(rows) { project in
+                ForEach(rows, id: \.ref) { (project: SupabaseProject) in
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 8) {
                             Circle()
@@ -296,14 +327,16 @@ struct DashboardView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            expandedSupabaseRef = expandedSupabaseRef == project.ref
-                                ? nil : project.ref
+                            let ref = project.ref
+                            expandedSupabaseRef = expandedSupabaseRef == ref ? nil : ref
                         }
                         if expandedSupabaseRef == project.ref {
                             Text(supabaseServiceSummary(project))
                                 .font(.caption)
                                 .foregroundStyle(
-                                    project.healthy == true ? .secondary : .red
+                                    project.healthy == true
+                                        ? AnyShapeStyle(.secondary)
+                                        : AnyShapeStyle(Color.red)
                                 )
                                 .padding(.leading, 15)
                         }
@@ -470,8 +503,9 @@ struct DashboardView: View {
         case "ready":
             item.target == "production" ? "Production" : "Preview"
         case "building": "Building"
-        case "error": "Failed"
-        case "canceled": "Canceled"
+        case "error", "failure": "Failed"
+        case "canceled", "cancelled": "Canceled"
+        case "running": "Running"
         case "pushed": "Pushed"
         case "local": "Local"
         case "committed": "Committed"
@@ -482,9 +516,9 @@ struct DashboardView: View {
     private func activityColor(_ item: ActivityItem) -> Color {
         switch item.status {
         case "ready": .green
-        case "building": .orange
-        case "error": .red
-        case "canceled": .secondary
+        case "building", "running": .orange
+        case "error", "failure": .red
+        case "canceled", "cancelled": .secondary
         case "pushed": .blue
         case "local": .purple
         default: .secondary
@@ -603,10 +637,28 @@ struct DashboardView: View {
         if let error = store.errorMessage {
             return error
         }
+        if let stale = worstStaleSource {
+            let age = stale.ageS ?? 0
+            let minutes = max(1, age / 60)
+            let title = stale.title ?? stale.id
+            return "\(title) · \(minutes)m stale"
+        }
+        if let fails = store.snapshot.github?.failCount, fails > 0 {
+            return fails == 1
+                ? "1 GitHub Actions failure"
+                : "\(fails) GitHub Actions failures"
+        }
         if let lastRefresh = store.lastRefresh {
             return "Updated \(lastRefresh.formatted(.relative(presentation: .named)))"
         }
         return "Connecting to localhost:8737"
+    }
+
+    private var worstStaleSource: SyncSource? {
+        (store.snapshot.sources ?? [])
+            .filter { ($0.enabled ?? true) && $0.stale == true }
+            .sorted { ($0.ageS ?? 0) > ($1.ageS ?? 0) }
+            .first
     }
 
 }
@@ -716,6 +768,7 @@ private struct QuotaRingCanvas: View {
             )
 
             if let percent {
+                let fillTint = percent >= 100 ? tint.drained() : tint
                 var usage = Path()
                 usage.addArc(
                     center: center,
@@ -726,7 +779,7 @@ private struct QuotaRingCanvas: View {
                 )
                 context.stroke(
                     usage,
-                    with: .color(percent >= 100 ? .red : tint),
+                    with: .color(fillTint),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
                 )
             }

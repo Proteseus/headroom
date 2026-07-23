@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""headroom — Claude + Codex + Cursor (+ Vercel + Git + Local) desk host.
+"""headroom — Claude + Codex + Cursor (+ Vercel + Git + GitHub + Local) desk host.
 
 Parses ~/.claude/projects/**/*.jsonl (the same usage logs `ccusage` reads),
 aggregates token counts and cost into rolling time windows, and serves a flat
@@ -7,7 +7,8 @@ JSON document at GET http://<mac>:8737/usage for a Waveshare ESP32-S3 to poll.
 
 Also polls Anthropic OAuth, OpenAI Codex (wham/usage), and Cursor
 (GetCurrentPeriodUsage) quotas, Vercel team deployments, local git activity,
-and listening local servers so the desk gadget can flip pages.
+GitHub Actions failures, and listening local servers so the desk gadget can
+flip pages.
 
 Zero dependencies — Python 3 standard library only. Incremental: each file's
 byte offset is remembered so a poll only reads newly-appended lines instead of
@@ -17,9 +18,11 @@ Run:  python3 headroom_server.py [--port 8737] [--interval 15]
 """
 
 import argparse
+import concurrent.futures
 import ipaddress
 import json
 import os
+import sys
 import threading
 import time
 import urllib.parse
@@ -34,14 +37,19 @@ import codex_usage
 import cursor_usage
 import vercel_builds
 import git_activity
+import github_actions
 import local_servers
 import supabase_usage
+import daily_burn
+import sources_config
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
 LOCAL_TZ = ZoneInfo("Europe/Berlin")  # CET/CEST
 QUOTA_POLL_S = 60  # usage endpoints are rate-limited; don't hammer them
 SUPABASE_POLL_S = 5 * 60
+GITHUB_POLL_S = 90
+BOOT_T0 = time.time()
 
 _lock = threading.Lock()
 _offsets = {}   # filepath -> bytes already consumed
@@ -51,11 +59,17 @@ _codex = {"ok": False, "plan": None, "session": None, "week": None}
 _cursor = {"ok": False, "plan": None, "auto": None, "api": None}
 _vercel = {"ok": False, "team": None, "deployments": []}
 _git = {"ok": False, "commits": []}
+_github = {
+    "ok": False, "configured": False, "runs": [],
+    "fail_count": 0, "running_count": 0, "error": None,
+}
 _local = {"ok": False, "host": None, "servers": []}
 _supabase = {
     "ok": False, "configured": False, "projects": [],
     "project_count": 0, "healthy_count": 0, "alert_count": 0,
 }
+# Last successful (or attempted) refresh timestamps for /usage → sources.
+_source_times = {sid: 0.0 for sid in sources_config.SOURCE_IDS}
 
 
 def _unix_seconds(value):
@@ -66,8 +80,8 @@ def _unix_seconds(value):
         return 0.0
 
 
-def _build_activity(vercel, git, supabase=None):
-    """Merge deploys, commits, and important backend alerts."""
+def _build_activity(vercel, git, supabase=None, github=None):
+    """Merge deploys, commits, Actions failures, and backend alerts."""
     deployments = vercel.get("deployments") or []
     commits = git.get("commits") or []
     deployed_shas = {d.get("sha") for d in deployments if d.get("sha")}
@@ -125,6 +139,31 @@ def _build_activity(vercel, git, supabase=None):
             "error_message": None,
             "url": commit.get("repo_url"),
             "inspector_url": None,
+        })
+
+    github = github or {}
+    for run in (github.get("runs") or [])[:8]:
+        status = run.get("status") or "failure"
+        subject = run.get("display_title") or run.get("name") or "Workflow"
+        items.append({
+            "id": f"github:{run.get('id')}",
+            "kind": "github",
+            "status": status,
+            "subject": subject,
+            "repo": run.get("repo"),
+            "project": run.get("name"),
+            "branch": run.get("branch"),
+            "sha": run.get("sha"),
+            "short_sha": run.get("short_sha"),
+            "target": None,
+            "created_at": _unix_seconds(run.get("created_at")),
+            "ago": run.get("ago"),
+            "error_message": (
+                f"{run.get('repo')} · {status}"
+                if run.get("repo") else status
+            ),
+            "url": run.get("url"),
+            "inspector_url": run.get("url"),
         })
 
     supabase = supabase or {}
@@ -357,6 +396,7 @@ def rollup():
         cursor = dict(_cursor)
         vercel = dict(_vercel)
         git = dict(_git)
+        github = dict(_github)
         local = dict(_local)
         supabase = dict(_supabase)
 
@@ -401,6 +441,7 @@ def rollup():
         "session_5h": session_5h,
         "last_hour": last_hour,
         "by_model": by_model,
+        "by_day": daily_burn.series(tz=LOCAL_TZ),
         "quota": quota,
         "codex": _flatten_codex(codex),
         "cursor": _flatten_cursor(cursor),
@@ -408,20 +449,150 @@ def rollup():
             "ok": bool(vercel.get("ok")),
             "team": vercel.get("team"),
             "error": vercel.get("error"),
+            "stale": bool(vercel.get("stale")),
             "deployments": vercel.get("deployments") or [],
         },
         "git": {
             "ok": bool(git.get("ok")),
             "error": git.get("error"),
+            "stale": bool(git.get("stale")),
             "commits": git.get("commits") or [],
         },
-        "activity": _build_activity(vercel, git, supabase),
+        "activity": _build_activity(vercel, git, supabase, github),
         "supabase": supabase,
+        "github": {
+            "ok": bool(github.get("ok")),
+            "configured": bool(github.get("configured")),
+            "error": github.get("error"),
+            "stale": bool(github.get("stale")),
+            "fail_count": github.get("fail_count") or 0,
+            "running_count": github.get("running_count") or 0,
+            "runs": github.get("runs") or [],
+            "repos": github.get("repos") or [],
+        },
         "local": {
             "ok": bool(local.get("ok")),
             "host": local.get("host"),
             "error": local.get("error"),
+            "stale": bool(local.get("stale")),
             "servers": local.get("servers") or [],
+        },
+        "sources": _sources_payload(
+            quota, codex, cursor, vercel, git, github, local, supabase),
+    }
+
+
+def _source_detail(source_id, payload):
+    if source_id == "claude":
+        plan = payload.get("plan")
+        week = (payload.get("week") or {}).get("pct")
+        if plan and week is not None:
+            return f"{plan} · week {week:.0f}%"
+        return plan or payload.get("error")
+    if source_id == "codex":
+        plan = payload.get("plan")
+        week = (payload.get("week") or {}).get("pct")
+        if plan and week is not None:
+            return f"{plan} · week {week:.0f}%"
+        return plan or payload.get("error")
+    if source_id == "cursor":
+        plan = payload.get("plan")
+        total = (payload.get("total") or {}).get("pct")
+        if plan and total is not None:
+            return f"{plan} · total {total:.0f}%"
+        return plan or payload.get("error")
+    if source_id == "vercel":
+        team = payload.get("team")
+        n = len(payload.get("deployments") or [])
+        if team:
+            return f"{team} · {n} deploys"
+        return payload.get("error")
+    if source_id == "git":
+        n = len(payload.get("commits") or [])
+        return f"{n} commits" if payload.get("ok") else payload.get("error")
+    if source_id == "github":
+        if not payload.get("configured"):
+            return payload.get("error") or "not connected"
+        fails = payload.get("fail_count") or 0
+        running = payload.get("running_count") or 0
+        if fails or running:
+            bits = []
+            if fails:
+                bits.append(f"{fails} failed")
+            if running:
+                bits.append(f"{running} running")
+            return " · ".join(bits)
+        return "all clear"
+    if source_id == "local":
+        n = len(payload.get("servers") or [])
+        host = payload.get("host")
+        if payload.get("ok"):
+            return f"{host or 'local'} · {n} servers"
+        return payload.get("error")
+    if source_id == "supabase":
+        if not payload.get("configured"):
+            return payload.get("error") or "not connected"
+        alerts = payload.get("alert_count") or 0
+        count = payload.get("project_count") or 0
+        if alerts:
+            return f"{count} projects · {alerts} alerts"
+        return f"{count} projects"
+    return payload.get("error")
+
+
+def _sources_payload(quota, codex, cursor, vercel, git, github, local, supabase):
+    enabled = sources_config.enabled_map()
+    now = time.time()
+    with _lock:
+        times = dict(_source_times)
+    bags = {
+        "claude": quota,
+        "codex": codex,
+        "cursor": cursor,
+        "vercel": vercel,
+        "git": git,
+        "github": github,
+        "local": local,
+        "supabase": supabase,
+    }
+    rows = []
+    for sid in sources_config.SOURCE_IDS:
+        meta = sources_config.meta_for(sid)
+        payload = bags.get(sid) or {}
+        age = times.get(sid) or 0.0
+        rows.append({
+            "id": sid,
+            "title": meta["title"],
+            "hint": meta["hint"],
+            "enabled": bool(enabled.get(sid, True)),
+            "ok": bool(payload.get("ok")),
+            "stale": bool(payload.get("stale")),
+            "configured": payload.get("configured"),
+            "error": payload.get("error"),
+            "detail": _source_detail(sid, payload),
+            "age_s": (int(max(0, now - age)) if age > 0 else None),
+        })
+    return rows
+
+
+def _health_payload():
+    doc = rollup()
+    sources = doc.get("sources") or []
+    by_id = {row["id"]: row for row in sources}
+    return {
+        "ok": True,
+        "uptime_s": int(max(0, time.time() - BOOT_T0)),
+        "updated": doc.get("updated"),
+        "sources": {
+            sid: {
+                "ok": by_id.get(sid, {}).get("ok"),
+                "stale": by_id.get(sid, {}).get("stale"),
+                "enabled": by_id.get(sid, {}).get("enabled"),
+                "age_s": by_id.get(sid, {}).get("age_s"),
+                "error": by_id.get(sid, {}).get("error"),
+                "detail": by_id.get(sid, {}).get("detail"),
+            }
+            for sid in sources_config.SOURCE_IDS
         },
     }
 
@@ -444,18 +615,42 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return False
 
+    def _is_private(self):
+        """Loopback or RFC1918 — desk gadgets on the LAN may force a sync."""
+        try:
+            address = ipaddress.ip_address(self.client_address[0])
+            mapped = getattr(address, "ipv4_mapped", None)
+            candidate = mapped or address
+            return candidate.is_loopback or candidate.is_private
+        except ValueError:
+            return False
+
     def do_GET(self):
-        if self.path.rstrip("/") in ("", "/usage"):
+        path = self.path.rstrip("/")
+        if path in ("", "/usage"):
             self._send_json(200, rollup())
+        elif path == "/health":
+            self._send_json(200, _health_payload())
         else:
             self.send_error(404)
 
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path.rstrip("/")
-        if path not in ("/local/stop", "/supabase/refresh"):
+        if path not in (
+            "/local/stop",
+            "/supabase/refresh",
+            "/sync/refresh",
+            "/sources",
+        ):
             self.send_error(404)
             return
-        if not self._is_loopback():
+        # Config + process control stay Mac-only; sync refresh is LAN-ok so
+        # the ESP32 long-press can poke the same Sources pipeline.
+        if path == "/sync/refresh":
+            if not self._is_private():
+                self._send_json(403, {"ok": False, "error": "private network only"})
+                return
+        elif not self._is_loopback():
             self._send_json(403, {"ok": False, "error": "localhost only"})
             return
         if not self.headers.get("Content-Type", "").lower().startswith(
@@ -471,20 +666,46 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": "invalid request"})
             return
 
-        if path == "/supabase/refresh":
+        if path == "/sources":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, dict):
+                self._send_json(400, {"ok": False, "error": "enabled map required"})
+                return
+            result = sources_config.set_enabled(enabled)
+            # Kick a refresh so ESP32/Mac see the change quickly.
             threading.Thread(
-                target=_refresh_supabase,
-                kwargs={"force": True},
+                target=_refresh_selected,
+                kwargs={"sources": [
+                    sid for sid, on in result.items() if on
+                ], "force": True},
                 daemon=True,
             ).start()
-            self._send_json(202, {"ok": True})
+            self._send_json(200, {"ok": True, "enabled": result})
+            return
+
+        if path in ("/supabase/refresh", "/sync/refresh"):
+            wanted = payload.get("sources")
+            if path == "/supabase/refresh":
+                wanted = ["supabase"]
+            elif not isinstance(wanted, list) or not wanted:
+                wanted = list(sources_config.SOURCE_IDS)
+            wanted = [
+                sid for sid in wanted
+                if sid in sources_config.SOURCE_IDS
+            ]
+            threading.Thread(
+                target=_refresh_selected,
+                kwargs={"sources": wanted, "force": True},
+                daemon=True,
+            ).start()
+            self._send_json(202, {"ok": True, "sources": wanted})
             return
 
         result = local_servers.stop_server(
             payload.get("pid"), payload.get("port"))
         if result.get("ok"):
             time.sleep(0.2)
-            _refresh_local(force=True)
+            _refresh_one("local", force=True)
             self._send_json(200, result)
         else:
             self._send_json(409, result)
@@ -493,123 +714,207 @@ class Handler(BaseHTTPRequestHandler):
         pass  # quiet; this is a desk gadget, not a web server
 
 
+def _mark_source(source_id):
+    with _lock:
+        _source_times[source_id] = time.time()
+
+
+def _refresh_one(source_id, force=False):
+    """Fetch one source and store it. Never raises."""
+    global _quota, _codex, _cursor, _vercel, _git, _github, _local, _supabase
+    try:
+        if source_id == "claude":
+            q = oauth_usage.fetch_quota(force=force)
+            with _lock:
+                _quota = q
+            _mark_source("claude")
+            if q.get("ok"):
+                s = q.get("session") or {}
+                w = q.get("week") or {}
+                print(f"claude ok  plan={q.get('plan')}  "
+                      f"session={s.get('pct')}%  week={w.get('pct')}%"
+                      f"{'  stale' if q.get('stale') else ''}")
+            else:
+                print("claude miss:", q.get("error"))
+        elif source_id == "codex":
+            c = codex_usage.fetch_quota(force=force)
+            with _lock:
+                _codex = c
+            _mark_source("codex")
+            if c.get("ok"):
+                s = c.get("session") or {}
+                w = c.get("week") or {}
+                pace = (c.get("pace") or {}).get("label") or "-"
+                credits = (c.get("reset_credits") or {}).get("available")
+                print(f"codex ok   plan={c.get('plan')}  "
+                      f"session={s.get('pct')}%  week={w.get('pct')}%  "
+                      f"pace={pace}  credits={credits}"
+                      f"{'  stale' if c.get('stale') else ''}")
+            else:
+                print("codex miss:", c.get("error"))
+        elif source_id == "cursor":
+            cu = cursor_usage.fetch_quota(force=force)
+            with _lock:
+                _cursor = cu
+            _mark_source("cursor")
+            if cu.get("ok"):
+                a = cu.get("auto") or {}
+                p = cu.get("api") or {}
+                print(f"cursor ok  plan={cu.get('plan')}  "
+                      f"auto={a.get('pct')}%  api={p.get('pct')}%  "
+                      f"resets={cu.get('resets_in_s')}"
+                      f"{'  stale' if cu.get('stale') else ''}")
+            else:
+                print("cursor miss:", cu.get("error"))
+        elif source_id == "vercel":
+            v = vercel_builds.fetch_deployments(force=force)
+            with _lock:
+                _vercel = v
+            _mark_source("vercel")
+            if v.get("ok"):
+                n = len(v.get("deployments") or [])
+                print(f"vercel ok  team={v.get('team')}  deploys={n}"
+                      f"{'  stale' if v.get('stale') else ''}")
+            else:
+                print("vercel miss:", v.get("error"))
+        elif source_id == "git":
+            g = git_activity.fetch_commits(force=force)
+            with _lock:
+                _git = g
+            _mark_source("git")
+            if g.get("ok"):
+                n = len(g.get("commits") or [])
+                print(f"git ok     commits={n}"
+                      f"{'  stale' if g.get('stale') else ''}")
+            else:
+                print("git miss:", g.get("error"))
+        elif source_id == "github":
+            data = github_actions.fetch_actions(force=force)
+            with _lock:
+                _github = data
+            _mark_source("github")
+            if data.get("ok"):
+                print(
+                    f"github ok  fails={data.get('fail_count')}  "
+                    f"running={data.get('running_count')}  "
+                    f"repos={len(data.get('repos') or [])}"
+                    f"{'  stale' if data.get('stale') else ''}"
+                )
+            else:
+                print("github miss:", data.get("error"))
+        elif source_id == "local":
+            loc = local_servers.fetch_servers(force=force)
+            with _lock:
+                _local = loc
+            _mark_source("local")
+            if loc.get("ok"):
+                n = len(loc.get("servers") or [])
+                print(f"local ok   host={loc.get('host')}  servers={n}"
+                      f"{'  stale' if loc.get('stale') else ''}")
+            else:
+                print("local miss:", loc.get("error"))
+        elif source_id == "supabase":
+            data = supabase_usage.fetch_projects(force=force)
+            with _lock:
+                _supabase = data
+            _mark_source("supabase")
+            if data.get("ok"):
+                print(
+                    f"supabase ok projects={data.get('project_count')} "
+                    f"alerts={data.get('alert_count')}"
+                    f"{'  stale' if data.get('stale') else ''}"
+                )
+            else:
+                print("supabase miss:", data.get("error"))
+    except Exception as exc:
+        print(f"{source_id} error:", exc)
+
+
+def _observe_burn():
+    try:
+        with _lock:
+            q = dict(_quota)
+            c = dict(_codex)
+            cu = dict(_cursor)
+        today_burn = daily_burn.observe(q, c, cu, tz=LOCAL_TZ)
+        print(
+            "burn today "
+            f"claude={today_burn.get('claude')}%  "
+            f"codex={today_burn.get('codex')}%  "
+            f"cursor={today_burn.get('cursor')}%"
+        )
+    except Exception as exc:
+        print("daily_burn error:", exc)
+
+
+def _refresh_selected(sources, force=False):
+    """Refresh the given sources in parallel (enabled filter still applies)."""
+    enabled = sources_config.enabled_map()
+    wanted = [
+        sid for sid in sources
+        if sid in sources_config.SOURCE_IDS and enabled.get(sid, True)
+    ]
+    if not wanted:
+        return
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(8, len(wanted))) as pool:
+        list(pool.map(
+            lambda sid: _refresh_one(sid, force=force),
+            wanted,
+        ))
+    if any(sid in ("claude", "codex", "cursor") for sid in wanted):
+        _observe_burn()
+
+
 def _refresh_quotas(force=False):
-    """Pull Claude + Codex + Cursor quotas, Vercel, git, local servers."""
-    global _quota, _codex, _cursor, _vercel, _git, _local
-    try:
-        q = oauth_usage.fetch_quota(force=force)
-        with _lock:
-            _quota = q
-        if q.get("ok"):
-            s = q.get("session") or {}
-            w = q.get("week") or {}
-            print(f"claude ok  plan={q.get('plan')}  "
-                  f"session={s.get('pct')}%  week={w.get('pct')}%")
-        else:
-            print("claude miss:", q.get("error"))
-    except Exception as exc:
-        print("claude error:", exc)
-
-    try:
-        c = codex_usage.fetch_quota(force=force)
-        with _lock:
-            _codex = c
-        if c.get("ok"):
-            s = c.get("session") or {}
-            w = c.get("week") or {}
-            pace = (c.get("pace") or {}).get("label") or "-"
-            credits = (c.get("reset_credits") or {}).get("available")
-            print(f"codex ok   plan={c.get('plan')}  "
-                  f"session={s.get('pct')}%  week={w.get('pct')}%  "
-                  f"pace={pace}  credits={credits}")
-        else:
-            print("codex miss:", c.get("error"))
-    except Exception as exc:
-        print("codex error:", exc)
-
-    try:
-        cu = cursor_usage.fetch_quota(force=force)
-        with _lock:
-            _cursor = cu
-        if cu.get("ok"):
-            a = cu.get("auto") or {}
-            p = cu.get("api") or {}
-            print(f"cursor ok  plan={cu.get('plan')}  "
-                  f"auto={a.get('pct')}%  api={p.get('pct')}%  "
-                  f"resets={cu.get('resets_in_s')}")
-        else:
-            print("cursor miss:", cu.get("error"))
-    except Exception as exc:
-        print("cursor error:", exc)
-
-    try:
-        v = vercel_builds.fetch_deployments(force=force)
-        with _lock:
-            _vercel = v
-        if v.get("ok"):
-            n = len(v.get("deployments") or [])
-            print(f"vercel ok  team={v.get('team')}  deploys={n}")
-        else:
-            print("vercel miss:", v.get("error"))
-    except Exception as exc:
-        print("vercel error:", exc)
-
-    try:
-        g = git_activity.fetch_commits(force=force)
-        with _lock:
-            _git = g
-        if g.get("ok"):
-            n = len(g.get("commits") or [])
-            print(f"git ok     commits={n}")
-        else:
-            print("git miss:", g.get("error"))
-    except Exception as exc:
-        print("git error:", exc)
-
-    try:
-        loc = local_servers.fetch_servers(force=force)
-        with _lock:
-            _local = loc
-        if loc.get("ok"):
-            n = len(loc.get("servers") or [])
-            print(f"local ok   host={loc.get('host')}  servers={n}")
-        else:
-            print("local miss:", loc.get("error"))
-    except Exception as exc:
-        print("local error:", exc)
+    """Pull enabled Claude/Codex/Cursor/Vercel/git/local in parallel."""
+    enabled = sources_config.enabled_map()
+    batch = [
+        sid for sid in ("claude", "codex", "cursor", "vercel", "git", "local")
+        if enabled.get(sid, True)
+    ]
+    _refresh_selected(batch, force=force)
 
 
 def _refresh_local(force=False):
-    global _local
-    try:
-        loc = local_servers.fetch_servers(force=force)
-        with _lock:
-            _local = loc
-    except Exception as exc:
-        print("local error:", exc)
+    if sources_config.is_enabled("local"):
+        _refresh_one("local", force=force)
 
 
 def _refresh_supabase(force=False):
-    global _supabase
-    try:
-        data = supabase_usage.fetch_projects(force=force)
-        with _lock:
-            _supabase = data
-        if data.get("ok"):
-            print(
-                f"supabase ok projects={data.get('project_count')} "
-                f"alerts={data.get('alert_count')}"
-            )
-        else:
-            print("supabase miss:", data.get("error"))
-    except Exception as exc:
-        print("supabase error:", exc)
+    if sources_config.is_enabled("supabase"):
+        _refresh_one("supabase", force=force)
+
+
+def _refresh_github(force=False):
+    if sources_config.is_enabled("github"):
+        _refresh_one("github", force=force)
+
+
+def _rotate_logs():
+    """Keep LaunchAgent logs from growing forever."""
+    folder = os.path.expanduser("~/.headroom/logs")
+    os.makedirs(folder, exist_ok=True)
+    limit = 5 * 1024 * 1024
+    for name in ("headroom.log", "headroom.err"):
+        path = os.path.join(folder, name)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        if size < limit:
+            continue
+        try:
+            os.replace(path, path + ".1")
+        except OSError:
+            pass
 
 
 def _poller(interval):
     last_quota = 0.0
     last_local = 0.0
     last_supabase = 0.0
+    last_github = 0.0
     while True:
         try:
             scan()
@@ -622,6 +927,9 @@ def _poller(interval):
         if now - last_supabase >= SUPABASE_POLL_S:
             last_supabase = now
             _refresh_supabase()
+        if now - last_github >= GITHUB_POLL_S:
+            last_github = now
+            _refresh_github()
         if now - last_quota >= QUOTA_POLL_S:
             last_quota = now
             _refresh_quotas()
@@ -635,22 +943,40 @@ def main():
                     help="seconds between log rescans")
     args = ap.parse_args()
 
-    print(f"Bootstrapping from {LOG_ROOT} ...")
+    # Unbuffered logs under LaunchAgent redirects.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
+    _rotate_logs()
+    print(f"Bootstrapping from {LOG_ROOT} ...", flush=True)
     t0 = time.time()
     scan()
     with _lock:
         n = len(_events)
-    print(f"  {n} events in the last 7 days ({time.time()-t0:.1f}s)")
+    print(f"  {n} events in the last 7 days ({time.time()-t0:.1f}s)", flush=True)
 
-    print("Refreshing Claude + Codex + Cursor quotas, Vercel, git, local ...")
+    def _warmup():
+        print("Refreshing enabled sources ...", flush=True)
+        try:
+            _refresh_quotas(force=True)
+            _refresh_supabase(force=True)
+            _refresh_github(force=True)
+        except Exception as exc:
+            print("warmup error:", exc, flush=True)
+
+    threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
 
     srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
-    print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage")
+    print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage", flush=True)
+    print(f"Health check at http://127.0.0.1:{args.port}/health", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        print("\nbye")
+        print("\nbye", flush=True)
 
 
 if __name__ == "__main__":
