@@ -890,6 +890,13 @@ static void providerHottest(const ProviderQuota &q, float *pctOut, float *paceOu
   *pctOut = -1;
   *paceOut = -1;
   if (!q.ok) return;
+  // Cursor exposes a true combined Total. Use it as the headline value;
+  // Auto/API remain breakdowns on the detail page.
+  if (q.totalPct >= 0) {
+    *pctOut = q.totalPct;
+    *paceOut = q.totalPace;
+    return;
+  }
   if (q.sessionPct > *pctOut) {
     *pctOut = q.sessionPct;
     *paceOut = q.sessionPace;
@@ -897,10 +904,6 @@ static void providerHottest(const ProviderQuota &q, float *pctOut, float *paceOu
   if (q.weekPct > *pctOut) {
     *pctOut = q.weekPct;
     *paceOut = q.weekPace;
-  }
-  if (q.totalPct > *pctOut) {
-    *pctOut = q.totalPct;
-    *paceOut = q.totalPace;
   }
 }
 

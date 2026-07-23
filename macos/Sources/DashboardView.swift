@@ -515,7 +515,10 @@ private struct ProviderQuotaRing: View {
     let tint: Color
 
     private var hottest: MeterWindow {
-        [meter.primary, meter.secondary, meter.tertiary]
+        if meter.provider == .cursor {
+            return meter.primary
+        }
+        return [meter.primary, meter.secondary, meter.tertiary]
             .compactMap { $0 }
             .max { ($0.percent ?? -1) < ($1.percent ?? -1) }
             ?? meter.primary
