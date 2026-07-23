@@ -118,8 +118,9 @@ def _remote_url(path):
 def _log_repo(path):
     repo = _repo_name(path)
     branch = _branch(path)
-    upstream = set(_git(
-        path, "log", "-n200", "--pretty=format:%H", "@{upstream}"
+    repo_url = _remote_url(path)
+    remote_commits = set(_git(
+        path, "log", "-n500", "--pretty=format:%H", "--remotes"
     ).splitlines())
     # One --author per pattern; git ORs multiple --author flags.
     args = ["log", f"-n{PER_REPO}", "--date=unix",
@@ -149,9 +150,9 @@ def _log_repo(path):
             "t": ts,
             "ago": fmt_ago(ts),
             "branch": branch,
-            "pushed": sha in upstream if upstream else None,
+            "pushed": sha in remote_commits if repo_url else None,
             "path": path,
-            "repo_url": _remote_url(path),
+            "repo_url": repo_url,
         })
     return commits
 
