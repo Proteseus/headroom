@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Runs the headroom usage server at login and keeps it alive.
      Install:
+       mkdir -p ~/.headroom/logs
        cp com.mz.headroom.plist ~/Library/LaunchAgents/
        launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
+     Restart:
+       launchctl kickstart -k gui/$(id -u)/com.mz.headroom
      Uninstall:
        launchctl bootout gui/$(id -u)/com.mz.headroom
      Edit the path below if you cloned somewhere other than ~/Dev. -->
@@ -15,7 +18,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/Users/mz/Dev/max-headroom/host/headroom_server.py</string>
+    <string>/Users/mz/Dev/headroom/host/headroom_server.py</string>
     <string>--port</string>
     <string>8737</string>
   </array>
@@ -23,9 +26,18 @@
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/headroom.log</string>
+  <string>/Users/mz/.headroom/logs/headroom.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/headroom.err</string>
+  <string>/Users/mz/.headroom/logs/headroom.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>/Users/mz/Dev/headroom/host</string>
 </dict>
 </plist>

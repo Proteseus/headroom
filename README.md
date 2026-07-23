@@ -34,10 +34,6 @@ curl -s localhost:8737/usage | python3 -m json.tool
 Run it on boot with the included launch agent:
 
 ```
-# if you had the old agent:
-launchctl bootout gui/$(id -u)/com.mz.max-headroom 2>/dev/null
-rm -f ~/Library/LaunchAgents/com.mz.max-headroom.plist
-
 cp host/com.mz.headroom.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
 # restart after host changes:
