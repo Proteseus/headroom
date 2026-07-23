@@ -1,4 +1,34 @@
+import AppKit
 import SwiftUI
+
+extension Color {
+    /// Desaturated brand color for exhausted quota — never alarm red.
+    func drained(
+        saturationScale: CGFloat = 0.38,
+        brightnessScale: CGFloat = 0.78
+    ) -> Color {
+        let ns = NSColor(self)
+        guard let rgb = ns.usingColorSpace(.deviceRGB) else {
+            return opacity(0.45)
+        }
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgb.getHue(
+            &hue,
+            saturation: &saturation,
+            brightness: &brightness,
+            alpha: &alpha
+        )
+        return Color(
+            hue: hue,
+            saturation: saturation * saturationScale,
+            brightness: min(1, brightness * brightnessScale + 0.12),
+            opacity: alpha
+        )
+    }
+}
 
 /// Adapted from the MIT-licensed `UsageProgressBar` in steipete/CodexBar.
 /// Geometry intentionally matches its 6pt capsule and punched pace stripe.
@@ -24,6 +54,7 @@ struct CodexBarProgressBar: View {
             let cornerRadius = size.height / 2
             let cornerSize = CGSize(width: cornerRadius, height: cornerRadius)
             let rect = CGRect(origin: .zero, size: size)
+            let fillTint = clampedPercent >= 100 ? tint.drained() : tint
 
             context.clip(to: Path(rect))
             let track = Path {
@@ -44,7 +75,7 @@ struct CodexBarProgressBar: View {
                 let fill = Path {
                     $0.addRoundedRect(in: fillRect, cornerSize: cornerSize)
                 }
-                context.fill(fill, with: .color(tint))
+                context.fill(fill, with: .color(fillTint))
             }
 
             if pacePercent != nil {
@@ -62,7 +93,7 @@ struct CodexBarProgressBar: View {
                 context.blendMode = .normal
                 context.fill(
                     stripes.center.applying(shift),
-                    with: .color(paceOnTop ? .green : .red)
+                    with: .color(paceOnTop ? .green : tint.drained())
                 )
             }
         }
