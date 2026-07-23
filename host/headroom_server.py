@@ -22,6 +22,7 @@ import json
 import os
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from glob import glob
@@ -34,11 +35,13 @@ import cursor_usage
 import vercel_builds
 import git_activity
 import local_servers
+import supabase_usage
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
 LOCAL_TZ = ZoneInfo("Europe/Berlin")  # CET/CEST
 QUOTA_POLL_S = 60  # usage endpoints are rate-limited; don't hammer them
+SUPABASE_POLL_S = 5 * 60
 
 _lock = threading.Lock()
 _offsets = {}   # filepath -> bytes already consumed
@@ -49,6 +52,10 @@ _cursor = {"ok": False, "plan": None, "auto": None, "api": None}
 _vercel = {"ok": False, "team": None, "deployments": []}
 _git = {"ok": False, "commits": []}
 _local = {"ok": False, "host": None, "servers": []}
+_supabase = {
+    "ok": False, "configured": False, "projects": [],
+    "project_count": 0, "healthy_count": 0, "alert_count": 0,
+}
 
 
 def _unix_seconds(value):
@@ -59,8 +66,8 @@ def _unix_seconds(value):
         return 0.0
 
 
-def _build_activity(vercel, git):
-    """Merge Vercel builds and local commits into one newest-first timeline."""
+def _build_activity(vercel, git, supabase=None):
+    """Merge deploys, commits, and important backend alerts."""
     deployments = vercel.get("deployments") or []
     commits = git.get("commits") or []
     deployed_shas = {d.get("sha") for d in deployments if d.get("sha")}
@@ -118,6 +125,34 @@ def _build_activity(vercel, git):
             "error_message": None,
             "url": commit.get("repo_url"),
             "inspector_url": None,
+        })
+
+    supabase = supabase or {}
+    supabase_alerts = [
+        project for project in (supabase.get("projects") or [])
+        if not project.get("healthy")
+    ][:5]
+    for project in supabase_alerts:
+        failed = project.get("unhealthy_services") or []
+        detail = ", ".join(failed) if failed else (
+            project.get("status") or project.get("health_error")
+            or "health unavailable")
+        items.append({
+            "id": f"supabase:{project.get('ref') or project.get('name')}",
+            "kind": "supabase",
+            "status": "error",
+            "subject": f"{project.get('name') or 'Supabase'} needs attention",
+            "repo": "Supabase",
+            "project": project.get("name"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": supabase.get("updated_at") or time.time(),
+            "ago": "now",
+            "error_message": detail,
+            "url": project.get("dashboard_url"),
+            "inspector_url": project.get("dashboard_url"),
         })
 
     items.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
@@ -323,6 +358,7 @@ def rollup():
         vercel = dict(_vercel)
         git = dict(_git)
         local = dict(_local)
+        supabase = dict(_supabase)
 
     for e in events:
         t = e["t"]
@@ -379,7 +415,8 @@ def rollup():
             "error": git.get("error"),
             "commits": git.get("commits") or [],
         },
-        "activity": _build_activity(vercel, git),
+        "activity": _build_activity(vercel, git, supabase),
+        "supabase": supabase,
         "local": {
             "ok": bool(local.get("ok")),
             "host": local.get("host"),
@@ -414,7 +451,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if self.path.rstrip("/") != "/local/stop":
+        path = urllib.parse.urlsplit(self.path).path.rstrip("/")
+        if path not in ("/local/stop", "/supabase/refresh"):
             self.send_error(404)
             return
         if not self._is_loopback():
@@ -431,6 +469,15 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
             self._send_json(400, {"ok": False, "error": "invalid request"})
+            return
+
+        if path == "/supabase/refresh":
+            threading.Thread(
+                target=_refresh_supabase,
+                kwargs={"force": True},
+                daemon=True,
+            ).start()
+            self._send_json(202, {"ok": True})
             return
 
         result = local_servers.stop_server(
@@ -542,9 +589,27 @@ def _refresh_local(force=False):
         print("local error:", exc)
 
 
+def _refresh_supabase(force=False):
+    global _supabase
+    try:
+        data = supabase_usage.fetch_projects(force=force)
+        with _lock:
+            _supabase = data
+        if data.get("ok"):
+            print(
+                f"supabase ok projects={data.get('project_count')} "
+                f"alerts={data.get('alert_count')}"
+            )
+        else:
+            print("supabase miss:", data.get("error"))
+    except Exception as exc:
+        print("supabase error:", exc)
+
+
 def _poller(interval):
     last_quota = 0.0
     last_local = 0.0
+    last_supabase = 0.0
     while True:
         try:
             scan()
@@ -554,6 +619,9 @@ def _poller(interval):
         if now - last_local >= local_servers.CACHE_TTL_S:
             last_local = now
             _refresh_local()
+        if now - last_supabase >= SUPABASE_POLL_S:
+            last_supabase = now
+            _refresh_supabase()
         if now - last_quota >= QUOTA_POLL_S:
             last_quota = now
             _refresh_quotas()

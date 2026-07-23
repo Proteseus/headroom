@@ -13,8 +13,14 @@ struct DashboardView: View {
     private var serverRowLimit = 5
     @AppStorage("confirmServerStops")
     private var confirmServerStops = true
+    @AppStorage("supabaseFavoriteRefs")
+    private var supabaseFavoriteRefsRaw = ""
+    @AppStorage("supabaseRowLimit")
+    private var supabaseRowLimit = 6
     @State private var serverToStop: LocalServer?
     @State private var expandedServerID: String?
+    @State private var expandedSupabaseRef: String?
+    @State private var showAllSupabaseProjects = false
 
     private var selectedProvider: UsageProvider {
         UsageProvider(rawValue: selectedProviderRaw) ?? .codex
@@ -42,6 +48,7 @@ struct DashboardView: View {
                     }
                     glanceGrid
                     activityTimeline
+                    supabaseProjects
                     servers
                 }
                 .padding(16)
@@ -206,13 +213,112 @@ struct DashboardView: View {
                 label: "servers"
             )
             GlanceStat(
-                value: String(store.snapshot.git?.commits?.count ?? 0),
-                label: "commits"
+                value: store.snapshot.supabase?.configured == true
+                    ? String(store.snapshot.supabase?.alertCount ?? 0) : "—",
+                label: (store.snapshot.supabase?.alertCount ?? 0) == 1
+                    ? "Supabase alert" : "Supabase alerts",
+                tint: (store.snapshot.supabase?.alertCount ?? 0) > 0
+                    ? .red : .primary
             )
             GlanceStat(
                 value: store.snapshot.today?.costUSD.map { $0.formatted(.currency(code: "USD")) } ?? "—",
                 label: "today"
             )
+        }
+    }
+
+    @ViewBuilder
+    private var supabaseProjects: some View {
+        let data = store.snapshot.supabase
+        let allProjects = data?.projects ?? []
+        let favorites = supabaseFavoriteRefs
+        let attention = allProjects.filter {
+            $0.healthy == false || favorites.contains($0.ref)
+        }
+        let preferred = attention.isEmpty ? allProjects : attention
+        let limit = max(1, min(supabaseRowLimit, 20))
+        let rows = showAllSupabaseProjects
+            ? allProjects
+            : Array(preferred.prefix(limit))
+
+        DataSection(title: "Supabase") {
+            if data?.configured != true {
+                HStack {
+                    Text(data?.error ?? "Connect Supabase to monitor projects.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    SettingsLink {
+                        Text("Connect")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            } else if data?.ok != true {
+                Text(data?.error ?? "Supabase unavailable")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                HStack {
+                    Text("\(data?.healthyCount ?? 0) healthy")
+                    Spacer()
+                    Text("\(data?.projectCount ?? allProjects.count) projects")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                ForEach(rows) { project in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(project.healthy == true ? .green : .red)
+                                .frame(width: 7, height: 7)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(project.name ?? project.ref)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(1)
+                                Text(supabaseProjectContext(project))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Button(favorites.contains(project.ref) ? "Pinned" : "Pin") {
+                                toggleSupabaseFavorite(project.ref)
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                            Button("Open") {
+                                openSupabaseProject(project)
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            expandedSupabaseRef = expandedSupabaseRef == project.ref
+                                ? nil : project.ref
+                        }
+                        if expandedSupabaseRef == project.ref {
+                            Text(supabaseServiceSummary(project))
+                                .font(.caption)
+                                .foregroundStyle(
+                                    project.healthy == true ? .secondary : .red
+                                )
+                                .padding(.leading, 15)
+                        }
+                    }
+                }
+
+                if allProjects.count > limit {
+                    Button(showAllSupabaseProjects ? "Show attention only" : "Show all") {
+                        showAllSupabaseProjects.toggle()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
         }
     }
 
@@ -426,6 +532,45 @@ struct DashboardView: View {
         let pid = server.pid.map { "PID \($0)" }
         let exposure = server.bind == "*" ? "LAN visible" : "local only"
         return [process, pid, exposure].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private var supabaseFavoriteRefs: Set<String> {
+        Set(supabaseFavoriteRefsRaw.split(separator: ",").map(String.init))
+    }
+
+    private func toggleSupabaseFavorite(_ ref: String) {
+        var values = supabaseFavoriteRefs
+        if values.contains(ref) {
+            values.remove(ref)
+        } else {
+            values.insert(ref)
+        }
+        supabaseFavoriteRefsRaw = values.sorted().joined(separator: ",")
+    }
+
+    private func supabaseProjectContext(_ project: SupabaseProject) -> String {
+        let health = project.healthy == true
+            ? "Healthy"
+            : ((project.unhealthyServices ?? []).isEmpty
+               ? (project.status ?? "Needs attention")
+               : (project.unhealthyServices ?? []).joined(separator: ", "))
+        return [health, project.region].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func supabaseServiceSummary(_ project: SupabaseProject) -> String {
+        let services = project.services ?? []
+        if services.isEmpty {
+            return project.healthError ?? project.status ?? "No service detail"
+        }
+        return services.map {
+            "\($0.name) \($0.healthy == true ? "healthy" : "unhealthy")"
+        }.joined(separator: " · ")
+    }
+
+    private func openSupabaseProject(_ project: SupabaseProject) {
+        guard let raw = project.dashboardURL,
+              let url = URL(string: raw) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private var footer: some View {

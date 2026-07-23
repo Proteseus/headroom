@@ -18,6 +18,7 @@ struct UsageSnapshot: Decodable, Sendable {
     var git: GitUsage?
     var activity: [ActivityItem]?
     var local: LocalUsage?
+    var supabase: SupabaseUsage?
 
     static let empty = UsageSnapshot()
 
@@ -38,7 +39,8 @@ struct UsageSnapshot: Decodable, Sendable {
         vercel: VercelUsage? = nil,
         git: GitUsage? = nil,
         activity: [ActivityItem]? = nil,
-        local: LocalUsage? = nil
+        local: LocalUsage? = nil,
+        supabase: SupabaseUsage? = nil
     ) {
         self.updated = updated
         self.plan = plan
@@ -57,10 +59,12 @@ struct UsageSnapshot: Decodable, Sendable {
         self.git = git
         self.activity = activity
         self.local = local
+        self.supabase = supabase
     }
 
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, vercel, git, activity, local
+        case supabase
         case quotaOK = "quota_ok"
         case quotaError = "quota_error"
         case sessionPct = "session_pct"
@@ -346,6 +350,54 @@ struct ActivityItem: Decodable, Identifiable, Sendable {
         case errorMessage = "error_message"
         case inspectorURL = "inspector_url"
     }
+}
+
+struct SupabaseUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var projects: [SupabaseProject]?
+    var projectCount: Int?
+    var healthyCount: Int?
+    var alertCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, projects
+        case projectCount = "project_count"
+        case healthyCount = "healthy_count"
+        case alertCount = "alert_count"
+    }
+}
+
+struct SupabaseProject: Decodable, Identifiable, Sendable {
+    var ref: String
+    var name: String?
+    var organizationID: String?
+    var region: String?
+    var status: String?
+    var healthy: Bool?
+    var services: [SupabaseService]?
+    var unhealthyServices: [String]?
+    var healthError: String?
+    var dashboardURL: String?
+
+    var id: String { ref }
+
+    enum CodingKeys: String, CodingKey {
+        case ref, name, region, status, healthy, services
+        case organizationID = "organization_id"
+        case unhealthyServices = "unhealthy_services"
+        case healthError = "health_error"
+        case dashboardURL = "dashboard_url"
+    }
+}
+
+struct SupabaseService: Decodable, Identifiable, Sendable {
+    var name: String
+    var status: String?
+    var healthy: Bool?
+
+    var id: String { name }
 }
 
 struct LocalUsage: Decodable, Sendable {

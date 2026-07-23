@@ -27,7 +27,10 @@ final class UsageStore: ObservableObject {
             guard let self else { return }
             await self.refresh()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                let configured = UserDefaults.standard.integer(
+                    forKey: "refreshInterval")
+                let interval = configured > 0 ? configured : 60
+                try? await Task.sleep(for: .seconds(max(15, interval)))
                 guard !Task.isCancelled else { return }
                 await self.refresh()
             }

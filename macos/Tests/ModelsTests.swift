@@ -44,10 +44,50 @@ final class ModelsTests: XCTestCase {
             ]
           },
           "git": {"ok": true, "commits": []},
+          "activity": [{
+            "id": "dpl_1",
+            "kind": "deployment",
+            "status": "error",
+            "subject": "Fix checkout",
+            "repo": "store",
+            "project": "store-web",
+            "branch": "main",
+            "short_sha": "abc1234",
+            "ago": "2m",
+            "error_message": "Build failed",
+            "inspector_url": "https://vercel.com/example"
+          }],
+          "supabase": {
+            "ok": true,
+            "configured": true,
+            "project_count": 2,
+            "healthy_count": 1,
+            "alert_count": 1,
+            "projects": [{
+              "ref": "project-ref",
+              "name": "Production DB",
+              "region": "eu-west-1",
+              "status": "ACTIVE_HEALTHY",
+              "healthy": false,
+              "unhealthy_services": ["storage"],
+              "services": [{
+                "name": "storage",
+                "status": "unhealthy",
+                "healthy": false
+              }],
+              "dashboard_url": "https://supabase.com/dashboard/project/project-ref"
+            }]
+          },
           "local": {
             "ok": true,
             "host": "mac",
-            "servers": [{"name": "web", "port": 3000, "pid": 4242}]
+            "servers": [{
+              "name": "web",
+              "port": 3000,
+              "pid": 4242,
+              "reachable": true,
+              "latency_ms": 2
+            }]
           }
         }
         """.data(using: .utf8)!
@@ -66,6 +106,15 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.vercel?.deployments?.first?.project, "signals")
         XCTAssertEqual(value.local?.servers?.first?.port, 3000)
         XCTAssertEqual(value.local?.servers?.first?.pid, 4242)
+        XCTAssertEqual(value.local?.servers?.first?.latencyMS, 2)
+        XCTAssertEqual(value.activity?.first?.status, "error")
+        XCTAssertEqual(value.activity?.first?.shortSHA, "abc1234")
+        XCTAssertEqual(value.supabase?.alertCount, 1)
+        XCTAssertEqual(value.supabase?.projects?.first?.ref, "project-ref")
+        XCTAssertEqual(
+            value.supabase?.projects?.first?.unhealthyServices,
+            ["storage"]
+        )
         XCTAssertEqual(value.today?.costUSD, 4.25)
     }
 }
