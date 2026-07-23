@@ -1,0 +1,19 @@
+# secrets — Wi-Fi creds live here, never commit
+firmware/src/config.h
+
+# platformio build output
+firmware/.pio/
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS / Xcode derived data (sources + project.yml + .xcodeproj are tracked)
+macos/.build/
+*.xcuserstate
+xcuserdata/
+
+# OS junk
+.DS_Store
+**/.DS_Store

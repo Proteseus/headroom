@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Runs the headroom usage server at login and keeps it alive.
+     Install:
+       cp com.mz.headroom.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
+     Uninstall:
+       launchctl bootout gui/$(id -u)/com.mz.headroom
+     Edit the path below if you cloned somewhere other than ~/Dev. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mz.headroom</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/mz/Dev/max-headroom/host/headroom_server.py</string>
+    <string>--port</string>
+    <string>8737</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/headroom.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/headroom.err</string>
+</dict>
+</plist>

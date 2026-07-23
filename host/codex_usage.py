@@ -1,0 +1,374 @@
+"""OpenAI Codex plan-usage fetcher (CodexBar-equivalent).
+
+Reads `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`), calls
+`GET https://chatgpt.com/backend-api/wham/usage` plus
+`GET .../wham/rate-limit-reset-credits`, and returns session/weekly
+utilization, pace (deficit/reserve), and limit-reset credit inventory.
+
+Refreshes the OAuth access token only on 401/403 — refresh tokens are
+single-use, so we avoid racing Codex CLI / CodexBar.
+
+Stdlib only. Failures degrade to an empty quota dict.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+
+USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+TOKEN_URL = "https://auth.openai.com/oauth/token"
+CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+UA = "codex-cli"
+CACHE_TTL_S = 60
+# Pace is noisy early in a window (CodexBar hides it under ~3% elapsed).
+PACE_MIN_ELAPSED_FRAC = 0.03
+
+
+def _auth_path():
+    home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+    return os.path.join(home, "auth.json")
+
+
+_cache = {"t": 0.0, "data": None, "err": None}
+
+
+def _read_auth():
+    path = _auth_path()
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_auth(blob):
+    path = _auth_path()
+    raw = json.dumps(blob, indent=2)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(raw)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def _tokens(blob):
+    t = (blob or {}).get("tokens") or {}
+    if not t.get("access_token"):
+        return None
+    return t
+
+
+def _refresh(blob):
+    tokens = _tokens(blob) or {}
+    refresh = tokens.get("refresh_token")
+    if not refresh:
+        raise RuntimeError("no refresh_token in ~/.codex/auth.json")
+    body = urllib.parse.urlencode({
+        "client_id": CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh,
+        "scope": "openid profile email",
+    }).encode()
+    req = urllib.request.Request(
+        TOKEN_URL, data=body, method="POST",
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": UA,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode())
+    access = data.get("access_token")
+    if not access:
+        raise RuntimeError("refresh response missing access_token")
+    tokens["access_token"] = access
+    if data.get("refresh_token"):
+        tokens["refresh_token"] = data["refresh_token"]
+    if data.get("id_token"):
+        tokens["id_token"] = data["id_token"]
+    blob["tokens"] = tokens
+    blob["last_refresh"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    _write_auth(blob)
+    return tokens
+
+
+def _http_get(url, access_token, account_id):
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "User-Agent": UA,
+    }
+    if account_id:
+        headers["ChatGPT-Account-Id"] = account_id
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return resp.getcode(), json.loads(resp.read().decode())
+
+
+def _http_get_authed(url, blob):
+    tokens = _tokens(blob)
+    if not tokens:
+        raise RuntimeError("credentials missing tokens.access_token")
+    try:
+        return _http_get(url, tokens["access_token"], tokens.get("account_id"))
+    except urllib.error.HTTPError as e:
+        if e.code not in (401, 403):
+            raise
+        tokens = _refresh(blob)
+        return _http_get(url, tokens["access_token"], tokens.get("account_id"))
+
+
+def fmt_resets(seconds):
+    """Match CodexBar-ish '1h 44m' / '4d 44m'."""
+    if seconds is None:
+        return None
+    s = max(0, int(seconds))
+    d, rem = divmod(s, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d > 0:
+        if h > 0:
+            return f"{d}d {h}h"
+        if m > 0:
+            return f"{d}d {m}m"
+        return f"{d}d"
+    if h > 0:
+        return f"{h}h {m}m" if m else f"{h}h"
+    return f"{m}m"
+
+
+def _prettify_plan(raw):
+    if not raw:
+        return None
+    s = str(raw).strip().lower().replace("_", " ").replace("-", " ")
+    # CodexBar naming for multiplier plans.
+    aliases = {
+        "pro": "Pro 20x",
+        "pro lite": "Pro 5x",
+        "prolite": "Pro 5x",
+        "plus": "Plus",
+        "team": "Team",
+        "enterprise": "Enterprise",
+        "free": "Free",
+    }
+    if s in aliases:
+        return aliases[s]
+    return s[:1].upper() + s[1:] if s else None
+
+
+def _iso_to_unix(s):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _window_from(obj):
+    if not isinstance(obj, dict):
+        return None
+    pct = obj.get("used_percent")
+    if pct is None:
+        return None
+    window_s = obj.get("limit_window_seconds")
+    resets_in = obj.get("reset_after_seconds")
+    reset_at = obj.get("reset_at")
+    if resets_in is None and isinstance(reset_at, (int, float)):
+        # Some payloads use unix seconds; others ms.
+        ts = float(reset_at)
+        if ts > 1e12:
+            ts /= 1000.0
+        resets_in = max(0, int(ts - time.time()))
+    if isinstance(resets_in, float):
+        resets_in = int(resets_in)
+    return {
+        "pct": round(float(pct), 1),
+        "window_s": int(window_s) if isinstance(window_s, (int, float)) else None,
+        "resets_in_s": int(resets_in) if isinstance(resets_in, (int, float)) else None,
+        "resets_in": fmt_resets(resets_in) if resets_in is not None else None,
+    }
+
+
+def _lane_for(window):
+    """Classify a rate-limit window as session (~5h) or week (~7d)."""
+    if not window:
+        return None
+    secs = window.get("window_s") or 0
+    if secs >= 3 * 86400:
+        return "week"
+    return "session"
+
+
+def _pace(window):
+    """Even-consumption pace → deficit/reserve + runs-out ETA (CodexBar)."""
+    if not window:
+        return None
+    pct = window.get("pct")
+    window_s = window.get("window_s")
+    resets_in = window.get("resets_in_s")
+    if pct is None or not window_s or resets_in is None:
+        return None
+    elapsed = max(0, int(window_s) - int(resets_in))
+    if window_s <= 0 or elapsed / window_s < PACE_MIN_ELAPSED_FRAC:
+        return None
+    expected = 100.0 * elapsed / window_s
+    delta = float(pct) - expected
+    out = {
+        "expected_pct": round(expected, 1),
+        "delta_pct": round(abs(delta), 1),
+        "in_deficit": delta > 0.5,
+        "in_reserve": delta < -0.5,
+    }
+    if out["in_deficit"]:
+        out["label"] = f"{out['delta_pct']:.0f}% in deficit"
+    elif out["in_reserve"]:
+        out["label"] = f"{out['delta_pct']:.0f}% in reserve"
+    else:
+        out["label"] = "On pace"
+
+    # Time until 100% at current average rate.
+    if pct > 0 and elapsed > 0 and pct < 100:
+        rate = pct / elapsed  # percent per second
+        to_exhaust = (100.0 - pct) / rate
+        out["runs_out_in_s"] = max(0, int(to_exhaust))
+        out["runs_out_in"] = fmt_resets(out["runs_out_in_s"])
+        out["will_last"] = to_exhaust >= resets_in
+    elif pct >= 100:
+        out["runs_out_in_s"] = 0
+        out["runs_out_in"] = "0m"
+        out["will_last"] = False
+    else:
+        out["runs_out_in_s"] = None
+        out["runs_out_in"] = None
+        out["will_last"] = True
+    return out
+
+
+def _parse_reset_credits(body):
+    credits = (body or {}).get("credits") or []
+    available = []
+    for c in credits:
+        if not isinstance(c, dict):
+            continue
+        if c.get("status") != "available":
+            continue
+        exp_s = _iso_to_unix(c.get("expires_at"))
+        available.append({
+            "expires_at": c.get("expires_at"),
+            "expires_in_s": max(0, int(exp_s - time.time())) if exp_s else None,
+            "expires_in": fmt_resets(max(0, int(exp_s - time.time()))) if exp_s else None,
+        })
+    available.sort(key=lambda x: x.get("expires_in_s") if x.get("expires_in_s") is not None else 1e18)
+    count = body.get("available_count")
+    if count is None:
+        count = len(available)
+    return {
+        "available": int(count),
+        "expiries": [c["expires_in"] for c in available if c.get("expires_in")],
+        "credits": available,
+    }
+
+
+def parse_usage(body, credits_body=None):
+    """Map wham/usage (+ optional reset-credits) → flat quota dict for /usage."""
+    rl = (body or {}).get("rate_limit") or {}
+    primary = _window_from(rl.get("primary_window"))
+    secondary = _window_from(rl.get("secondary_window"))
+
+    session = week = None
+    for w in (primary, secondary):
+        lane = _lane_for(w)
+        if lane == "session" and session is None:
+            session = w
+        elif lane == "week" and week is None:
+            week = w
+
+    # Team plans often expose only a weekly primary window.
+    if week is None and primary and _lane_for(primary) == "week":
+        week = primary
+    if session is None and primary and _lane_for(primary) == "session":
+        session = primary
+
+    # Prefer pace on the weekly lane (matches CodexBar card); fall back to session.
+    pace_src = week or session
+    pace = _pace(pace_src)
+
+    # Inline summary from usage payload when the dedicated credits call fails.
+    reset_credits = None
+    inline = (body or {}).get("rate_limit_reset_credits")
+    if isinstance(inline, dict) and inline.get("available_count") is not None:
+        reset_credits = {
+            "available": int(inline["available_count"]),
+            "expiries": [],
+            "credits": [],
+        }
+    if credits_body is not None:
+        reset_credits = _parse_reset_credits(credits_body)
+
+    return {
+        "ok": True,
+        "plan": _prettify_plan((body or {}).get("plan_type")),
+        "session": session,
+        "week": week,
+        "pace": pace,
+        "reset_credits": reset_credits,
+        "credits": (body or {}).get("credits"),
+    }
+
+
+def fetch_quota(force=False):
+    """Return Codex quota dict, using a short in-memory cache. Never raises."""
+    now = time.time()
+    if not force and _cache["data"] is not None and now - _cache["t"] < CACHE_TTL_S:
+        return _cache["data"]
+
+    empty = {
+        "ok": False, "plan": None, "session": None, "week": None,
+        "pace": None, "reset_credits": None, "credits": None, "error": None,
+    }
+    try:
+        blob = _read_auth()
+        if not blob:
+            empty["error"] = f"no Codex credentials at {_auth_path()}"
+            _cache.update(t=now, data=empty, err=empty["error"])
+            return empty
+        if not _tokens(blob):
+            empty["error"] = "auth.json missing tokens.access_token"
+            _cache.update(t=now, data=empty, err=empty["error"])
+            return empty
+
+        status, body = _http_get_authed(USAGE_URL, blob)
+        if status != 200:
+            empty["error"] = f"usage HTTP {status}"
+            _cache.update(t=now, data=empty, err=empty["error"])
+            return empty
+
+        credits_body = None
+        try:
+            cstatus, credits_body = _http_get_authed(CREDITS_URL, blob)
+            if cstatus != 200:
+                credits_body = None
+        except Exception:
+            credits_body = None
+
+        data = parse_usage(body, credits_body)
+        _cache.update(t=now, data=data, err=None)
+        return data
+    except Exception as e:
+        empty["error"] = str(e)
+        if _cache["data"] and _cache["data"].get("ok"):
+            stale = dict(_cache["data"])
+            stale["stale"] = True
+            stale["error"] = empty["error"]
+            return stale
+        _cache.update(t=now, data=empty, err=empty["error"])
+        return empty

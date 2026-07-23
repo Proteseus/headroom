@@ -1,0 +1,412 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */; };
+		24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */; };
+		519E1CC03DF30BACA9A68C57 /* ModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */; };
+		6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C6E5C825AA4083B2D5D01D /* DashboardView.swift */; };
+		CE802023FF267E5828A30C68 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98E41B964E7DEC1B013050A /* Models.swift */; };
+		D52012E3C8B42DA9E4C79C56 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */; };
+		F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		529E37F8232E573E9C702AD1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 447D11E9CB555AD088E1F5E0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2653E17D158BB2066F201577;
+			remoteInfo = HeadroomBar;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		05C6E5C825AA4083B2D5D01D /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadroomApp.swift; sourceTree = "<group>"; };
+		33856C39B0891C4C78CC2ABE /* HeadroomBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeadroomBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4490B2ABE0BD42C2973881A1 /* HeadroomBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HeadroomBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarProgressBar.swift; sourceTree = "<group>"; };
+		6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageStore.swift; sourceTree = "<group>"; };
+		EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsTests.swift; sourceTree = "<group>"; };
+		F98E41B964E7DEC1B013050A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1C5034EF29758D7127392134 = {
+			isa = PBXGroup;
+			children = (
+				C37E3C45889E12F298863A64 /* Sources */,
+				F7E5858F74A6F2268C9146FA /* Tests */,
+				EC157A29D711BB9D027F2FB1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C37E3C45889E12F298863A64 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */,
+				05C6E5C825AA4083B2D5D01D /* DashboardView.swift */,
+				2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */,
+				F98E41B964E7DEC1B013050A /* Models.swift */,
+				6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */,
+				C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		EC157A29D711BB9D027F2FB1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4490B2ABE0BD42C2973881A1 /* HeadroomBar.app */,
+				33856C39B0891C4C78CC2ABE /* HeadroomBarTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		F7E5858F74A6F2268C9146FA /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2653E17D158BB2066F201577 /* HeadroomBar */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7B8702B2BEF1F1BE4666E134 /* Build configuration list for PBXNativeTarget "HeadroomBar" */;
+			buildPhases = (
+				01024D8B4077D1C37BB6D136 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HeadroomBar;
+			packageProductDependencies = (
+			);
+			productName = HeadroomBar;
+			productReference = 4490B2ABE0BD42C2973881A1 /* HeadroomBar.app */;
+			productType = "com.apple.product-type.application";
+		};
+		862665C2E2DFC3C50A12C322 /* HeadroomBarTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3D387D4C92B2D18A238C5C9C /* Build configuration list for PBXNativeTarget "HeadroomBarTests" */;
+			buildPhases = (
+				F180B859505E8AD00819D524 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4CE4D67D134885C69B942311 /* PBXTargetDependency */,
+			);
+			name = HeadroomBarTests;
+			packageProductDependencies = (
+			);
+			productName = HeadroomBarTests;
+			productReference = 33856C39B0891C4C78CC2ABE /* HeadroomBarTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		447D11E9CB555AD088E1F5E0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					2653E17D158BB2066F201577 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 653C5C327108C858C58780DE /* Build configuration list for PBXProject "HeadroomBar" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1C5034EF29758D7127392134;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = EC157A29D711BB9D027F2FB1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2653E17D158BB2066F201577 /* HeadroomBar */,
+				862665C2E2DFC3C50A12C322 /* HeadroomBarTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		01024D8B4077D1C37BB6D136 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */,
+				6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */,
+				139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */,
+				CE802023FF267E5828A30C68 /* Models.swift in Sources */,
+				D52012E3C8B42DA9E4C79C56 /* StatusItemController.swift in Sources */,
+				24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F180B859505E8AD00819D524 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				519E1CC03DF30BACA9A68C57 /* ModelsTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4CE4D67D134885C69B942311 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2653E17D158BB2066F201577 /* HeadroomBar */;
+			targetProxy = 529E37F8232E573E9C702AD1 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		4A9494CEB8F2D1FB5E807FD7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		63828A7B1956B8B3F8D757EB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mz.HeadroomBarTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HeadroomBar.app/Contents/MacOS/HeadroomBar";
+			};
+			name = Release;
+		};
+		756D5CA112F2917474E6C088 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Headroom;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mz.headroom-bar";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+			};
+			name = Release;
+		};
+		8CA9957F79A73867C68F7F5A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mz.HeadroomBarTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HeadroomBar.app/Contents/MacOS/HeadroomBar";
+			};
+			name = Debug;
+		};
+		D5DAD35FB94A0BB324E58D87 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		F3CC23A84E85EF18002352AE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Headroom;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mz.headroom-bar";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3D387D4C92B2D18A238C5C9C /* Build configuration list for PBXNativeTarget "HeadroomBarTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CA9957F79A73867C68F7F5A /* Debug */,
+				63828A7B1956B8B3F8D757EB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		653C5C327108C858C58780DE /* Build configuration list for PBXProject "HeadroomBar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4A9494CEB8F2D1FB5E807FD7 /* Debug */,
+				D5DAD35FB94A0BB324E58D87 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7B8702B2BEF1F1BE4666E134 /* Build configuration list for PBXNativeTarget "HeadroomBar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F3CC23A84E85EF18002352AE /* Debug */,
+				756D5CA112F2917474E6C088 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 447D11E9CB555AD088E1F5E0 /* Project object */;
+}
