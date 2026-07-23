@@ -16,8 +16,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import cache_util
+
 API = "https://api.supabase.com"
 CACHE_TTL_S = 5 * 60
+FAIL_TTL_S = 45
 KEYCHAIN_SERVICE = "com.mz.headroom.supabase"
 KEYCHAIN_ACCOUNT = "access-token"
 CLI_TOKEN_PATH = os.path.expanduser("~/.supabase/access-token")
@@ -27,6 +30,15 @@ HEALTHY_WORDS = {
 }
 
 _cache = {"t": 0.0, "data": None}
+_EMPTY = {
+    "ok": False,
+    "configured": False,
+    "error": None,
+    "projects": [],
+    "project_count": 0,
+    "healthy_count": 0,
+    "alert_count": 0,
+}
 
 
 def _keychain_token():
@@ -173,9 +185,10 @@ def _flatten_project(project, services, health_error):
 
 def fetch_projects(force=False):
     now = time.time()
-    if (not force and _cache["data"] is not None
-            and now - _cache["t"] < CACHE_TTL_S):
-        return _cache["data"]
+    if not force and _cache["data"] is not None:
+        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
+        if now - _cache["t"] < ttl:
+            return _cache["data"]
 
     token = _token()
     if not token:
@@ -187,8 +200,13 @@ def fetch_projects(force=False):
             "project_count": 0,
             "healthy_count": 0,
             "alert_count": 0,
+            "stale": False,
             "updated_at": int(now),
         }
+        # Don't wipe a previously good portfolio if the Keychain briefly fails.
+        if _cache["data"] and _cache["data"].get("ok"):
+            return cache_util.keep_stale(
+                _cache, now, result["error"], _EMPTY)
         _cache.update(t=now, data=result)
         return result
 
@@ -224,36 +242,37 @@ def fetch_projects(force=False):
             "ok": True,
             "configured": True,
             "error": None,
+            "stale": False,
             "projects": rows,
             "project_count": len(rows),
             "healthy_count": healthy_count,
             "alert_count": len(rows) - healthy_count,
             "updated_at": int(now),
         }
+        _cache.update(t=now, data=result, err=None)
+        return result
     except urllib.error.HTTPError as error:
         message = "Supabase token rejected" if error.code in (401, 403) else (
             f"Supabase HTTP {error.code}")
-        result = {
-            "ok": False,
-            "configured": True,
-            "error": message,
-            "projects": [],
-            "project_count": 0,
-            "healthy_count": 0,
-            "alert_count": 0,
-            "updated_at": int(now),
-        }
+        # Auth rejection is a hard miss — don't keep pretending we're connected.
+        if error.code in (401, 403):
+            result = {
+                "ok": False,
+                "configured": True,
+                "error": message,
+                "stale": False,
+                "projects": [],
+                "project_count": 0,
+                "healthy_count": 0,
+                "alert_count": 0,
+                "updated_at": int(now),
+            }
+            _cache.update(t=now, data=result, err=message)
+            return result
+        return cache_util.keep_stale(_cache, now, message, {
+            **_EMPTY, "configured": True,
+        })
     except Exception as error:
-        result = {
-            "ok": False,
-            "configured": True,
-            "error": str(error),
-            "projects": [],
-            "project_count": 0,
-            "healthy_count": 0,
-            "alert_count": 0,
-            "updated_at": int(now),
-        }
-
-    _cache.update(t=now, data=result)
-    return result
+        return cache_util.keep_stale(_cache, now, str(error), {
+            **_EMPTY, "configured": True,
+        })

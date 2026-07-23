@@ -17,7 +17,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import cache_util
+
 CACHE_TTL_S = 60
+FAIL_TTL_S = 20
 DEPLOY_LIMIT = 8
 API = "https://api.vercel.com/v6/deployments"
 TOKEN_URL = "https://api.vercel.com/login/oauth/token"
@@ -31,6 +34,7 @@ PREFERRED_TEAM_SLUGS = ("ev-io", "envisioning")
 EXPIRY_SKEW_S = 60
 
 _cache = {"t": 0.0, "data": None}
+_EMPTY = {"ok": False, "error": None, "team": None, "deployments": []}
 
 
 def _cli_json(name):
@@ -267,23 +271,19 @@ def _team_slug(token, team_id):
 def fetch_deployments(force=False):
     """Return flattened team deployments for /usage."""
     now = time.time()
-    if (not force and _cache["data"] is not None
-            and now - _cache["t"] < CACHE_TTL_S):
-        return _cache["data"]
+    if not force and _cache["data"] is not None:
+        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
+        if now - _cache["t"] < ttl:
+            return _cache["data"]
 
     try:
         creds = _auth()
     except Exception as exc:
-        out = {"ok": False, "error": str(exc),
-               "team": None, "deployments": []}
-        _cache.update(t=now, data=out)
-        return out
+        return cache_util.keep_stale(_cache, now, str(exc), _EMPTY)
 
     if not creds:
-        out = {"ok": False, "error": "no Vercel CLI token",
-               "team": None, "deployments": []}
-        _cache.update(t=now, data=out)
-        return out
+        return cache_util.keep_stale(
+            _cache, now, "no Vercel CLI token — run `vercel login`", _EMPTY)
 
     try:
         try:
@@ -303,18 +303,17 @@ def fetch_deployments(force=False):
             "ok": True,
             "team": team,
             "error": None,
+            "stale": False,
             "deployments": [_flatten(d) for d in deps[:DEPLOY_LIMIT]],
         }
+        _cache.update(t=now, data=out, err=None)
+        return out
     except urllib.error.HTTPError as e:
         try:
             body = e.read().decode()[:200]
         except Exception:
             body = ""
-        out = {"ok": False, "error": f"HTTP {e.code} {body}".strip(),
-               "team": None, "deployments": []}
+        return cache_util.keep_stale(
+            _cache, now, f"HTTP {e.code} {body}".strip(), _EMPTY)
     except Exception as exc:
-        out = {"ok": False, "error": str(exc),
-               "team": None, "deployments": []}
-
-    _cache.update(t=now, data=out)
-    return out
+        return cache_util.keep_stale(_cache, now, str(exc), _EMPTY)

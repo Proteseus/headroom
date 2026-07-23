@@ -16,7 +16,10 @@ import socket
 import subprocess
 import time
 
+import cache_util
+
 CACHE_TTL_S = 15
+FAIL_TTL_S = 10
 KEEP = 8
 NAME_MAX = 16
 
@@ -253,16 +256,21 @@ def stop_server(pid, port):
 def fetch_servers(force=False):
     """Return {ok, host, servers:[{name, port, cmd, cwd, bind}], error}."""
     now = time.time()
-    if (not force and _cache["data"] is not None
-            and now - _cache["t"] < CACHE_TTL_S):
-        return _cache["data"]
+    if not force and _cache["data"] is not None:
+        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
+        if now - _cache["t"] < ttl:
+            return _cache["data"]
 
     host = _hostname()
+    empty = {"ok": False, "host": host, "servers": [], "error": None}
     try:
         raw = _lsof_listen()
         if not raw.strip():
-            out = {"ok": True, "host": host, "servers": [], "error": None}
-            _cache.update(t=now, data=out)
+            out = {
+                "ok": True, "host": host, "servers": [],
+                "error": None, "stale": False,
+            }
+            _cache.update(t=now, data=out, err=None)
             return out
 
         by_port = _parse_lsof(raw)
@@ -306,9 +314,9 @@ def fetch_servers(force=False):
             "host": host,
             "servers": rows[:KEEP],
             "error": None,
+            "stale": False,
         }
+        _cache.update(t=now, data=out, err=None)
+        return out
     except Exception as exc:
-        out = {"ok": False, "host": host, "servers": [], "error": str(exc)}
-
-    _cache.update(t=now, data=out)
-    return out
+        return cache_util.keep_stale(_cache, now, str(exc), empty)

@@ -27,6 +27,7 @@ TOKEN_URL = "https://auth.openai.com/oauth/token"
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 UA = "codex-cli"
 CACHE_TTL_S = 60
+FAIL_TTL_S = 20
 # Pace is noisy early in a window (CodexBar hides it under ~3% elapsed).
 PACE_MIN_ELAPSED_FRAC = 0.03
 
@@ -328,29 +329,37 @@ def parse_usage(body, credits_body=None):
 def fetch_quota(force=False):
     """Return Codex quota dict, using a short in-memory cache. Never raises."""
     now = time.time()
-    if not force and _cache["data"] is not None and now - _cache["t"] < CACHE_TTL_S:
-        return _cache["data"]
+    if not force and _cache["data"] is not None:
+        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
+        if now - _cache["t"] < ttl:
+            return _cache["data"]
 
     empty = {
         "ok": False, "plan": None, "session": None, "week": None,
         "pace": None, "reset_credits": None, "credits": None, "error": None,
     }
+
+    def _keep_stale(err):
+        if _cache["data"] and _cache["data"].get("ok"):
+            stale = dict(_cache["data"])
+            stale["stale"] = True
+            stale["error"] = err
+            _cache.update(t=now, data=stale, err=err)
+            return stale
+        empty["error"] = err
+        _cache.update(t=now, data=empty, err=err)
+        return empty
+
     try:
         blob = _read_auth()
         if not blob:
-            empty["error"] = f"no Codex credentials at {_auth_path()}"
-            _cache.update(t=now, data=empty, err=empty["error"])
-            return empty
+            return _keep_stale(f"no Codex credentials at {_auth_path()}")
         if not _tokens(blob):
-            empty["error"] = "auth.json missing tokens.access_token"
-            _cache.update(t=now, data=empty, err=empty["error"])
-            return empty
+            return _keep_stale("auth.json missing tokens.access_token")
 
         status, body = _http_get_authed(USAGE_URL, blob)
         if status != 200:
-            empty["error"] = f"usage HTTP {status}"
-            _cache.update(t=now, data=empty, err=empty["error"])
-            return empty
+            return _keep_stale(f"usage HTTP {status}")
 
         credits_body = None
         try:
@@ -361,14 +370,9 @@ def fetch_quota(force=False):
             credits_body = None
 
         data = parse_usage(body, credits_body)
+        data["stale"] = False
+        data["error"] = None
         _cache.update(t=now, data=data, err=None)
         return data
     except Exception as e:
-        empty["error"] = str(e)
-        if _cache["data"] and _cache["data"].get("ok"):
-            stale = dict(_cache["data"])
-            stale["stale"] = True
-            stale["error"] = empty["error"]
-            return stale
-        _cache.update(t=now, data=empty, err=empty["error"])
-        return empty
+        return _keep_stale(str(e))

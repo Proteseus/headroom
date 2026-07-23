@@ -13,10 +13,13 @@ import os
 import subprocess
 import time
 
+import cache_util
+
 CACHE_TTL_S = 60
+FAIL_TTL_S = 20
 DEV_ROOT = os.path.expanduser("~/Dev")
 PER_REPO = 15
-KEEP = 6
+KEEP = 8
 # Match GitHub username, local name, and work emails (.io + .com).
 AUTHOR_PATTERNS = (
     "michellzappa",
@@ -26,6 +29,7 @@ AUTHOR_PATTERNS = (
 )
 
 _cache = {"t": 0.0, "data": None}
+_EMPTY = {"ok": False, "error": None, "commits": []}
 
 
 def fmt_ago(unix_ts):
@@ -160,14 +164,14 @@ def _log_repo(path):
 def fetch_commits(force=False):
     """Return newest commits across ~/Dev authored by the owner."""
     now = time.time()
-    if (not force and _cache["data"] is not None
-            and now - _cache["t"] < CACHE_TTL_S):
-        return _cache["data"]
+    if not force and _cache["data"] is not None:
+        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
+        if now - _cache["t"] < ttl:
+            return _cache["data"]
 
     if not os.path.isdir(DEV_ROOT):
-        out = {"ok": False, "error": f"missing {DEV_ROOT}", "commits": []}
-        _cache.update(t=now, data=out)
-        return out
+        return cache_util.keep_stale(
+            _cache, now, f"missing {DEV_ROOT}", _EMPTY)
 
     try:
         all_commits = []
@@ -193,9 +197,8 @@ def fetch_commits(force=False):
                 "path": c["path"],
                 "repo_url": c["repo_url"],
             })
-        out = {"ok": True, "error": None, "commits": slim}
+        out = {"ok": True, "error": None, "stale": False, "commits": slim}
+        _cache.update(t=now, data=out, err=None)
+        return out
     except Exception as exc:
-        out = {"ok": False, "error": str(exc), "commits": []}
-
-    _cache.update(t=now, data=out)
-    return out
+        return cache_util.keep_stale(_cache, now, str(exc), _EMPTY)
