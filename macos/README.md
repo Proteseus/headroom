@@ -3,7 +3,7 @@
 A native macOS 14+ companion to the headroom ESP32 display. It reads the
 same `http://127.0.0.1:8737/usage` backend and adds:
 
-- CodexBar-matched 18pt menu-bar meters: 6pt primary and 4pt secondary;
+- Three thin 18pt menu-bar meters (Claude, Codex, Cursor), 3pt each;
 - Claude, Codex, and Cursor switching with provider-specific limits;
 - an Overview with ESP32-style quota rings for all three providers;
 - CodexBar-style 6pt bars, pace stripes, typography, and reset rows;

@@ -17,6 +17,8 @@ struct DashboardView: View {
     private var supabaseFavoriteRefsRaw = ""
     @AppStorage("supabaseRowLimit")
     private var supabaseRowLimit = 6
+    @AppStorage("dismissedAttentionFingerprint")
+    private var dismissedAttentionFingerprint = ""
     @State private var serverToStop: LocalServer?
     @State private var expandedServerID: String?
     @State private var expandedSupabaseRef: String?
@@ -44,10 +46,10 @@ struct DashboardView: View {
                     if selectedDashboard == .overview {
                         quotaOverview
                         DailyBurnCard(days: store.snapshot.byDay ?? [])
+                        attentionCard
                     } else {
                         quotaCard
                     }
-                    glanceGrid
                     activityTimeline
                     supabaseProjects
                     servers
@@ -87,11 +89,20 @@ struct DashboardView: View {
                     .controlSize(.small)
             } else {
                 Circle()
-                    .fill(store.errorMessage == nil ? .green : .orange)
+                    .fill(headerDotColor)
                     .frame(width: 7, height: 7)
             }
         }
         .padding(16)
+    }
+
+    private var headerDotColor: Color {
+        if store.errorMessage != nil { return .orange }
+        if AttentionAck.shouldShowPip(for: store.snapshot.attention) {
+            if store.snapshot.attention?.isCritical == true { return .red }
+            return .orange
+        }
+        return .green
     }
 
     private var providerSwitcher: some View {
@@ -133,14 +144,8 @@ struct DashboardView: View {
 
     private var quotaOverview: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Coding quotas")
-                    .font(.headline)
-                Spacer()
-                Text("Highest window")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Coding quotas")
+                .font(.headline)
             HStack(spacing: 10) {
                 ForEach(UsageProvider.allCases, id: \.rawValue) { provider in
                     ProviderQuotaRing(
@@ -203,6 +208,11 @@ struct DashboardView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            if let cost = meter.costLabel {
+                Text(cost)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if !meter.ok, let error = meter.error {
                 Text(error)
                     .font(.caption)
@@ -213,48 +223,84 @@ struct DashboardView: View {
         .cardStyle()
     }
 
-    private var glanceGrid: some View {
-        let deploys = store.snapshot.vercel?.deployments ?? []
-        let ready = deploys.filter { $0.status == "ready" }.count
-        let problem = deploys.filter { $0.status == "error" }.count
-        return LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible())
-            ],
-            spacing: 10
-        ) {
-            GlanceStat(
-                value: String(ready),
-                label: problem > 0 ? "\(problem) failed" : "deploys",
-                tint: problem > 0 ? .red : .primary
-            )
-            GlanceStat(
-                value: String(store.snapshot.local?.servers?.count ?? 0),
-                label: "servers"
-            )
-            GlanceStat(
-                value: store.snapshot.supabase?.configured == true
-                    ? String(store.snapshot.supabase?.alertCount ?? 0) : "—",
-                label: (store.snapshot.supabase?.alertCount ?? 0) == 1
-                    ? "Supabase alert" : "Supabase alerts",
-                tint: (store.snapshot.supabase?.alertCount ?? 0) > 0
-                    ? .red : .primary
-            )
-            GlanceStat(
-                value: store.snapshot.github?.configured == true
-                    ? String(store.snapshot.github?.failCount ?? 0) : "—",
-                label: (store.snapshot.github?.failCount ?? 0) == 1
-                    ? "Actions fail" : "Actions fails",
-                tint: (store.snapshot.github?.failCount ?? 0) > 0
-                    ? .red : .primary
-            )
-            GlanceStat(
-                value: store.snapshot.today?.costUSD.map { $0.formatted(.currency(code: "USD")) } ?? "—",
-                label: "today"
-            )
+    private var attentionCard: some View {
+        let attention = store.snapshot.attention
+        let reasons = attention?.reasons ?? []
+        let showPip = AttentionAck.shouldShowPip(
+            for: attention,
+            dismissedFingerprint: dismissedAttentionFingerprint.isEmpty
+                ? nil
+                : dismissedAttentionFingerprint
+        )
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Attention")
+                    .font(.headline)
+                Spacer()
+                if showPip, let attention {
+                    Button {
+                        dismissedAttentionFingerprint = attention.fingerprint
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Clear attention")
+                    .accessibilityLabel("Clear attention")
+                } else if attention?.isWarning == true {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                        .help("Cleared until something new")
+                        .accessibilityLabel("Attention cleared")
+                } else {
+                    Text(attention?.summary ?? "All clear")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(attentionTint(attention?.level))
+                        .lineLimit(1)
+                }
+            }
+            if !reasons.isEmpty {
+                ForEach(reasons.prefix(5)) { reason in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle()
+                            .fill(attentionTint(reason.level))
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 4)
+                        Text(reason.summary ?? "Needs attention")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            HStack(spacing: 10) {
+                GlanceStat(
+                    value: String(store.snapshot.local?.servers?.count ?? 0),
+                    label: "servers"
+                )
+                GlanceStat(
+                    value: store.snapshot.today?.costUSD.map(\.dollarLabel)
+                        ?? "—",
+                    label: "Claude today"
+                )
+                GlanceStat(
+                    value: store.snapshot.codex?.costLabel
+                        ?? store.snapshot.codex?.costUSD.map(\.dollarLabel)
+                        ?? "—",
+                    label: "Codex"
+                )
+                GlanceStat(
+                    value: store.snapshot.cursor?.costLabel ?? "—",
+                    label: "Cursor"
+                )
+            }
+        }
+        .cardStyle()
+    }
+
+    private func attentionTint(_ level: String?) -> Color {
+        switch level {
+        case "critical": .red
+        case "warn": .orange
+        default: .green
         }
     }
 
@@ -280,23 +326,20 @@ struct DashboardView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     SettingsLink {
-                        Text("Connect")
+                        Image(systemName: "link")
                     }
                     .buttonStyle(.borderless)
-                    .font(.caption)
+                    .help("Open Settings to connect")
+                    .accessibilityLabel("Connect Supabase")
                 }
             } else if data?.ok != true {
                 Text(data?.error ?? "Supabase unavailable")
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
-                HStack {
-                    Text("\(data?.healthyCount ?? 0) healthy")
-                    Spacer()
-                    Text("\(data?.projectCount ?? allProjects.count) projects")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("\(data?.projectCount ?? allProjects.count) projects")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 ForEach(rows, id: \.ref) { (project: SupabaseProject) in
                     VStack(alignment: .leading, spacing: 5) {
@@ -308,22 +351,34 @@ struct DashboardView: View {
                                 Text(project.name ?? project.ref)
                                     .font(.subheadline.weight(.medium))
                                     .lineLimit(1)
-                                Text(supabaseProjectContext(project))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                let context = supabaseProjectContext(project)
+                                if !context.isEmpty {
+                                    Text(context)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
                             Spacer()
-                            Button(favorites.contains(project.ref) ? "Pinned" : "Pin") {
+                            Button {
                                 toggleSupabaseFavorite(project.ref)
+                            } label: {
+                                Image(systemName: favorites.contains(project.ref)
+                                    ? "pin.fill" : "pin")
                             }
                             .buttonStyle(.borderless)
-                            .font(.caption)
-                            Button("Open") {
+                            .help(favorites.contains(project.ref)
+                                ? "Unpin project" : "Pin project")
+                            .accessibilityLabel(favorites.contains(project.ref)
+                                ? "Unpin" : "Pin")
+                            Button {
                                 openSupabaseProject(project)
+                            } label: {
+                                Image(systemName: "arrow.up.right")
                             }
                             .buttonStyle(.borderless)
-                            .font(.caption)
+                            .help("Open in Supabase")
+                            .accessibilityLabel("Open")
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -344,8 +399,17 @@ struct DashboardView: View {
                 }
 
                 if allProjects.count > limit {
-                    Button(showAllSupabaseProjects ? "Show attention only" : "Show all") {
+                    Button {
                         showAllSupabaseProjects.toggle()
+                    } label: {
+                        Label(
+                            showAllSupabaseProjects
+                                ? "Show attention only"
+                                : "Show all",
+                            systemImage: showAllSupabaseProjects
+                                ? "line.3.horizontal.decrease"
+                                : "ellipsis.circle"
+                        )
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
@@ -360,7 +424,7 @@ struct DashboardView: View {
         let rows = Array((store.snapshot.activity ?? [])
             .prefix(max(3, min(activityRowLimit, 14))))
         if !rows.isEmpty {
-            DataSection(title: "Activity") {
+            DataSection(title: "GitHub") {
                 ForEach(rows) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(alignment: .top, spacing: 9) {
@@ -369,7 +433,7 @@ struct DashboardView: View {
                                 .frame(width: 7, height: 7)
                                 .padding(.top, 5)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(item.subject ?? "Activity")
+                                Text(item.subject ?? "Event")
                                     .font(.subheadline)
                                     .lineLimit(1)
                                 Text(activityContext(item))
@@ -378,14 +442,9 @@ struct DashboardView: View {
                                     .lineLimit(1)
                             }
                             Spacer()
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(activityStatus(item))
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(activityColor(item))
-                                Text(item.ago ?? "—")
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text(item.ago ?? "—")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
                         }
                         if item.status == "error", let error = item.errorMessage {
                             Text(error)
@@ -398,11 +457,14 @@ struct DashboardView: View {
                             HStack {
                                 Spacer()
                                 if activityURL(item) != nil {
-                                    Button("Open inspector") {
+                                    Button {
                                         openActivity(item)
+                                    } label: {
+                                        Image(systemName: "arrow.up.right.square")
                                     }
                                     .buttonStyle(.borderless)
-                                    .font(.caption)
+                                    .help("Open inspector")
+                                    .accessibilityLabel("Open inspector")
                                 }
                             }
                         }
@@ -440,24 +502,30 @@ struct DashboardView: View {
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                             if server.port != nil {
-                                Button("Open") {
+                                Button {
                                     openServer(server)
+                                } label: {
+                                    Image(systemName: "arrow.up.right")
                                 }
                                 .buttonStyle(.borderless)
-                                .font(.caption)
+                                .help("Open in browser")
+                                .accessibilityLabel("Open")
                             }
                             if server.pid != nil {
                                 if store.stoppingServerID == server.id {
                                     ProgressView()
                                         .controlSize(.mini)
-                                        .frame(width: 30)
+                                        .frame(width: 18, height: 18)
                                 } else {
-                                    Button("Stop") {
+                                    Button {
                                         requestStop(server)
+                                    } label: {
+                                        Image(systemName: "stop.circle")
                                     }
                                     .buttonStyle(.borderless)
-                                    .font(.caption)
                                     .foregroundStyle(.red)
+                                    .help("Stop server")
+                                    .accessibilityLabel("Stop")
                                 }
                             }
                         }
@@ -483,11 +551,14 @@ struct DashboardView: View {
                                 }
                                 Spacer()
                                 if server.cwd != nil {
-                                    Button("Folder") {
+                                    Button {
                                         openServerFolder(server)
+                                    } label: {
+                                        Image(systemName: "folder")
                                     }
                                     .buttonStyle(.borderless)
-                                    .font(.caption)
+                                    .help("Reveal in Finder")
+                                    .accessibilityLabel("Folder")
                                 }
                             }
                             .padding(.leading, 15)
@@ -498,19 +569,24 @@ struct DashboardView: View {
         }
     }
 
-    private func activityStatus(_ item: ActivityItem) -> String {
+    private func activityContext(_ item: ActivityItem) -> String {
+        var parts = [item.project ?? item.repo, item.branch, item.shortSHA]
+            .compactMap { $0 }
         switch item.status {
         case "ready":
-            item.target == "production" ? "Production" : "Preview"
-        case "building": "Building"
-        case "error", "failure": "Failed"
-        case "canceled", "cancelled": "Canceled"
-        case "running": "Running"
-        case "pushed": "Pushed"
-        case "local": "Local"
-        case "committed": "Committed"
-        default: item.status?.capitalized ?? "Unknown"
+            parts.append(item.target == "production" ? "prod" : "preview")
+        case "building": parts.append("building")
+        case "running": parts.append("running")
+        case "pushed": parts.append("pushed")
+        case "local": parts.append("local")
+        case "committed": parts.append("commit")
+        case "canceled", "cancelled": parts.append("canceled")
+        case "error", "failure":
+            if item.errorMessage == nil { parts.append("failed") }
+        default:
+            if let status = item.status { parts.append(status) }
         }
+        return parts.joined(separator: " · ")
     }
 
     private func activityColor(_ item: ActivityItem) -> Color {
@@ -523,12 +599,6 @@ struct DashboardView: View {
         case "local": .purple
         default: .secondary
         }
-    }
-
-    private func activityContext(_ item: ActivityItem) -> String {
-        [item.project ?? item.repo, item.branch, item.shortSHA]
-            .compactMap { $0 }
-            .joined(separator: " · ")
     }
 
     private func activityURL(_ item: ActivityItem) -> URL? {
@@ -583,12 +653,13 @@ struct DashboardView: View {
     }
 
     private func supabaseProjectContext(_ project: SupabaseProject) -> String {
-        let health = project.healthy == true
-            ? "Healthy"
+        // Green/red dot already signals health — only add detail when unhealthy.
+        let detail: String? = project.healthy == true
+            ? nil
             : ((project.unhealthyServices ?? []).isEmpty
-               ? (project.status ?? "Needs attention")
+               ? project.status
                : (project.unhealthyServices ?? []).joined(separator: ", "))
-        return [health, project.region].compactMap { $0 }.joined(separator: " · ")
+        return [detail, project.region].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func supabaseServiceSummary(_ project: SupabaseProject) -> String {
@@ -596,9 +667,11 @@ struct DashboardView: View {
         if services.isEmpty {
             return project.healthError ?? project.status ?? "No service detail"
         }
-        return services.map {
-            "\($0.name) \($0.healthy == true ? "healthy" : "unhealthy")"
-        }.joined(separator: " · ")
+        let unhealthy = services.filter { $0.healthy != true }.map(\.name)
+        if unhealthy.isEmpty {
+            return services.map(\.name).joined(separator: " · ")
+        }
+        return unhealthy.joined(separator: " · ") + " down"
     }
 
     private func openSupabaseProject(_ project: SupabaseProject) {
@@ -608,26 +681,33 @@ struct DashboardView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 14) {
             Button {
                 Task { await store.refresh() }
             } label: {
-                Text("Refresh")
+                Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.plain)
             .disabled(store.isRefreshing)
+            .help("Refresh")
+            .accessibilityLabel("Refresh")
             Spacer()
             SettingsLink {
-                Text("Settings")
+                Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
             .help("Settings")
-            Button("Quit") {
+            .accessibilityLabel("Settings")
+            Button {
                 NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
             }
             .buttonStyle(.plain)
+            .help("Quit")
+            .accessibilityLabel("Quit")
         }
-        .font(.caption)
+        .font(.body)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
@@ -637,16 +717,15 @@ struct DashboardView: View {
         if let error = store.errorMessage {
             return error
         }
+        if let attention = store.snapshot.attention,
+           AttentionAck.shouldShowPip(for: attention) {
+            return attention.summary ?? "Needs attention"
+        }
         if let stale = worstStaleSource {
             let age = stale.ageS ?? 0
             let minutes = max(1, age / 60)
             let title = stale.title ?? stale.id
             return "\(title) · \(minutes)m stale"
-        }
-        if let fails = store.snapshot.github?.failCount, fails > 0 {
-            return fails == 1
-                ? "1 GitHub Actions failure"
-                : "\(fails) GitHub Actions failures"
         }
         if let lastRefresh = store.lastRefresh {
             return "Updated \(lastRefresh.formatted(.relative(presentation: .named)))"
@@ -693,11 +772,11 @@ private struct QuotaRow: View {
                 accessibilityLabel: "\(title) usage"
             )
             HStack {
-                Text(percent.map { "\(Int($0.rounded()))% used" } ?? "—")
+                Text(percent.map { "\(Int($0.rounded()))%" } ?? "—")
                     .lineLimit(1)
                 Spacer()
                 if let reset {
-                    Text("Resets in \(reset)")
+                    Text(reset)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -711,25 +790,24 @@ private struct ProviderQuotaRing: View {
     let meter: ProviderMeter
     let tint: Color
 
-    private var hottest: MeterWindow {
-        if meter.provider == .cursor {
-            return meter.primary
+    private var headline: MeterWindow { meter.headline }
+
+    private var windowCaption: String {
+        if let reset = headline.reset, !reset.isEmpty {
+            return "\(headline.title) · \(reset)"
         }
-        return [meter.primary, meter.secondary, meter.tertiary]
-            .compactMap { $0 }
-            .max { ($0.percent ?? -1) < ($1.percent ?? -1) }
-            ?? meter.primary
+        return headline.title
     }
 
     var body: some View {
         VStack(spacing: 7) {
             ZStack {
                 QuotaRingCanvas(
-                    percent: hottest.percent,
-                    pacePercent: hottest.pacePercent,
+                    percent: headline.percent,
+                    pacePercent: headline.pacePercent,
                     tint: tint
                 )
-                Text(hottest.percent.map { "\(Int($0.rounded()))%" } ?? "—")
+                Text(headline.percent.map { "\(Int($0.rounded()))%" } ?? "—")
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .monospacedDigit()
             }
@@ -737,9 +815,12 @@ private struct ProviderQuotaRing: View {
             Text(meter.provider.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
-            Text(hottest.title)
+            Text(windowCaption)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
         .accessibilityElement(children: .combine)
     }

@@ -41,19 +41,6 @@ struct DailyBurnCard: View {
                     }
                 }
                 .frame(height: 108)
-
-                HStack(spacing: 12) {
-                    ForEach(UsageProvider.allCases, id: \.rawValue) { provider in
-                        HStack(spacing: 5) {
-                            RoundedRectangle(cornerRadius: 1.5)
-                                .fill(providerColor(provider))
-                                .frame(width: 8, height: 8)
-                            Text(provider.title)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
             }
         }
         .padding(14)

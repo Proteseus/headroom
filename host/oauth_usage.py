@@ -20,6 +20,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+import cache_util
+
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 TOKEN_URLS = (
     "https://platform.claude.com/v1/oauth/token",
@@ -260,6 +262,10 @@ def parse_usage(body, oauth=None):
 def fetch_quota(force=False):
     """Return quota dict, using a short in-memory cache. Never raises."""
     now = time.time()
+    if _cache["data"] is None:
+        disk = cache_util.load_disk("claude")
+        if disk:
+            _cache.update(t=0.0, data=disk, err=None)
     if not force and _cache["data"] is not None:
         ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
         if now - _cache["t"] < ttl:
@@ -268,19 +274,8 @@ def fetch_quota(force=False):
     empty = {"ok": False, "plan": None, "session": None, "week": None, "error": None}
 
     def _keep_stale(err):
-        """On transient failure, prefer last good snapshot over a blank page."""
-        if _cache["data"] and _cache["data"].get("ok"):
-            stale = dict(_cache["data"])
-            stale["stale"] = True
-            stale["error"] = err
-            # Don't stamp failure into the cache — keep the good payload + time
-            # so we retry after FAIL_TTL from the last success age… bump t so
-            # we don't hammer the API every call.
-            _cache.update(t=now, data=stale, err=err)
-            return stale
-        empty["error"] = err
-        _cache.update(t=now, data=empty, err=err)
-        return empty
+        return cache_util.keep_stale(
+            _cache, now, err, empty, disk_name="claude")
 
     try:
         store, blob = _read_creds_blob()
@@ -312,7 +307,10 @@ def fetch_quota(force=False):
             return _keep_stale(f"usage HTTP {status}")
 
         data = parse_usage(body, oauth)
+        data["stale"] = False
+        data["error"] = None
         _cache.update(t=now, data=data, err=None)
+        cache_util.save_disk("claude", data)
         return data
     except Exception as e:
         return _keep_stale(str(e))

@@ -22,6 +22,7 @@ struct UsageSnapshot: Decodable, Sendable {
     var local: LocalUsage?
     var supabase: SupabaseUsage?
     var sources: [SyncSource]?
+    var attention: Attention?
 
     static let empty = UsageSnapshot()
 
@@ -46,7 +47,8 @@ struct UsageSnapshot: Decodable, Sendable {
         activity: [ActivityItem]? = nil,
         local: LocalUsage? = nil,
         supabase: SupabaseUsage? = nil,
-        sources: [SyncSource]? = nil
+        sources: [SyncSource]? = nil,
+        attention: Attention? = nil
     ) {
         self.updated = updated
         self.plan = plan
@@ -69,11 +71,12 @@ struct UsageSnapshot: Decodable, Sendable {
         self.local = local
         self.supabase = supabase
         self.sources = sources
+        self.attention = attention
     }
 
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, vercel, git, github, activity, local
-        case supabase, sources
+        case supabase, sources, attention
         case byDay = "by_day"
         case quotaOK = "quota_ok"
         case quotaError = "quota_error"
@@ -104,7 +107,10 @@ struct UsageSnapshot: Decodable, Sendable {
                     percent: weekPct,
                     pacePercent: weekPacePct,
                     reset: weekResetsIn
-                )
+                ),
+                costLabel: today?.costUSD.map {
+                    $0.dollarLabel + " today"
+                }
             )
         case .codex:
             ProviderMeter(
@@ -125,7 +131,8 @@ struct UsageSnapshot: Decodable, Sendable {
                     reset: codex?.weekResetsIn
                 ),
                 paceLabel: codex?.paceLabel,
-                runsOutIn: codex?.runsOutIn
+                runsOutIn: codex?.runsOutIn,
+                costLabel: codex?.costLabel
             )
         case .cursor:
             ProviderMeter(
@@ -150,8 +157,24 @@ struct UsageSnapshot: Decodable, Sendable {
                     pacePercent: cursor?.apiPacePct,
                     reset: cursor?.resetsIn
                 ),
-                paceLabel: cursor?.paceLabel
+                paceLabel: cursor?.paceLabel,
+                costLabel: cursorCostLabel
             )
+        }
+    }
+
+    private var cursorCostLabel: String? {
+        let plan = cursor?.costLabel
+        let onDemand = cursor?.onDemandLabel
+        switch (plan, onDemand) {
+        case let (plan?, onDemand?):
+            return "\(plan) · \(onDemand)"
+        case let (plan?, nil):
+            return plan
+        case let (nil, onDemand?):
+            return onDemand
+        default:
+            return nil
         }
     }
 }
@@ -180,6 +203,7 @@ struct ProviderMeter: Sendable {
     var tertiary: MeterWindow?
     var paceLabel: String?
     var runsOutIn: String?
+    var costLabel: String?
 
     init(
         provider: UsageProvider,
@@ -190,7 +214,8 @@ struct ProviderMeter: Sendable {
         secondary: MeterWindow,
         tertiary: MeterWindow? = nil,
         paceLabel: String? = nil,
-        runsOutIn: String? = nil
+        runsOutIn: String? = nil,
+        costLabel: String? = nil
     ) {
         self.provider = provider
         self.ok = ok
@@ -201,6 +226,18 @@ struct ProviderMeter: Sendable {
         self.tertiary = tertiary
         self.paceLabel = paceLabel
         self.runsOutIn = runsOutIn
+        self.costLabel = costLabel
+    }
+
+    /// Window shown as the provider's headline signal (menu bar + overview rings).
+    var headline: MeterWindow {
+        if provider == .cursor {
+            return primary
+        }
+        return [primary, secondary, tertiary]
+            .compactMap { $0 }
+            .max { ($0.percent ?? -1) < ($1.percent ?? -1) }
+            ?? primary
     }
 }
 
@@ -252,6 +289,10 @@ struct CodexUsage: Decodable, Sendable {
     var paceLabel: String?
     var runsOutIn: String?
     var resetCreditsAvailable: Int?
+    var costUSD: Double?
+    var costLimitUSD: Double?
+    var costLabel: String?
+    var costReached: Bool?
 
     enum CodingKeys: String, CodingKey {
         case ok, plan, error
@@ -264,6 +305,10 @@ struct CodexUsage: Decodable, Sendable {
         case paceLabel = "pace_label"
         case runsOutIn = "runs_out_in"
         case resetCreditsAvailable = "reset_credits_available"
+        case costUSD = "cost_usd"
+        case costLimitUSD = "cost_limit_usd"
+        case costLabel = "cost_label"
+        case costReached = "cost_reached"
     }
 }
 
@@ -278,6 +323,13 @@ struct CursorUsage: Decodable, Sendable {
     var apiPacePct: Double?
     var resetsIn: String?
     var paceLabel: String?
+    var costUSD: Double?
+    var costLimitUSD: Double?
+    var costLabel: String?
+    var onDemandLabel: String?
+    var onDemandRemainingUSD: Double?
+    var onDemandLimitUSD: Double?
+    var onDemandUsedUSD: Double?
 
     enum CodingKeys: String, CodingKey {
         case ok, plan
@@ -289,6 +341,76 @@ struct CursorUsage: Decodable, Sendable {
         case apiPacePct = "api_pace_pct"
         case resetsIn = "resets_in"
         case paceLabel = "pace_label"
+        case costUSD = "cost_usd"
+        case costLimitUSD = "cost_limit_usd"
+        case costLabel = "cost_label"
+        case onDemandLabel = "on_demand_label"
+        case onDemandRemainingUSD = "on_demand_remaining_usd"
+        case onDemandLimitUSD = "on_demand_limit_usd"
+        case onDemandUsedUSD = "on_demand_used_usd"
+    }
+}
+
+struct Attention: Decodable, Sendable {
+    var level: String?
+    var score: Int?
+    var summary: String?
+    var reasons: [AttentionReason]?
+
+    var isWarning: Bool {
+        switch level {
+        case "warn", "critical": true
+        default: false
+        }
+    }
+
+    var isCritical: Bool {
+        level == "critical"
+    }
+
+    /// Stable identity for acknowledge-until-new. Changes when reasons change.
+    var fingerprint: String {
+        let parts = (reasons ?? []).map(\.id).sorted()
+        return parts.isEmpty ? (level ?? "ok") : parts.joined(separator: "\n")
+    }
+}
+
+struct AttentionReason: Decodable, Sendable, Identifiable {
+    var level: String?
+    var kind: String?
+    var summary: String?
+
+    var id: String {
+        [level, kind, summary].compactMap { $0 }.joined(separator: "|")
+    }
+}
+
+/// Persists a cleared attention fingerprint so the menu-bar pip stays off
+/// until a different (new) attention set appears.
+enum AttentionAck {
+    static let defaultsKey = "dismissedAttentionFingerprint"
+
+    static var dismissedFingerprint: String? {
+        get { UserDefaults.standard.string(forKey: defaultsKey) }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+            }
+        }
+    }
+
+    static func acknowledge(_ attention: Attention) {
+        dismissedFingerprint = attention.fingerprint
+    }
+
+    static func shouldShowPip(
+        for attention: Attention?,
+        dismissedFingerprint: String? = AttentionAck.dismissedFingerprint
+    ) -> Bool {
+        guard let attention, attention.isWarning else { return false }
+        return attention.fingerprint != dismissedFingerprint
     }
 }
 
@@ -511,5 +633,12 @@ struct LocalServer: Decodable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case name, port, pid, cmd, cwd, bind, reachable
         case latencyMS = "latency_ms"
+    }
+}
+
+extension Double {
+    /// Always whole dollars with `$`, never cents or locale currency codes.
+    var dollarLabel: String {
+        String(format: "$%.0f", rounded())
     }
 }

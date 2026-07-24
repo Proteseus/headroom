@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import app_config
 import cache_util
 
 CACHE_TTL_S = 60
@@ -28,8 +29,6 @@ TOKEN_URL = "https://api.vercel.com/login/oauth/token"
 CLI_CLIENT_ID = "cl_HYyOPBNtFMfHhaUn9L4QPfTZz6TP47bp"
 CLI_DIR = os.path.expanduser(
     "~/Library/Application Support/com.vercel.cli")
-# Prefer the Envisioning team over CLI currentTeam (often a personal team).
-PREFERRED_TEAM_SLUGS = ("ev-io", "envisioning")
 # Refresh a minute early so a concurrent CLI call doesn't race an expired token.
 EXPIRY_SKEW_S = 60
 
@@ -123,11 +122,11 @@ def _list_teams(token):
 
 
 def _resolve_team(token, fallback_id):
-    """Pick ev-io / envisioning when available; else CLI currentTeam."""
+    """Pick preferred team slugs from config when available; else CLI currentTeam."""
     teams = _list_teams(token)
     by_slug = {((t.get("slug") or "").lower()): t for t in teams}
     by_name = {((t.get("name") or "").lower()): t for t in teams}
-    for slug in PREFERRED_TEAM_SLUGS:
+    for slug in app_config.vercel_team_slugs():
         t = by_slug.get(slug) or by_name.get(slug)
         if t and t.get("id"):
             return t["id"], t.get("slug") or t.get("name")

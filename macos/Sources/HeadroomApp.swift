@@ -213,12 +213,12 @@ private struct SettingsView: View {
             } header: {
                 Text("GitHub Actions")
             } footer: {
-                Text("Watches envisioning/* remotes. Failed and running workflows show in Activity.")
+                Text("Watches envisioning/* remotes. Failed and running workflows show under GitHub.")
             }
 
             Section("Dashboard") {
                 Stepper(
-                    "Activity rows: \(activityRowLimit)",
+                    "GitHub rows: \(activityRowLimit)",
                     value: $activityRowLimit,
                     in: 3...14
                 )

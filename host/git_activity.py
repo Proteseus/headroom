@@ -1,8 +1,8 @@
 """Recent local git commits by the desk owner for the gadget.
 
-Scans ~/Dev/* (and one nested level, e.g. ~/Dev/envisioning/*) for git repos,
-runs `git log` filtered to Michell / michellzappa / envisioning authors, merges
-by time, and returns the newest few commits.
+Scans configured `dev_root` (default ~/Dev, one nested level) for git repos,
+runs `git log` filtered to configured authors, merges by time, and returns
+the newest few commits.
 
 Stdlib only (subprocess). Failures degrade to {ok: false} / empty list.
 """
@@ -13,20 +13,13 @@ import os
 import subprocess
 import time
 
+import app_config
 import cache_util
 
 CACHE_TTL_S = 60
 FAIL_TTL_S = 20
-DEV_ROOT = os.path.expanduser("~/Dev")
 PER_REPO = 15
 KEEP = 8
-# Match GitHub username, local name, and work emails (.io + .com).
-AUTHOR_PATTERNS = (
-    "michellzappa",
-    "Michell Zappa",
-    "mz@envisioning.io",
-    "mz@envisioning.com",
-)
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {"ok": False, "error": None, "commits": []}
@@ -48,7 +41,7 @@ def _is_git_repo(path):
 
 
 def _discover_repos(root):
-    """Top-level ~/Dev/* repos plus one nested level (envisioning/*, tiny/*, …)."""
+    """Top-level repos under root plus one nested level (org folders, …)."""
     repos = []
     try:
         entries = os.listdir(root)
@@ -129,7 +122,7 @@ def _log_repo(path):
     # One --author per pattern; git ORs multiple --author flags.
     args = ["log", f"-n{PER_REPO}", "--date=unix",
             "--pretty=format:%H%x09%ct%x09%s"]
-    for pat in AUTHOR_PATTERNS:
+    for pat in app_config.git_authors():
         args.extend(["--author", pat])
     raw = _git(path, *args)
     commits = []
@@ -169,13 +162,14 @@ def fetch_commits(force=False):
         if now - _cache["t"] < ttl:
             return _cache["data"]
 
-    if not os.path.isdir(DEV_ROOT):
+    root = app_config.dev_root()
+    if not os.path.isdir(root):
         return cache_util.keep_stale(
-            _cache, now, f"missing {DEV_ROOT}", _EMPTY)
+            _cache, now, f"missing {root}", _EMPTY)
 
     try:
         all_commits = []
-        for path in _discover_repos(DEV_ROOT):
+        for path in _discover_repos(root):
             all_commits.extend(_log_repo(path))
         all_commits.sort(key=lambda c: c["t"], reverse=True)
         slim = []

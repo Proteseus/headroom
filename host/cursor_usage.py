@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.request
 
+import cache_util
 import oauth_usage
 
 USAGE_URL = (
@@ -174,6 +175,9 @@ def _on_demand(spend):
 
     rem_d = dollars(remaining)
     lim_d = dollars(limit)
+    used_d = None
+    if rem_d is not None and lim_d is not None:
+        used_d = round(max(0.0, lim_d - rem_d), 2)
     label = None
     if rem_d is not None and lim_d is not None:
         label = f"${rem_d:.0f} / ${lim_d:.0f} on-demand"
@@ -186,6 +190,44 @@ def _on_demand(spend):
         ),
         "limit_usd": lim_d,
         "remaining_usd": rem_d,
+        "used_usd": used_d,
+        "label": label,
+    }
+
+
+def _plan_spend(plan_usage):
+    """Included-plan spend from GetCurrentPeriodUsage.planUsage (cents)."""
+    if not isinstance(plan_usage, dict):
+        return None
+
+    def cents_to_usd(value):
+        if value is None:
+            return None
+        try:
+            return round(float(value) / 100.0, 2)
+        except (TypeError, ValueError):
+            return None
+
+    used = cents_to_usd(
+        plan_usage.get("totalSpend")
+        if plan_usage.get("totalSpend") is not None
+        else plan_usage.get("includedSpend")
+    )
+    included = cents_to_usd(plan_usage.get("includedSpend"))
+    limit = cents_to_usd(plan_usage.get("limit"))
+    remaining = cents_to_usd(plan_usage.get("remaining"))
+    if used is None and limit is None and remaining is None:
+        return None
+    label = None
+    if used is not None and limit is not None:
+        label = f"${used:.0f} / ${limit:.0f}"
+    elif used is not None:
+        label = f"${used:.0f} used"
+    return {
+        "used_usd": used,
+        "included_usd": included,
+        "limit_usd": limit,
+        "remaining_usd": remaining,
         "label": label,
     }
 
@@ -240,6 +282,7 @@ def parse_usage(body, plan=None):
         "cycle_start_s": int(start_s) if start_s is not None else None,
         "cycle_end_s": int(end_s) if end_s is not None else None,
         "resets_in_s": resets_in,
+        "spend": _plan_spend(plan_usage),
         "on_demand": _on_demand((body or {}).get("spendLimitUsage")),
         "error": None,
     }
@@ -248,6 +291,10 @@ def parse_usage(body, plan=None):
 def fetch_quota(force=False):
     """Return Cursor quota dict, using a short in-memory cache. Never raises."""
     now = time.time()
+    if _cache["data"] is None:
+        disk = cache_util.load_disk("cursor")
+        if disk:
+            _cache.update(t=0.0, data=disk, err=None)
     if not force and _cache["data"] is not None:
         ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
         if now - _cache["t"] < ttl:
@@ -263,20 +310,14 @@ def fetch_quota(force=False):
         "cycle_start_s": None,
         "cycle_end_s": None,
         "resets_in_s": None,
+        "spend": None,
         "on_demand": None,
         "error": None,
     }
 
     def _keep_stale(err):
-        if _cache["data"] and _cache["data"].get("ok"):
-            stale = dict(_cache["data"])
-            stale["stale"] = True
-            stale["error"] = err
-            _cache.update(t=now, data=stale, err=err)
-            return stale
-        empty["error"] = err
-        _cache.update(t=now, data=empty, err=err)
-        return empty
+        return cache_util.keep_stale(
+            _cache, now, err, empty, disk_name="cursor")
 
     try:
         token = _read_token()
@@ -290,7 +331,9 @@ def fetch_quota(force=False):
 
         data = parse_usage(body, plan=plan)
         data["stale"] = False
+        data["error"] = None
         _cache.update(t=now, data=data, err=None)
+        cache_util.save_disk("cursor", data)
         return data
     except Exception as e:
         return _keep_stale(str(e))

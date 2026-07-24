@@ -1,27 +1,17 @@
 # headroom
 
-A desk gadget that shows Claude / Codex / Cursor quota, Vercel builds, and
-recent git commits on a Waveshare **ESP32-S3-Touch-AMOLED-1.8** (368×448).
-Headroom home shows at-a-glance rings + columns; tap a slot for detail, tap
-again to go home.
+A desk gadget that shows Claude / Codex / Cursor quota + spend, Vercel
+builds, git activity, GitHub Actions, Supabase health, and local servers on a
+Waveshare **ESP32-S3-Touch-AMOLED-1.8** (368×448), with a matching macOS menu-bar
+app. Everything hangs off one local Python host.
 
 ```
-  ~/.claude/projects/**/*.jsonl        Mac (Python, stdlib)         ESP32-S3 (Wi-Fi)
-  ┌───────────────────────────┐        ┌──────────────────┐        ┌──────────────┐
-  │ Claude + Codex + Cursor    │──────▶│ headroom_        │◀──────│ polls /usage │
-  │ Vercel CLI → team deploys  │ parse │ server.py :8737  │  HTTP  │ tap to open  │
-  │ ~/Dev git + local listeners│──────▶│  GET /usage JSON │  60s   │              │
-  └───────────────────────────┘        └──────────────────┘        └──────────────┘
+  ~/.claude JSONL + OAuth          Mac (Python, stdlib)           Clients
+  ~/.codex + Cursor state.vscdb    ┌──────────────────┐          ┌──────────────┐
+  Vercel CLI / git / gh / SB  ───▶│ headroom_        │◀── HTTP ─│ ESP32 /usage │
+  ~/.headroom/{config,sources}    │ server.py :8737  │          │ HeadroomBar  │
+                                  └──────────────────┘          └──────────────┘
 ```
-
-The Mac parses Claude Code usage logs for local cost, polls Anthropic's OAuth
-`/api/oauth/usage` for Claude Session/Weekly %, OpenAI's
-`chatgpt.com/backend-api/wham/usage` (+ reset-credits) for Codex, and Cursor's
-`GetCurrentPeriodUsage` (Auto + API pools) via the signed-in IDE token. It also
-reads the Vercel CLI login for team deployments (prefers **ev-io** / Envisioning)
-and scans `~/Dev` for your recent commits. No extra API keys: Claude reuses
-Keychain login, Codex reuses `~/.codex/auth.json`, Cursor reuses
-`state.vscdb`, Vercel reuses `~/Library/Application Support/com.vercel.cli/`.
 
 ## Host (Mac)
 
@@ -40,118 +30,131 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
 launchctl kickstart -k gui/$(id -u)/com.mz.headroom
 ```
 
-Cost is computed from `host/pricing.py` (per-1M rates + cache read/write
-multipliers). These are list prices; on a Max plan they represent token
-*value*, not out-of-pocket spend. Edit that file if your rates differ.
+### Personal config
+
+Copy defaults and edit:
+
+```
+cp host/config.example.json ~/.headroom/config.json
+```
+
+| Key | Purpose |
+|---|---|
+| `timezone` | Local day boundary for burn + timestamps |
+| `dev_root` | Where git / GitHub repo discovery walks |
+| `git_authors` | `git log --author` patterns |
+| `vercel_team_slugs` | Preferred Vercel team (else CLI current team) |
+| `github_org_prefix` | Org filter for discovered Actions repos |
+| `github_always_repos` | Always-watched `owner/name` list |
+| `github_max_discovered` | Cap on auto-discovered org repos |
+
+Source toggles live in `~/.headroom/sources.json` (also editable from Mac
+Settings). Optional repo extras: `~/.headroom/github.json` →
+`{"repos":["owner/name"]}`.
+
+### Modules
 
 | Module | Source |
 |---|---|
-| `host/oauth_usage.py` | Keychain `Claude Code-credentials` → Anthropic OAuth usage |
-| `host/codex_usage.py` | `~/.codex/auth.json` → `wham/usage` + limit-reset credits |
-| `host/cursor_usage.py` | Cursor `state.vscdb` → `GetCurrentPeriodUsage` (Auto + API) |
-| `host/vercel_builds.py` | Vercel CLI auth → team deployments (`ev-io`) |
-| `host/git_activity.py` | `~/Dev/*` (+ nested, e.g. `envisioning/*`) `git log` for your authors |
-| `host/local_servers.py` | `lsof` TCP LISTEN → labeled local dev servers |
+| `oauth_usage.py` | Keychain `Claude Code-credentials` → Anthropic OAuth usage |
+| `codex_usage.py` | `~/.codex/auth.json` → `wham/usage` + reset credits + spend |
+| `cursor_usage.py` | Cursor `state.vscdb` → `GetCurrentPeriodUsage` (Auto/API + $) |
+| `vercel_builds.py` | Vercel CLI auth → team deployments |
+| `git_activity.py` | Commits under configured `dev_root` |
+| `github_actions.py` | Failed / running Actions (`HEADROOM_GITHUB_TOKEN` / Keychain / `gh`) |
+| `local_servers.py` | `lsof` TCP LISTEN → labeled local dev servers |
+| `supabase_usage.py` | Project health via Supabase PAT |
+| `daily_burn.py` | Per-day %-point burn across Claude / Codex / Cursor |
+| `sources_config.py` | Enabled-source flags for host + ESP32 |
+| `app_config.py` | Personal paths / TZ / org filters |
 
-If Claude OAuth fails, the display falls back to dollar rollups. If Codex or
-Cursor auth is missing, that page shows “quota unavailable”. Vercel refreshes
-the CLI token when expired; if login is missing, the Vercel page shows
-unavailable.
+Claude cost is token *value* from `pricing.py` (list rates). Codex spend comes
+from ChatGPT `spend_control`; Cursor spend from `planUsage` (+ on-demand
+limit). Failures keep the last-good snapshot (`cache_util.keep_stale`).
 
-### `/usage` shape
+### Endpoints
+
+| Path | Notes |
+|---|---|
+| `GET /usage` | Flat JSON for ESP32 + menu bar |
+| `GET /health` | Uptime + compact source status |
+| `POST /sync/refresh` | Force-refresh sources (LAN OK — ESP32 long-press) |
+| `POST /sources` | Toggle enabled sources (loopback) |
+| `POST /supabase/refresh` | Force Supabase poll (loopback) |
+| `POST /local/stop` | Stop a local server by pid/port (loopback) |
+
+### `/usage` shape (abridged)
 
 ```json
 {
-  "updated": "2026-07-21T14:37:20+0200",
+  "updated": "2026-07-23T22:00:00+0200",
   "plan": "Max 5x",
   "quota_ok": true,
-  "session_pct": 100.0,
-  "session_pace_pct": 42.0,
-  "session_resets_in": "1h 44m",
+  "session_pct": 42.0,
   "week_pct": 63.0,
-  "week_pace_pct": 50.0,
-  "week_resets_in": "4d 44m",
-  "today":      { "input":.., "output":.., "cache_read":.., "cache_write":.., "total":.., "cost_usd":.. },
-  "session_5h": { ... },
-  "last_hour":  { ... },
-  "week":       { ... },
-  "by_model":   { "claude-opus-4-8": { ... } },
+  "today": { "total": 1234, "cost_usd": 4.25 },
+  "by_day": [
+    {"date": "2026-07-22", "claude": 2.0, "codex": 1.5, "cursor": 0.5, "total": 4.0}
+  ],
   "codex": {
-    "ok": true,
-    "plan": "Team",
-    "week_pct": 96.0,
-    "week_pace_pct": 46.2,
-    "week_resets_in": "3d 18h",
-    "pace_label": "50% in deficit",
-    "runs_out_in": "3h 14m",
-    "reset_credits_available": 2,
-    "reset_credits_expiries": ["10d 7h", "22d 4h"]
+    "ok": true, "plan": "Team",
+    "week_pct": 72.0, "pace_label": "12% in deficit",
+    "cost_usd": 120.5, "cost_limit_usd": 500.0, "cost_label": "$120 / $500"
   },
   "cursor": {
-    "ok": true,
-    "plan": "Pro",
-    "auto_pct": 0.0,
-    "auto_pace_pct": 70.5,
-    "api_pct": 33.7,
-    "api_pace_pct": 70.5,
-    "resets_in": "8d 20h",
-    "pace_label": "37% in reserve",
+    "ok": true, "plan": "Pro",
+    "total_pct": 4.4, "auto_pct": 0.0, "api_pct": 33.7,
+    "cost_usd": 15.15, "cost_limit_usd": 20.0, "cost_label": "$15 / $20",
     "on_demand_label": "$30 / $30 on-demand"
   },
-  "vercel": {
-    "ok": true,
-    "team": "ev-io",
-    "deployments": [
-      {"project": "signals-ai", "state": "READY", "status": "ready",
-       "target": "production", "ago": "12m", "branch": "main"}
-    ]
+  "attention": {
+    "level": "warn",
+    "score": 25,
+    "summary": "1 Supabase alert",
+    "reasons": [{"level": "warn", "kind": "supabase", "summary": "1 Supabase alert"}]
   },
-  "git": {
-    "ok": true,
-    "commits": [
-      {"repo": "septena-cloud", "subject": "fix auth redirect",
-       "ago": "2h", "branch": "main"}
-    ]
-  }
+  "vercel": { "ok": true, "team": "ev-io", "deployments": [] },
+  "git": { "ok": true, "commits": [] },
+  "github": { "ok": true, "fail_count": 0, "running_count": 1, "runs": [] },
+  "supabase": { "ok": true, "alert_count": 0, "projects": [] },
+  "activity": [],
+  "local": { "ok": true, "servers": [] },
+  "sources": [{ "id": "claude", "enabled": true, "ok": true }]
 }
 ```
+
+`attention.level` is `ok` | `warn` | `critical` — the menu-bar icon lights an
+amber/red pip when it isn’t `ok`.
 
 ## Firmware (ESP32-S3)
 
 1. `cp firmware/src/config_example.h firmware/src/config.h` and fill in your
-   Wi-Fi SSID/password and the Mac's LAN IP (`ipconfig getifaddr en0`).
+   Wi-Fi SSID/password and the Mac's LAN IP (`ipconfig getifaddr en0`), or set
+   `HOST_NAME` for mDNS.
 2. Flash with PlatformIO: `cd firmware && pio run -t upload && pio device monitor`.
 
 **Tap a Headroom grid slot** to open that detail page; tap again (or BOOT) to
-return home. Local shows listening dev servers on the Mac (node, Next, Vite,
-Postgres, …). Claude uses terracotta rings; Codex uses OpenAI green; Cursor
-uses cool blue; Vercel shows deploy status dots; Git shows recent commit ages;
-Local shows one dot per server.
+return home. **Long-press glance home (~400ms)** force-syncs the host via
+`POST /sync/refresh` (same as Mac Settings → Refresh all). Footer dots mirror
+`sources[]` health.
 
 Board specifics are in `firmware/src/pin_config.h`. The display is an SH8601
 AMOLED over QSPI; the AXP2101 PMU and a TCA9554 expander must be brought up
 before the panel turns on — `main.cpp` does this itself over one I2C bus to
-avoid the known `Wire.begin()` conflict (see repo notes in the source).
+avoid the known `Wire.begin()` conflict.
 
 **If the screen stays black:** try `TCA9554_ADDR` = `0x21` in `pin_config.h`
 (some board revisions strap the expander there), and confirm the panel powers
-via USB. If your board revision differs, cross-check the pin numbers and the
-power-up sequence against Waveshare's official Arduino demo for this exact
-board.
-
-## Layout
-
-CodexBar-style on quota pages: percent bars with a white pace tick, reset
-timers, and plan tier. Claude bars stay terracotta; Codex stays OpenAI green;
-Cursor stays cool blue (even near 100%).
+via USB.
 
 ## macOS menu bar
 
-`macos/` contains a native menu-bar companion (**Headroom**) that uses the same
-`/usage` backend as the ESP32. Its status item uses CodexBar's thick-primary,
-thin-secondary meter treatment for the selected Claude, Codex, or Cursor
-provider, while the popover adds reset/pace detail
-plus an all-provider ring overview, Vercel deploys, local servers, recent
-commits, and today's token value.
+`macos/` is a native accessory app (**Headroom**) on the same `/usage` feed.
+
+- Status item: three thin quota bars (Claude, Codex, Cursor), plus a
+  colored warning pip when `attention` is warn/critical.
+- Overview: quota rings, daily burn, attention + spend strip.
+- Provider tabs: detailed meters, then activity / Supabase / local servers.
+- Settings: backend URL, per-source toggles + refresh, Supabase/GitHub tokens.
 
 See [`macos/README.md`](macos/README.md) for build and run instructions.

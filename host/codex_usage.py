@@ -21,6 +21,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import cache_util
+
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -279,6 +281,51 @@ def _parse_reset_credits(body):
     }
 
 
+def _parse_spend_control(body):
+    """Workspace/individual spend from wham/usage → spend_control."""
+    sc = (body or {}).get("spend_control")
+    if not isinstance(sc, dict):
+        return None
+    lim = sc.get("individual_limit")
+    if not isinstance(lim, dict):
+        return None
+
+    def money(value):
+        if value is None or value == "":
+            return None
+        try:
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return None
+
+    used = money(lim.get("used"))
+    limit = money(lim.get("limit"))
+    remaining = money(lim.get("remaining"))
+    if used is None and limit is None and remaining is None:
+        return None
+    label = None
+    if used is not None and limit is not None:
+        label = f"${used:,.0f} / ${limit:,.0f}"
+    elif used is not None:
+        label = f"${used:,.0f} spent"
+    elif remaining is not None and limit is not None:
+        label = f"${remaining:,.0f} / ${limit:,.0f} left"
+    used_pct = lim.get("used_percent")
+    try:
+        used_pct = float(used_pct) if used_pct is not None else None
+    except (TypeError, ValueError):
+        used_pct = None
+    return {
+        "used_usd": used,
+        "limit_usd": limit,
+        "remaining_usd": remaining,
+        "used_percent": used_pct,
+        "reached": bool(sc.get("reached")),
+        "source": lim.get("source"),
+        "label": label,
+    }
+
+
 def parse_usage(body, credits_body=None):
     """Map wham/usage (+ optional reset-credits) → flat quota dict for /usage."""
     rl = (body or {}).get("rate_limit") or {}
@@ -323,12 +370,17 @@ def parse_usage(body, credits_body=None):
         "pace": pace,
         "reset_credits": reset_credits,
         "credits": (body or {}).get("credits"),
+        "spend": _parse_spend_control(body),
     }
 
 
 def fetch_quota(force=False):
     """Return Codex quota dict, using a short in-memory cache. Never raises."""
     now = time.time()
+    if _cache["data"] is None:
+        disk = cache_util.load_disk("codex")
+        if disk:
+            _cache.update(t=0.0, data=disk, err=None)
     if not force and _cache["data"] is not None:
         ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
         if now - _cache["t"] < ttl:
@@ -336,19 +388,13 @@ def fetch_quota(force=False):
 
     empty = {
         "ok": False, "plan": None, "session": None, "week": None,
-        "pace": None, "reset_credits": None, "credits": None, "error": None,
+        "pace": None, "reset_credits": None, "credits": None,
+        "spend": None, "error": None,
     }
 
     def _keep_stale(err):
-        if _cache["data"] and _cache["data"].get("ok"):
-            stale = dict(_cache["data"])
-            stale["stale"] = True
-            stale["error"] = err
-            _cache.update(t=now, data=stale, err=err)
-            return stale
-        empty["error"] = err
-        _cache.update(t=now, data=empty, err=err)
-        return empty
+        return cache_util.keep_stale(
+            _cache, now, err, empty, disk_name="codex")
 
     try:
         blob = _read_auth()
@@ -373,6 +419,7 @@ def fetch_quota(force=False):
         data["stale"] = False
         data["error"] = None
         _cache.update(t=now, data=data, err=None)
+        cache_util.save_disk("codex", data)
         return data
     except Exception as e:
         return _keep_stale(str(e))

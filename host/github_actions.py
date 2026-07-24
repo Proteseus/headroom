@@ -5,8 +5,8 @@ Auth (never returned via /usage), in order:
   Keychain item com.mz.headroom.github / access-token
   `gh auth token` (if available)
 
-Repos: always includes envisioning/envisioning.com, plus other
-envisioning/* remotes discovered under ~/Dev (capped), plus optional
+Repos: always includes configured always-repos, plus org remotes discovered
+under configured `dev_root` (capped), plus optional
 ~/.headroom/github.json → {"repos":["owner/name", ...]}.
 
 Stdlib only. Failures degrade to {ok:false} with keep-stale.
@@ -22,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import app_config
 import cache_util
 
 API = "https://api.github.com"
@@ -30,9 +31,6 @@ FAIL_TTL_S = 30
 KEYCHAIN_SERVICE = "com.mz.headroom.github"
 KEYCHAIN_ACCOUNT = "access-token"
 CONFIG_PATH = os.path.expanduser("~/.headroom/github.json")
-DEV_ROOT = os.path.expanduser("~/Dev")
-ALWAYS_REPOS = ("envisioning/envisioning.com",)
-MAX_DISCOVERED = 6
 KEEP_RUNS = 8
 UA = "Headroom/1"
 
@@ -137,18 +135,21 @@ def _remote_slug(path):
     return raw.removesuffix(".git")
 
 
-def _discover_envisioning_repos():
-    """Pick envisioning/* remotes under ~/Dev (shallow scan)."""
+def _discover_org_repos():
+    """Pick org-prefix remotes under configured dev_root (shallow scan)."""
     found = []
+    root = app_config.dev_root()
+    prefix = app_config.github_org_prefix()
+    max_discovered = app_config.github_max_discovered()
     try:
-        entries = sorted(os.listdir(DEV_ROOT))
+        entries = sorted(os.listdir(root))
     except OSError:
         return found
     candidates = []
     for name in entries:
         if name.startswith("."):
             continue
-        path = os.path.join(DEV_ROOT, name)
+        path = os.path.join(root, name)
         if not os.path.isdir(path):
             continue
         paths = [path] if _is_git_repo(path) else []
@@ -165,7 +166,7 @@ def _discover_envisioning_repos():
                     paths.append(child_path)
         for repo_path in paths:
             slug = _remote_slug(repo_path)
-            if not slug or not slug.startswith("envisioning/"):
+            if not slug or (prefix and not slug.startswith(prefix)):
                 continue
             try:
                 mtime = os.path.getmtime(repo_path)
@@ -176,14 +177,18 @@ def _discover_envisioning_repos():
     for _, slug in candidates:
         if slug not in found:
             found.append(slug)
-        if len(found) >= MAX_DISCOVERED:
+        if len(found) >= max_discovered:
             break
     return found
 
 
 def _repos():
     ordered = []
-    for slug in list(ALWAYS_REPOS) + _config_repos() + _discover_envisioning_repos():
+    for slug in (
+        list(app_config.github_always_repos())
+        + _config_repos()
+        + _discover_org_repos()
+    ):
         if slug and slug not in ordered:
             ordered.append(slug)
     return ordered

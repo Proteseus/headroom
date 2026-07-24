@@ -42,14 +42,21 @@ import local_servers
 import supabase_usage
 import daily_burn
 import sources_config
+import app_config
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
-LOCAL_TZ = ZoneInfo("Europe/Berlin")  # CET/CEST
 QUOTA_POLL_S = 60  # usage endpoints are rate-limited; don't hammer them
 SUPABASE_POLL_S = 5 * 60
 GITHUB_POLL_S = 90
 BOOT_T0 = time.time()
+
+
+def _local_tz():
+    try:
+        return ZoneInfo(app_config.timezone_name())
+    except Exception:
+        return ZoneInfo("UTC")
 
 _lock = threading.Lock()
 _offsets = {}   # filepath -> bytes already consumed
@@ -312,6 +319,7 @@ def _flatten_codex(codex):
     week_q = codex.get("week") or {}
     pace = codex.get("pace") or {}
     credits = codex.get("reset_credits") or {}
+    spend = codex.get("spend") or {}
     session_resets = session_q.get("resets_in_s")
     week_resets = week_q.get("resets_in_s")
     session_window = session_q.get("window_s") or oauth_usage.SESSION_WINDOW_S
@@ -335,6 +343,11 @@ def _flatten_codex(codex):
         "runs_out_in_s": pace.get("runs_out_in_s"),
         "reset_credits_available": credits.get("available"),
         "reset_credits_expiries": credits.get("expiries") or [],
+        "cost_usd": spend.get("used_usd"),
+        "cost_limit_usd": spend.get("limit_usd"),
+        "cost_remaining_usd": spend.get("remaining_usd"),
+        "cost_label": spend.get("label"),
+        "cost_reached": spend.get("reached"),
     }
 
 
@@ -344,6 +357,7 @@ def _flatten_cursor(cursor):
     auto_q = cursor.get("auto") or {}
     api_q = cursor.get("api") or {}
     pace = cursor.get("pace") or {}
+    spend = cursor.get("spend") or {}
     on_demand = cursor.get("on_demand") or {}
     auto_resets = auto_q.get("resets_in_s")
     api_resets = api_q.get("resets_in_s")
@@ -374,9 +388,14 @@ def _flatten_cursor(cursor):
         "pace_label": pace.get("label"),
         "pace_delta_pct": pace.get("delta_pct"),
         "pace_in_deficit": pace.get("in_deficit"),
+        "cost_usd": spend.get("used_usd"),
+        "cost_limit_usd": spend.get("limit_usd"),
+        "cost_remaining_usd": spend.get("remaining_usd"),
+        "cost_label": spend.get("label"),
         "on_demand_label": on_demand.get("label"),
         "on_demand_remaining_usd": on_demand.get("remaining_usd"),
         "on_demand_limit_usd": on_demand.get("limit_usd"),
+        "on_demand_used_usd": on_demand.get("used_usd"),
     }
 
 
@@ -416,13 +435,19 @@ def rollup():
     for b in (today, week, session_5h, last_hour, *by_model.values()):
         b["cost_usd"] = round(b["cost_usd"], 4)
 
+    local_tz = _local_tz()
+    flat_codex = _flatten_codex(codex)
+    flat_cursor = _flatten_cursor(cursor)
+    activity = _build_activity(vercel, git, supabase, github)
+    sources = _sources_payload(
+        quota, codex, cursor, vercel, git, github, local, supabase)
     # Flatten Claude fields at the top level (back-compat with older firmware).
     session_q = quota.get("session") or {}
     week_q = quota.get("week") or {}
     session_resets = session_q.get("resets_in_s")
     week_resets = week_q.get("resets_in_s")
-    return {
-        "updated": datetime.now(LOCAL_TZ).strftime("%Y-%m-%dT%H:%M:%S%z"),
+    doc = {
+        "updated": datetime.now(local_tz).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "plan": quota.get("plan"),
         "session_pct": session_q.get("pct"),
         "session_pace_pct": oauth_usage.pace_pct(
@@ -441,10 +466,10 @@ def rollup():
         "session_5h": session_5h,
         "last_hour": last_hour,
         "by_model": by_model,
-        "by_day": daily_burn.series(tz=LOCAL_TZ),
+        "by_day": daily_burn.series(tz=local_tz),
         "quota": quota,
-        "codex": _flatten_codex(codex),
-        "cursor": _flatten_cursor(cursor),
+        "codex": flat_codex,
+        "cursor": flat_cursor,
         "vercel": {
             "ok": bool(vercel.get("ok")),
             "team": vercel.get("team"),
@@ -458,7 +483,7 @@ def rollup():
             "stale": bool(git.get("stale")),
             "commits": git.get("commits") or [],
         },
-        "activity": _build_activity(vercel, git, supabase, github),
+        "activity": activity,
         "supabase": supabase,
         "github": {
             "ok": bool(github.get("ok")),
@@ -477,8 +502,90 @@ def rollup():
             "stale": bool(local.get("stale")),
             "servers": local.get("servers") or [],
         },
-        "sources": _sources_payload(
-            quota, codex, cursor, vercel, git, github, local, supabase),
+        "sources": sources,
+    }
+    doc["attention"] = _build_attention(doc)
+    return doc
+
+
+def _build_attention(doc):
+    """Single glance score for menu-bar warning light + Overview card."""
+    reasons = []
+
+    def add(level, kind, summary, weight):
+        reasons.append({
+            "level": level,
+            "kind": kind,
+            "summary": summary,
+            "weight": weight,
+        })
+
+    github = doc.get("github") or {}
+    if github.get("configured") and (github.get("fail_count") or 0) > 0:
+        fails = int(github["fail_count"])
+        add(
+            "critical",
+            "github",
+            f"{fails} GitHub Actions failure" + ("" if fails == 1 else "s"),
+            40 + min(30, fails * 5),
+        )
+
+    supabase = doc.get("supabase") or {}
+    if supabase.get("configured") and (supabase.get("alert_count") or 0) > 0:
+        alerts = int(supabase["alert_count"])
+        add(
+            "warn" if alerts < 3 else "critical",
+            "supabase",
+            f"{alerts} Supabase alert" + ("" if alerts == 1 else "s"),
+            25 + min(25, alerts * 8),
+        )
+
+    deploys = ((doc.get("vercel") or {}).get("deployments")) or []
+    deploy_errors = sum(
+        1 for d in deploys
+        if (d.get("status") or "").lower() == "error"
+        or (d.get("state") or "").upper() in ("ERROR", "FAILED")
+    )
+    if deploy_errors:
+        add(
+            "critical" if deploy_errors >= 2 else "warn",
+            "vercel",
+            f"{deploy_errors} failed deploy" + ("" if deploy_errors == 1 else "s"),
+            20 + min(20, deploy_errors * 8),
+        )
+
+    # Quota % lives on the rings — don't nag Attention for a drained meter.
+    # Only call out time-sensitive / hard-limit events.
+    codex = doc.get("codex") or {}
+    if codex.get("ok"):
+        runs_out = codex.get("runs_out_in_s")
+        if isinstance(runs_out, (int, float)) and 0 < runs_out <= 3 * 3600:
+            add("warn", "codex", f"Codex runs out in {codex.get('runs_out_in')}", 22)
+        if codex.get("cost_reached"):
+            add("critical", "codex", "Codex spend limit reached", 40)
+
+    # Source timeouts keep last-good data — don't light Attention for them.
+
+    score = min(100, sum(r["weight"] for r in reasons))
+    if any(r["level"] == "critical" for r in reasons):
+        level = "critical"
+    elif reasons:
+        level = "warn"
+    else:
+        level = "ok"
+    # Drop weight from public payload — clients only need level/summary.
+    public_reasons = [
+        {"level": r["level"], "kind": r["kind"], "summary": r["summary"]}
+        for r in sorted(reasons, key=lambda r: -r["weight"])
+    ]
+    return {
+        "level": level,
+        "score": score,
+        "summary": (
+            public_reasons[0]["summary"] if public_reasons
+            else "All clear"
+        ),
+        "reasons": public_reasons,
     }
 
 
@@ -836,7 +943,7 @@ def _observe_burn():
             q = dict(_quota)
             c = dict(_codex)
             cu = dict(_cursor)
-        today_burn = daily_burn.observe(q, c, cu, tz=LOCAL_TZ)
+        today_burn = daily_burn.observe(q, c, cu, tz=_local_tz())
         print(
             "burn today "
             f"claude={today_burn.get('claude')}%  "

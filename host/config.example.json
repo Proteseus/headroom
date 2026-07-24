@@ -1,0 +1,14 @@
+{
+  "timezone": "Europe/Berlin",
+  "dev_root": "~/Dev",
+  "git_authors": [
+    "michellzappa",
+    "Michell Zappa",
+    "mz@envisioning.io",
+    "mz@envisioning.com"
+  ],
+  "vercel_team_slugs": ["ev-io", "envisioning"],
+  "github_org_prefix": "envisioning/",
+  "github_always_repos": ["envisioning/envisioning.com"],
+  "github_max_discovered": 6
+}

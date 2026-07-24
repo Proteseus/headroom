@@ -19,8 +19,8 @@ final class StatusItemController: NSObject {
         if let button = statusItem.button {
             button.image = MeterIconRenderer.render(
                 snapshot: .empty,
-                provider: selectedProvider,
-                healthy: false
+                healthy: false,
+                attentionLevel: nil
             )
             button.imagePosition = .imageOnly
             button.toolTip = "Headroom"
@@ -55,23 +55,30 @@ final class StatusItemController: NSObject {
     }
 
     private func update(snapshot: UsageSnapshot, healthy: Bool) {
-        let provider = selectedProvider
-        let meter = snapshot.meter(for: provider)
+        let attention = snapshot.attention
+        if attention?.isWarning != true,
+           AttentionAck.dismissedFingerprint != nil {
+            AttentionAck.dismissedFingerprint = nil
+        }
+        let showPip = AttentionAck.shouldShowPip(for: attention)
         statusItem.button?.image = MeterIconRenderer.render(
             snapshot: snapshot,
-            provider: provider,
-            healthy: healthy
+            healthy: healthy,
+            attentionLevel: showPip ? attention?.level : nil
         )
-        let primary = Int((meter.primary.percent ?? 0).rounded())
-        let secondary = Int((meter.secondary.percent ?? 0).rounded())
-        statusItem.button?.toolTip = healthy
-            ? "Headroom — \(provider.title) \(primary)% \(meter.primary.title.lowercased()), \(secondary)% \(meter.secondary.title.lowercased())"
-            : "Headroom — backend unavailable"
-    }
-
-    private var selectedProvider: UsageProvider {
-        let raw = UserDefaults.standard.string(forKey: "selectedProvider")
-        return raw.flatMap(UsageProvider.init(rawValue:)) ?? .codex
+        if !healthy {
+            statusItem.button?.toolTip = "Headroom — backend unavailable"
+        } else if showPip, let attention {
+            statusItem.button?.toolTip =
+                "Headroom — \(attention.summary ?? "Needs attention")"
+        } else {
+            let parts = UsageProvider.allCases.map { provider in
+                let meter = snapshot.meter(for: provider)
+                let pct = Int((meter.headline.percent ?? 0).rounded())
+                return "\(provider.title) \(pct)%"
+            }
+            statusItem.button?.toolTip = "Headroom — \(parts.joined(separator: ", "))"
+        }
     }
 
     @objc private func togglePopover() {
@@ -121,43 +128,58 @@ enum MeterIconRenderer {
 
     static func render(
         snapshot: UsageSnapshot,
-        provider: UsageProvider,
-        healthy: Bool
+        healthy: Bool,
+        attentionLevel: String? = nil
     ) -> NSImage {
         let size = NSSize(width: 18, height: 18)
+        let warning = attentionLevel == "warn" || attentionLevel == "critical"
         let image = NSImage(size: size, flipped: false) { _ in
-            let meter = snapshot.meter(for: provider)
+            let providers = UsageProvider.allCases
             let barWidthPixels = 30
+            let barHeightPixels = 6
+            let gapPixels = 4
             let barX = (canvasPixels - barWidthPixels) / 2
-            let top = PixelRect(
-                x: barX,
-                y: 19,
-                width: barWidthPixels,
-                height: 12
-            )
-            let bottom = PixelRect(
-                x: barX,
-                y: 5,
-                width: barWidthPixels,
-                height: 8
-            )
+            let stackHeight =
+                providers.count * barHeightPixels
+                + max(0, providers.count - 1) * gapPixels
+            let stackY = (canvasPixels - stackHeight) / 2
 
-            drawBar(
-                rect: top,
-                remaining: meter.primary.percent.map { 100 - $0 },
-                healthy: healthy
-            )
-            drawBar(
-                rect: bottom,
-                remaining: meter.secondary.percent.map { 100 - $0 },
-                healthy: healthy,
-                unavailable: meter.secondary.percent == nil
-            )
+            // Top → bottom matches overview left → right: Claude, Codex, Cursor.
+            for (index, provider) in providers.enumerated() {
+                let fromTop = index
+                let y =
+                    stackY
+                    + (providers.count - 1 - fromTop)
+                    * (barHeightPixels + gapPixels)
+                let meter = snapshot.meter(for: provider)
+                drawBar(
+                    rect: PixelRect(
+                        x: barX,
+                        y: y,
+                        width: barWidthPixels,
+                        height: barHeightPixels
+                    ),
+                    remaining: meter.headline.percent.map { 100 - $0 },
+                    healthy: healthy,
+                    unavailable: meter.headline.percent == nil
+                )
+            }
+
+            if warning {
+                let pip = PixelRect(x: 26, y: 26, width: 8, height: 8)
+                let color: NSColor = attentionLevel == "critical"
+                    ? .systemRed : .systemOrange
+                color.setFill()
+                NSBezierPath(
+                    ovalIn: pip.rect
+                ).fill()
+            }
             return true
         }
-        image.isTemplate = true
-        image.accessibilityDescription =
-            "\(provider.title) \(snapshot.meter(for: provider).primary.title) and \(snapshot.meter(for: provider).secondary.title) usage"
+        // Template icons can't show the colored warning pip.
+        image.isTemplate = !warning
+        let labels = UsageProvider.allCases.map(\.title).joined(separator: ", ")
+        image.accessibilityDescription = "\(labels) quota remaining"
         return image
     }
 
