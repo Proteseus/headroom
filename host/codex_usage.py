@@ -303,6 +303,17 @@ def _parse_spend_control(body):
     remaining = money(lim.get("remaining"))
     if used is None and limit is None and remaining is None:
         return None
+
+    # Some payloads report used/remaining in cents while limit stays in dollars.
+    if (
+        used is not None and limit is not None and limit > 0
+        and used > max(limit * 10, 5000)
+        and (used / 100.0) <= limit * 2
+    ):
+        used = round(used / 100.0, 2)
+        if remaining is not None and remaining > limit * 10:
+            remaining = round(remaining / 100.0, 2)
+
     label = None
     if used is not None and limit is not None:
         label = f"${used:,.0f} / ${limit:,.0f}"
@@ -315,12 +326,18 @@ def _parse_spend_control(body):
         used_pct = float(used_pct) if used_pct is not None else None
     except (TypeError, ValueError):
         used_pct = None
+
+    reached = bool(sc.get("reached"))
+    if used is not None and limit is not None and limit > 0:
+        # Prefer coherent math over a sticky API flag.
+        reached = used >= limit
+
     return {
         "used_usd": used,
         "limit_usd": limit,
         "remaining_usd": remaining,
         "used_percent": used_pct,
-        "reached": bool(sc.get("reached")),
+        "reached": reached,
         "source": lim.get("source"),
         "label": label,
     }

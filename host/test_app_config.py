@@ -139,8 +139,29 @@ class SpendParseTests(unittest.TestCase):
         })
         self.assertEqual(parsed["spend"]["used_usd"], 120.5)
         self.assertEqual(parsed["spend"]["limit_usd"], 500.0)
-        self.assertTrue(parsed["spend"]["reached"])
+        self.assertFalse(parsed["spend"]["reached"])
         self.assertEqual(parsed["spend"]["label"], "$120 / $500")
+
+    def test_codex_spend_ignores_cents_scale_and_sticky_reached(self):
+        import codex_usage
+        parsed = codex_usage.parse_usage({
+            "plan_type": "team",
+            "rate_limit": {},
+            "spend_control": {
+                "reached": True,
+                "individual_limit": {
+                    "limit": "500",
+                    "used": "46204.09",
+                    "remaining": "0",
+                    "used_percent": 0,
+                    "source": "workspace_spend_controls",
+                },
+            },
+        })
+        self.assertEqual(parsed["spend"]["used_usd"], 462.04)
+        self.assertEqual(parsed["spend"]["limit_usd"], 500.0)
+        self.assertFalse(parsed["spend"]["reached"])
+        self.assertEqual(parsed["spend"]["label"], "$462 / $500")
 
     def test_cursor_plan_spend(self):
         import cursor_usage
