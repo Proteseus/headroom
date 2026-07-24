@@ -33,6 +33,14 @@ KEYCHAIN_ACCOUNT = "access-token"
 CONFIG_PATH = os.path.expanduser("~/.headroom/github.json")
 KEEP_RUNS = 8
 UA = "Headroom/1"
+# Bot / advisory workflows — show in the feed if useful later, but don't
+# inflate Attention fail counts (same PR often fans out into many of these).
+NOISE_WORKFLOW_NAMES = {
+    "claude code review",
+    "claude",
+    "codex review",
+    "dependency review",
+}
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -274,12 +282,28 @@ def _flatten_run(repo, run):
     }
 
 
+def _is_noise_workflow(run):
+    name = (run.get("name") or run.get("display_title") or "").strip().lower()
+    return name in NOISE_WORKFLOW_NAMES or name.startswith("claude code")
+
+
 def _interesting(run):
+    if _is_noise_workflow(run):
+        return False
     status = (run.get("status") or "").lower()
     conclusion = (run.get("conclusion") or "").lower()
     if status in ("queued", "in_progress", "waiting", "requested", "pending"):
         return True
-    return conclusion in ("failure", "timed_out", "startup_failure", "cancelled")
+    # Skip cancelled — clutters the feed without wanting Attention.
+    return conclusion in ("failure", "timed_out", "startup_failure")
+
+
+def _fail_cluster_key(row):
+    """One failed push / PR should count once even with many workflows."""
+    return (
+        row.get("repo") or "",
+        row.get("sha") or row.get("branch") or row.get("id") or "",
+    )
 
 
 def _fetch_repo_runs(token, repo):
@@ -346,7 +370,12 @@ def fetch_actions(force=False):
             seen.add(rid)
             deduped.append(row)
         rows = deduped[:KEEP_RUNS]
-        fail_count = sum(1 for row in rows if row.get("status") == "failure")
+        fail_keys = {
+            _fail_cluster_key(row)
+            for row in rows
+            if row.get("status") == "failure"
+        }
+        fail_count = len(fail_keys)
         running_count = sum(1 for row in rows if row.get("status") == "running")
         result = {
             "ok": True,
