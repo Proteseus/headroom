@@ -3,7 +3,8 @@
 
 Parses ~/.claude/projects/**/*.jsonl (the same usage logs `ccusage` reads),
 aggregates token counts and cost into rolling time windows, and serves a flat
-JSON document at GET http://<mac>:8737/usage for a Waveshare ESP32-S3 to poll.
+JSON document at GET http://<mac>:8737/usage for a Waveshare ESP32-S3 to poll
+(Wi-Fi), with a best-effort USB CDC fallback (HR framed protocol) in-process.
 
 Also polls Anthropic OAuth, OpenAI Codex (wham/usage), and Cursor
 (GetCurrentPeriodUsage) quotas, Vercel team deployments, local git activity,
@@ -43,6 +44,7 @@ import supabase_usage
 import daily_burn
 import sources_config
 import app_config
+import usb_bridge
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
@@ -1077,9 +1079,33 @@ def main():
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
 
+    def _usb_get_usage():
+        return json.dumps(rollup()).encode()
+
+    def _usb_sync_refresh():
+        threading.Thread(
+            target=_refresh_selected,
+            kwargs={
+                "sources": list(sources_config.SOURCE_IDS),
+                "force": True,
+            },
+            daemon=True,
+        ).start()
+
+    threading.Thread(
+        target=usb_bridge.run,
+        kwargs={
+            "get_usage": _usb_get_usage,
+            "on_sync_refresh": _usb_sync_refresh,
+        },
+        daemon=True,
+    ).start()
+
     srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage", flush=True)
     print(f"Health check at http://127.0.0.1:{args.port}/health", flush=True)
+    print("USB CDC fallback: HR protocol on /dev/cu.usbmodem* (best-effort)",
+          flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
