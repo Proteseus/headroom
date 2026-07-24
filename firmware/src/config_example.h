@@ -4,9 +4,10 @@
 
 // ---- Wi-Fi networks (tries whichever is in range) ----
 // Add every network the tracker might travel to: home, your phone hotspot,
-// office, etc. On the road, tethering both this board AND your Mac to your
-// phone hotspot is the reliable path — hotel Wi-Fi usually blocks it (captive
-// portals a headless board can't click through, plus client isolation).
+// office, etc. On the road: either tether both this board AND your Mac to a
+// phone hotspot, or plug the board into the Mac over USB (host speaks HR over
+// CDC). Hotel Wi-Fi usually blocks the Wi-Fi path (captive portals a headless
+// board can't click through, plus client isolation).
 static const struct { const char *ssid; const char *pass; } WIFI_NETWORKS[] = {
     {"home-ssid", "home-password"},
     {"phone-hotspot", "hotspot-password"},

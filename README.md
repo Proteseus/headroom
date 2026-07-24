@@ -9,7 +9,8 @@ app. Everything hangs off one local Python host.
   ~/.claude JSONL + OAuth          Mac (Python, stdlib)           Clients
   ~/.codex + Cursor state.vscdb    ┌──────────────────┐          ┌──────────────┐
   Vercel CLI / git / gh / SB  ───▶│ headroom_        │◀── HTTP ─│ ESP32 /usage │
-  ~/.headroom/{config,sources}    │ server.py :8737  │          │ HeadroomBar  │
+  ~/.headroom/{config,sources}    │ server.py :8737  │◀── USB ──│  (Wi‑Fi|CDC) │
+                                  │ + usb_bridge     │── HTTP ─▶│ HeadroomBar  │
                                   └──────────────────┘          └──────────────┘
 ```
 
@@ -133,10 +134,18 @@ amber/red pip when it isn’t `ok`.
    `HOST_NAME` for mDNS.
 2. Flash with PlatformIO: `cd firmware && pio run -t upload && pio device monitor`.
 
+The board polls `GET /usage` over Wi‑Fi first. If Wi‑Fi is down or HTTP fails,
+it falls back to USB CDC on the same cable used for power/flash — the host
+speaks a tiny `HR` framed protocol on `/dev/cu.usbmodem*` (no second daemon).
+Travel options: plug into the Mac **or** tether both to a phone hotspot (add
+the hotspot SSID in `WIFI_NETWORKS`). Hotel Wi‑Fi often blocks mDNS / client
+isolation. `pio device monitor` and the USB bridge cannot share the port; stop
+the monitor when you want cable-only data.
+
 **Tap a Headroom grid slot** to open that detail page; tap again (or BOOT) to
 return home. **Long-press glance home (~400ms)** force-syncs the host via
-`POST /sync/refresh` (same as Mac Settings → Refresh all). Footer dots mirror
-`sources[]` health.
+`POST /sync/refresh` (same as Mac Settings → Refresh all; works over USB too).
+Footer dots mirror `sources[]` health.
 
 Board specifics are in `firmware/src/pin_config.h`. The display is an SH8601
 AMOLED over QSPI; the AXP2101 PMU and a TCA9554 expander must be brought up

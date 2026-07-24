@@ -16,6 +16,7 @@
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
 #include <Arduino_GFX_Library.h>
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
@@ -427,12 +428,12 @@ static const String &hostFor() {
 }
 
 // Ask the host to force-refresh Sources (same endpoint Mac Settings uses).
-static bool requestSyncRefresh() {
+static bool requestSyncRefreshHttp() {
   if (WiFi.status() != WL_CONNECTED) return false;
   String url = "http://" + hostFor() + ":" + String(HOST_PORT) + "/sync/refresh";
   HTTPClient http;
-  http.setConnectTimeout(1200);
-  http.setTimeout(2000);
+  http.setConnectTimeout(800);
+  http.setTimeout(1200);
   if (!http.begin(url)) return false;
   http.addHeader("Content-Type", "application/json");
   int code = http.POST("{}");
@@ -441,33 +442,157 @@ static bool requestSyncRefresh() {
   return code >= 200 && code < 300;
 }
 
-static bool fetchUsage() {
-  if (WiFi.status() != WL_CONNECTED) {
-    hostOk = false;
-    return false;
-  }
-  String url = "http://" + hostFor() + ":" + String(HOST_PORT) + "/usage";
-  HTTPClient http;
-  // Keep short so a slow host can't freeze touch for seconds.
-  http.setConnectTimeout(1500);
-  http.setTimeout(2500);
-  if (!http.begin(url)) {
-    hostOk = false;
-    return false;
-  }
-  int code = http.GET();
-  if (code != 200) {
-    http.end();
-    resolvedHost = "";   // force a fresh mDNS lookup next time
-    hostOk = false;
-    return false;
-  }
+// USB CDC framed protocol (same /usage JSON as HTTP). Coexists with Serial
+// debug logs: only lines starting with "HR " are protocol.
+// Background polls use a short timeout so a missing host can't freeze touch;
+// explicit long-press sync may wait longer.
+static const uint32_t USB_TIMEOUT_POLL_MS = 900;
+static const uint32_t USB_TIMEOUT_SYNC_MS = 3500;
+// Enough for a ~30KB /usage frame; keep modest so internal heap stays free
+// for UI/Wi-Fi (large CDC RX buffers are carved from DRAM, not PSRAM).
+static const size_t USB_RX_BUF = 40 * 1024;
 
-  String payload = http.getString();
-  http.end();
+// ArduinoJson DOM for a ~30KB /usage payload — keep it in PSRAM so we don't
+// blow the tiny internal heap (canvas + WiFi already live there).
+struct SpiRamAllocator : ArduinoJson::Allocator {
+  void *allocate(size_t size) override {
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  }
+  void deallocate(void *ptr) override { heap_caps_free(ptr); }
+  void *reallocate(void *ptr, size_t new_size) override {
+    return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  }
+};
+static SpiRamAllocator spiRamAlloc;
 
-  JsonDocument doc;
-  if (deserializeJson(doc, payload)) {
+static void usbDrainInput() {
+  uint32_t t0 = millis();
+  while (Serial.available() && (millis() - t0) < 50) {
+    Serial.read();
+  }
+}
+
+static bool usbReadLine(String &out, uint32_t deadlineMs) {
+  out = "";
+  while (millis() < deadlineMs) {
+    while (Serial.available()) {
+      char c = (char)Serial.read();
+      if (c == '\r') continue;
+      if (c == '\n') return true;
+      out += c;
+      if (out.length() > 256) return false;
+    }
+    delay(1);
+    yield();
+  }
+  return false;
+}
+
+static bool usbReadExact(char *out, size_t n, uint32_t deadlineMs) {
+  size_t got = 0;
+  while (got < n && millis() < deadlineMs) {
+    while (Serial.available() && got < n) {
+      int avail = Serial.available();
+      if (avail <= 0) break;
+      size_t chunk = (size_t)avail;
+      if (chunk > n - got) chunk = n - got;
+      size_t rd = Serial.readBytes(out + got, chunk);
+      got += rd;
+      if (rd == 0) break;
+    }
+    if (got < n) {
+      delay(1);
+      yield();
+    }
+  }
+  return got == n;
+}
+
+// Wait for "HR <status> <nbytes>" then optionally read nbytes of body.
+static bool usbTransact(const char *requestLine, int wantStatus,
+                        char **bodyOut, size_t *bodyLen,
+                        uint32_t timeoutMs) {
+  if (bodyOut) *bodyOut = nullptr;
+  if (bodyLen) *bodyLen = 0;
+
+  usbDrainInput();
+  Serial.print(requestLine);
+  Serial.print('\n');
+  // Do not Serial.flush() — with the Mac holding CDC it can block forever.
+
+  uint32_t deadline = millis() + timeoutMs;
+  while (millis() < deadline) {
+    String line;
+    if (!usbReadLine(line, deadline)) return false;
+    if (!line.startsWith("HR ")) continue;
+
+    // HR <status> <nbytes>
+    int sp1 = line.indexOf(' ', 3);
+    if (sp1 < 0) continue;
+    int status = line.substring(3, sp1).toInt();
+    int nbytes = line.substring(sp1 + 1).toInt();
+    if (nbytes < 0 || nbytes > (int)USB_RX_BUF) return false;
+
+    char *body = nullptr;
+    if (nbytes > 0) {
+      body = (char *)heap_caps_malloc(
+          (size_t)nbytes + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!body) {
+        Serial.println("usb: OOM body");
+        return false;
+      }
+      if (!usbReadExact(body, (size_t)nbytes, deadline)) {
+        heap_caps_free(body);
+        Serial.printf("usb: short body want=%d\n", nbytes);
+        return false;
+      }
+      body[nbytes] = '\0';
+      // trailing newline after body
+      uint32_t trailDeadline = millis() + 50;
+      while (millis() < trailDeadline) {
+        if (Serial.available()) {
+          (void)Serial.read();
+          break;
+        }
+        delay(1);
+      }
+    }
+
+    if (status != wantStatus) {
+      Serial.printf("usb → HR %d (want %d)\n", status, wantStatus);
+      if (body) heap_caps_free(body);
+      return false;
+    }
+    if (bodyOut) {
+      *bodyOut = body;
+      if (bodyLen) *bodyLen = (size_t)nbytes;
+    } else if (body) {
+      heap_caps_free(body);
+    }
+    return true;
+  }
+  return false;
+}
+
+static bool requestSyncRefreshUsb() {
+  bool ok = usbTransact("HR POST /sync/refresh", 202, nullptr, nullptr,
+                        USB_TIMEOUT_SYNC_MS);
+  Serial.printf("sync refresh → USB %s\n", ok ? "ok" : "fail");
+  return ok;
+}
+
+static bool requestSyncRefresh() {
+  if (WiFi.status() == WL_CONNECTED && requestSyncRefreshHttp()) return true;
+  return requestSyncRefreshUsb();
+}
+
+static bool applyUsageJson(const char *payload, size_t len) {
+  JsonDocument doc(&spiRamAlloc);
+  DeserializationError err = (len > 0)
+      ? deserializeJson(doc, payload, len)
+      : deserializeJson(doc, payload);
+  if (err) {
+    Serial.printf("json parse fail: %s\n", err.c_str());
     hostOk = false;
     return false;
   }
@@ -643,6 +768,51 @@ static bool fetchUsage() {
   haveData = true;
   hostOk = true;
   return true;
+}
+
+static bool fetchUsageHttp() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String url = "http://" + hostFor() + ":" + String(HOST_PORT) + "/usage";
+  HTTPClient http;
+  // Fail fast — a slow/wrong LAN must not starve BOOT/touch.
+  http.setConnectTimeout(700);
+  http.setTimeout(1000);
+  if (!http.begin(url)) return false;
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    resolvedHost = "";   // force a fresh mDNS lookup next time
+    return false;
+  }
+
+  String payload = http.getString();
+  http.end();
+  return applyUsageJson(payload.c_str(), payload.length());
+}
+
+static bool fetchUsageUsb(uint32_t timeoutMs) {
+  char *body = nullptr;
+  size_t len = 0;
+  if (!usbTransact("HR GET /usage", 200, &body, &len, timeoutMs)) return false;
+  bool ok = applyUsageJson(body, len);
+  if (body) heap_caps_free(body);
+  return ok;
+}
+
+static bool fetchUsage(uint32_t usbTimeoutMs = USB_TIMEOUT_POLL_MS) {
+  // Wi-Fi HTTP first when associated. USB is travel/offline fallback.
+  // Do not service touch/BOOT from inside USB waits — Serial TX can block
+  // forever while the host holds the CDC write path (UI deadlock).
+  if (WiFi.status() == WL_CONNECTED && fetchUsageHttp()) {
+    Serial.println("usage via Wi-Fi");
+    return true;
+  }
+  if (fetchUsageUsb(usbTimeoutMs)) {
+    Serial.println("usage via USB");
+    return true;
+  }
+  hostOk = false;
+  return false;
 }
 
 // ---------------- Rendering ----------------
@@ -900,6 +1070,23 @@ static String clipFit(const String &s, int16_t maxW, uint8_t size) {
   return "";
 }
 
+// Name left + age right-aligned in a fixed column (short names don't shift ages).
+static void drawNameAgoRow(int16_t x, int16_t y, int16_t colW,
+                           const String &name, const String &ago,
+                           uint16_t nameCol, uint16_t agoCol) {
+  gfx->setTextSize(2);
+  int16_t x1, y1; uint16_t aw, ah;
+  gfx->getTextBounds("999h", 0, 0, &x1, &y1, &aw, &ah);  // widest age we expect
+  const int16_t agoReserve = (int16_t)aw;
+  const int16_t gap = 4;
+  String clipped = clipFit(name, (int16_t)(colW - agoReserve - gap), 2);
+  drawTextAt(clipped, x, y, 2, nameCol);
+  gfx->getTextBounds(ago.c_str(), 0, 0, &x1, &y1, &aw, &ah);
+  gfx->setTextColor(agoCol);
+  gfx->setCursor(x + colW - (int16_t)aw, y);
+  gfx->print(ago);
+}
+
 static uint16_t statusColor(const String &status) {
   if (status == "ready") return COL_GREEN;
   if (status == "building") return COL_AMBER;
@@ -942,8 +1129,9 @@ static const char *pageName(Page p) {
 }
 
 static void drawWifiDot(int16_t padX, int16_t top) {
-  // Healthy link: nothing. Red only when Wi-Fi or host is down.
-  if (WiFi.status() == WL_CONNECTED && hostOk) return;
+  // Healthy link: nothing. Red only when last /usage fetch failed
+  // (Wi-Fi HTTP or USB CDC).
+  if (hostOk) return;
   gfx->fillCircle(scrW() - padX / 2, top + 8, 5, COL_RED);
 }
 
@@ -1117,21 +1305,16 @@ static void drawGlancePage() {
           if (y > lowBottom - 18) break;
           const DeployRow &r = vercelRows[d];
           gfx->fillCircle(x + dotR, y + 8, dotR, statusColor(r.status));
-          String ago = gitHoursAgo(r.ago);
-          gfx->setTextSize(2);
-          int16_t x1, y1; uint16_t aw, ah;
-          String agoSp = String(" ") + ago;
-          gfx->getTextBounds(agoSp.c_str(), 0, 0, &x1, &y1, &aw, &ah);
-          String name = clipFit(r.project,
-                                (int16_t)(colW - textX - (int16_t)aw), 2);
-          drawTextAt(name + agoSp, x + textX, y, 2, COL_WHITE);
+          drawNameAgoRow(x + textX, y, (int16_t)(colW - textX),
+                         r.project, gitHoursAgo(r.ago),
+                         COL_WHITE, COL_DIM);
           y += rowH;
         }
       } else {
         drawTextAt(vercelOk ? "—" : "down", x, y, 2, COL_DIM);
       }
     } else if (i == 1) {
-      // Git — repo leaf (no owner) + age in hours.
+      // Git — repo leaf (no owner) + age in hours (right-aligned).
       drawTextAt("Git", x, y, 2, COL_WHITE);
       y += 22;
       if (gitOk && gitN > 0) {
@@ -1140,15 +1323,8 @@ static void drawGlancePage() {
           String repo = gitRows[c].repo;
           int slash = repo.lastIndexOf('/');
           if (slash >= 0) repo = repo.substring(slash + 1);
-          String ago = gitHoursAgo(gitRows[c].ago);
-          // Reserve room for " 999h"; fill the rest with repo letters (no ...).
-          gfx->setTextSize(2);
-          int16_t x1, y1; uint16_t aw, ah;
-          String agoSp = String(" ") + ago;
-          gfx->getTextBounds(agoSp.c_str(), 0, 0, &x1, &y1, &aw, &ah);
-          String name = clipFit(repo, (int16_t)(colW - (int16_t)aw), 2);
-          drawTextAt(name + agoSp, x, y, 2,
-                     c == 0 ? COL_WHITE : COL_DIM);
+          drawNameAgoRow(x, y, colW, repo, gitHoursAgo(gitRows[c].ago),
+                         COL_WHITE, COL_DIM);
           y += rowH;
         }
       } else {
@@ -1495,6 +1671,7 @@ static bool touchDown = false;
 static bool touchIgnore = false;
 static bool touchCommitted = false;
 static bool touchLongFired = false;
+static bool touchHaveXY = false;   // true once this press has valid coords
 static uint32_t touchDownMs = 0;
 static uint32_t lastGestureMs = 0;
 static int16_t touchStartX = 0, touchStartY = 0;
@@ -1592,7 +1769,10 @@ static void touchLogicalDelta(int16_t *dHoriz, int16_t *dVert) {
   *dVert = dNatX;
 }
 
-// Fire navigation on press (like BOOT), not on release — release felt 0.5–2s laggy.
+// Fire navigation on press (like BOOT), not on release — release felt laggy.
+// FT3168 often asserts "down" one poll before XY is readable. We must keep
+// trying until coords arrive; a one-shot edge check drops most taps when
+// serviceUi() samples aggressively during USB waits.
 static Gesture consumeGesture() {
   if (!touchAddr) return GESTURE_NONE;
 
@@ -1608,51 +1788,56 @@ static Gesture consumeGesture() {
       touchDown = true;
       touchCommitted = false;
       touchLongFired = false;
+      touchHaveXY = false;
       gestureTapHit = false;
       touchDownMs = now;
+      touchStartX = touchStartY = touchLastX = touchLastY = 0;
       if ((now - lastGestureMs) < GESTURE_DEBOUNCE_MS) {
         touchIgnore = true;
         return GESTURE_NONE;
       }
       touchIgnore = false;
-      if (haveXY) {
+    }
+    if (touchIgnore || touchCommitted) return GESTURE_NONE;
+
+    if (haveXY) {
+      if (!touchHaveXY) {
+        touchHaveXY = true;
         touchStartX = touchLastX = x;
         touchStartY = touchLastY = y;
-      }
-
-      // Immediate action on finger-down (matches BOOT snappiness).
-      if (page == PAGE_GLANCE) {
-        GlanceHit hit;
-        if (haveXY && glanceHitAt(touchStartX, touchStartY, &hit)) {
-          touchCommitted = true;
-          lastGestureMs = now;
-          gestureTapHit = true;
-          return GESTURE_TAP;
-        }
       } else {
-        // Detail page: any press goes home (tap and long-press both did).
+        touchLastX = x;
+        touchLastY = y;
+      }
+    }
+
+    // Detail page: any press with or without XY goes home immediately.
+    if (page != PAGE_GLANCE) {
+      touchCommitted = true;
+      lastGestureMs = now;
+      return GESTURE_HOME;
+    }
+
+    // Glance: wait for XY, then open the slot under the finger.
+    if (touchHaveXY) {
+      GlanceHit hit;
+      if (glanceHitAt(touchStartX, touchStartY, &hit)) {
+        touchCommitted = true;
+        lastGestureMs = now;
+        gestureTapHit = true;
+        return GESTURE_TAP;
+      }
+      // Missed slots — allow long-press sync on empty chrome.
+      int16_t dHoriz = 0, dVert = 0;
+      touchLogicalDelta(&dHoriz, &dVert);
+      if (!touchLongFired &&
+          abs(dHoriz) <= TAP_MAX_PX && abs(dVert) <= TAP_MAX_PX &&
+          (now - touchDownMs) >= LONG_PRESS_MS) {
+        touchLongFired = true;
         touchCommitted = true;
         lastGestureMs = now;
         return GESTURE_HOME;
       }
-      return GESTURE_NONE;
-    }
-    if (touchIgnore || touchCommitted) return GESTURE_NONE;
-    if (haveXY) {
-      touchLastX = x;
-      touchLastY = y;
-    }
-    // Long-press home only still useful on Headroom (no-op if already home).
-    int16_t dHoriz = 0, dVert = 0;
-    touchLogicalDelta(&dHoriz, &dVert);
-    const int16_t aH = (int16_t)abs(dHoriz);
-    const int16_t aV = (int16_t)abs(dVert);
-    if (!touchLongFired && aH <= TAP_MAX_PX && aV <= TAP_MAX_PX &&
-        (now - touchDownMs) >= LONG_PRESS_MS) {
-      touchLongFired = true;
-      touchCommitted = true;
-      lastGestureMs = now;
-      return GESTURE_HOME;
     }
     return GESTURE_NONE;
   }
@@ -1662,6 +1847,7 @@ static Gesture consumeGesture() {
   touchIgnore = false;
   touchCommitted = false;
   touchLongFired = false;
+  touchHaveXY = false;
   gestureTapHit = false;
   return GESTURE_NONE;
 }
@@ -1710,8 +1896,9 @@ static void goNextPage() {
 static void forceSyncFromDesk() {
   drawStatus("syncing…", COL_AMBER);
   bool ok = requestSyncRefresh();
-  delay(400);
-  if (fetchUsage()) drawDashboard();
+  delay(150);
+  yield();
+  if (fetchUsage(USB_TIMEOUT_SYNC_MS)) drawDashboard();
   else drawStatus(ok ? "synced" : "sync failed", ok ? COL_GREEN : COL_RED);
 }
 
@@ -1724,11 +1911,43 @@ static void pollBootButton() {
   if (now - lastChange < 40) return;
   lastChange = now;
   wasDown = down;
-  if (down) goNextPage();
+  if (down) {
+    Serial.println("boot btn");
+    goNextPage();
+  }
+}
+
+static void handleInput() {
+  pollBootButton();
+  Gesture g = consumeGesture();
+  if (g == GESTURE_TAP) {
+    if (page == PAGE_GLANCE) {
+      GlanceHit hit;
+      if (gestureTapHit && glanceHitAt(touchStartX, touchStartY, &hit)) {
+        if (!pageEnabled(hit.target)) {
+          drawStatus("disabled in Sources", COL_AMBER);
+          delay(200);
+          drawDashboard();
+        } else {
+          flashGlanceSlot(hit);
+          goToPage(hit.target, "tap");
+        }
+      }
+    } else {
+      goHome();
+    }
+  } else if (g == GESTURE_HOME) {
+    if (page == PAGE_GLANCE) forceSyncFromDesk();
+    else goHome();
+  }
 }
 
 void setup() {
+  // /usage over CDC is ~30KB; the default 256-byte RX buffer drops it.
+  Serial.setRxBufferSize(USB_RX_BUF);
   Serial.begin(115200);
+  // Never block the UI forever when the Mac isn't draining CDC TX.
+  Serial.setTxTimeoutMs(0);
   delay(1500);   // let native USB-CDC re-enumerate so the boot log isn't lost
   Serial.println("\n=== headroom booting ===");
 
@@ -1803,18 +2022,27 @@ void setup() {
     Serial.printf("wifi ok  ip=%s  ssid=%s  mdns=%d\n",
                   WiFi.localIP().toString().c_str(),
                   WiFi.SSID().c_str(), mdnsUp);
-
     bootLine("HOST", HOST_NAME, COL_CRT_DIM);
+  } else {
+    bootLine("WIFI", "FAIL", COL_RED);
+    Serial.println("wifi FAILED (no known network in range?) — trying USB");
+    bootLine("HOST", "USB", COL_CRT_DIM);
+  }
+
+  {
     int16_t hostY = bootY;
     bootProgress("LINK", 0);
     bool ok = fetchUsage();
     bootY = hostY;
-    bootLine("LINK", ok ? resolvedHost.c_str() : "FAIL",
-             ok ? COL_CRT : COL_RED);
+    const char *linkLabel = ok
+        ? (resolvedHost.length() ? resolvedHost.c_str() : "USB")
+        : "FAIL";
+    bootLine("LINK", linkLabel, ok ? COL_CRT : COL_RED);
 
     if (ok) {
       Serial.printf("host=%s  fetch ok  claude=%d codex=%d cursor=%d vercel=%d git=%d local=%d\n",
-                    resolvedHost.c_str(), (int)claudeQ.ok, (int)codexQ.ok,
+                    resolvedHost.length() ? resolvedHost.c_str() : "usb",
+                    (int)claudeQ.ok, (int)codexQ.ok,
                     (int)cursorQ.ok, (int)vercelOk, (int)gitOk, (int)localOk);
       bootLine("USAGE", "OK", COL_CRT);
       bootLine("READY", "GO", COL_CRT);
@@ -1827,46 +2055,28 @@ void setup() {
       delay(400);
       drawStatus("server unreachable", COL_RED);
     }
-  } else {
-    bootLine("WIFI", "FAIL", COL_RED);
-    Serial.println("wifi FAILED (no known network in range?)");
-    delay(400);
-    drawStatus("wifi failed", COL_RED);
   }
   lastPoll = millis();
 }
 
 void loop() {
-  pollBootButton();
-  Gesture g = consumeGesture();
-  if (g == GESTURE_TAP) {
-    if (page == PAGE_GLANCE) {
-      GlanceHit hit;
-      if (gestureTapHit && glanceHitAt(touchStartX, touchStartY, &hit)) {
-        if (!pageEnabled(hit.target)) {
-          drawStatus("disabled in Sources", COL_AMBER);
-          delay(350);
-          drawDashboard();
-        } else {
-          flashGlanceSlot(hit);
-          goToPage(hit.target, "tap");
-        }
-      }
-    } else {
-      goHome();
-    }
-  } else if (g == GESTURE_HOME) {
-    if (page == PAGE_GLANCE) forceSyncFromDesk();
-    else goHome();
+  // Input first, every pass — never starve BOOT/touch behind Wi-Fi or USB.
+  handleInput();
+
+  // WiFiMulti.run() blocks for seconds while hunting APs. Call it rarely when
+  // disconnected; when associated just poke it occasionally.
+  static uint32_t lastWifi = 0;
+  const uint32_t wifiEvery =
+      (WiFi.status() == WL_CONNECTED) ? 10000u : 20000u;
+  if (millis() - lastWifi >= wifiEvery) {
+    lastWifi = millis();
+    uint8_t st = wifiMulti.run();
+    if (st == WL_CONNECTED && !mdnsUp) mdnsUp = MDNS.begin("headroom");
   }
 
-  if (wifiMulti.run() != WL_CONNECTED) {
-    delay(4);
-    return;
-  }
-  if (!mdnsUp) mdnsUp = MDNS.begin("headroom");
-
-  if (millis() - lastPoll >= (uint32_t)POLL_INTERVAL_S * 1000) {
+  // Background poll — skip while finger is down.
+  if (!touchDown &&
+      millis() - lastPoll >= (uint32_t)POLL_INTERVAL_S * 1000) {
     lastPoll = millis();
     if (fetchUsage()) drawDashboard();
     else if (!haveData) drawStatus("server unreachable", COL_RED);
