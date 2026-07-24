@@ -449,7 +449,7 @@ struct DashboardView: View {
                         if item.status == "error", let error = item.errorMessage {
                             Text(error)
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.orange)
                                 .lineLimit(2)
                                 .padding(.leading, 16)
                         }
@@ -593,7 +593,7 @@ struct DashboardView: View {
         switch item.status {
         case "ready": .green
         case "building", "running": .orange
-        case "error", "failure": .red
+        case "error", "failure": .orange
         case "canceled", "cancelled": .secondary
         case "pushed": .blue
         case "local": .purple
