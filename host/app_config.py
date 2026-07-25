@@ -1,8 +1,8 @@
 """Personal Headroom config (~/.headroom/config.json).
 
 Keeps machine-specific paths, timezone, git authors, Vercel team preference,
-and GitHub org filters out of the code. Missing keys fall back to defaults
-tuned for the original desk install — copy config.example.json to override.
+and GitHub org filters out of the code. Missing keys fall back to the defaults
+below — copy config.example.json to ~/.headroom/config.json and edit.
 """
 
 from __future__ import annotations
@@ -14,17 +14,12 @@ import threading
 STORE_PATH = os.path.expanduser("~/.headroom/config.json")
 
 DEFAULTS = {
-    "timezone": "Europe/Berlin",
+    "timezone": "UTC",
     "dev_root": "~/Dev",
-    "git_authors": [
-        "michellzappa",
-        "Michell Zappa",
-        "mz@envisioning.io",
-        "mz@envisioning.com",
-    ],
-    "vercel_team_slugs": ["ev-io", "envisioning"],
-    "github_org_prefix": "envisioning/",
-    "github_always_repos": ["envisioning/envisioning.com"],
+    "git_authors": [],
+    "vercel_team_slugs": [],
+    "github_org_prefix": "",
+    "github_always_repos": [],
     "github_max_discovered": 6,
 }
 

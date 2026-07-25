@@ -25,10 +25,13 @@ class AppConfigTests(unittest.TestCase):
         app_config.reload()
 
     def test_defaults_without_file(self):
-        self.assertEqual(app_config.timezone_name(), "Europe/Berlin")
+        self.assertEqual(app_config.timezone_name(), "UTC")
         self.assertTrue(app_config.dev_root().endswith("/Dev"))
-        self.assertIn("Michell Zappa", app_config.git_authors())
-        self.assertEqual(app_config.vercel_team_slugs()[0], "ev-io")
+        self.assertEqual(app_config.git_authors(), [])
+        self.assertEqual(app_config.vercel_team_slugs(), ())
+        self.assertEqual(app_config.github_org_prefix(), "")
+        self.assertEqual(app_config.github_always_repos(), ())
+        self.assertEqual(app_config.github_max_discovered(), 6)
 
     def test_overrides_from_file(self):
         with open(self.path, "w") as handle:

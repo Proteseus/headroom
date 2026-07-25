@@ -8,6 +8,7 @@ firmware/.pio/
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv-shots/
 
 # macOS / Xcode derived data (sources + project.yml + .xcodeproj are tracked)
 macos/.build/

@@ -1,9 +1,30 @@
-# headroom
+# Headroom
 
-A desk gadget that shows Claude / Codex / Cursor quota + spend, Vercel
-builds, git activity, GitHub Actions, Supabase health, and local servers on a
-Waveshare **ESP32-S3-Touch-AMOLED-1.8** (368×448), with a matching macOS menu-bar
-app. Everything hangs off one local Python host.
+**Your AI coding quotas and ship status — on the desk and in the menu bar.**
+
+When you're deep in Claude, Codex, or Cursor, you shouldn't have to dig through
+billing pages, `gh`, and Vercel to answer: *Am I about to hit a limit? Did CI
+go red? Is prod healthy?*
+
+Headroom is a **local-first** desk gadget + macOS menu bar that consolidates
+that into one glance:
+
+| Always on | What you see |
+|---|---|
+| **ESP32 AMOLED** | Claude / Codex / Cursor quota rings, Vercel, git, local ports |
+| **Menu bar** | Three thin remaining-quota meters + amber/red attention pip |
+| **Popover** | Overview rings, daily burn, spend, Actions / Supabase / servers |
+
+One Python host on your Mac reads local auth + CLIs and serves a single JSON
+feed. No cloud account for Headroom itself — your tokens stay on the machine.
+
+<p align="center">
+  <img src="docs/screenshots/esp32-glance.png" alt="ESP32 Headroom glance home" width="420" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/macos-menubar.png" alt="macOS menu bar + popover" width="360" />
+</p>
 
 ```
   ~/.claude JSONL + OAuth          Mac (Python, stdlib)           Clients
@@ -14,156 +35,184 @@ app. Everything hangs off one local Python host.
                                   └──────────────────┘          └──────────────┘
 ```
 
-## Host (Mac)
+**Hardware is optional.** The menu bar alone is useful. The Waveshare
+ESP32-S3-Touch-AMOLED-1.8 (368×448) is the always-on desk glance — same feed,
+tap a slot for detail, long-press to force-refresh.
 
-```
+## Why it exists
+
+- **Quota anxiety is real.** Session / weekly windows, pace, and spend are
+  scattered across three products. Headroom puts hottest pool % + pace on one
+  ring (and three menu-bar ticks).
+- **Ship status is ambient.** Failed Actions, Vercel builds, Supabase alerts,
+  and listening local servers surface as an attention pip — not another tab.
+- **Local-first.** The host talks to credentials and CLIs you already have.
+  The board can fall back to USB CDC when hotel Wi‑Fi blocks mDNS.
+
+## Quick start
+
+### 1. Host
+
+```bash
 cd host
-python3 headroom_server.py            # serves http://0.0.0.0:8737/usage
+cp config.example.json ~/.headroom/config.json   # edit authors / org / timezone
+python3 headroom_server.py                       # http://0.0.0.0:8737/usage
 curl -s localhost:8737/usage | python3 -m json.tool
 ```
 
-Run it on boot with the included launch agent:
+Optional login item (edit `REPLACE_WITH_*` paths in the plist first):
 
-```
+```bash
+mkdir -p ~/.headroom/logs
 cp host/com.mz.headroom.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
-# restart after host changes:
-launchctl kickstart -k gui/$(id -u)/com.mz.headroom
+# then: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
 ```
 
-### Personal config
+### 2. Menu bar
 
-Copy defaults and edit:
+```bash
+cd macos
+xcodegen generate   # if you change project.yml
+xcodebuild -project HeadroomBar.xcodeproj -scheme HeadroomBar \
+  -configuration Debug -derivedDataPath .build build
+open .build/Build/Products/Debug/HeadroomBar.app
+```
 
+No Dock icon. Settings live under the popover gear (endpoint, source toggles,
+Supabase / GitHub tokens).
+
+### 3. ESP32 (optional)
+
+1. `cp firmware/src/config_example.h firmware/src/config.h` — Wi‑Fi SSIDs +
+   Mac hostname (`scutil --get LocalHostName`) or fallback IP.
+2. Paste the host token into `HOST_TOKEN` (see below). The host prints it at
+   startup and keeps it in `~/.headroom/token`.
+3. `cd firmware && pio run -t upload && pio device monitor`
+
+Wi‑Fi first; USB CDC fallback on the same cable when the LAN path fails.
+**Tap** a glance slot for detail; **long-press** home (~400ms) →
+`POST /sync/refresh`.
+
+After the first cable flash, `OTA_HOSTNAME` is reachable for updates:
+
+```bash
+pio run -t upload --upload-port headroom.local
 ```
-cp host/config.example.json ~/.headroom/config.json
+
+The board fetches `GET /usage?view=device` — a ~2KB projection of the full
+document holding only what it renders. That matters on the cable: 30KB at
+115200 baud is ~2.6s per poll. `host/device_view.py` owns the projection and
+its row caps mirror the `MAX_*` constants in `firmware/src/main.cpp`;
+`host/test_contract.py` fails if the two drift.
+
+### Access control
+
+`/usage` carries repo names, commit subjects, local server paths and ports, and
+spend. The host binds `0.0.0.0` so the board can reach it, which also exposes
+that to everyone else on the network — so **non-loopback callers must present a
+token**. Loopback (the menu bar, `curl localhost`, the USB bridge) needs
+nothing.
+
+The token is generated on first run into `~/.headroom/token` (mode 0600) and
+printed at startup. Send it as `X-Headroom-Token:` or `Authorization: Bearer`:
+
+```bash
+curl -s -H "X-Headroom-Token: $(cat ~/.headroom/token)" http://mz-mbp.local:8737/usage
 ```
+
+Override it with `auth_token` in `~/.headroom/config.json`, or set
+`"require_auth": false` there to restore the old open-network behaviour.
+
+## What it tracks
+
+| Source | How |
+|---|---|
+| Claude | Keychain OAuth → Anthropic usage; token *value* via `pricing.py` |
+| Codex | `~/.codex/auth.json` → weekly window, pace, reset credits, spend |
+| Cursor | `state.vscdb` → Auto / API / total + on-demand |
+| Vercel | CLI auth → recent team deployments |
+| Git | Commits under `dev_root` matching `git_authors` |
+| GitHub Actions | Failed / running runs (`HEADROOM_GITHUB_TOKEN` / Keychain / `gh`) |
+| Supabase | Project health via PAT |
+| Local servers | `lsof` TCP LISTEN → labeled ports (stop from the menu bar) |
+| Daily burn | Per-day %-point burn across Claude / Codex / Cursor |
+
+Toggle sources in `~/.headroom/sources.json` or Mac Settings. Failures keep the
+last-good snapshot (`cache_util.keep_stale`).
+
+Each row above is one entry in `SOURCES` in `host/sources_config.py` — id,
+title, poll interval, fetcher, and the two formatters. The HTTP payload, the
+Settings list, the ESP32 footer dots, and the poll schedule all derive from it,
+so adding a source means adding one entry rather than editing four places.
+
+### Tests
+
+```bash
+cd host && python3 -m unittest discover -p "test_*.py"
+cd macos && xcodegen generate && xcodebuild test -project HeadroomBar.xcodeproj -scheme HeadroomBar -derivedDataPath .build
+cd firmware && pio run
+```
+
+`host/test_contract.py` and `macos/Tests/ContractTests.swift` pin the `/usage`
+shape from both sides — the document is described in Python, in Swift `Codable`
+structs, and in C++ field reads, and renaming a key used to break the siblings
+silently. CI runs all three on push (`.github/workflows/ci.yml`).
+
+### Personal config (`~/.headroom/config.json`)
 
 | Key | Purpose |
 |---|---|
 | `timezone` | Local day boundary for burn + timestamps |
 | `dev_root` | Where git / GitHub repo discovery walks |
-| `git_authors` | `git log --author` patterns |
-| `vercel_team_slugs` | Preferred Vercel team (else CLI current team) |
+| `git_authors` | `git log --author` patterns (empty = all authors) |
+| `vercel_team_slugs` | Preferred Vercel team(s); empty → CLI current team |
 | `github_org_prefix` | Org filter for discovered Actions repos |
 | `github_always_repos` | Always-watched `owner/name` list |
 | `github_max_discovered` | Cap on auto-discovered org repos |
-
-Source toggles live in `~/.headroom/sources.json` (also editable from Mac
-Settings). Optional repo extras: `~/.headroom/github.json` →
-`{"repos":["owner/name"]}`.
-
-### Modules
-
-| Module | Source |
-|---|---|
-| `oauth_usage.py` | Keychain `Claude Code-credentials` → Anthropic OAuth usage |
-| `codex_usage.py` | `~/.codex/auth.json` → `wham/usage` + reset credits + spend |
-| `cursor_usage.py` | Cursor `state.vscdb` → `GetCurrentPeriodUsage` (Auto/API + $) |
-| `vercel_builds.py` | Vercel CLI auth → team deployments |
-| `git_activity.py` | Commits under configured `dev_root` |
-| `github_actions.py` | Failed / running Actions (`HEADROOM_GITHUB_TOKEN` / Keychain / `gh`) |
-| `local_servers.py` | `lsof` TCP LISTEN → labeled local dev servers |
-| `supabase_usage.py` | Project health via Supabase PAT |
-| `daily_burn.py` | Per-day %-point burn across Claude / Codex / Cursor |
-| `sources_config.py` | Enabled-source flags for host + ESP32 |
-| `app_config.py` | Personal paths / TZ / org filters |
-
-Claude cost is token *value* from `pricing.py` (list rates). Codex spend comes
-from ChatGPT `spend_control`; Cursor spend from `planUsage` (+ on-demand
-limit). Failures keep the last-good snapshot (`cache_util.keep_stale`).
+| `auth_token` | Override the generated LAN token |
+| `require_auth` | `false` opens `/usage` to the whole network (default `true`) |
 
 ### Endpoints
 
+Everything below is loopback-open and token-gated off-box.
+
 | Path | Notes |
 |---|---|
-| `GET /usage` | Flat JSON for ESP32 + menu bar |
-| `GET /health` | Uptime + compact source status |
-| `POST /sync/refresh` | Force-refresh sources (LAN OK — ESP32 long-press) |
+| `GET /usage` | Full flat JSON for the menu bar |
+| `GET /usage?view=device` | ~2KB projection the ESP32 polls |
+| `GET /health` | Uptime + compact source status + cache age |
+| `POST /sync/refresh` | Force-refresh (LAN OK — ESP32 long-press) |
 | `POST /sources` | Toggle enabled sources (loopback) |
 | `POST /supabase/refresh` | Force Supabase poll (loopback) |
 | `POST /local/stop` | Stop a local server by pid/port (loopback) |
 
-### `/usage` shape (abridged)
-
-```json
-{
-  "updated": "2026-07-23T22:00:00+0200",
-  "plan": "Max 5x",
-  "quota_ok": true,
-  "session_pct": 42.0,
-  "week_pct": 63.0,
-  "today": { "total": 1234, "cost_usd": 4.25 },
-  "by_day": [
-    {"date": "2026-07-22", "claude": 2.0, "codex": 1.5, "cursor": 0.5, "total": 4.0}
-  ],
-  "codex": {
-    "ok": true, "plan": "Team",
-    "week_pct": 72.0, "pace_label": "12% in deficit",
-    "cost_usd": 120.5, "cost_limit_usd": 500.0, "cost_label": "$120 / $500"
-  },
-  "cursor": {
-    "ok": true, "plan": "Pro",
-    "total_pct": 4.4, "auto_pct": 0.0, "api_pct": 33.7,
-    "cost_usd": 15.15, "cost_limit_usd": 20.0, "cost_label": "$15 / $20",
-    "on_demand_label": "$30 / $30 on-demand"
-  },
-  "attention": {
-    "level": "warn",
-    "score": 25,
-    "summary": "1 Supabase alert",
-    "reasons": [{"level": "warn", "kind": "supabase", "summary": "1 Supabase alert"}]
-  },
-  "vercel": { "ok": true, "team": "ev-io", "deployments": [] },
-  "git": { "ok": true, "commits": [] },
-  "github": { "ok": true, "fail_count": 0, "running_count": 1, "runs": [] },
-  "supabase": { "ok": true, "alert_count": 0, "projects": [] },
-  "activity": [],
-  "local": { "ok": true, "servers": [] },
-  "sources": [{ "id": "claude", "enabled": true, "ok": true }]
-}
-```
+The served document is rebuilt once per poll tick and cached as bytes, so a GET
+is a copy rather than a re-aggregation — three clients poll this.
 
 `attention.level` is `ok` | `warn` | `critical` — the menu-bar icon lights an
 amber/red pip when it isn’t `ok`.
 
-## Firmware (ESP32-S3)
+## Screenshots
 
-1. `cp firmware/src/config_example.h firmware/src/config.h` and fill in your
-   Wi-Fi SSID/password and the Mac's LAN IP (`ipconfig getifaddr en0`), or set
-   `HOST_NAME` for mDNS.
-2. Flash with PlatformIO: `cd firmware && pio run -t upload && pio device monitor`.
+Regenerate README assets from the scrubbed demo fixture:
 
-The board polls `GET /usage` over Wi‑Fi first. If Wi‑Fi is down or HTTP fails,
-it falls back to USB CDC on the same cable used for power/flash — the host
-speaks a tiny `HR` framed protocol on `/dev/cu.usbmodem*` (no second daemon).
-Travel options: plug into the Mac **or** tether both to a phone hotspot (add
-the hotspot SSID in `WIFI_NETWORKS`). Hotel Wi‑Fi often blocks mDNS / client
-isolation. `pio device monitor` and the USB bridge cannot share the port; stop
-the monitor when you want cable-only data.
+```bash
+./scripts/generate_screenshots.sh
+```
 
-**Tap a Headroom grid slot** to open that detail page; tap again (or BOOT) to
-return home. **Long-press glance home (~400ms)** force-syncs the host via
-`POST /sync/refresh` (same as Mac Settings → Refresh all; works over USB too).
-Footer dots mirror `sources[]` health.
+- `docs/screenshots/esp32-glance.png` — firmware glance layout (Python preview)
+- `docs/screenshots/macos-popover.png` — live SwiftUI export from HeadroomBar
+- `docs/screenshots/macos-menubar.png` — menu bar + popover composite
 
-Board specifics are in `firmware/src/pin_config.h`. The display is an SH8601
-AMOLED over QSPI; the AXP2101 PMU and a TCA9554 expander must be brought up
-before the panel turns on — `main.cpp` does this itself over one I2C bus to
-avoid the known `Wire.begin()` conflict.
+## Board notes
 
-**If the screen stays black:** try `TCA9554_ADDR` = `0x21` in `pin_config.h`
-(some board revisions strap the expander there), and confirm the panel powers
-via USB.
+Waveshare **ESP32-S3-Touch-AMOLED-1.8**. SH8601 over QSPI; AXP2101 + TCA9554
+must come up before the panel — see `firmware/src/main.cpp` / `pin_config.h`.
 
-## macOS menu bar
+**Black screen?** Try `TCA9554_ADDR = 0x21` in `pin_config.h` (some revisions
+strap the expander there). `pio device monitor` and the USB bridge cannot share
+the port.
 
-`macos/` is a native accessory app (**Headroom**) on the same `/usage` feed.
+## License
 
-- Status item: three thin quota bars (Claude, Codex, Cursor), plus a
-  colored warning pip when `attention` is warn/critical.
-- Overview: quota rings, daily burn, attention + spend strip.
-- Provider tabs: detailed meters, then activity / Supabase / local servers.
-- Settings: backend URL, per-source toggles + refresh, Supabase/GitHub tokens.
-
-See [`macos/README.md`](macos/README.md) for build and run instructions.
+MIT — see [LICENSE](LICENSE).

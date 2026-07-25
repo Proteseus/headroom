@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: Host (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile every module
+        # The host is stdlib-only by design; this catches syntax errors in
+        # files no test imports.
+        run: python -m compileall -q host
+      - name: Unit + contract tests
+        working-directory: host
+        run: python -m unittest discover -p "test_*.py" -v
+
+  firmware:
+    name: Firmware (ESP32-S3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            firmware/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+      - name: Provide a config.h
+        # The real one is gitignored (Wi-Fi passwords); the example compiles.
+        run: cp firmware/src/config_example.h firmware/src/config.h
+      - name: Build
+        working-directory: firmware
+        run: pio run
+
+  macos:
+    name: Menu bar (Swift)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: macos
+        run: xcodegen generate
+      - name: Build and test
+        working-directory: macos
+        run: |
+          xcodebuild test \
+            -project HeadroomBar.xcodeproj \
+            -scheme HeadroomBar \
+            -configuration Debug \
+            -derivedDataPath .build \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
