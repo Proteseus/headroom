@@ -4,7 +4,9 @@ Reads the Claude Code OAuth token from macOS Keychain
 (`Claude Code-credentials`) or `~/.claude/.credentials.json`, calls
 `GET https://api.anthropic.com/api/oauth/usage`, and returns session/weekly
 utilization + reset times. Refreshes the access token when expired/401 and
-writes it back to the same credential store.
+writes it back to the same credential store — through the Security framework
+(see keychain.py), never through `security -w`, which would expose the token
+in the process table.
 
 Stdlib only. The endpoint is undocumented and may change; failures degrade
 to an empty quota dict so the desk gadget still shows local cost data.
@@ -21,6 +23,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 import cache_util
+import keychain
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 TOKEN_URLS = (
@@ -79,14 +82,9 @@ def _write_creds_blob(store, blob):
     raw = json.dumps(blob, separators=(",", ":"))
     if store == "keychain":
         acct = _keychain_account() or "Claude"
-        # -U updates in place; avoid printing the secret on the command line
-        # by feeding via stdin is not supported by security(1), so we pass -w.
-        # The process table briefly sees it — same as Claude Code itself.
-        subprocess.check_call(
-            ["security", "add-generic-password",
-             "-s", KEYCHAIN_SERVICE, "-a", acct, "-w", raw, "-U"],
-            stderr=subprocess.DEVNULL,
-        )
+        # Via the Security framework, not `security -w`, which would put the
+        # refresh token in argv where any process can read it out of `ps`.
+        keychain.set_generic_password(KEYCHAIN_SERVICE, acct, raw)
         return
     tmp = CREDS_FILE + ".tmp"
     with open(tmp, "w") as f:
@@ -154,7 +152,12 @@ def _refresh(oauth, store, blob):
         if isinstance(expires_in, (int, float)):
             oauth["expiresAt"] = int((time.time() + expires_in) * 1000)
         blob["claudeAiOauth"] = oauth
-        _write_creds_blob(store, blob)
+        try:
+            _write_creds_blob(store, blob)
+        except Exception as exc:
+            # Persisting failed (locked Keychain, read-only home). The token in
+            # hand is still good for this process — don't throw the refresh away.
+            print("oauth: could not persist refreshed token:", exc)
         return oauth
     raise RuntimeError(last_err or "token refresh failed")
 
