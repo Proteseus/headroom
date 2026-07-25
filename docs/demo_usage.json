@@ -1,0 +1,236 @@
+{
+  "updated": "2026-07-25T14:32:00+0200",
+  "plan": "Max 5x",
+  "quota_ok": true,
+  "session_pct": 42.0,
+  "session_pace_pct": 38.0,
+  "session_resets_in": "2h 14m",
+  "week_pct": 63.0,
+  "week_pace_pct": 55.0,
+  "week_resets_in": "3d 6h",
+  "today": {
+    "input": 120000,
+    "output": 48000,
+    "cache_read": 2100000,
+    "cache_write": 180000,
+    "total": 2448000,
+    "cost_usd": 4.25
+  },
+  "by_day": [
+    {"date": "2026-07-20", "claude": 8.2, "codex": 4.1, "cursor": 1.2, "total": 13.5},
+    {"date": "2026-07-21", "claude": 6.0, "codex": 5.5, "cursor": 0.8, "total": 12.3},
+    {"date": "2026-07-22", "claude": 9.4, "codex": 3.2, "cursor": 2.1, "total": 14.7},
+    {"date": "2026-07-23", "claude": 4.1, "codex": 7.8, "cursor": 1.5, "total": 13.4},
+    {"date": "2026-07-24", "claude": 7.2, "codex": 6.0, "cursor": 2.4, "total": 15.6},
+    {"date": "2026-07-25", "claude": 3.5, "codex": 2.1, "cursor": 0.6, "total": 6.2}
+  ],
+  "codex": {
+    "ok": true,
+    "plan": "Team",
+    "error": null,
+    "session_pct": null,
+    "session_pace_pct": null,
+    "session_resets_in": null,
+    "week_pct": 72.0,
+    "week_pace_pct": 58.0,
+    "week_resets_in": "3d 17h",
+    "pace_label": "14% in deficit",
+    "pace_delta_pct": 14.0,
+    "pace_in_deficit": true,
+    "runs_out_in": "2d 4h",
+    "reset_credits_available": 2,
+    "reset_credits_expiries": ["6d 5h", "18d 3h"],
+    "cost_usd": 120.5,
+    "cost_limit_usd": 500.0,
+    "cost_remaining_usd": 379.5,
+    "cost_label": "$120 / $500",
+    "cost_reached": false
+  },
+  "cursor": {
+    "ok": true,
+    "plan": "Pro",
+    "error": null,
+    "total_pct": 34.0,
+    "total_pace_pct": 48.0,
+    "auto_pct": 12.0,
+    "auto_pace_pct": 48.0,
+    "api_pct": 41.0,
+    "api_pace_pct": 48.0,
+    "resets_in": "4d 19h",
+    "pace_label": "14% in reserve",
+    "pace_delta_pct": 14.0,
+    "pace_in_deficit": false,
+    "cost_usd": 8.4,
+    "cost_limit_usd": 20.0,
+    "cost_remaining_usd": 11.6,
+    "cost_label": "$8 / $20",
+    "on_demand_label": "$0 / $30 on-demand",
+    "on_demand_remaining_usd": 30.0,
+    "on_demand_limit_usd": 30.0,
+    "on_demand_used_usd": 0.0
+  },
+  "attention": {
+    "level": "warn",
+    "score": 20,
+    "summary": "1 Actions failure",
+    "reasons": [
+      {
+        "level": "warn",
+        "kind": "github",
+        "summary": "1 Actions failure"
+      }
+    ]
+  },
+  "vercel": {
+    "ok": true,
+    "team": "acme",
+    "error": null,
+    "stale": false,
+    "deployments": [
+      {
+        "id": "dpl_demo1",
+        "project": "web",
+        "status": "ready",
+        "target": "production",
+        "ago": "12m",
+        "branch": "main"
+      },
+      {
+        "id": "dpl_demo2",
+        "project": "docs",
+        "status": "building",
+        "target": "preview",
+        "ago": "3m",
+        "branch": "feat/search"
+      },
+      {
+        "id": "dpl_demo3",
+        "project": "api",
+        "status": "ready",
+        "target": "production",
+        "ago": "2h",
+        "branch": "main"
+      }
+    ]
+  },
+  "git": {
+    "ok": true,
+    "error": null,
+    "stale": false,
+    "commits": [
+      {
+        "repo": "headroom",
+        "subject": "tighten menu-bar attention pip",
+        "ago": "0h",
+        "branch": "main"
+      },
+      {
+        "repo": "api",
+        "subject": "fix rate-limit headers",
+        "ago": "2h",
+        "branch": "main"
+      },
+      {
+        "repo": "web",
+        "subject": "ship search facet polish",
+        "ago": "5h",
+        "branch": "main"
+      }
+    ]
+  },
+  "github": {
+    "ok": true,
+    "configured": true,
+    "fail_count": 1,
+    "running_count": 1,
+    "runs": [
+      {
+        "id": "run_1",
+        "name": "CI",
+        "display_title": "CI",
+        "repo": "acme/web",
+        "conclusion": "failure",
+        "status": "completed",
+        "branch": "main",
+        "ago": "18m"
+      },
+      {
+        "id": "run_2",
+        "name": "Deploy",
+        "display_title": "Deploy",
+        "repo": "acme/docs",
+        "conclusion": null,
+        "status": "in_progress",
+        "branch": "feat/search",
+        "ago": "3m"
+      }
+    ]
+  },
+  "supabase": {
+    "ok": true,
+    "configured": true,
+    "alert_count": 0,
+    "projects": [
+      {
+        "ref": "abcd1234",
+        "name": "prod",
+        "status": "ACTIVE_HEALTHY",
+        "region": "eu-central-1"
+      },
+      {
+        "ref": "efgh5678",
+        "name": "staging",
+        "status": "ACTIVE_HEALTHY",
+        "region": "eu-central-1"
+      }
+    ]
+  },
+  "activity": [
+    {
+      "id": "act_1",
+      "kind": "github",
+      "status": "failure",
+      "subject": "CI",
+      "repo": "acme/web",
+      "branch": "main",
+      "ago": "18m"
+    },
+    {
+      "id": "act_2",
+      "kind": "vercel",
+      "status": "building",
+      "project": "docs",
+      "branch": "feat/search",
+      "ago": "3m"
+    },
+    {
+      "id": "act_3",
+      "kind": "git",
+      "subject": "tighten menu-bar attention pip",
+      "repo": "headroom",
+      "branch": "main",
+      "ago": "0h"
+    }
+  ],
+  "local": {
+    "ok": true,
+    "host": "dev-mac",
+    "error": null,
+    "stale": false,
+    "servers": [
+      {"name": "next", "port": 3000, "pid": 4242, "cmd": "node"},
+      {"name": "vite", "port": 5173, "pid": 4243, "cmd": "node"},
+      {"name": "headroom", "port": 8737, "pid": 4244, "cmd": "python3"}
+    ]
+  },
+  "sources": [
+    {"id": "claude", "title": "Claude", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "codex", "title": "Codex", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "cursor", "title": "Cursor", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "vercel", "title": "Vercel", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "git", "title": "Git", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "github", "title": "GitHub", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "supabase", "title": "Supabase", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "local", "title": "Local", "enabled": true, "ok": true, "configured": true, "stale": false}
+  ]
+}

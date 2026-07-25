@@ -9,11 +9,17 @@ JSON document at GET http://<mac>:8737/usage for a Waveshare ESP32-S3 to poll
 Also polls Anthropic OAuth, OpenAI Codex (wham/usage), and Cursor
 (GetCurrentPeriodUsage) quotas, Vercel team deployments, local git activity,
 GitHub Actions failures, and listening local servers so the desk gadget can
-flip pages.
+flip pages. Every watched service is one row in sources_config.SOURCES.
+
+The served document is rebuilt once per poll tick and cached as bytes — a GET
+is a memcpy, not a re-aggregation, because three clients poll this thing.
+`?view=device` returns the trimmed projection the ESP32 reads (see
+device_view.py). Non-loopback callers must present the shared token (auth.py).
 
 Zero dependencies — Python 3 standard library only. Incremental: each file's
 byte offset is remembered so a poll only reads newly-appended lines instead of
-rescanning every file.
+rescanning every file, and files untouched since the retention cutoff are never
+opened at all.
 
 Run:  python3 headroom_server.py [--port 8737] [--interval 15]
 """
@@ -27,31 +33,27 @@ import sys
 import threading
 import time
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import pricing
-import oauth_usage
-import codex_usage
-import cursor_usage
-import vercel_builds
-import git_activity
-import github_actions
-import local_servers
-import supabase_usage
-import daily_burn
-import sources_config
 import app_config
+import auth
+import burndown
+import claude_history
+import daily_burn
+import device_view
+import local_servers
+import oauth_usage
+import quota_samples
+import sources_config
 import usb_bridge
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
-QUOTA_POLL_S = 60  # usage endpoints are rate-limited; don't hammer them
-SUPABASE_POLL_S = 5 * 60
-GITHUB_POLL_S = 90
 BOOT_T0 = time.time()
+LOG_ROTATE_S = 15 * 60
 
 
 def _local_tz():
@@ -60,25 +62,19 @@ def _local_tz():
     except Exception:
         return ZoneInfo("UTC")
 
+
 _lock = threading.Lock()
 _offsets = {}   # filepath -> bytes already consumed
-_events = []    # list of dicts: {t, model, in, out, cr, w5, w1, cost}
-_quota = {"ok": False, "plan": None, "session": None, "week": None}
-_codex = {"ok": False, "plan": None, "session": None, "week": None}
-_cursor = {"ok": False, "plan": None, "auto": None, "api": None}
-_vercel = {"ok": False, "team": None, "deployments": []}
-_git = {"ok": False, "commits": []}
-_github = {
-    "ok": False, "configured": False, "runs": [],
-    "fail_count": 0, "running_count": 0, "error": None,
-}
-_local = {"ok": False, "host": None, "servers": []}
-_supabase = {
-    "ok": False, "configured": False, "projects": [],
-    "project_count": 0, "healthy_count": 0, "alert_count": 0,
-}
-# Last successful (or attempted) refresh timestamps for /usage → sources.
+# (minute_epoch, model) -> [input, output, cache_read, write_5m, write_1h, cost].
+# Bucketing by minute bounds memory by active minutes rather than by message
+# count, and makes the rollup O(active minutes) instead of O(every message).
+_buckets = {}
+_state = sources_config.blank_state()          # source id -> latest payload
 _source_times = {sid: 0.0 for sid in sources_config.SOURCE_IDS}
+
+# Pre-rendered response bodies, rebuilt at the end of each poll tick.
+_cache_lock = threading.Lock()
+_cache = {"doc": None, "usage": b"", "device": b"", "built": 0.0}
 
 
 def _unix_seconds(value):
@@ -207,54 +203,29 @@ def _build_activity(vercel, git, supabase=None, github=None):
     return items[:14]
 
 
-def _parse_ts(rec):
-    ts = rec.get("timestamp")
-    if not ts:
+def _event_from(rec, cutoff):
+    """Turn one assistant log record into a bucket key + totals, or None.
+
+    Parsing and pricing live in claude_history so the live rollup and the
+    long-range backfill can't drift apart; this only adds minute bucketing and
+    the retention cutoff.
+    """
+    parsed = claude_history.usage_from_record(rec)
+    if parsed is None:
         return None
-    try:
-        # e.g. 2026-07-21T05:41:00.000Z
-        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-    except ValueError:
+    t, model, inp, out, cr, w5, w1, cost = parsed
+    if t < cutoff:
         return None
+    return (int(t) // 60, model, inp, out, cr, w5, w1, cost)
 
 
-def _event_from(rec, now):
-    """Turn one assistant log record into a token event, or None."""
-    msg = rec.get("message") or {}
-    usage = msg.get("usage")
-    if not usage:
-        return None
-    t = _parse_ts(rec)
-    if t is None or t < now - RETENTION_S:
-        return None
-
-    inp = usage.get("input_tokens", 0) or 0
-    out = usage.get("output_tokens", 0) or 0
-    cr = usage.get("cache_read_input_tokens", 0) or 0
-    cc = usage.get("cache_creation") or {}
-    w5 = cc.get("ephemeral_5m_input_tokens", 0) or 0
-    w1 = cc.get("ephemeral_1h_input_tokens", 0) or 0
-    # Fall back to the flat field if the breakdown is absent (older records).
-    if not (w5 or w1):
-        w5 = usage.get("cache_creation_input_tokens", 0) or 0
-
-    model = msg.get("model") or "unknown"
-    cost = pricing.cost_usd(
-        model, input_tokens=inp, output_tokens=out,
-        cache_read=cr, cache_write_5m=w5, cache_write_1h=w1,
-    )
-    return {"t": t, "model": model, "in": inp, "out": out,
-            "cr": cr, "w5": w5, "w1": w1, "cost": cost}
-
-
-def _read_file(path, from_offset, now):
+def _read_file(path, from_offset, cutoff):
     """Read a jsonl file from a byte offset; return (events, new_offset)."""
     events = []
     try:
         with open(path, "rb") as fh:
             fh.seek(from_offset)
             data = fh.read()
-            new_offset = fh.tell()
     except OSError:
         return events, from_offset
 
@@ -272,33 +243,62 @@ def _read_file(path, from_offset, now):
             rec = json.loads(line)
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
-        ev = _event_from(rec, now)
+        ev = _event_from(rec, cutoff)
         if ev:
             events.append(ev)
     return events, new_offset
 
 
 def scan():
-    """Incrementally ingest new log lines and prune stale events."""
+    """Incrementally ingest new log lines and prune stale buckets."""
     now = time.time()
+    cutoff = now - RETENTION_S
     fresh = []
+    seen = set()
+
     for path in glob(os.path.join(LOG_ROOT, "**", "*.jsonl"), recursive=True):
-        off = _offsets.get(path, 0)
-        # Handle truncation/rotation: if the file shrank, start over.
+        seen.add(path)
         try:
-            size = os.path.getsize(path)
+            stat = os.stat(path)
         except OSError:
             continue
-        if size < off:
-            off = 0
-        evs, new_off = _read_file(path, off, now)
+        off = _offsets.get(path, 0)
+        # A file untouched since the cutoff can only hold events we would prune
+        # anyway. Mark it fully consumed and never open it again — this is what
+        # keeps a cold start from parsing hundreds of MB of archived sessions.
+        if stat.st_mtime < cutoff:
+            _offsets[path] = stat.st_size
+            continue
+        if stat.st_size < off:
+            off = 0          # truncated or rotated — start over
+        elif stat.st_size == off:
+            continue         # nothing appended since last tick
+        evs, new_off = _read_file(path, off, cutoff)
         _offsets[path] = new_off
         fresh.extend(evs)
 
+    # Forget files that disappeared, so the offset map tracks the log dir
+    # rather than growing for the life of the process.
+    if len(_offsets) > len(seen):
+        for gone in [p for p in _offsets if p not in seen]:
+            del _offsets[gone]
+
+    cutoff_minute = int(cutoff) // 60
     with _lock:
-        _events.extend(fresh)
-        cutoff = now - RETENTION_S
-        _events[:] = [e for e in _events if e["t"] >= cutoff]
+        for minute, model, inp, out, cr, w5, w1, cost in fresh:
+            bucket = _buckets.get((minute, model))
+            if bucket is None:
+                _buckets[(minute, model)] = [inp, out, cr, w5, w1, cost]
+                continue
+            bucket[0] += inp
+            bucket[1] += out
+            bucket[2] += cr
+            bucket[3] += w5
+            bucket[4] += w1
+            bucket[5] += cost
+        stale = [key for key in _buckets if key[0] < cutoff_minute]
+        for key in stale:
+            del _buckets[key]
 
 
 def _blank():
@@ -306,13 +306,14 @@ def _blank():
             "cache_write": 0, "total": 0, "cost_usd": 0.0}
 
 
-def _accumulate(bucket, e):
-    bucket["input"] += e["in"]
-    bucket["output"] += e["out"]
-    bucket["cache_read"] += e["cr"]
-    bucket["cache_write"] += e["w5"] + e["w1"]
-    bucket["total"] += e["in"] + e["out"] + e["cr"] + e["w5"] + e["w1"]
-    bucket["cost_usd"] += e["cost"]
+def _accumulate(target, bucket):
+    inp, out, cr, w5, w1, cost = bucket
+    target["input"] += inp
+    target["output"] += out
+    target["cache_read"] += cr
+    target["cache_write"] += w5 + w1
+    target["total"] += inp + out + cr + w5 + w1
+    target["cost_usd"] += cost
 
 
 def _flatten_codex(codex):
@@ -333,11 +334,11 @@ def _flatten_codex(codex):
         "session_pct": session_q.get("pct"),
         "session_pace_pct": oauth_usage.pace_pct(session_resets, session_window),
         "session_resets_in_s": session_resets,
-        "session_resets_in": codex_usage.fmt_resets(session_resets),
+        "session_resets_in": oauth_usage.fmt_resets(session_resets),
         "week_pct": week_q.get("pct"),
         "week_pace_pct": oauth_usage.pace_pct(week_resets, week_window),
         "week_resets_in_s": week_resets,
-        "week_resets_in": codex_usage.fmt_resets(week_resets),
+        "week_resets_in": oauth_usage.fmt_resets(week_resets),
         "pace_label": pace.get("label"),
         "pace_delta_pct": pace.get("delta_pct"),
         "pace_in_deficit": pace.get("in_deficit"),
@@ -401,8 +402,72 @@ def _flatten_cursor(cursor):
     }
 
 
-def rollup():
-    """Compute the flat JSON document served at /usage."""
+def _cost_since(start_ts):
+    """USD of Claude work recorded since `start_ts`, from the live buckets."""
+    with _lock:
+        buckets = [(minute, bucket[5]) for (minute, _model), bucket
+                   in _buckets.items()]
+    return sum(cost for minute, cost in buckets if minute * 60 >= start_ts)
+
+
+# The ratio needs enough of a window behind it to mean anything.
+PRIOR_MIN_ELAPSED_S = 2 * 3600
+PRIOR_MIN_PCT = 1.0
+PRIOR_MIN_COST_USD = 1.0
+
+
+def _burn_priors(state, history, now):
+    """Per-provider %/day burn estimates for windows too fresh to fit.
+
+    The quota APIs only ever report *now*, so no amount of backfill can
+    reconstruct a percent history. What the session logs do give is cost, and
+    the current window supplies the missing conversion: it has both a percent
+    used and the work that produced it. That ratio against the historical daily
+    average is a defensible %/day estimate.
+
+    Cost rather than token count, deliberately: a cache read is a tenth of an
+    input token and output is five times one, so raw totals wildly understate
+    the price of the tokens that actually move the meter. `pricing` already
+    carries those weights.
+
+    Both sides must cover the *same* window. Anthropic's weekly window rolls
+    from its own start, which is rarely 7 calendar days ago, so the denominator
+    is summed from that start rather than from a rolling week.
+
+    Claude only — Codex and Cursor keep no local log. Anything resting on this
+    is marked `estimated` by burndown.
+    """
+    if not history:
+        return {}
+    week = ((state or {}).get("claude") or {}).get("week") or {}
+    try:
+        used_pct = float(week.get("pct"))
+        resets_in_s = float(week.get("resets_in_s"))
+    except (TypeError, ValueError):
+        return {}
+
+    window_s = week.get("window_s") or oauth_usage.WEEK_WINDOW_S
+    elapsed = window_s - max(0.0, min(resets_in_s, window_s))
+    avg_cost_per_day = history.get("avg_cost_per_active_day") or 0
+    if elapsed < PRIOR_MIN_ELAPSED_S or used_pct < PRIOR_MIN_PCT:
+        return {}
+    if avg_cost_per_day <= 0:
+        return {}
+
+    cost_in_window = _cost_since(now - elapsed)
+    if cost_in_window < PRIOR_MIN_COST_USD:
+        return {}
+
+    estimate = (used_pct / cost_in_window) * float(avg_cost_per_day)
+    # A prior that predicts blowing the window many times over is a broken
+    # ratio, not a real forecast.
+    if not (0 < estimate < 200):
+        return {}
+    return {"claude": estimate}
+
+
+def _compute_doc():
+    """Build the full /usage document from current state. Pure-ish; no I/O."""
     now = time.time()
     local_midnight = datetime.now().astimezone().replace(
         hour=0, minute=0, second=0, microsecond=0).timestamp()
@@ -411,38 +476,39 @@ def rollup():
     by_model = {}
 
     with _lock:
-        events = list(_events)
-        quota = dict(_quota)
-        codex = dict(_codex)
-        cursor = dict(_cursor)
-        vercel = dict(_vercel)
-        git = dict(_git)
-        github = dict(_github)
-        local = dict(_local)
-        supabase = dict(_supabase)
+        buckets = {key: list(value) for key, value in _buckets.items()}
+        state = {sid: dict(payload) for sid, payload in _state.items()}
 
-    for e in events:
-        t = e["t"]
+    # Bucket timestamps are minute-aligned, so window edges are accurate to
+    # the minute — well inside what a desk gadget can show.
+    for (minute, model), bucket in buckets.items():
+        t = minute * 60
         if t >= now - 7 * 24 * 3600:
-            _accumulate(week, e)
+            _accumulate(week, bucket)
         if t >= local_midnight:
-            _accumulate(today, e)
-            bm = by_model.setdefault(e["model"], _blank())
-            _accumulate(bm, e)
+            _accumulate(today, bucket)
+            _accumulate(by_model.setdefault(model, _blank()), bucket)
         if t >= now - 5 * 3600:
-            _accumulate(session_5h, e)
+            _accumulate(session_5h, bucket)
         if t >= now - 3600:
-            _accumulate(last_hour, e)
+            _accumulate(last_hour, bucket)
 
-    for b in (today, week, session_5h, last_hour, *by_model.values()):
-        b["cost_usd"] = round(b["cost_usd"], 4)
+    for bucket in (today, week, session_5h, last_hour, *by_model.values()):
+        bucket["cost_usd"] = round(bucket["cost_usd"], 4)
+
+    quota = state["claude"]
+    vercel = state["vercel"]
+    git = state["git"]
+    github = state["github"]
+    local = state["local"]
+    supabase = state["supabase"]
 
     local_tz = _local_tz()
-    flat_codex = _flatten_codex(codex)
-    flat_cursor = _flatten_cursor(cursor)
-    activity = _build_activity(vercel, git, supabase, github)
-    sources = _sources_payload(
-        quota, codex, cursor, vercel, git, github, local, supabase)
+    history = claude_history.summary(days=30)
+    burndowns = burndown.compute_all(
+        state, now=now, tz=local_tz,
+        priors=_burn_priors(state, history, now),
+    )
     # Flatten Claude fields at the top level (back-compat with older firmware).
     session_q = quota.get("session") or {}
     week_q = quota.get("week") or {}
@@ -469,9 +535,17 @@ def rollup():
         "last_hour": last_hour,
         "by_model": by_model,
         "by_day": daily_burn.series(tz=local_tz),
+        # Per-pool burndown: ideal decay, actual curve, and time-to-exhaustion.
+        # `burndown_primary` is the pool most worth showing — what the menu-bar
+        # icon and the board's headline follow.
+        "burndown": burndowns,
+        "burndown_primary": burndown.primary(burndowns),
+        # Months of real Claude usage, backfilled from the session logs. Token
+        # history, not quota-percent history — see claude_history.
+        "history": history,
         "quota": quota,
-        "codex": flat_codex,
-        "cursor": flat_cursor,
+        "codex": _flatten_codex(state["codex"]),
+        "cursor": _flatten_cursor(state["cursor"]),
         "vercel": {
             "ok": bool(vercel.get("ok")),
             "team": vercel.get("team"),
@@ -485,7 +559,7 @@ def rollup():
             "stale": bool(git.get("stale")),
             "commits": git.get("commits") or [],
         },
-        "activity": activity,
+        "activity": _build_activity(vercel, git, supabase, github),
         "supabase": supabase,
         "github": {
             "ok": bool(github.get("ok")),
@@ -504,10 +578,38 @@ def rollup():
             "stale": bool(local.get("stale")),
             "servers": local.get("servers") or [],
         },
-        "sources": sources,
+        "sources": _sources_payload(state),
     }
     doc["attention"] = _build_attention(doc)
     return doc
+
+
+def publish():
+    """Rebuild the cached document and its encoded bodies. Returns the doc."""
+    doc = _compute_doc()
+    usage = json.dumps(doc).encode()
+    device = json.dumps(
+        device_view.build(doc), separators=(",", ":")).encode()
+    with _cache_lock:
+        _cache.update(doc=doc, usage=usage, device=device, built=time.time())
+    return doc
+
+
+def rollup():
+    """Current /usage document, building one if the cache is cold."""
+    with _cache_lock:
+        doc = _cache["doc"]
+    return doc if doc is not None else publish()
+
+
+def _bodies():
+    """(usage_bytes, device_bytes) for the current document."""
+    with _cache_lock:
+        if _cache["doc"] is not None:
+            return _cache["usage"], _cache["device"]
+    publish()
+    with _cache_lock:
+        return _cache["usage"], _cache["device"]
 
 
 def _build_attention(doc):
@@ -591,94 +693,25 @@ def _build_attention(doc):
     }
 
 
-def _source_detail(source_id, payload):
-    if source_id == "claude":
-        plan = payload.get("plan")
-        week = (payload.get("week") or {}).get("pct")
-        if plan and week is not None:
-            return f"{plan} · week {week:.0f}%"
-        return plan or payload.get("error")
-    if source_id == "codex":
-        plan = payload.get("plan")
-        week = (payload.get("week") or {}).get("pct")
-        if plan and week is not None:
-            return f"{plan} · week {week:.0f}%"
-        return plan or payload.get("error")
-    if source_id == "cursor":
-        plan = payload.get("plan")
-        total = (payload.get("total") or {}).get("pct")
-        if plan and total is not None:
-            return f"{plan} · total {total:.0f}%"
-        return plan or payload.get("error")
-    if source_id == "vercel":
-        team = payload.get("team")
-        n = len(payload.get("deployments") or [])
-        if team:
-            return f"{team} · {n} deploys"
-        return payload.get("error")
-    if source_id == "git":
-        n = len(payload.get("commits") or [])
-        return f"{n} commits" if payload.get("ok") else payload.get("error")
-    if source_id == "github":
-        if not payload.get("configured"):
-            return payload.get("error") or "not connected"
-        fails = payload.get("fail_count") or 0
-        running = payload.get("running_count") or 0
-        if fails or running:
-            bits = []
-            if fails:
-                bits.append(f"{fails} failed")
-            if running:
-                bits.append(f"{running} running")
-            return " · ".join(bits)
-        return "all clear"
-    if source_id == "local":
-        n = len(payload.get("servers") or [])
-        host = payload.get("host")
-        if payload.get("ok"):
-            return f"{host or 'local'} · {n} servers"
-        return payload.get("error")
-    if source_id == "supabase":
-        if not payload.get("configured"):
-            return payload.get("error") or "not connected"
-        alerts = payload.get("alert_count") or 0
-        count = payload.get("project_count") or 0
-        if alerts:
-            return f"{count} projects · {alerts} alerts"
-        return f"{count} projects"
-    return payload.get("error")
-
-
-def _sources_payload(quota, codex, cursor, vercel, git, github, local, supabase):
+def _sources_payload(state):
     enabled = sources_config.enabled_map()
     now = time.time()
     with _lock:
         times = dict(_source_times)
-    bags = {
-        "claude": quota,
-        "codex": codex,
-        "cursor": cursor,
-        "vercel": vercel,
-        "git": git,
-        "github": github,
-        "local": local,
-        "supabase": supabase,
-    }
     rows = []
-    for sid in sources_config.SOURCE_IDS:
-        meta = sources_config.meta_for(sid)
-        payload = bags.get(sid) or {}
-        age = times.get(sid) or 0.0
+    for source in sources_config.SOURCES:
+        payload = state.get(source.id) or {}
+        age = times.get(source.id) or 0.0
         rows.append({
-            "id": sid,
-            "title": meta["title"],
-            "hint": meta["hint"],
-            "enabled": bool(enabled.get(sid, True)),
+            "id": source.id,
+            "title": source.title,
+            "hint": source.hint,
+            "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
             "configured": payload.get("configured"),
             "error": payload.get("error"),
-            "detail": _source_detail(sid, payload),
+            "detail": sources_config.detail_for(source.id, payload),
             "age_s": (int(max(0, now - age)) if age > 0 else None),
         })
     return rows
@@ -686,12 +719,14 @@ def _sources_payload(quota, codex, cursor, vercel, git, github, local, supabase)
 
 def _health_payload():
     doc = rollup()
-    sources = doc.get("sources") or []
-    by_id = {row["id"]: row for row in sources}
+    with _cache_lock:
+        built = _cache["built"] or 0.0
+    by_id = {row["id"]: row for row in (doc.get("sources") or [])}
     return {
         "ok": True,
         "uptime_s": int(max(0, time.time() - BOOT_T0)),
         "updated": doc.get("updated"),
+        "built_age_s": int(max(0, time.time() - built)),
         "sources": {
             sid: {
                 "ok": by_id.get(sid, {}).get("ok"),
@@ -708,7 +743,9 @@ def _health_payload():
 
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status, payload):
-        body = json.dumps(payload).encode()
+        self._send_bytes(status, json.dumps(payload).encode())
+
+    def _send_bytes(self, status, body):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -716,32 +753,44 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _is_loopback(self):
+    def _client_ip(self):
         try:
             address = ipaddress.ip_address(self.client_address[0])
-            mapped = getattr(address, "ipv4_mapped", None)
-            return address.is_loopback or bool(mapped and mapped.is_loopback)
         except ValueError:
-            return False
+            return None
+        mapped = getattr(address, "ipv4_mapped", None)
+        return mapped or address
+
+    def _is_loopback(self):
+        address = self._client_ip()
+        return bool(address and address.is_loopback)
 
     def _is_private(self):
         """Loopback or RFC1918 — desk gadgets on the LAN may force a sync."""
-        try:
-            address = ipaddress.ip_address(self.client_address[0])
-            mapped = getattr(address, "ipv4_mapped", None)
-            candidate = mapped or address
-            return candidate.is_loopback or candidate.is_private
-        except ValueError:
-            return False
+        address = self._client_ip()
+        return bool(address and (address.is_loopback or address.is_private))
+
+    def _allowed(self):
+        """Loopback is trusted; everything off-box needs the shared token."""
+        if self._is_loopback():
+            return True
+        return auth.authorized(self.headers)
 
     def do_GET(self):
-        path = self.path.rstrip("/")
-        if path in ("", "/usage"):
-            self._send_json(200, rollup())
-        elif path == "/health":
-            self._send_json(200, _health_payload())
-        else:
+        split = urllib.parse.urlsplit(self.path)
+        path = split.path.rstrip("/")
+        if path not in ("", "/usage", "/health"):
             self.send_error(404)
+            return
+        if not self._allowed():
+            self._send_json(401, {"ok": False, "error": "token required"})
+            return
+        if path == "/health":
+            self._send_json(200, _health_payload())
+            return
+        view = urllib.parse.parse_qs(split.query).get("view", [""])[0]
+        usage, device = _bodies()
+        self._send_bytes(200, device if view == "device" else usage)
 
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path.rstrip("/")
@@ -752,6 +801,9 @@ class Handler(BaseHTTPRequestHandler):
             "/sources",
         ):
             self.send_error(404)
+            return
+        if not self._allowed():
+            self._send_json(401, {"ok": False, "error": "token required"})
             return
         # Config + process control stay Mac-only; sync refresh is LAN-ok so
         # the ESP32 long-press can poke the same Sources pipeline.
@@ -782,13 +834,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = sources_config.set_enabled(enabled)
             # Kick a refresh so ESP32/Mac see the change quickly.
-            threading.Thread(
-                target=_refresh_selected,
-                kwargs={"sources": [
-                    sid for sid, on in result.items() if on
-                ], "force": True},
-                daemon=True,
-            ).start()
+            _refresh_async([sid for sid, on in result.items() if on])
             self._send_json(200, {"ok": True, "enabled": result})
             return
 
@@ -800,13 +846,9 @@ class Handler(BaseHTTPRequestHandler):
                 wanted = list(sources_config.SOURCE_IDS)
             wanted = [
                 sid for sid in wanted
-                if sid in sources_config.SOURCE_IDS
+                if sid in sources_config.BY_ID
             ]
-            threading.Thread(
-                target=_refresh_selected,
-                kwargs={"sources": wanted, "force": True},
-                daemon=True,
-            ).start()
+            _refresh_async(wanted)
             self._send_json(202, {"ok": True, "sources": wanted})
             return
 
@@ -815,6 +857,7 @@ class Handler(BaseHTTPRequestHandler):
         if result.get("ok"):
             time.sleep(0.2)
             _refresh_one("local", force=True)
+            publish()
             self._send_json(200, result)
         else:
             self._send_json(409, result)
@@ -823,129 +866,33 @@ class Handler(BaseHTTPRequestHandler):
         pass  # quiet; this is a desk gadget, not a web server
 
 
-def _mark_source(source_id):
-    with _lock:
-        _source_times[source_id] = time.time()
-
-
 def _refresh_one(source_id, force=False):
     """Fetch one source and store it. Never raises."""
-    global _quota, _codex, _cursor, _vercel, _git, _github, _local, _supabase
+    source = sources_config.get(source_id)
+    if source is None:
+        return
     try:
-        if source_id == "claude":
-            q = oauth_usage.fetch_quota(force=force)
-            with _lock:
-                _quota = q
-            _mark_source("claude")
-            if q.get("ok"):
-                s = q.get("session") or {}
-                w = q.get("week") or {}
-                print(f"claude ok  plan={q.get('plan')}  "
-                      f"session={s.get('pct')}%  week={w.get('pct')}%"
-                      f"{'  stale' if q.get('stale') else ''}")
-            else:
-                print("claude miss:", q.get("error"))
-        elif source_id == "codex":
-            c = codex_usage.fetch_quota(force=force)
-            with _lock:
-                _codex = c
-            _mark_source("codex")
-            if c.get("ok"):
-                s = c.get("session") or {}
-                w = c.get("week") or {}
-                pace = (c.get("pace") or {}).get("label") or "-"
-                credits = (c.get("reset_credits") or {}).get("available")
-                print(f"codex ok   plan={c.get('plan')}  "
-                      f"session={s.get('pct')}%  week={w.get('pct')}%  "
-                      f"pace={pace}  credits={credits}"
-                      f"{'  stale' if c.get('stale') else ''}")
-            else:
-                print("codex miss:", c.get("error"))
-        elif source_id == "cursor":
-            cu = cursor_usage.fetch_quota(force=force)
-            with _lock:
-                _cursor = cu
-            _mark_source("cursor")
-            if cu.get("ok"):
-                a = cu.get("auto") or {}
-                p = cu.get("api") or {}
-                print(f"cursor ok  plan={cu.get('plan')}  "
-                      f"auto={a.get('pct')}%  api={p.get('pct')}%  "
-                      f"resets={cu.get('resets_in_s')}"
-                      f"{'  stale' if cu.get('stale') else ''}")
-            else:
-                print("cursor miss:", cu.get("error"))
-        elif source_id == "vercel":
-            v = vercel_builds.fetch_deployments(force=force)
-            with _lock:
-                _vercel = v
-            _mark_source("vercel")
-            if v.get("ok"):
-                n = len(v.get("deployments") or [])
-                print(f"vercel ok  team={v.get('team')}  deploys={n}"
-                      f"{'  stale' if v.get('stale') else ''}")
-            else:
-                print("vercel miss:", v.get("error"))
-        elif source_id == "git":
-            g = git_activity.fetch_commits(force=force)
-            with _lock:
-                _git = g
-            _mark_source("git")
-            if g.get("ok"):
-                n = len(g.get("commits") or [])
-                print(f"git ok     commits={n}"
-                      f"{'  stale' if g.get('stale') else ''}")
-            else:
-                print("git miss:", g.get("error"))
-        elif source_id == "github":
-            data = github_actions.fetch_actions(force=force)
-            with _lock:
-                _github = data
-            _mark_source("github")
-            if data.get("ok"):
-                print(
-                    f"github ok  fails={data.get('fail_count')}  "
-                    f"running={data.get('running_count')}  "
-                    f"repos={len(data.get('repos') or [])}"
-                    f"{'  stale' if data.get('stale') else ''}"
-                )
-            else:
-                print("github miss:", data.get("error"))
-        elif source_id == "local":
-            loc = local_servers.fetch_servers(force=force)
-            with _lock:
-                _local = loc
-            _mark_source("local")
-            if loc.get("ok"):
-                n = len(loc.get("servers") or [])
-                print(f"local ok   host={loc.get('host')}  servers={n}"
-                      f"{'  stale' if loc.get('stale') else ''}")
-            else:
-                print("local miss:", loc.get("error"))
-        elif source_id == "supabase":
-            data = supabase_usage.fetch_projects(force=force)
-            with _lock:
-                _supabase = data
-            _mark_source("supabase")
-            if data.get("ok"):
-                print(
-                    f"supabase ok projects={data.get('project_count')} "
-                    f"alerts={data.get('alert_count')}"
-                    f"{'  stale' if data.get('stale') else ''}"
-                )
-            else:
-                print("supabase miss:", data.get("error"))
+        payload = source.fetch(force=force)
     except Exception as exc:
         print(f"{source_id} error:", exc)
+        return
+    with _lock:
+        _state[source_id] = payload
+        _source_times[source_id] = time.time()
+    if payload.get("ok"):
+        stale = "  stale" if payload.get("stale") else ""
+        print(f"{source_id:9s} ok  {source.summary(payload)}{stale}")
+    else:
+        print(f"{source_id:9s} miss:", payload.get("error"))
 
 
 def _observe_burn():
     try:
         with _lock:
-            q = dict(_quota)
-            c = dict(_codex)
-            cu = dict(_cursor)
-        today_burn = daily_burn.observe(q, c, cu, tz=_local_tz())
+            quota = dict(_state["claude"])
+            codex = dict(_state["codex"])
+            cursor = dict(_state["cursor"])
+        today_burn = daily_burn.observe(quota, codex, cursor, tz=_local_tz())
         print(
             "burn today "
             f"claude={today_burn.get('claude')}%  "
@@ -956,12 +903,31 @@ def _observe_burn():
         print("daily_burn error:", exc)
 
 
+def _sample_quotas():
+    """Append raw (t, pct) samples — the series behind burndown + forecast.
+
+    Separate from _observe_burn: that accumulates %-points per calendar day,
+    this keeps the intra-window shape those daily totals can't reconstruct.
+    """
+    try:
+        with _lock:
+            state = {sid: dict(_state[sid])
+                     for sid in sources_config.BURN_SOURCE_IDS}
+        rows = quota_samples.record(state)
+        if rows:
+            print("sampled " + "  ".join(
+                f"{row['provider']}.{row['pool']}={row['pct']}%"
+                for row in rows))
+    except Exception as exc:
+        print("quota_samples error:", exc)
+
+
 def _refresh_selected(sources, force=False):
     """Refresh the given sources in parallel (enabled filter still applies)."""
     enabled = sources_config.enabled_map()
     wanted = [
         sid for sid in sources
-        if sid in sources_config.SOURCE_IDS and enabled.get(sid, True)
+        if sid in sources_config.BY_ID and enabled.get(sid, True)
     ]
     if not wanted:
         return
@@ -971,33 +937,18 @@ def _refresh_selected(sources, force=False):
             lambda sid: _refresh_one(sid, force=force),
             wanted,
         ))
-    if any(sid in ("claude", "codex", "cursor") for sid in wanted):
+    if any(sid in sources_config.BURN_SOURCE_IDS for sid in wanted):
         _observe_burn()
+        _sample_quotas()
+    publish()
 
 
-def _refresh_quotas(force=False):
-    """Pull enabled Claude/Codex/Cursor/Vercel/git/local in parallel."""
-    enabled = sources_config.enabled_map()
-    batch = [
-        sid for sid in ("claude", "codex", "cursor", "vercel", "git", "local")
-        if enabled.get(sid, True)
-    ]
-    _refresh_selected(batch, force=force)
-
-
-def _refresh_local(force=False):
-    if sources_config.is_enabled("local"):
-        _refresh_one("local", force=force)
-
-
-def _refresh_supabase(force=False):
-    if sources_config.is_enabled("supabase"):
-        _refresh_one("supabase", force=force)
-
-
-def _refresh_github(force=False):
-    if sources_config.is_enabled("github"):
-        _refresh_one("github", force=force)
+def _refresh_async(sources, force=True):
+    threading.Thread(
+        target=_refresh_selected,
+        kwargs={"sources": list(sources), "force": force},
+        daemon=True,
+    ).start()
 
 
 def _rotate_logs():
@@ -1020,28 +971,33 @@ def _rotate_logs():
 
 
 def _poller(interval):
-    last_quota = 0.0
-    last_local = 0.0
-    last_supabase = 0.0
-    last_github = 0.0
+    """One loop, driven by each source's own poll_s from the registry."""
+    # Warmup already forced a full pass, so start the clocks now rather than
+    # refetching everything on the first tick.
+    started = time.time()
+    last_run = {sid: started for sid in sources_config.SOURCE_IDS}
+    last_rotate = started
     while True:
         try:
             scan()
         except Exception as exc:  # keep the daemon alive across odd records
             print("scan error:", exc)
+
         now = time.time()
-        if now - last_local >= local_servers.CACHE_TTL_S:
-            last_local = now
-            _refresh_local()
-        if now - last_supabase >= SUPABASE_POLL_S:
-            last_supabase = now
-            _refresh_supabase()
-        if now - last_github >= GITHUB_POLL_S:
-            last_github = now
-            _refresh_github()
-        if now - last_quota >= QUOTA_POLL_S:
-            last_quota = now
-            _refresh_quotas()
+        due = [
+            source.id for source in sources_config.SOURCES
+            if now - last_run[source.id] >= source.poll_s
+        ]
+        for sid in due:
+            last_run[sid] = now
+        if due:
+            _refresh_selected(due)
+        else:
+            publish()   # keep `updated` and pace marks moving
+
+        if now - last_rotate >= LOG_ROTATE_S:
+            last_rotate = now
+            _rotate_logs()
         time.sleep(interval)
 
 
@@ -1064,33 +1020,60 @@ def main():
     t0 = time.time()
     scan()
     with _lock:
-        n = len(_events)
-    print(f"  {n} events in the last 7 days ({time.time()-t0:.1f}s)", flush=True)
+        n = len(_buckets)
+    print(f"  {n} active minutes in the last 7 days "
+          f"({time.time()-t0:.1f}s)", flush=True)
 
     def _warmup():
         print("Refreshing enabled sources ...", flush=True)
         try:
-            _refresh_quotas(force=True)
-            _refresh_supabase(force=True)
-            _refresh_github(force=True)
+            _refresh_selected(sources_config.SOURCE_IDS, force=True)
         except Exception as exc:
             print("warmup error:", exc, flush=True)
 
+    def _backfill_history():
+        """One resumable pass over every session log, off the startup path.
+
+        First run against a large ~/.claude tree takes a while, so it never
+        blocks serving; after that unchanged files cost a stat each.
+        """
+        try:
+            result = claude_history.backfill(
+                tz=_local_tz(),
+                log=lambda line: print(line, flush=True),
+            )
+            if result.get("error"):
+                print("history backfill error:", result["error"], flush=True)
+                return
+            summary = claude_history.summary(days=30)
+            if summary:
+                print(
+                    f"history: {result['scanned']} files in "
+                    f"{result['elapsed_s']:.1f}s — "
+                    f"{summary['active_days']} active days since "
+                    f"{summary['first_day']}, "
+                    f"{summary['total_tokens'] / 1e6:.1f}M tokens, "
+                    f"${summary['total_cost_usd']:.2f}",
+                    flush=True,
+                )
+            else:
+                print(f"history: no usage found under {claude_history.LOG_ROOT}",
+                      flush=True)
+            publish()
+        except Exception as exc:
+            print("history backfill error:", exc, flush=True)
+
+    publish()
+    threading.Thread(target=_backfill_history, daemon=True).start()
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
 
     def _usb_get_usage():
-        return json.dumps(rollup()).encode()
+        # The cable is slow: hand the board its trimmed view, not the full doc.
+        return _bodies()[1]
 
     def _usb_sync_refresh():
-        threading.Thread(
-            target=_refresh_selected,
-            kwargs={
-                "sources": list(sources_config.SOURCE_IDS),
-                "force": True,
-            },
-            daemon=True,
-        ).start()
+        _refresh_async(sources_config.SOURCE_IDS)
 
     threading.Thread(
         target=usb_bridge.run,
@@ -1103,7 +1086,17 @@ def main():
 
     srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage", flush=True)
-    print(f"Health check at http://127.0.0.1:{args.port}/health", flush=True)
+    print(f"  device view:  http://0.0.0.0:{args.port}/usage?view=device",
+          flush=True)
+    print(f"  health check: http://127.0.0.1:{args.port}/health", flush=True)
+    if auth.required():
+        print(f"LAN clients need this token (also in {auth.TOKEN_PATH}):",
+              flush=True)
+        print(f"  {auth.token()}", flush=True)
+        print("  put it in firmware/src/config.h as HOST_TOKEN", flush=True)
+    else:
+        print("require_auth is off — /usage is open to the whole network",
+              flush=True)
     print("USB CDC fallback: HR protocol on /dev/cu.usbmodem* (best-effort)",
           flush=True)
     try:
