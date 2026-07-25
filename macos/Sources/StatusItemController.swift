@@ -88,6 +88,8 @@ final class StatusItemController: NSObject {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            // Someone is looking — refresh now and hold the fast cadence.
+            store.noteInteraction()
             Task { await store.refresh() }
             eventMonitor = NSEvent.addGlobalMonitorForEvents(
                 matching: [.leftMouseDown, .rightMouseDown]

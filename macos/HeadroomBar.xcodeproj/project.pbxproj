@@ -8,12 +8,21 @@
 
 /* Begin PBXBuildFile section */
 		139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */; };
+		1F03D9610CC85D4FD882100D /* HeadroomClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76493F57A34B588CA92177E8 /* HeadroomClient.swift */; };
 		24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */; };
 		519E1CC03DF30BACA9A68C57 /* ModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */; };
+		643D8FF59EDA3FEEF0383FE9 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC2840177C0A32C7B57D30C /* ActivitySection.swift */; };
 		6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C6E5C825AA4083B2D5D01D /* DashboardView.swift */; };
+		743BE437DAB076D2A18536FC /* BurndownCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F697ED3E44E4DEE6772061 /* BurndownCard.swift */; };
+		767319788439235C4346740F /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8FFA0192883B0646427B4A /* Keychain.swift */; };
+		7B1E2A79ECD3D61C593BA259 /* QuotaSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7E31C02552716E1A881F0E /* QuotaSection.swift */; };
 		957C0977FADF81B7F0A09DCF /* DailyBurnCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */; };
 		CE802023FF267E5828A30C68 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98E41B964E7DEC1B013050A /* Models.swift */; };
+		CEFE25259DD55CD763215F0C /* DashboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E046F93B7F351B8FF1AA639 /* DashboardChrome.swift */; };
+		CF0CDD903ACBE35469AF2FA6 /* ServersSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6580B7FFA04EC60ED9A67225 /* ServersSection.swift */; };
 		D52012E3C8B42DA9E4C79C56 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */; };
+		E3292B0D6131AA58D4DBF95A /* ContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7C049952EFC44A4B729CA4 /* ContractTests.swift */; };
+		ECCB2C9F3B7070CCC829FEFD /* SupabaseSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FFB46B5E0311502D45E572D /* SupabaseSection.swift */; };
 		F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */; };
 /* End PBXBuildFile section */
 
@@ -29,11 +38,20 @@
 
 /* Begin PBXFileReference section */
 		05C6E5C825AA4083B2D5D01D /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		0E046F93B7F351B8FF1AA639 /* DashboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardChrome.swift; sourceTree = "<group>"; };
+		1B7C049952EFC44A4B729CA4 /* ContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContractTests.swift; sourceTree = "<group>"; };
 		2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadroomApp.swift; sourceTree = "<group>"; };
 		33856C39B0891C4C78CC2ABE /* HeadroomBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeadroomBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		34F697ED3E44E4DEE6772061 /* BurndownCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BurndownCard.swift; sourceTree = "<group>"; };
+		3D7E31C02552716E1A881F0E /* QuotaSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaSection.swift; sourceTree = "<group>"; };
+		3F8FFA0192883B0646427B4A /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		4490B2ABE0BD42C2973881A1 /* HeadroomBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HeadroomBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarProgressBar.swift; sourceTree = "<group>"; };
+		6580B7FFA04EC60ED9A67225 /* ServersSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServersSection.swift; sourceTree = "<group>"; };
 		6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		6FFB46B5E0311502D45E572D /* SupabaseSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseSection.swift; sourceTree = "<group>"; };
+		76493F57A34B588CA92177E8 /* HeadroomClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadroomClient.swift; sourceTree = "<group>"; };
+		9FC2840177C0A32C7B57D30C /* ActivitySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitySection.swift; sourceTree = "<group>"; };
 		B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBurnCard.swift; sourceTree = "<group>"; };
 		C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageStore.swift; sourceTree = "<group>"; };
 		EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsTests.swift; sourceTree = "<group>"; };
@@ -53,12 +71,20 @@
 		C37E3C45889E12F298863A64 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				9FC2840177C0A32C7B57D30C /* ActivitySection.swift */,
+				34F697ED3E44E4DEE6772061 /* BurndownCard.swift */,
 				59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */,
 				B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */,
+				0E046F93B7F351B8FF1AA639 /* DashboardChrome.swift */,
 				05C6E5C825AA4083B2D5D01D /* DashboardView.swift */,
 				2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */,
+				76493F57A34B588CA92177E8 /* HeadroomClient.swift */,
+				3F8FFA0192883B0646427B4A /* Keychain.swift */,
 				F98E41B964E7DEC1B013050A /* Models.swift */,
+				3D7E31C02552716E1A881F0E /* QuotaSection.swift */,
+				6580B7FFA04EC60ED9A67225 /* ServersSection.swift */,
 				6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */,
+				6FFB46B5E0311502D45E572D /* SupabaseSection.swift */,
 				C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */,
 			);
 			path = Sources;
@@ -76,6 +102,7 @@
 		F7E5858F74A6F2268C9146FA /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				1B7C049952EFC44A4B729CA4 /* ContractTests.swift */,
 				EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */,
 			);
 			path = Tests;
@@ -158,12 +185,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				643D8FF59EDA3FEEF0383FE9 /* ActivitySection.swift in Sources */,
+				743BE437DAB076D2A18536FC /* BurndownCard.swift in Sources */,
 				F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */,
 				957C0977FADF81B7F0A09DCF /* DailyBurnCard.swift in Sources */,
+				CEFE25259DD55CD763215F0C /* DashboardChrome.swift in Sources */,
 				6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */,
 				139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */,
+				1F03D9610CC85D4FD882100D /* HeadroomClient.swift in Sources */,
+				767319788439235C4346740F /* Keychain.swift in Sources */,
 				CE802023FF267E5828A30C68 /* Models.swift in Sources */,
+				7B1E2A79ECD3D61C593BA259 /* QuotaSection.swift in Sources */,
+				CF0CDD903ACBE35469AF2FA6 /* ServersSection.swift in Sources */,
 				D52012E3C8B42DA9E4C79C56 /* StatusItemController.swift in Sources */,
+				ECCB2C9F3B7070CCC829FEFD /* SupabaseSection.swift in Sources */,
 				24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -172,6 +207,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E3292B0D6131AA58D4DBF95A /* ContractTests.swift in Sources */,
 				519E1CC03DF30BACA9A68C57 /* ModelsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -255,13 +291,15 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.mz.HeadroomBarTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mz.headroom-bar.tests";
 				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HeadroomBar.app/Contents/MacOS/HeadroomBar";
 			};
 			name = Release;
@@ -292,13 +330,15 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.mz.HeadroomBarTests;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mz.headroom-bar.tests";
 				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HeadroomBar.app/Contents/MacOS/HeadroomBar";
 			};
 			name = Debug;

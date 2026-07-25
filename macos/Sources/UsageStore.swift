@@ -10,16 +10,23 @@ final class UsageStore: ObservableObject {
 
     var onSnapshotChange: ((UsageSnapshot, Bool) -> Void)?
 
-    private let client: UsageClient
-    private var refreshLoop: Task<Void, Never>?
+    /// The popover is closed most of the time, and a closed popover only feeds
+    /// three bars in the menu bar. Polling the configured interval around the
+    /// clock is battery spent on pixels nobody is looking at, so idle backs off
+    /// to this and opening the popover refreshes immediately.
+    private static let idleInterval: TimeInterval = 300
+    private static let idleAfter: TimeInterval = 120
 
-    init(client: UsageClient = UsageClient()) {
-        self.client = client
-    }
+    private var refreshLoop: Task<Void, Never>?
+    private var lastInteraction = Date()
+
+    init() {}
 
     deinit {
         refreshLoop?.cancel()
     }
+
+    private var client: HeadroomClient { HeadroomClient() }
 
     func start() {
         guard refreshLoop == nil else { return }
@@ -27,14 +34,31 @@ final class UsageStore: ObservableObject {
             guard let self else { return }
             await self.refresh()
             while !Task.isCancelled {
-                let configured = UserDefaults.standard.integer(
-                    forKey: "refreshInterval")
-                let interval = configured > 0 ? configured : 60
-                try? await Task.sleep(for: .seconds(max(15, interval)))
+                try? await Task.sleep(for: .seconds(self.nextInterval()))
                 guard !Task.isCancelled else { return }
                 await self.refresh()
             }
         }
+    }
+
+    /// Call when the user actually looks at the data — resumes the fast cadence.
+    func noteInteraction() {
+        lastInteraction = Date()
+    }
+
+    private func nextInterval() -> TimeInterval {
+        let configured = UserDefaults.standard.integer(forKey: "refreshInterval")
+        let active = TimeInterval(max(15, configured > 0 ? configured : 60))
+        let idleFor = Date().timeIntervalSince(lastInteraction)
+        return idleFor > Self.idleAfter ? max(active, Self.idleInterval) : active
+    }
+
+    /// Apply a decoded snapshot without hitting the network (README exports).
+    func applySnapshot(_ value: UsageSnapshot, healthy: Bool = true) {
+        snapshot = value
+        lastRefresh = Date()
+        errorMessage = healthy ? nil : "fixture"
+        onSnapshotChange?(value, healthy)
     }
 
     func refresh() async {
@@ -43,7 +67,7 @@ final class UsageStore: ObservableObject {
         defer { isRefreshing = false }
 
         do {
-            let value = try await client.fetch()
+            let value = try await client.fetchUsage()
             snapshot = value
             lastRefresh = Date()
             errorMessage = nil
@@ -68,82 +92,4 @@ final class UsageStore: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
-}
-
-struct UsageClient: Sendable {
-    enum ClientError: LocalizedError {
-        case invalidEndpoint
-        case badResponse(Int)
-        case backend(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .invalidEndpoint:
-                "The headroom endpoint is invalid."
-            case let .badResponse(code):
-                "The backend returned HTTP \(code)."
-            case let .backend(message):
-                message
-            }
-        }
-    }
-
-    private var endpoint: URL? {
-        let configured = UserDefaults.standard.string(forKey: "usageEndpoint")
-        return URL(string: configured ?? "http://127.0.0.1:8737/usage")
-    }
-
-    func fetch() async throws -> UsageSnapshot {
-        guard let endpoint else { throw ClientError.invalidEndpoint }
-        var request = URLRequest(url: endpoint)
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.timeoutInterval = 10
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.badResponse(0)
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ClientError.badResponse(http.statusCode)
-        }
-        return try JSONDecoder().decode(UsageSnapshot.self, from: data)
-    }
-
-    func stopServer(pid: Int, port: Int) async throws {
-        guard let endpoint else { throw ClientError.invalidEndpoint }
-        let base = endpoint.lastPathComponent == "usage"
-            ? endpoint.deletingLastPathComponent()
-            : endpoint
-        let action = base
-            .appendingPathComponent("local")
-            .appendingPathComponent("stop")
-        var request = URLRequest(url: action)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            StopServerRequest(pid: pid, port: port))
-        request.timeoutInterval = 10
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.badResponse(0)
-        }
-        let result = try? JSONDecoder().decode(StopServerResponse.self, from: data)
-        guard (200..<300).contains(http.statusCode) else {
-            throw ClientError.backend(
-                result?.error ?? "The backend returned HTTP \(http.statusCode).")
-        }
-        guard result?.ok == true else {
-            throw ClientError.backend(result?.error ?? "Could not stop the server.")
-        }
-    }
-}
-
-private struct StopServerRequest: Encodable {
-    let pid: Int
-    let port: Int
-}
-
-private struct StopServerResponse: Decodable {
-    let ok: Bool
-    let error: String?
 }

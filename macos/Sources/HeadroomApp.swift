@@ -23,7 +23,161 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let store = UsageStore()
         self.store = store
         statusController = StatusItemController(store: store)
+
+        if let exportDir = Self.argValue("--export-screenshots") {
+            // Keep the process alive until export finishes; accessory apps can
+            // otherwise exit before a detached Task runs.
+            DispatchQueue.main.async {
+                Task { @MainActor in
+                    await Self.exportScreenshots(
+                        to: exportDir,
+                        fixture: Self.argValue("--fixture"),
+                        store: store
+                    )
+                    NSApp.terminate(nil)
+                }
+            }
+            return
+        }
+
         store.start()
+    }
+
+    private static func argValue(_ flag: String) -> String? {
+        let args = CommandLine.arguments
+        guard let idx = args.firstIndex(of: flag), args.indices.contains(idx + 1)
+        else { return nil }
+        return args[idx + 1]
+    }
+
+    private static func exportScreenshots(
+        to directory: String,
+        fixture: String?,
+        store: UsageStore
+    ) async {
+        let out = URL(fileURLWithPath: directory, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: out, withIntermediateDirectories: true)
+        } catch {
+            fputs("mkdir failed: \(error)\n", stderr)
+            return
+        }
+
+        AttentionAck.dismissedFingerprint = nil
+        UserDefaults.standard.set("overview", forKey: "selectedDashboard")
+
+        if let fixture {
+            do {
+                let data = try Data(contentsOf: URL(fileURLWithPath: fixture))
+                let snapshot = try JSONDecoder().decode(
+                    UsageSnapshot.self, from: data)
+                store.applySnapshot(snapshot, healthy: true)
+            } catch {
+                fputs("fixture decode failed: \(error)\n", stderr)
+                return
+            }
+        } else {
+            await store.refresh()
+        }
+
+        // Let SwiftUI settle bindings before rasterizing.
+        try? await Task.sleep(for: .milliseconds(500))
+
+        let dashboard = DashboardView(store: store)
+            .environment(\.colorScheme, .light)
+        if let image = renderHosting(dashboard, size: NSSize(width: 390, height: 620)) {
+            writePNG(image, to: out.appendingPathComponent("macos-popover.png"))
+        } else {
+            fputs("dashboard render returned nil\n", stderr)
+        }
+
+        let attention = store.snapshot.attention
+        let showPip = AttentionAck.shouldShowPip(for: attention)
+        let icon = MeterIconRenderer.render(
+            snapshot: store.snapshot,
+            healthy: store.errorMessage == nil,
+            attentionLevel: showPip ? attention?.level : nil
+        )
+        if let rep = scaleIconRep(icon, pixels: 72),
+           let png = rep.representation(using: .png, properties: [:]) {
+            let iconURL = out.appendingPathComponent("macos-menubar-icon.png")
+            do {
+                try png.write(to: iconURL)
+                fputs("wrote \(iconURL.path)\n", stderr)
+            } catch {
+                fputs("icon write failed: \(error)\n", stderr)
+            }
+        } else {
+            fputs("icon scale failed\n", stderr)
+        }
+        fputs("exported screenshots to \(directory)\n", stderr)
+    }
+
+    private static func scaleIconRep(_ icon: NSImage, pixels: Int) -> NSBitmapImageRep? {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = NSSize(width: pixels, height: pixels)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .none
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: pixels, height: pixels).fill()
+        // Template icons draw black; force a concrete appearance so bars are
+        // visible when composited onto a light menubar strip.
+        icon.isTemplate = false
+        icon.draw(
+            in: NSRect(x: 0, y: 0, width: pixels, height: pixels),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    private static func renderHosting<V: View>(
+        _ view: V,
+        size: NSSize
+    ) -> NSImage? {
+        let host = NSHostingView(
+            rootView: view.frame(width: size.width, height: size.height))
+        host.frame = NSRect(origin: .zero, size: size)
+        host.appearance = NSAppearance(named: .aqua)
+        host.layoutSubtreeIfNeeded()
+
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)
+        else { return nil }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let image = NSImage(size: size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    private static func writePNG(_ image: NSImage, to url: URL) {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:])
+        else {
+            fputs("failed to encode \(url.lastPathComponent)\n", stderr)
+            return
+        }
+        do {
+            try png.write(to: url)
+            fputs("wrote \(url.path)\n", stderr)
+        } catch {
+            fputs("write failed \(url.path): \(error)\n", stderr)
+        }
     }
 }
 
@@ -54,12 +208,24 @@ private struct SettingsView: View {
     @State private var githubTokenStored = false
     @State private var githubMessage: String?
 
+    @State private var hostToken = ""
+    @State private var hostTokenStored = false
+
     private var tokenDraft: String {
         supabaseToken.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var githubTokenDraft: String {
         githubToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var client: HeadroomClient { HeadroomClient(endpoint: endpoint) }
+
+    /// The host waves loopback callers through, so the token only matters when
+    /// pointing this app at another machine.
+    private var endpointIsRemote: Bool {
+        guard let host = URL(string: endpoint)?.host() else { return false }
+        return !(host == "127.0.0.1" || host == "localhost" || host == "::1")
     }
 
     var body: some View {
@@ -76,10 +242,36 @@ private struct SettingsView: View {
                 } label: {
                     Text("Refresh")
                 }
+                if endpointIsRemote {
+                    SecureField("Host token", text: $hostToken)
+                    HStack {
+                        Button(hostTokenStored ? "Replace token" : "Save token") {
+                            saveHostToken()
+                        }
+                        .disabled(hostToken.trimmingCharacters(
+                            in: .whitespacesAndNewlines).isEmpty)
+                        if hostTokenStored {
+                            Button("Forget", role: .destructive) {
+                                TokenStore.host.delete()
+                                hostTokenStored = false
+                                hostToken = ""
+                            }
+                        }
+                        Spacer()
+                        Text(hostTokenStored ? "Keychain" : "Not set")
+                            .font(.caption)
+                            .foregroundStyle(
+                                hostTokenStored
+                                    ? AnyShapeStyle(.secondary)
+                                    : AnyShapeStyle(Color.orange))
+                    }
+                }
             } header: {
                 Text("Backend")
             } footer: {
-                Text("Mac and ESP32 both read this host. Source toggles also hide ESP32 pages.")
+                Text(endpointIsRemote
+                     ? "Remote hosts require the token from ~/.headroom/token."
+                     : "Mac and ESP32 both read this host. Source toggles also hide ESP32 pages.")
             }
 
             Section {
@@ -213,7 +405,7 @@ private struct SettingsView: View {
             } header: {
                 Text("GitHub Actions")
             } footer: {
-                Text("Watches envisioning/* remotes. Failed and running workflows show under GitHub.")
+                Text("Watches repos matching github_org_prefix / github_always_repos in ~/.headroom/config.json. Failed and running workflows show under GitHub.")
             }
 
             Section("Dashboard") {
@@ -238,9 +430,23 @@ private struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 480, height: 640)
         .task {
-            tokenStored = SupabaseTokenStore.exists()
-            githubTokenStored = GitHubTokenStore.exists()
+            tokenStored = TokenStore.supabase.exists()
+            githubTokenStored = TokenStore.github.exists()
+            hostTokenStored = TokenStore.host.exists()
             await reloadSources()
+        }
+    }
+
+    private func saveHostToken() {
+        let token = hostToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        do {
+            try TokenStore.host.save(token)
+            hostToken = ""
+            hostTokenStored = true
+            Task { await reloadSources() }
+        } catch {
+            sourcesMessage = error.localizedDescription
         }
     }
 
@@ -248,7 +454,7 @@ private struct SettingsView: View {
         let token = tokenDraft
         guard !token.isEmpty else { return }
         do {
-            try SupabaseTokenStore.save(token)
+            try TokenStore.supabase.save(token)
             supabaseToken = ""
             tokenStored = true
             supabaseMessage = "Saved — refreshing…"
@@ -259,7 +465,7 @@ private struct SettingsView: View {
     }
 
     private func disconnectSupabase() {
-        SupabaseTokenStore.delete()
+        TokenStore.supabase.delete()
         tokenStored = false
         supabaseToken = ""
         supabaseMessage = "Disconnected"
@@ -270,7 +476,7 @@ private struct SettingsView: View {
         let token = githubTokenDraft
         guard !token.isEmpty else { return }
         do {
-            try GitHubTokenStore.save(token)
+            try TokenStore.github.save(token)
             githubToken = ""
             githubTokenStored = true
             githubMessage = "Saved — refreshing Actions…"
@@ -281,7 +487,7 @@ private struct SettingsView: View {
     }
 
     private func disconnectGitHub() {
-        GitHubTokenStore.delete()
+        TokenStore.github.delete()
         githubTokenStored = false
         githubToken = ""
         githubMessage = "Disconnected"
@@ -295,8 +501,12 @@ private struct SettingsView: View {
             var map = Dictionary(
                 uniqueKeysWithValues: sources.map { ($0.id, $0.enabled ?? true) })
             map[id] = enabled
-            _ = try await BackendClient.setSources(endpoint: endpoint, enabled: map)
-            try? await Task.sleep(for: .milliseconds(600))
+            _ = try await client.setSources(map)
+            // Toggling on kicks a refresh host-side; wait for it to land rather
+            // than guessing how long it takes.
+            if enabled {
+                await client.waitForRefresh(sources: [id])
+            }
             await reloadSources()
             sourcesMessage = enabled
                 ? "Enabled \(id) — ESP32 will show it on next poll."
@@ -310,8 +520,9 @@ private struct SettingsView: View {
         isSyncing = true
         defer { isSyncing = false }
         do {
-            try await BackendClient.refresh(endpoint: endpoint, sources: ids)
-            try? await Task.sleep(for: .milliseconds(900))
+            try await client.refresh(sources: ids)
+            // /sync/refresh answers 202 and works in the background.
+            await client.waitForRefresh(sources: ids)
             await reloadSources()
             if ids == ["supabase"] {
                 supabaseMessage = sources
@@ -322,13 +533,13 @@ private struct SettingsView: View {
         } catch {
             sourcesMessage = error.localizedDescription
         }
-        tokenStored = SupabaseTokenStore.exists()
-        githubTokenStored = GitHubTokenStore.exists()
+        tokenStored = TokenStore.supabase.exists()
+        githubTokenStored = TokenStore.github.exists()
     }
 
     private func reloadSources() async {
         do {
-            let snapshot = try await BackendClient.fetchUsage(endpoint: endpoint)
+            let snapshot = try await client.fetchUsage()
             sources = snapshot.sources ?? []
             if sources.isEmpty {
                 sourcesMessage = "Host has no sources payload — restart com.mz.headroom."
@@ -429,164 +640,3 @@ private struct SourceRow: View {
     }
 }
 
-private enum BackendClient {
-    enum ClientError: LocalizedError {
-        case invalidEndpoint
-        case badResponse(Int)
-
-        var errorDescription: String? {
-            switch self {
-            case .invalidEndpoint:
-                "The headroom endpoint is invalid."
-            case let .badResponse(code):
-                "The backend returned HTTP \(code)."
-            }
-        }
-    }
-
-    private static func baseURL(from endpoint: String) throws -> URL {
-        guard let usageURL = URL(string: endpoint) else {
-            throw ClientError.invalidEndpoint
-        }
-        return usageURL.lastPathComponent == "usage"
-            ? usageURL.deletingLastPathComponent()
-            : usageURL
-    }
-
-    static func fetchUsage(endpoint: String) async throws -> UsageSnapshot {
-        guard let url = URL(string: endpoint) else {
-            throw ClientError.invalidEndpoint
-        }
-        var request = URLRequest(url: url)
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.timeoutInterval = 8
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.badResponse(0)
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ClientError.badResponse(http.statusCode)
-        }
-        return try JSONDecoder().decode(UsageSnapshot.self, from: data)
-    }
-
-    static func refresh(endpoint: String, sources: [String]?) async throws {
-        let url = try baseURL(from: endpoint)
-            .appendingPathComponent("sync")
-            .appendingPathComponent("refresh")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any]
-        if let sources, !sources.isEmpty {
-            body = ["sources": sources]
-        } else {
-            body = [:]
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 8
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.badResponse(0)
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ClientError.badResponse(http.statusCode)
-        }
-    }
-
-    static func setSources(endpoint: String, enabled: [String: Bool]) async throws -> [String: Bool] {
-        let url = try baseURL(from: endpoint)
-            .appendingPathComponent("sources")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(
-            withJSONObject: ["enabled": enabled])
-        request.timeoutInterval = 8
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.badResponse(0)
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ClientError.badResponse(http.statusCode)
-        }
-        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        return (object?["enabled"] as? [String: Bool]) ?? enabled
-    }
-}
-
-private enum SupabaseTokenStore {
-    static let service = "com.mz.headroom.supabase"
-    static let account = "access-token"
-
-    static func exists() -> Bool {
-        KeychainPassword.exists(service: service, account: account)
-    }
-
-    static func save(_ token: String) throws {
-        try KeychainPassword.save(
-            token, service: service, account: account,
-            failure: "Could not save Supabase token.")
-    }
-
-    static func delete() {
-        KeychainPassword.delete(service: service, account: account)
-    }
-}
-
-private enum GitHubTokenStore {
-    static let service = "com.mz.headroom.github"
-    static let account = "access-token"
-
-    static func exists() -> Bool {
-        KeychainPassword.exists(service: service, account: account)
-    }
-
-    static func save(_ token: String) throws {
-        try KeychainPassword.save(
-            token, service: service, account: account,
-            failure: "Could not save GitHub token.")
-    }
-
-    static func delete() {
-        KeychainPassword.delete(service: service, account: account)
-    }
-}
-
-private enum KeychainPassword {
-    static func exists(service: String, account: String) -> Bool {
-        var query = baseQuery(service: service, account: account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
-    }
-
-    static func save(
-        _ token: String, service: String, account: String, failure: String
-    ) throws {
-        delete(service: service, account: account)
-        var attributes = baseQuery(service: service, account: account)
-        attributes[kSecValueData as String] = Data(token.utf8)
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw NSError(
-                domain: NSOSStatusErrorDomain,
-                code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey: failure]
-            )
-        }
-    }
-
-    static func delete(service: String, account: String) {
-        SecItemDelete(baseQuery(service: service, account: account) as CFDictionary)
-    }
-
-    private static func baseQuery(service: String, account: String) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-    }
-}

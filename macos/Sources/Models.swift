@@ -23,6 +23,9 @@ struct UsageSnapshot: Decodable, Sendable {
     var supabase: SupabaseUsage?
     var sources: [SyncSource]?
     var attention: Attention?
+    /// Per-provider, per-pool burndown keyed as ["claude": ["week": …]].
+    var burndown: [String: [String: Burndown]]?
+    var burndownPrimary: Burndown?
 
     static let empty = UsageSnapshot()
 
@@ -48,7 +51,9 @@ struct UsageSnapshot: Decodable, Sendable {
         local: LocalUsage? = nil,
         supabase: SupabaseUsage? = nil,
         sources: [SyncSource]? = nil,
-        attention: Attention? = nil
+        attention: Attention? = nil,
+        burndown: [String: [String: Burndown]]? = nil,
+        burndownPrimary: Burndown? = nil
     ) {
         self.updated = updated
         self.plan = plan
@@ -72,11 +77,14 @@ struct UsageSnapshot: Decodable, Sendable {
         self.supabase = supabase
         self.sources = sources
         self.attention = attention
+        self.burndown = burndown
+        self.burndownPrimary = burndownPrimary
     }
 
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, vercel, git, github, activity, local
-        case supabase, sources, attention
+        case supabase, sources, attention, burndown
+        case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
         case quotaOK = "quota_ok"
         case quotaError = "quota_error"
@@ -86,6 +94,22 @@ struct UsageSnapshot: Decodable, Sendable {
         case weekPct = "week_pct"
         case weekPacePct = "week_pace_pct"
         case weekResetsIn = "week_resets_in"
+    }
+
+    /// Pools for one provider ordered fastest-window-first, so the shortest
+    /// window becomes the outermost ring. Cursor's pools share a billing cycle
+    /// and tie on length, so a fixed precedence breaks it.
+    func burndownRings(for provider: UsageProvider) -> [Burndown] {
+        let precedence = ["session", "total", "auto", "api", "week"]
+        let pools = burndown?[provider.rawValue]?.values ?? [:].values
+        return pools.sorted { lhs, rhs in
+            let lw = lhs.windowS ?? .greatestFiniteMagnitude
+            let rw = rhs.windowS ?? .greatestFiniteMagnitude
+            if lw != rw { return lw < rw }
+            let li = precedence.firstIndex(of: lhs.pool ?? "") ?? precedence.count
+            let ri = precedence.firstIndex(of: rhs.pool ?? "") ?? precedence.count
+            return li < ri
+        }
     }
 
     func meter(for provider: UsageProvider) -> ProviderMeter {
@@ -177,6 +201,94 @@ struct UsageSnapshot: Decodable, Sendable {
             return nil
         }
     }
+}
+
+/// One pool's burndown. Series arrive as compact [[epoch, remainingPct], …]
+/// pairs rather than objects, because this rides the same document the board
+/// pulls over USB CDC.
+struct Burndown: Decodable, Sendable, Identifiable {
+    var provider: String?
+    var pool: String?
+    var windowStart: Double?
+    var windowEnd: Double?
+    var windowS: Double?
+    var remainingPct: Double?
+    var usedPct: Double?
+    var idealRemainingPct: Double?
+    var deltaPct: Double?
+    var inDeficit: Bool?
+    var exhausted: Bool?
+    var status: String?
+    var resetsIn: String?
+    var ideal: [[Double]]?
+    var actual: [[Double]]?
+    var projected: [[Double]]?
+    var rateUnit: String?
+    /// "measured" from real samples, "estimated" from token history, nil when
+    /// there is nothing to go on yet.
+    var rateSource: String?
+    var burnRatePct: Double?
+    var allowancePct: Double?
+    var exhaustsAt: Double?
+    var exhaustsIn: String?
+    var exhaustsBeforeReset: Bool?
+    var samples: Int?
+    var headline: String?
+
+    var id: String { "\(provider ?? "?").\(pool ?? "?")" }
+
+    /// Rings and bars elsewhere in the app grow with consumption, so the ring
+    /// draws used percent even though the chart itself is a burndown.
+    var pacePercent: Double? { idealRemainingPct.map { 100 - $0 } }
+
+    var kind: BurndownStatus {
+        BurndownStatus(rawValue: status ?? "") ?? .ok
+    }
+
+    /// A fit needs history; until then every forecast field is nil by design.
+    var hasForecast: Bool { burnRatePct != nil }
+
+    /// Forecast rests on the token-history prior, not on measured samples.
+    var isEstimated: Bool { rateSource == "estimated" }
+
+    var poolTitle: String {
+        switch pool {
+        case "session": "Session"
+        case "week": "Weekly"
+        case "total": "Total"
+        case "auto": "Auto"
+        case "api": "API"
+        default: pool?.capitalized ?? "—"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, pool, status, ideal, actual, projected, samples, headline
+        case exhausted
+        case windowStart = "window_start"
+        case windowEnd = "window_end"
+        case windowS = "window_s"
+        case remainingPct = "remaining_pct"
+        case usedPct = "used_pct"
+        case idealRemainingPct = "ideal_remaining_pct"
+        case deltaPct = "delta_pct"
+        case inDeficit = "in_deficit"
+        case resetsIn = "resets_in"
+        case rateUnit = "rate_unit"
+        case rateSource = "rate_source"
+        case burnRatePct = "burn_rate_pct"
+        case allowancePct = "allowance_pct"
+        case exhaustsAt = "exhausts_at"
+        case exhaustsIn = "exhausts_in"
+        case exhaustsBeforeReset = "exhausts_before_reset"
+    }
+}
+
+enum BurndownStatus: String, Sendable {
+    case ok
+    case ahead
+    case critical
+    case exhausted
 }
 
 enum UsageProvider: String, CaseIterable, Sendable {

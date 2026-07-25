@@ -31,5 +31,12 @@ targets:
     platform: macOS
     sources:
       - path: Tests
+    settings:
+      base:
+        # Without this the test bundle can't code sign, so `xcodebuild test`
+        # fails before running anything.
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom-bar.tests
+        SWIFT_STRICT_CONCURRENCY: complete
     dependencies:
       - target: HeadroomBar

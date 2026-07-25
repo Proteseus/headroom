@@ -1,19 +1,19 @@
 # Headroom for the menu bar
 
-A native macOS 14+ companion to the headroom ESP32 display. It reads the
-same `http://127.0.0.1:8737/usage` backend and adds:
+Native macOS 14+ companion to the ESP32 display. Same
+`http://127.0.0.1:8737/usage` feed.
 
-- Three thin 18pt menu-bar meters (Claude, Codex, Cursor), 3pt each;
-- Claude, Codex, and Cursor switching with provider-specific limits;
-- an Overview with ESP32-style quota rings for all three providers;
-- CodexBar-style 6pt bars, pace stripes, typography, and reset rows;
-- glanceable Vercel deployment, local server, git commit, and daily cost stats.
+- Status item: three thin remaining-quota meters (Claude, Codex, Cursor) plus an
+  amber/red attention pip
+- Overview: quota rings, daily burn, attention + spend
+- Provider tabs + activity / Supabase / local servers
+- Settings: endpoint, source toggles, tokens
 
 ## Build
 
 ```sh
 cd macos
-xcodegen generate
+xcodegen generate   # after project.yml changes
 xcodebuild \
   -project HeadroomBar.xcodeproj \
   -scheme HeadroomBar \
@@ -23,11 +23,24 @@ xcodebuild \
 open ".build/Build/Products/Debug/HeadroomBar.app"
 ```
 
-The app has no Dock icon. It expects the host daemon to already be running:
+No Dock icon. Start the host first:
 
 ```sh
 python3 ../host/headroom_server.py
 ```
 
-The backend URL defaults to localhost. It can be changed from the app's
-Settings scene while developing.
+## README screenshots
+
+From the repo root (exports Overview against `docs/demo_usage.json`):
+
+```sh
+./scripts/generate_screenshots.sh
+```
+
+Or only the app export:
+
+```sh
+HeadroomBar.app/Contents/MacOS/HeadroomBar \
+  --export-screenshots ../docs/screenshots \
+  --fixture ../docs/demo_usage.json
+```
