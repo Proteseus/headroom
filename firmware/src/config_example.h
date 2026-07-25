@@ -24,5 +24,19 @@ static const struct { const char *ssid; const char *pass; } WIFI_NETWORKS[] = {
 // blocks mDNS). Set to the Mac's IP on that network, or leave as-is.
 #define HOST_FALLBACK_IP "192.168.1.50"
 
+// Shared secret for LAN access. /usage carries repo names, commit subjects,
+// local server paths and spend, so the host requires this from anything that
+// isn't loopback. The host prints it at startup and stores it in
+// ~/.headroom/token. Leave empty only if you set "require_auth": false in
+// ~/.headroom/config.json — that opens the feed to your whole network.
+// Not needed for the USB path: the cable already implies physical access.
+#define HOST_TOKEN ""
+
 // Seconds between polls. The server refreshes its own data every 15s.
 #define POLL_INTERVAL_S 60
+
+// Over-the-air updates. With this on, `pio run -t upload --upload-port
+// headroom.local` reflashes without the cable. Set a password you don't mind
+// living in this file; anyone on the network who has it can flash the board.
+#define OTA_HOSTNAME "headroom"
+#define OTA_PASSWORD "change-me"

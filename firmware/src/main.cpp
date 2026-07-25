@@ -14,15 +14,32 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
+#include <esp_task_wdt.h>
 #include <Arduino_GFX_Library.h>
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
 
 #include "pin_config.h"
 #include "config.h"   // copy config_example.h -> config.h
+
+// Older config.h files predate these — keep them building.
+#ifndef HOST_TOKEN
+#define HOST_TOKEN ""
+#endif
+#ifndef OTA_HOSTNAME
+#define OTA_HOSTNAME "headroom"
+#endif
+#ifndef OTA_PASSWORD
+#define OTA_PASSWORD ""
+#endif
+
+// Reboot if a single loop pass wedges this long (stuck I2C, wedged HTTP stack).
+// Generous: a cold Wi-Fi associate plus a USB sync is legitimately slow.
+static const uint32_t WDT_TIMEOUT_S = 30;
 
 // ---------------- Display ----------------
 // SH8601 has no hardware rotation. Panel stays native portrait (368×448).
@@ -78,13 +95,30 @@ static const int16_t LOG_H = LCD_WIDTH;   // 368
 
 // Rotate logical → native (matches former Arduino_Canvas rotation 3):
 //   native(nx, ny) = logical(lx = LOG_W-1-ny, ly = nx)
+//
+// Done in tiles rather than whole rows. The source walk strides by LOG_W, so a
+// full-row pass touches 368 separate cache lines and evicts each before the
+// next row reuses it — every one of the 164k pixels becomes a PSRAM round
+// trip. A 32×32 tile keeps its ~2KB of source lines resident while 32 rows
+// drain out of them.
+static const int16_t ROT_TILE = 32;
+
 static void rotateLogicalToNative(const uint16_t *src, uint16_t *dst) {
-  for (int16_t ny = 0; ny < LCD_HEIGHT; ny++) {
-    const uint16_t *s = src + ((LOG_W - 1) - ny);
-    uint16_t *d = dst + (int32_t)ny * LCD_WIDTH;
-    for (int16_t nx = 0; nx < LCD_WIDTH; nx++) {
-      d[nx] = *s;
-      s += LOG_W;
+  for (int16_t ny0 = 0; ny0 < LCD_HEIGHT; ny0 += ROT_TILE) {
+    const int16_t nyEnd =
+        (int16_t)((ny0 + ROT_TILE < LCD_HEIGHT) ? ny0 + ROT_TILE : LCD_HEIGHT);
+    for (int16_t nx0 = 0; nx0 < LCD_WIDTH; nx0 += ROT_TILE) {
+      const int16_t nxEnd =
+          (int16_t)((nx0 + ROT_TILE < LCD_WIDTH) ? nx0 + ROT_TILE : LCD_WIDTH);
+      for (int16_t ny = ny0; ny < nyEnd; ny++) {
+        const uint16_t *s =
+            src + ((LOG_W - 1) - ny) + (int32_t)nx0 * LOG_W;
+        uint16_t *d = dst + (int32_t)ny * LCD_WIDTH + nx0;
+        for (int16_t nx = nx0; nx < nxEnd; nx++) {
+          *d++ = *s;
+          s += LOG_W;
+        }
+      }
     }
   }
 }
@@ -213,8 +247,6 @@ static void sh8601VendorInit() {
 }
 
 // ---------------- Data ----------------
-struct Bucket { double cost = 0; double total = 0; };
-
 struct ProviderQuota {
   bool ok = false;
   String plan;
@@ -231,6 +263,24 @@ struct ProviderQuota {
   int resetCredits = -1;     // -1 = unknown / N/A
   String resetCreditExpiries; // "10d 7h · 22d 4h"
   String onDemand;           // Cursor: "$30 / $30 on-demand"
+};
+
+// Burndown for one provider: the actual remaining-% curve plus where the
+// current pace lands. The ideal line is a straight run from (t0,100) to
+// (t1,0), so the host never sends it — we derive it here.
+static const uint8_t MAX_BURN_PTS = 24;   // mirrors device_view.MAX_BURNDOWN_POINTS
+struct Burndown {
+  bool ok = false;
+  uint32_t t0 = 0, t1 = 0;
+  uint8_t n = 0;
+  uint32_t t[MAX_BURN_PTS];
+  float remaining[MAX_BURN_PTS];
+  uint8_t projN = 0;
+  uint32_t projT[2];
+  float projR[2];
+  bool warn = false;       // pace runs out before the window resets
+  bool exhausted = false;
+  bool estimated = false;  // projection from token history, not from samples
 };
 
 enum Page : uint8_t {
@@ -269,12 +319,11 @@ struct ServerRow {
   String cmd;
 };
 
-static Bucket today, session5h, week;
-static String topModel = "-";
 static String updatedZ = "";
 static bool haveData = false;
 static bool hostOk = false;   // last /usage fetch succeeded
 static ProviderQuota claudeQ, codexQ, cursorQ;
+static Burndown claudeBurn, codexBurn, cursorBurn;
 static bool vercelOk = false;
 static String vercelTeam = "";
 static uint8_t vercelN = 0;
@@ -365,44 +414,15 @@ static void powerInit() {
 }
 
 // ---------------- Formatting ----------------
-static String fmtTokens(double n) {
-  char b[16];
-  if (n >= 1e9)      snprintf(b, sizeof b, "%.2fB", n / 1e9);
-  else if (n >= 1e6) snprintf(b, sizeof b, "%.1fM", n / 1e6);
-  else if (n >= 1e3) snprintf(b, sizeof b, "%.1fk", n / 1e3);
-  else               snprintf(b, sizeof b, "%.0f", n);
-  return String(b);
-}
-
-static String fmtCost(double c) {
-  char b[16];
-  if (c >= 1000)    snprintf(b, sizeof b, "$%.1fk", c / 1000.0);
-  else if (c >= 100) snprintf(b, sizeof b, "$%.0f", c);
-  else               snprintf(b, sizeof b, "$%.2f", c);
-  return String(b);
-}
-
-static String fmtPct(float p) {
-  char b[16];
-  if (p < 0) return String("--%");
-  if (p >= 99.5f) snprintf(b, sizeof b, "100%%");
-  else if (p >= 10) snprintf(b, sizeof b, "%.0f%%", p);
-  else              snprintf(b, sizeof b, "%.1f%%", p);
-  return String(b);
-}
-
-static String shortModel(const String &m) {
-  // "claude-opus-4-8" -> "opus 4.8"
-  String s = m;
-  s.replace("claude-", "");
-  int dash = s.indexOf('-');
-  if (dash > 0) {
-    String fam = s.substring(0, dash);
-    String ver = s.substring(dash + 1);
-    ver.replace("-", ".");
-    return fam + " " + ver;
-  }
-  return s;
+// Render helpers write into caller-owned buffers. These run on every drawn
+// row; returning Arduino String would churn the heap each frame and fragment
+// it over the weeks this thing stays powered.
+static const char *fmtPct(char *buf, size_t n, float p) {
+  if (p < 0) snprintf(buf, n, "--%%");
+  else if (p >= 99.5f) snprintf(buf, n, "100%%");
+  else if (p >= 10) snprintf(buf, n, "%.0f%%", p);
+  else snprintf(buf, n, "%.1f%%", p);
+  return buf;
 }
 
 // ---------------- Networking ----------------
@@ -427,6 +447,15 @@ static const String &hostFor() {
   return resolvedHost;
 }
 
+// The host only demands a token from non-loopback callers, which is every
+// request the board makes over Wi-Fi. The USB path needs nothing: the cable
+// already proves physical access.
+static void addAuthHeader(HTTPClient &http) {
+  if (sizeof(HOST_TOKEN) > 1) {
+    http.addHeader("X-Headroom-Token", HOST_TOKEN);
+  }
+}
+
 // Ask the host to force-refresh Sources (same endpoint Mac Settings uses).
 static bool requestSyncRefreshHttp() {
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -436,6 +465,7 @@ static bool requestSyncRefreshHttp() {
   http.setTimeout(1200);
   if (!http.begin(url)) return false;
   http.addHeader("Content-Type", "application/json");
+  addAuthHeader(http);
   int code = http.POST("{}");
   http.end();
   Serial.printf("sync refresh → HTTP %d\n", code);
@@ -448,12 +478,14 @@ static bool requestSyncRefreshHttp() {
 // explicit long-press sync may wait longer.
 static const uint32_t USB_TIMEOUT_POLL_MS = 900;
 static const uint32_t USB_TIMEOUT_SYNC_MS = 3500;
-// Enough for a ~30KB /usage frame; keep modest so internal heap stays free
-// for UI/Wi-Fi (large CDC RX buffers are carved from DRAM, not PSRAM).
-static const size_t USB_RX_BUF = 40 * 1024;
+// The host serves the board its ?view=device projection (~2KB), so this no
+// longer has to hold a 30KB document. CDC RX buffers come out of DRAM, not
+// PSRAM, so the 24KB given back here is 24KB the UI and Wi-Fi stack can use.
+// Still 8x the expected frame.
+static const size_t USB_RX_BUF = 16 * 1024;
 
-// ArduinoJson DOM for a ~30KB /usage payload — keep it in PSRAM so we don't
-// blow the tiny internal heap (canvas + WiFi already live there).
+// ArduinoJson DOM — keep it in PSRAM so we don't blow the tiny internal heap
+// (canvas + WiFi already live there).
 struct SpiRamAllocator : ArduinoJson::Allocator {
   void *allocate(size_t size) override {
     return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -586,24 +618,48 @@ static bool requestSyncRefresh() {
   return requestSyncRefreshUsb();
 }
 
-static bool applyUsageJson(const char *payload, size_t len) {
-  JsonDocument doc(&spiRamAlloc);
-  DeserializationError err = (len > 0)
-      ? deserializeJson(doc, payload, len)
-      : deserializeJson(doc, payload);
-  if (err) {
-    Serial.printf("json parse fail: %s\n", err.c_str());
-    hostOk = false;
-    return false;
+// Only these keys survive deserialization. The host's ?view=device projection
+// already drops the rest, but the filter also protects the board if it is
+// pointed at an older host still serving the full ~30KB document.
+static JsonDocument usageFilter() {
+  JsonDocument filter;
+  for (const char *key : {"updated", "plan", "quota_ok", "session_pct",
+                          "session_pace_pct", "session_resets_in", "week_pct",
+                          "week_pace_pct", "week_resets_in"}) {
+    filter[key] = true;
   }
+  filter["codex"] = true;
+  filter["cursor"] = true;
+  filter["vercel"]["ok"] = true;
+  filter["vercel"]["team"] = true;
+  filter["vercel"]["deployments"][0]["project"] = true;
+  filter["vercel"]["deployments"][0]["status"] = true;
+  filter["vercel"]["deployments"][0]["target"] = true;
+  filter["vercel"]["deployments"][0]["ago"] = true;
+  filter["vercel"]["deployments"][0]["branch"] = true;
+  filter["git"]["ok"] = true;
+  filter["git"]["commits"][0]["repo"] = true;
+  filter["git"]["commits"][0]["subject"] = true;
+  filter["git"]["commits"][0]["ago"] = true;
+  filter["git"]["commits"][0]["branch"] = true;
+  filter["local"]["ok"] = true;
+  filter["local"]["host"] = true;
+  filter["local"]["servers"][0]["name"] = true;
+  filter["local"]["servers"][0]["port"] = true;
+  filter["local"]["servers"][0]["cmd"] = true;
+  filter["sources"][0]["id"] = true;
+  filter["sources"][0]["title"] = true;
+  filter["sources"][0]["enabled"] = true;
+  filter["sources"][0]["ok"] = true;
+  filter["sources"][0]["stale"] = true;
+  // Whole subtree, like codex/cursor above: device_view has already trimmed it
+  // to one pool per provider, so there is nothing further to filter out.
+  filter["burndown"] = true;
+  return filter;
+}
 
-  today.cost     = doc["today"]["cost_usd"]      | 0.0;
-  today.total    = doc["today"]["total"]         | 0.0;
-  session5h.cost = doc["session_5h"]["cost_usd"] | 0.0;
-  session5h.total= doc["session_5h"]["total"]    | 0.0;
-  week.cost      = doc["week"]["cost_usd"]        | 0.0;
-  week.total     = doc["week"]["total"]           | 0.0;
-  updatedZ       = String((const char *)(doc["updated"] | ""));
+static bool applyUsageDoc(JsonDocument &doc) {
+  updatedZ = String((const char *)(doc["updated"] | ""));
 
   // Claude (top-level, back-compat)
   claudeQ.ok           = doc["quota_ok"] | false;
@@ -671,6 +727,52 @@ static bool applyUsageJson(const char *payload, size_t len) {
     cursorQ.onDemand      = String((const char *)(cur["on_demand_label"] | ""));
   } else {
     cursorQ = ProviderQuota{};
+  }
+
+  // Burndown series (one pool per provider; host picks the longest window)
+  claudeBurn = Burndown();
+  codexBurn = Burndown();
+  cursorBurn = Burndown();
+  JsonObject bd = doc["burndown"].as<JsonObject>();
+  if (!bd.isNull()) {
+    struct { const char *id; Burndown *dst; } targets[3] = {
+      {"claude", &claudeBurn}, {"codex", &codexBurn}, {"cursor", &cursorBurn},
+    };
+    for (auto &target : targets) {
+      JsonObject b = bd[target.id].as<JsonObject>();
+      if (b.isNull()) continue;
+      Burndown &out = *target.dst;
+      out.t0 = (uint32_t)(b["t0"] | 0);
+      out.t1 = (uint32_t)(b["t1"] | 0);
+      if (out.t1 <= out.t0) continue;
+      out.warn = b["warn"] | false;
+      out.estimated = b["est"] | false;
+      out.exhausted =
+          strcmp((const char *)(b["status"] | ""), "exhausted") == 0;
+      JsonArray pts = b["pts"].as<JsonArray>();
+      if (!pts.isNull()) {
+        for (JsonVariant v : pts) {
+          if (out.n >= MAX_BURN_PTS) break;
+          JsonArray pair = v.as<JsonArray>();
+          if (pair.isNull() || pair.size() < 2) continue;
+          out.t[out.n] = (uint32_t)(pair[0] | 0);
+          out.remaining[out.n] = (float)(pair[1] | 0.0);
+          out.n++;
+        }
+      }
+      JsonArray proj = b["proj"].as<JsonArray>();
+      if (!proj.isNull()) {
+        for (JsonVariant v : proj) {
+          if (out.projN >= 2) break;
+          JsonArray pair = v.as<JsonArray>();
+          if (pair.isNull() || pair.size() < 2) continue;
+          out.projT[out.projN] = (uint32_t)(pair[0] | 0);
+          out.projR[out.projN] = (float)(pair[1] | 0.0);
+          out.projN++;
+        }
+      }
+      out.ok = out.n > 0;
+    }
   }
 
   // Vercel deployments
@@ -757,37 +859,65 @@ static bool applyUsageJson(const char *payload, size_t len) {
     }
   }
 
-  // Pick the model with the most tokens today.
-  double best = -1;
-  topModel = "-";
-  JsonObject bm = doc["by_model"].as<JsonObject>();
-  for (JsonPair kv : bm) {
-    double t = kv.value()["total"] | 0.0;
-    if (t > best) { best = t; topModel = String(kv.key().c_str()); }
-  }
   haveData = true;
   hostOk = true;
   return true;
 }
 
+static bool applyUsageJson(const char *payload, size_t len) {
+  JsonDocument doc(&spiRamAlloc);
+  JsonDocument filter = usageFilter();
+  DeserializationError err = (len > 0)
+      ? deserializeJson(doc, payload, len,
+                        DeserializationOption::Filter(filter))
+      : deserializeJson(doc, payload, DeserializationOption::Filter(filter));
+  if (err) {
+    Serial.printf("json parse fail: %s\n", err.c_str());
+    hostOk = false;
+    return false;
+  }
+  return applyUsageDoc(doc);
+}
+
+static bool applyUsageStream(Stream &stream) {
+  JsonDocument doc(&spiRamAlloc);
+  JsonDocument filter = usageFilter();
+  DeserializationError err =
+      deserializeJson(doc, stream, DeserializationOption::Filter(filter));
+  if (err) {
+    Serial.printf("json parse fail: %s\n", err.c_str());
+    hostOk = false;
+    return false;
+  }
+  return applyUsageDoc(doc);
+}
+
 static bool fetchUsageHttp() {
   if (WiFi.status() != WL_CONNECTED) return false;
-  String url = "http://" + hostFor() + ":" + String(HOST_PORT) + "/usage";
+  String url = "http://" + hostFor() + ":" + String(HOST_PORT) +
+               "/usage?view=device";
   HTTPClient http;
   // Fail fast — a slow/wrong LAN must not starve BOOT/touch.
   http.setConnectTimeout(700);
   http.setTimeout(1000);
   if (!http.begin(url)) return false;
+  addAuthHeader(http);
   int code = http.GET();
   if (code != 200) {
     http.end();
+    if (code == 401) {
+      Serial.println("usage → HTTP 401: HOST_TOKEN missing or wrong");
+    }
     resolvedHost = "";   // force a fresh mDNS lookup next time
     return false;
   }
 
-  String payload = http.getString();
+  // Parse straight off the socket. getString() would hold the whole body in
+  // heap at the same time as the JSON document — two copies of the payload
+  // for no reason.
+  bool ok = applyUsageStream(http.getStream());
   http.end();
-  return applyUsageJson(payload.c_str(), payload.length());
+  return ok;
 }
 
 static bool fetchUsageUsb(uint32_t timeoutMs) {
@@ -820,20 +950,48 @@ static bool fetchUsage(uint32_t usbTimeoutMs = USB_TIMEOUT_POLL_MS) {
 static inline int16_t scrW() { return gfx->width(); }
 static inline int16_t scrH() { return gfx->height(); }
 
-static void drawCentered(const String &s, int y, uint8_t size, uint16_t col) {
+static int16_t textWidth(const char *s, uint8_t size) {
   gfx->setTextSize(size);
-  gfx->setTextColor(col);
   int16_t x1, y1; uint16_t w, h;
-  gfx->getTextBounds(s.c_str(), 0, y, &x1, &y1, &w, &h);
+  gfx->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+  return (int16_t)w;
+}
+
+static void drawCentered(const char *s, int y, uint8_t size, uint16_t col) {
+  const int16_t w = textWidth(s, size);
+  gfx->setTextColor(col);
   gfx->setCursor((scrW() - w) / 2, y);
   gfx->print(s);
 }
 
-static void drawTextAt(const String &s, int x, int y, uint8_t size, uint16_t col) {
+static void drawTextAt(const char *s, int x, int y, uint8_t size, uint16_t col) {
   gfx->setTextSize(size);
   gfx->setTextColor(col);
   gfx->setCursor(x, y);
   gfx->print(s);
+}
+
+// Right-aligned to `rightX`. Every page ends up doing this — measure, subtract,
+// place — so it lives here instead of being open-coded a dozen times.
+static void drawRightAt(const char *s, int rightX, int y, uint8_t size,
+                        uint16_t col) {
+  const int16_t w = textWidth(s, size);
+  gfx->setTextColor(col);
+  gfx->setCursor(rightX - w, y);
+  gfx->print(s);
+}
+
+static void drawCentered(const String &s, int y, uint8_t size, uint16_t col) {
+  drawCentered(s.c_str(), y, size, col);
+}
+
+static void drawTextAt(const String &s, int x, int y, uint8_t size, uint16_t col) {
+  drawTextAt(s.c_str(), x, y, size, col);
+}
+
+static void drawRightAt(const String &s, int rightX, int y, uint8_t size,
+                        uint16_t col) {
+  drawRightAt(s.c_str(), rightX, y, size, col);
 }
 
 // Shared page inset — keep boot chrome + dashboards clear of the corner radius.
@@ -989,54 +1147,64 @@ static void drawQuotaRow(const char *title, float pct, float pace,
                          const String &runsOut, int16_t y, int16_t pad,
                          uint16_t accent) {
   const int16_t W = scrW();
+  char buf[48];
   drawTextAt(title, pad, y, 2, COL_WHITE);
   drawBar(pad, y + 26, W - pad * 2, 12, pct, pace, accent);
 
-  String left = fmtPct(pct) + " used";
-  drawTextAt(left, pad, y + 48, 2, COL_WHITE);
+  char pctBuf[12];
+  snprintf(buf, sizeof buf, "%s used", fmtPct(pctBuf, sizeof pctBuf, pct));
+  drawTextAt(buf, pad, y + 48, 2, COL_WHITE);
   if (resets.length()) {
-    String right = "Resets in " + resets;
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(right.c_str(), 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - pad - tw, y + 48);
-    gfx->print(right);
+    snprintf(buf, sizeof buf, "Resets in %s", resets.c_str());
+    drawRightAt(buf, W - pad, y + 48, 2, COL_DIM);
   }
   // CodexBar pace line: "50% in deficit" … "Runs out in 3h 14m"
-  if (paceLabel.length() || runsOut.length()) {
-    if (paceLabel.length())
-      drawTextAt(paceLabel, pad, y + 70, 2, COL_DIM);
-    if (runsOut.length()) {
-      String right = "Runs out in " + runsOut;
-      gfx->setTextSize(2);
-      int16_t x1, y1; uint16_t tw, th;
-      gfx->getTextBounds(right.c_str(), 0, 0, &x1, &y1, &tw, &th);
-      gfx->setTextColor(COL_DIM);
-      gfx->setCursor(W - pad - tw, y + 70);
-      gfx->print(right);
-    }
+  if (paceLabel.length())
+    drawTextAt(paceLabel, pad, y + 70, 2, COL_DIM);
+  if (runsOut.length()) {
+    snprintf(buf, sizeof buf, "Runs out in %s", runsOut.c_str());
+    drawRightAt(buf, W - pad, y + 70, 2, COL_DIM);
   }
 }
 
 // Three Cursor lanes fit above the footer using the same bar/label treatment
 // with tighter vertical rhythm and no separate pace-detail line.
+// Compact meter inside an arbitrary column. Two of these side by side cost the
+// same 68px as one full-width row, which is what buys the burndown its space.
+static void drawQuotaRowIn(const char *title, float pct, float pace,
+                           const String &resets, int16_t x, int16_t y,
+                           int16_t w, uint16_t accent, bool showResets) {
+  char buf[48];
+  char pctBuf[12];
+  drawTextAt(title, x, y, 2, COL_WHITE);
+  drawBar(x, y + 20, w, 9, pct, pace, accent);
+  snprintf(buf, sizeof buf, "%s used", fmtPct(pctBuf, sizeof pctBuf, pct));
+  drawTextAt(buf, x, y + 37, 2, COL_WHITE);
+  if (showResets && resets.length()) {
+    snprintf(buf, sizeof buf, "Resets in %s", resets.c_str());
+    drawRightAt(buf, (int16_t)(x + w), y + 37, 2, COL_DIM);
+  }
+}
+
 static void drawQuotaRowCompact(const char *title, float pct, float pace,
                                 const String &resets, int16_t y, int16_t pad,
                                 uint16_t accent) {
-  const int16_t W = scrW();
-  drawTextAt(title, pad, y, 2, COL_WHITE);
-  drawBar(pad, y + 20, W - pad * 2, 9, pct, pace, accent);
-  drawTextAt(fmtPct(pct) + " used", pad, y + 37, 2, COL_WHITE);
-  if (resets.length()) {
-    String right = "Resets in " + resets;
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(right.c_str(), 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - pad - tw, y + 37);
-    gfx->print(right);
-  }
+  drawQuotaRowIn(title, pct, pace, resets, pad, y,
+                 (int16_t)(scrW() - pad * 2), accent, true);
+}
+
+// Two meters across one row. The reset label only rides the right-hand column;
+// at half width there is no room for it under both.
+static void drawQuotaRowPair(const char *titleA, float pctA, float paceA,
+                             const char *titleB, float pctB, float paceB,
+                             const String &resets, int16_t y, int16_t pad,
+                             uint16_t accent) {
+  const int16_t span = (int16_t)(scrW() - pad * 2);
+  const int16_t gap = 20;
+  const int16_t colW = (int16_t)((span - gap) / 2);
+  drawQuotaRowIn(titleA, pctA, paceA, "", pad, y, colW, accent, false);
+  drawQuotaRowIn(titleB, pctB, paceB, resets, (int16_t)(pad + colW + gap), y,
+                 colW, accent, true);
 }
 
 static String truncFit(const String &s, int16_t maxW, uint8_t size) {
@@ -1087,10 +1255,10 @@ static void drawNameAgoRow(int16_t x, int16_t y, int16_t colW,
   gfx->print(ago);
 }
 
+// Activity dots: red for bad, dim otherwise. Status words carry the rest
+// (same rule as the Mac GitHub list).
 static uint16_t statusColor(const String &status) {
-  if (status == "ready") return COL_GREEN;
-  if (status == "building") return COL_AMBER;
-  if (status == "error") return COL_RED;
+  if (status == "error" || status == "failure") return COL_RED;
   return COL_DIM;
 }
 
@@ -1115,6 +1283,18 @@ static String gitHoursAgo(const String &ago) {
   return String(b);
 }
 
+// "…T14:32:00+0200" -> "14:32". Every page shows this, so it gets a buffer
+// rather than five substring() allocations per frame.
+static bool updatedHHMM(char *buf, size_t n) {
+  if (updatedZ.length() < 16 || n < 6) {
+    buf[0] = '\0';
+    return false;
+  }
+  memcpy(buf, updatedZ.c_str() + 11, 5);
+  buf[5] = '\0';
+  return true;
+}
+
 static const char *pageName(Page p) {
   switch (p) {
     case PAGE_GLANCE: return "Headroom";
@@ -1136,57 +1316,167 @@ static void drawWifiDot(int16_t padX, int16_t top) {
 }
 
 // Hottest pool % + matching pace for a provider (-1 if unavailable).
-static void providerHottest(const ProviderQuota &q, float *pctOut, float *paceOut) {
-  *pctOut = -1;
-  *paceOut = -1;
-  if (!q.ok) return;
-  // Cursor exposes a true combined Total. Use it as the headline value;
-  // Auto/API remain breakdowns on the detail page.
+// One pace layer: a pool's usage and where an even spend would have it.
+struct PaceLayer { float pct; float pace; };
+
+// Up to `max` layers, fastest window first so the shortest window ends up the
+// outermost ring. A pool the API doesn't report is simply absent — Codex has
+// no session window on some plans — so a provider can legitimately draw one
+// ring instead of two.
+static uint8_t providerLayers(const ProviderQuota &q, PaceLayer *out,
+                              uint8_t max) {
+  uint8_t n = 0;
+  if (!q.ok || max == 0) return 0;
   if (q.totalPct >= 0) {
-    *pctOut = q.totalPct;
-    *paceOut = q.totalPace;
-    return;
+    // Cursor: Total is the headline, Auto the breakdown under it. Both ride
+    // the same billing cycle, so there is no faster/slower to order by.
+    out[n++] = {q.totalPct, q.totalPace};
+    if (n < max && q.sessionPct >= 0) out[n++] = {q.sessionPct, q.sessionPace};
+    return n;
   }
-  if (q.sessionPct > *pctOut) {
-    *pctOut = q.sessionPct;
-    *paceOut = q.sessionPace;
-  }
-  if (q.weekPct > *pctOut) {
-    *pctOut = q.weekPct;
-    *paceOut = q.weekPace;
-  }
+  if (q.sessionPct >= 0) out[n++] = {q.sessionPct, q.sessionPace};
+  if (n < max && q.weekPct >= 0) out[n++] = {q.weekPct, q.weekPace};
+  return n;
 }
 
-// Quota ring: track + filled arc from 12 o'clock + white pace tick + black 0°.
-static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r, float pct,
-                          float pacePct, uint16_t accent, const char *label) {
-  const int16_t thick = 6;
-  gfx->fillArc(cx, cy, r, (int16_t)(r - thick), 0, 360, COL_BAR);
+// Blend a colour toward the background. RGB565 has to be unpacked to do it.
+static uint16_t dimToward(uint16_t color, uint16_t bg, float factor) {
+  const int cr = (color >> 11) & 0x1F;
+  const int cg = (color >> 5) & 0x3F;
+  const int cb = color & 0x1F;
+  const int br = (bg >> 11) & 0x1F;
+  const int bgc = (bg >> 5) & 0x3F;
+  const int bb = bg & 0x1F;
+  const int r = br + (int)((cr - br) * factor + 0.5f);
+  const int g = bgc + (int)((cg - bgc) * factor + 0.5f);
+  const int b = bb + (int)((cb - bb) * factor + 0.5f);
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// One ring band: track + filled arc from 12 o'clock + white pace tick.
+// The gap between where the arc stops and where the tick sits is the deficit.
+static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
+                         float pct, float pacePct, uint16_t accent) {
+  const int16_t inner = (int16_t)(r - thick);
+  // A neutral track is indistinguishable from background at this size, so two
+  // near-empty rings merge into one dark blob. Tinting keeps each ring legible
+  // as a ring before any of it fills.
+  gfx->fillArc(cx, cy, r, inner, 0, 360, dimToward(accent, COL_BG, 0.30f));
   if (pct >= 0) {
     float p = pct > 100 ? 100 : pct;
     float sweep = p * 3.6f;
     if (p > 0 && sweep < 2.0f) sweep = 2.0f;
     if (p >= 100 || sweep >= 359.0f) {
-      gfx->fillArc(cx, cy, r, (int16_t)(r - thick), 0, 360, accent);
+      gfx->fillArc(cx, cy, r, inner, 0, 360, accent);
     } else {
-      gfx->fillArc(cx, cy, r, (int16_t)(r - thick), -90.0f, -90.0f + sweep, accent);
+      gfx->fillArc(cx, cy, r, inner, -90.0f, -90.0f + sweep, accent);
     }
   }
   if (pacePct >= 0) {
     float pp = pacePct > 100 ? 100 : pacePct;
     float a = -90.0f + pp * 3.6f;
-    gfx->fillArc(cx, cy, (int16_t)(r + 2), (int16_t)(r - thick - 1),
+    gfx->fillArc(cx, cy, (int16_t)(r + 1), (int16_t)(inner - 1),
                  a - 2.8f, a + 2.8f, COL_WHITE);
   }
   // Black 0° mark at 12 o'clock (start of the ring).
-  gfx->fillArc(cx, cy, (int16_t)(r + 2), (int16_t)(r - thick - 1),
+  gfx->fillArc(cx, cy, (int16_t)(r + 1), (int16_t)(inner - 1),
                -90.0f - 2.6f, -90.0f + 2.6f, COL_BLACK);
+}
+
+// Concentric pace layers for one provider, plus the label underneath.
+static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
+                          const ProviderQuota &q, uint16_t accent,
+                          const char *label) {
+  const int16_t thick = 6;
+  const int16_t gap = 4;   // below ~4 the two bands read as one thick border
+  PaceLayer layers[2];
+  uint8_t n = providerLayers(q, layers, 2);
+  if (n == 0) {
+    drawPaceRing(cx, cy, r, thick, -1, -1, accent);
+  } else {
+    int16_t rr = r;
+    for (uint8_t i = 0; i < n; i++) {
+      // Equal thickness: a thinner inner band reads as subordinate, when the
+      // two pools are just different time horizons of the same thing.
+      drawPaceRing(cx, cy, rr, thick, layers[i].pct, layers[i].pace, accent);
+      rr = (int16_t)(rr - thick - gap);
+    }
+  }
   gfx->setTextSize(2);
   int16_t x1, y1; uint16_t tw, th;
   gfx->getTextBounds(label, 0, 0, &x1, &y1, &tw, &th);
   gfx->setTextColor(accent);
   gfx->setCursor(cx - (int16_t)tw / 2, cy + r + 8);
   gfx->print(label);
+}
+
+// Burndown chart: dotted budget line falling from full at the window's start
+// to zero at its reset, the actual remaining-% curve over it, and a dashed
+// tail for where the current pace lands. Below the budget line means burning
+// faster than the window can afford.
+static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
+                         int16_t w, int16_t h, uint16_t accent) {
+  const uint16_t track = dimToward(accent, COL_BG, 0.30f);
+  gfx->drawRect(x, y, w, h, track);
+  if (!b.ok || b.t1 <= b.t0) {
+    drawTextAt("collecting history", x + 8, y + h / 2 - 8, 2, COL_DIM);
+    return;
+  }
+
+  const uint32_t span = b.t1 - b.t0;
+  auto px = [&](uint32_t t) -> int16_t {
+    if (t <= b.t0) return x;
+    if (t >= b.t1) return (int16_t)(x + w - 1);
+    return (int16_t)(x + (int32_t)((uint64_t)(t - b.t0) * (w - 1) / span));
+  };
+  auto py = [&](float remaining) -> int16_t {
+    float r = remaining < 0 ? 0 : (remaining > 100 ? 100 : remaining);
+    return (int16_t)(y + h - 1 - (int16_t)(r * (h - 1) / 100.0f));
+  };
+
+  // Budget line, dotted so the solid actual curve stays dominant.
+  for (int16_t i = 0; i < w; i += 4) {
+    int16_t yy = (int16_t)(y + (int32_t)i * (h - 1) / (w - 1));
+    gfx->drawPixel((int16_t)(x + i), yy, COL_DIM);
+    gfx->drawPixel((int16_t)(x + i + 1), yy, COL_DIM);
+  }
+
+  // Actual curve.
+  const uint16_t line = b.exhausted ? COL_DIM : (b.warn ? COL_RED : accent);
+  for (uint8_t i = 1; i < b.n; i++) {
+    gfx->drawLine(px(b.t[i - 1]), py(b.remaining[i - 1]),
+                  px(b.t[i]), py(b.remaining[i]), line);
+    // Second row so the curve reads at arm's length.
+    gfx->drawLine(px(b.t[i - 1]), (int16_t)(py(b.remaining[i - 1]) + 1),
+                  px(b.t[i]), (int16_t)(py(b.remaining[i]) + 1), line);
+  }
+
+  // Projection: dashed, and a marker where it hits the floor. An estimate off
+  // token history draws sparser and dimmer than one fitted from real samples,
+  // so certainty is visible without reading anything.
+  if (b.projN == 2) {
+    const int16_t x0 = px(b.projT[0]), y0 = py(b.projR[0]);
+    const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
+    const int16_t steps = (int16_t)(x1 - x0);
+    const int16_t stride = b.estimated ? 10 : 6;
+    const int16_t dash = b.estimated ? 2 : 3;
+    const uint16_t projCol =
+        b.estimated ? dimToward(line, COL_BG, 0.55f) : line;
+    for (int16_t i = 0; i < steps; i += stride) {
+      int16_t ax = (int16_t)(x0 + i);
+      int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
+      gfx->drawLine(ax, ay, (int16_t)(ax + dash),
+                    (int16_t)(y0 + (int32_t)(y1 - y0) * (i + dash) /
+                              (steps ? steps : 1)), projCol);
+    }
+    if (b.warn) gfx->fillCircle(x1, y1, 3, COL_RED);
+  }
+
+  // Now marker.
+  if (b.n > 0) {
+    const int16_t nx = px(b.t[b.n - 1]);
+    gfx->fillCircle(nx, py(b.remaining[b.n - 1]), 2, COL_WHITE);
+  }
 }
 
 // Headroom tap targets (logical coords) → detail pages.
@@ -1240,15 +1530,9 @@ static void drawGlancePage() {
   const int16_t footY = H - bot - 6;
 
   drawTextAt("Headroom", padX, top, 3, COL_WHITE);
-  String when = "";
-  if (updatedZ.length() >= 16) when = updatedZ.substring(11, 16);
-  if (when.length()) {
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(when.c_str(), 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - padX - (int16_t)tw, top + 6);
-    gfx->print(when);
+  char when[8];
+  if (updatedHHMM(when, sizeof when)) {
+    drawRightAt(when, W - padX, top + 6, 2, COL_DIM);
   }
 
   // 3 equal top slots (quota rings); lower row gives Local less width.
@@ -1264,13 +1548,12 @@ static void drawGlancePage() {
   const uint16_t topAccent[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
   const char *topLabel[3] = {"Claude", "Codex", "Cursor"};
 
-  float pct = -1, pace = -1;
   const ProviderQuota *qs[3] = {&claudeQ, &codexQ, &cursorQ};
   for (uint8_t i = 0; i < 3; i++) {
     int16_t colX = padX + (int16_t)i * slot;
     glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)), topPages[i]);
-    providerHottest(*qs[i], &pct, &pace);
-    drawQuotaRing(colX + slot / 2, ringCy, ringR, pct, pace, topAccent[i], topLabel[i]);
+    drawQuotaRing(colX + slot / 2, ringCy, ringR, *qs[i], topAccent[i],
+                  topLabel[i]);
   }
 
   gfx->drawFastHLine(padX, midY, span, COL_DIM);
@@ -1373,6 +1656,12 @@ static void drawGlancePage() {
   present();
 }
 
+static const Burndown &burnFor(Page p) {
+  if (p == PAGE_CODEX) return codexBurn;
+  if (p == PAGE_CURSOR) return cursorBurn;
+  return claudeBurn;
+}
+
 static void drawQuotaPage() {
   gfx->clear(COL_BG);
   const int16_t W = scrW();
@@ -1391,17 +1680,12 @@ static void drawQuotaPage() {
   // Header — brand in provider color + plan
   drawTextAt(brand, padX, top, 3, accent);
   if (q.plan.length()) {
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(q.plan.c_str(), 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - padX - tw, top + 6);
-    gfx->print(q.plan);
+    drawRightAt(q.plan.c_str(), W - padX, top + 6, 2, COL_DIM);
   }
-  String when = "";
-  if (updatedZ.length() >= 16) when = updatedZ.substring(11, 16);
-  drawTextAt(when.length() ? ("Updated " + when) : "Updated --",
-             padX, top + 32, 2, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
 
   if (q.ok && (q.totalPct >= 0 || q.sessionPct >= 0 || q.weekPct >= 0)) {
@@ -1417,25 +1701,63 @@ static void drawQuotaPage() {
                             q.sessionResets, rowY, padX, accent);
         rowY += 68;
       }
-      if (q.weekPct >= 0) {
+      // Three rows leave no room for a chart. Auto and API both roll on the
+      // same billing cycle Total already summarises, so API yields to the
+      // burndown when there is one.
+      if (q.weekPct >= 0 && !burnFor(page).ok) {
         drawQuotaRowCompact("API", q.weekPct, q.weekPace,
                             q.weekResets, rowY, padX, accent);
         rowY += 68;
       }
     } else {
+      // Tall rows and a chart do not both fit in 368px. When there is a
+      // burndown to show it wins, and the meters fall back to the compact row
+      // — the glance rings already carry pct and pace, so the chart is the
+      // only thing on this page you cannot get one level up.
+      const bool compact = burnFor(page).ok;
       // Team Codex often has only a weekly window — skip empty session.
       if (q.sessionPct >= 0) {
-        drawQuotaRow("Session", q.sessionPct, q.sessionPace, q.sessionResets,
-                     "", "", rowY, padX, accent);
-        rowY += 98;
+        if (compact) {
+          drawQuotaRowCompact("Session", q.sessionPct, q.sessionPace,
+                              q.sessionResets, rowY, padX, accent);
+          rowY += 68;
+        } else {
+          drawQuotaRow("Session", q.sessionPct, q.sessionPace, q.sessionResets,
+                       "", "", rowY, padX, accent);
+          rowY += 98;
+        }
       }
       if (q.weekPct >= 0) {
-        drawQuotaRow("Weekly", q.weekPct, q.weekPace, q.weekResets,
-                     isCodex ? q.paceLabel : "",
-                     isCodex ? q.runsOutIn : "",
-                     rowY, padX, accent);
-        rowY += (isCodex && q.paceLabel.length()) ? 120 : 98;
+        if (compact) {
+          drawQuotaRowCompact("Weekly", q.weekPct, q.weekPace, q.weekResets,
+                              rowY, padX, accent);
+          rowY += 68;
+        } else {
+          drawQuotaRow("Weekly", q.weekPct, q.weekPace, q.weekResets,
+                       isCodex ? q.paceLabel : "",
+                       isCodex ? q.runsOutIn : "",
+                       rowY, padX, accent);
+          rowY += (isCodex && q.paceLabel.length()) ? 120 : 98;
+        }
       }
+    }
+
+    // Burndown for the provider's longest window, under the meters. Measured
+    // against the footer rule rather than a guessed margin, so the guard
+    // matches what actually fits.
+    const Burndown &burn = burnFor(page);
+    const int16_t chartH = 52;
+    const int16_t chartBottom = (int16_t)(H - bot - 10 - 12);  // the footer rule
+    if (burn.ok && rowY + 26 + chartH <= chartBottom) {
+      drawTextAt("Burndown", padX, rowY, 2, COL_WHITE);
+      if (burn.warn) {
+        drawRightAt("runs out early", W - padX, rowY, 2, COL_RED);
+      } else if (burn.estimated) {
+        drawRightAt("estimated", W - padX, rowY, 2, COL_DIM);
+      }
+      rowY += 26;
+      drawBurndown(burn, padX, rowY, (int16_t)(W - padX * 2), chartH, accent);
+      rowY += chartH + 12;
     }
 
     // Limit Reset Credits (Codex only)
@@ -1447,12 +1769,7 @@ static void drawQuotaPage() {
       String left = String(q.resetCredits) + " available";
       drawTextAt(left, padX, rowY, 2, COL_WHITE);
       if (q.resetCreditExpiries.length()) {
-        gfx->setTextSize(2);
-        int16_t x1, y1; uint16_t tw, th;
-        gfx->getTextBounds(q.resetCreditExpiries.c_str(), 0, 0, &x1, &y1, &tw, &th);
-        gfx->setTextColor(COL_DIM);
-        gfx->setCursor(W - padX - tw, rowY);
-        gfx->print(q.resetCreditExpiries);
+        drawRightAt(q.resetCreditExpiries.c_str(), W - padX, rowY, 2, COL_DIM);
       }
     }
   } else if (isCursor) {
@@ -1481,17 +1798,12 @@ static void drawVercelPage() {
 
   drawTextAt("Vercel", padX, top, 3, COL_VERCEL);
   if (vercelTeam.length()) {
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(vercelTeam.c_str(), 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - padX - tw, top + 6);
-    gfx->print(vercelTeam);
+    drawRightAt(vercelTeam.c_str(), W - padX, top + 6, 2, COL_DIM);
   }
-  String when = "";
-  if (updatedZ.length() >= 16) when = updatedZ.substring(11, 16);
-  drawTextAt(when.length() ? ("Updated " + when) : "Updated --",
-             padX, top + 32, 2, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
 
   int16_t rowY = top + 70;
@@ -1506,12 +1818,7 @@ static void drawVercelPage() {
       drawTextAt(proj, padX + 18, rowY, 2, COL_WHITE);
 
       String right = r.ago.length() ? r.ago : "--";
-      gfx->setTextSize(2);
-      int16_t x1, y1; uint16_t tw, th;
-      gfx->getTextBounds(right.c_str(), 0, 0, &x1, &y1, &tw, &th);
-      gfx->setTextColor(COL_DIM);
-      gfx->setCursor(W - padX - tw, rowY);
-      gfx->print(right);
+      drawRightAt(right.c_str(), W - padX, rowY, 2, COL_DIM);
 
       String sub = r.status;
       if (r.target.length()) sub += " · " + r.target;
@@ -1543,19 +1850,10 @@ static void drawGitPage() {
   const int16_t bot = UI_PAD;
 
   drawTextAt("Git", padX, top, 3, COL_GIT);
-  {
-    const char *u = "michellzappa";
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(u, 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - padX - tw, top + 6);
-    gfx->print(u);
-  }
-  String when = "";
-  if (updatedZ.length() >= 16) when = updatedZ.substring(11, 16);
-  drawTextAt(when.length() ? ("Updated " + when) : "Updated --",
-             padX, top + 32, 2, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
 
   int16_t rowY = top + 70;
@@ -1565,12 +1863,7 @@ static void drawGitPage() {
       drawTextAt(truncFit(r.repo, W - padX * 2 - 80, 2), padX, rowY, 2, COL_DIM);
 
       String right = r.ago.length() ? r.ago : "--";
-      gfx->setTextSize(2);
-      int16_t x1, y1; uint16_t tw, th;
-      gfx->getTextBounds(right.c_str(), 0, 0, &x1, &y1, &tw, &th);
-      gfx->setTextColor(COL_DIM);
-      gfx->setCursor(W - padX - tw, rowY);
-      gfx->print(right);
+      drawRightAt(right.c_str(), W - padX, rowY, 2, COL_DIM);
 
       drawTextAt(truncFit(r.subject, W - padX * 2, 2),
                  padX, rowY + 21, 2, COL_WHITE);
@@ -1600,17 +1893,12 @@ static void drawLocalPage() {
 
   drawTextAt("Local", padX, top, 3, COL_LOCAL);
   if (localHost.length()) {
-    gfx->setTextSize(2);
-    int16_t x1, y1; uint16_t tw, th;
-    gfx->getTextBounds(localHost.c_str(), 0, 0, &x1, &y1, &tw, &th);
-    gfx->setTextColor(COL_DIM);
-    gfx->setCursor(W - padX - tw, top + 6);
-    gfx->print(localHost);
+    drawRightAt(localHost.c_str(), W - padX, top + 6, 2, COL_DIM);
   }
-  String when = "";
-  if (updatedZ.length() >= 16) when = updatedZ.substring(11, 16);
-  drawTextAt(when.length() ? ("Updated " + when) : "Updated --",
-             padX, top + 32, 2, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
 
   int16_t rowY = top + 70;
@@ -1623,12 +1911,7 @@ static void drawLocalPage() {
       drawTextAt(left, padX + 18, rowY, 2, COL_WHITE);
 
       String right = r.port > 0 ? (":" + String(r.port)) : "--";
-      gfx->setTextSize(2);
-      int16_t x1, y1; uint16_t tw, th;
-      gfx->getTextBounds(right.c_str(), 0, 0, &x1, &y1, &tw, &th);
-      gfx->setTextColor(COL_DIM);
-      gfx->setCursor(W - padX - tw, rowY);
-      gfx->print(right);
+      drawRightAt(right.c_str(), W - padX, rowY, 2, COL_DIM);
 
       String sub = r.cmd.length() ? r.cmd : "listening";
       drawTextAt(truncFit(sub, W - padX * 2 - 20, 2),
@@ -1855,6 +2138,18 @@ static Gesture consumeGesture() {
 // ---------------- Arduino ----------------
 static uint32_t lastPoll = 0;
 
+// Consecutive failed fetches, for backoff. A host that is off (Mac asleep,
+// laptop elsewhere) shouldn't be hammered every POLL_INTERVAL_S forever —
+// each attempt costs a blocking connect timeout the UI has to sit through.
+static uint8_t fetchFails = 0;
+static const uint8_t FETCH_BACKOFF_MAX = 8;   // POLL_INTERVAL_S * 8 ceiling
+
+static uint32_t pollIntervalMs() {
+  uint32_t mult = fetchFails < FETCH_BACKOFF_MAX ? fetchFails : FETCH_BACKOFF_MAX;
+  if (mult == 0) mult = 1;
+  return (uint32_t)POLL_INTERVAL_S * 1000u * mult;
+}
+
 static void goToPage(Page target, const char *why) {
   if (target == page) return;
   page = target;
@@ -1895,11 +2190,48 @@ static void goNextPage() {
 
 static void forceSyncFromDesk() {
   drawStatus("syncing…", COL_AMBER);
+  // An explicit long-press means the user wants a retry now — clear any
+  // backoff the poller built up while the host was away.
+  fetchFails = 0;
   bool ok = requestSyncRefresh();
   delay(150);
   yield();
+  esp_task_wdt_reset();
   if (fetchUsage(USB_TIMEOUT_SYNC_MS)) drawDashboard();
   else drawStatus(ok ? "synced" : "sync failed", ok ? COL_GREEN : COL_RED);
+}
+
+// ---------------- OTA ----------------
+// The board lives on a shelf; without this every firmware tweak means finding
+// the cable. Only starts once Wi-Fi is up.
+static bool otaUp = false;
+
+static void otaBegin() {
+  if (otaUp || WiFi.status() != WL_CONNECTED) return;
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  if (sizeof(OTA_PASSWORD) > 1) ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() {
+    // The flash write starves everything else; the watchdog would fire.
+    esp_task_wdt_delete(NULL);
+    drawStatus("OTA update…", COL_AMBER);
+  });
+  ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
+    static uint8_t lastPct = 255;
+    uint8_t pct = total ? (uint8_t)((done * 100) / total) : 0;
+    if (pct == lastPct) return;
+    lastPct = pct;
+    char line[24];
+    snprintf(line, sizeof line, "OTA %u%%", (unsigned)pct);
+    drawStatus(line, COL_CRT);
+  });
+  ArduinoOTA.onEnd([]() { drawStatus("OTA done — rebooting", COL_GREEN); });
+  ArduinoOTA.onError([](ota_error_t) {
+    drawStatus("OTA failed", COL_RED);
+    esp_task_wdt_add(NULL);
+  });
+  ArduinoOTA.begin();
+  otaUp = true;
+  Serial.printf("OTA ready at %s.local\n", OTA_HOSTNAME);
 }
 
 static void pollBootButton() {
@@ -2016,9 +2348,12 @@ void setup() {
       snprintf(rssi, sizeof rssi, "%d dBm", WiFi.RSSI());
       bootLine("RSSI", rssi, COL_CRT);
     }
-    mdnsUp = MDNS.begin("headroom");   // needed for MDNS.queryHost()
-    bootLine("MDNS", mdnsUp ? "headroom" : "FAIL",
+    mdnsUp = MDNS.begin(OTA_HOSTNAME);   // needed for MDNS.queryHost()
+    bootLine("MDNS", mdnsUp ? OTA_HOSTNAME : "FAIL",
              mdnsUp ? COL_CRT : COL_RED);
+    otaBegin();
+    bootLine("OTA", otaUp ? OTA_HOSTNAME : "OFF",
+             otaUp ? COL_CRT : COL_CRT_DIM);
     Serial.printf("wifi ok  ip=%s  ssid=%s  mdns=%d\n",
                   WiFi.localIP().toString().c_str(),
                   WiFi.SSID().c_str(), mdnsUp);
@@ -2057,11 +2392,26 @@ void setup() {
     }
   }
   lastPoll = millis();
+
+  // Last: a wedged I2C bus or HTTP stack should reboot us, not leave a frozen
+  // panel on the desk. Registered after setup so a slow first associate can't
+  // trip it.
+  esp_task_wdt_config_t wdt = {
+      .timeout_ms = WDT_TIMEOUT_S * 1000,
+      .idle_core_mask = 0,
+      .trigger_panic = true,
+  };
+  esp_task_wdt_reconfigure(&wdt);
+  esp_task_wdt_add(NULL);
 }
 
 void loop() {
+  esp_task_wdt_reset();
+
   // Input first, every pass — never starve BOOT/touch behind Wi-Fi or USB.
   handleInput();
+
+  if (otaUp) ArduinoOTA.handle();
 
   // WiFiMulti.run() blocks for seconds while hunting APs. Call it rarely when
   // disconnected; when associated just poke it occasionally.
@@ -2071,15 +2421,22 @@ void loop() {
   if (millis() - lastWifi >= wifiEvery) {
     lastWifi = millis();
     uint8_t st = wifiMulti.run();
-    if (st == WL_CONNECTED && !mdnsUp) mdnsUp = MDNS.begin("headroom");
+    if (st == WL_CONNECTED) {
+      if (!mdnsUp) mdnsUp = MDNS.begin(OTA_HOSTNAME);
+      otaBegin();
+    }
   }
 
   // Background poll — skip while finger is down.
-  if (!touchDown &&
-      millis() - lastPoll >= (uint32_t)POLL_INTERVAL_S * 1000) {
+  if (!touchDown && millis() - lastPoll >= pollIntervalMs()) {
     lastPoll = millis();
-    if (fetchUsage()) drawDashboard();
-    else if (!haveData) drawStatus("server unreachable", COL_RED);
+    if (fetchUsage()) {
+      fetchFails = 0;
+      drawDashboard();
+    } else {
+      if (fetchFails < FETCH_BACKOFF_MAX) fetchFails++;
+      if (!haveData) drawStatus("server unreachable", COL_RED);
+    }
   }
   delay(4);
 }
