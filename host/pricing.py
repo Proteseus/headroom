@@ -7,7 +7,13 @@ rates from the model catalog; adjust here if intro pricing applies to you.
 
 One source of truth: the display firmware never computes cost, it only renders
 the numbers this server produces.
+
+Rates last checked against the published model catalog on 2026-07-25. These
+drift — when a `by_model` cost looks wrong, check this table first, and update
+RATES_CHECKED so the next reader knows how stale it is.
 """
+
+RATES_CHECKED = "2026-07-25"
 
 # base_input / base_output per 1M tokens
 BASE = {
