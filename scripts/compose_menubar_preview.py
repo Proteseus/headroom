@@ -24,15 +24,15 @@ def font(size: int):
     return ImageFont.load_default()
 
 
-def remaining_pcts(doc: dict) -> list[float | None]:
-    """Claude / Codex / Cursor remaining % (menu bar fills by remaining)."""
+def used_pcts(doc: dict) -> list[float | None]:
+    """Claude / Codex / Cursor used % (menu bar fills empty → full)."""
     out: list[float | None] = []
     claude = None
     for k in ("session_pct", "week_pct"):
         v = doc.get(k)
         if v is not None and (claude is None or v > claude):
             claude = float(v)
-    out.append(None if claude is None else max(0.0, 100.0 - claude))
+    out.append(None if claude is None else max(0.0, min(100.0, claude)))
 
     codex = doc.get("codex") or {}
     cx = None
@@ -40,16 +40,16 @@ def remaining_pcts(doc: dict) -> list[float | None]:
         v = codex.get(k)
         if v is not None and (cx is None or v > cx):
             cx = float(v)
-    out.append(None if cx is None else max(0.0, 100.0 - cx))
+    out.append(None if cx is None else max(0.0, min(100.0, cx)))
 
     cursor = doc.get("cursor") or {}
     cur = cursor.get("total_pct")
-    out.append(None if cur is None else max(0.0, 100.0 - float(cur)))
+    out.append(None if cur is None else max(0.0, min(100.0, float(cur))))
     return out
 
 
 def render_icon(
-    remainings: list[float | None],
+    used: list[float | None],
     warning: bool,
     critical: bool,
     size: int = 72,
@@ -67,7 +67,7 @@ def render_icon(
     stack_h = 3 * bar_h + 2 * gap
     stack_y = (size - stack_h) // 2
 
-    for index, rem in enumerate(remainings):
+    for index, pct in enumerate(used):
         y = stack_y + index * (bar_h + gap)
         draw.rounded_rectangle(
             [bar_x, y, bar_x + bar_w, y + bar_h],
@@ -76,9 +76,9 @@ def render_icon(
             outline=(0, 0, 0, 110),
             width=1,
         )
-        if rem is None:
+        if pct is None:
             continue
-        fill_w = int(bar_w * max(0.0, min(rem, 100.0)) / 100.0)
+        fill_w = int(bar_w * max(0.0, min(pct, 100.0)) / 100.0)
         if fill_w > 0:
             draw.rounded_rectangle(
                 [bar_x, y, bar_x + fill_w, y + bar_h],
@@ -109,7 +109,7 @@ def main():
     level = attention.get("level")
     warning = level in ("warn", "critical")
     icon = render_icon(
-        remaining_pcts(doc), warning, level == "critical", size=72
+        used_pcts(doc), warning, level == "critical", size=72
     )
     if args.icon_out:
         Path(args.icon_out).parent.mkdir(parents=True, exist_ok=True)

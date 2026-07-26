@@ -161,7 +161,7 @@ enum MeterIconRenderer {
                         width: barWidthPixels,
                         height: barHeightPixels
                     ),
-                    remaining: meter.headline.percent.map { 100 - $0 },
+                    used: meter.headline.percent,
                     healthy: healthy,
                     unavailable: meter.headline.percent == nil
                 )
@@ -181,13 +181,13 @@ enum MeterIconRenderer {
         // Template icons can't show the colored warning pip.
         image.isTemplate = !warning
         let labels = UsageProvider.allCases.map(\.title).joined(separator: ", ")
-        image.accessibilityDescription = "\(labels) quota remaining"
+        image.accessibilityDescription = "\(labels) quota used"
         return image
     }
 
     private static func drawBar(
         rect pixelRect: PixelRect,
-        remaining: Double?,
+        used: Double?,
         healthy: Bool,
         unavailable: Bool = false
     ) {
@@ -225,8 +225,8 @@ enum MeterIconRenderer {
         base.withAlphaComponent(trackStrokeAlpha * alpha).setStroke()
         stroke.stroke()
 
-        guard let remaining else { return }
-        let clamped = max(0, min(remaining / 100, 1))
+        guard let used else { return }
+        let clamped = max(0, min(used / 100, 1))
         let fillPixels = Int(
             (CGFloat(pixelRect.width) * CGFloat(clamped)).rounded()
         )
