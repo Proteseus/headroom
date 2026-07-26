@@ -36,22 +36,25 @@ struct BurndownCard: View {
     }
 }
 
-/// All providers on one chart, against a single budget line.
+/// All providers on one rolling calendar week.
 ///
-/// Averaging the pools would be meaningless: 50% of a Claude window is not 50%
-/// of a Cursor billing cycle, and the windows differ in both length and start
-/// time, so they share no time axis. Normalising both axes fixes that. X is the
-/// fraction of each pool's own window that has elapsed, Y is percent remaining,
-/// so one diagonal is every pool's budget and the curves are directly
-/// comparable: whichever sits lowest is the one being overspent.
+/// Provider windows start and reset at different times, so the overview uses
+/// real timestamps rather than pretending their elapsed-window fractions share
+/// weekdays. The provider cards retain the full-window budget comparison.
 struct OverviewBurndownCard: View {
     let snapshot: UsageSnapshot
+
+    private struct Point {
+        let time: Double
+        let remaining: Double
+    }
 
     private struct Series: Identifiable {
         let id: String
         let provider: UsageProvider
         let pool: Burndown
-        let points: [CGPoint]   // x in 0…1, y in remaining percent
+        let actual: [Point]
+        let projected: [Point]
     }
 
     /// One pool per provider: the longest window, matching what the board
@@ -61,24 +64,50 @@ struct OverviewBurndownCard: View {
             let pools = snapshot.burndownRings(for: provider)
             guard let pool = pools.max(by: {
                 ($0.windowS ?? 0) < ($1.windowS ?? 0)
-            }),
-                let start = pool.windowStart,
-                let span = pool.windowS, span > 0
+            })
             else { return nil }
 
-            let points = (pool.actual ?? []).compactMap { pair -> CGPoint? in
-                guard pair.count >= 2 else { return nil }
-                return CGPoint(
-                    x: CGFloat(min(max((pair[0] - start) / span, 0), 1)),
-                    y: CGFloat(max(0, min(pair[1], 100)))
-                )
+            func points(_ pairs: [[Double]]?) -> [Point] {
+                (pairs ?? []).compactMap { pair in
+                    guard pair.count >= 2 else { return nil }
+                    return Point(
+                        time: pair[0],
+                        remaining: max(0, min(pair[1], 100))
+                    )
+                }
             }
-            guard !points.isEmpty else { return nil }
+            let actual = points(pool.actual)
+            guard !actual.isEmpty else { return nil }
             return Series(
-                id: provider.rawValue, provider: provider,
-                pool: pool, points: points
+                id: provider.rawValue,
+                provider: provider,
+                pool: pool,
+                actual: actual,
+                projected: points(pool.projected)
             )
         }
+    }
+
+    private func calendarRange(for series: [Series]) -> (
+        start: Double,
+        end: Double,
+        now: Double
+    ) {
+        let now = series.flatMap(\.actual).map(\.time).max()
+            ?? Date().timeIntervalSince1970
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(
+            for: Date(timeIntervalSince1970: now))
+        let start = calendar.date(
+            byAdding: .day, value: -3, to: today) ?? today
+        let end = calendar.date(
+            byAdding: .day, value: 7, to: start)
+            ?? start.addingTimeInterval(7 * 24 * 60 * 60)
+        return (
+            start.timeIntervalSince1970,
+            end.timeIntervalSince1970,
+            now
+        )
     }
 
     var body: some View {
@@ -86,85 +115,169 @@ struct OverviewBurndownCard: View {
         if all.isEmpty {
             EmptyView()
         } else {
+            let range = calendarRange(for: all)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Burndown")
                         .font(.headline)
                     Spacer()
-                    Text("window elapsed")
+                    Text("7-day calendar")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
 
                 Canvas { context, size in
-                    var budget = Path()
-                    budget.move(to: CGPoint(x: 0, y: 0))
-                    budget.addLine(to: CGPoint(x: size.width, y: size.height))
+                    let span = range.end - range.start
+                    func x(_ time: Double) -> CGFloat {
+                        CGFloat((time - range.start) / span) * size.width
+                    }
+                    func y(_ remaining: Double) -> CGFloat {
+                        size.height
+                            - CGFloat(remaining / 100) * size.height
+                    }
+
+                    var nowMarker = Path()
+                    nowMarker.move(to: CGPoint(x: x(range.now), y: 0))
+                    nowMarker.addLine(to: CGPoint(
+                        x: x(range.now), y: size.height))
                     context.stroke(
-                        budget,
-                        with: .color(.secondary.opacity(0.45)),
-                        style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+                        nowMarker,
+                        with: .color(.secondary.opacity(0.18)),
+                        lineWidth: 1
                     )
 
                     for entry in all {
-                        let scaled = entry.points.map {
-                            CGPoint(
-                                x: $0.x * size.width,
-                                y: size.height - ($0.y / 100) * size.height
-                            )
-                        }
-                        guard let first = scaled.first else { continue }
                         let tint = entry.pool.kind == .exhausted
                             ? entry.provider.tint.drained()
                             : entry.provider.tint
-                        if scaled.count >= 2 {
+                        let actual = entry.actual
+                            .filter {
+                                $0.time >= range.start && $0.time <= range.end
+                            }
+                            .map {
+                                CGPoint(
+                                    x: x($0.time),
+                                    y: y($0.remaining)
+                                )
+                            }
+                        if actual.count >= 2 {
                             var line = Path()
-                            line.move(to: first)
-                            for point in scaled.dropFirst() {
+                            line.move(to: actual[0])
+                            for point in actual.dropFirst() {
                                 line.addLine(to: point)
                             }
                             context.stroke(
                                 line,
                                 with: .color(tint),
-                                style: StrokeStyle(lineWidth: 2, lineJoin: .round)
+                                style: StrokeStyle(
+                                    lineWidth: 2, lineJoin: .round)
                             )
                         }
-                        if let last = scaled.last {
+                        if let last = actual.last {
                             let dot = Path(ellipseIn: CGRect(
                                 x: last.x - 3, y: last.y - 3,
                                 width: 6, height: 6))
                             context.fill(dot, with: .color(tint))
                         }
+
+                        let projected = entry.projected
+                            .filter {
+                                $0.time >= range.start && $0.time <= range.end
+                            }
+                            .map {
+                                CGPoint(
+                                    x: x($0.time),
+                                    y: y($0.remaining)
+                                )
+                            }
+                        if projected.count >= 2 {
+                            var forecast = Path()
+                            forecast.move(to: projected[0])
+                            for point in projected.dropFirst() {
+                                forecast.addLine(to: point)
+                            }
+                            context.stroke(
+                                forecast,
+                                with: .color(tint.opacity(0.65)),
+                                style: StrokeStyle(
+                                    lineWidth: 1.5,
+                                    lineJoin: .round,
+                                    dash: [4, 3]
+                                )
+                            )
+                        }
                     }
                 }
                 .frame(height: 92)
 
-                HStack(spacing: 12) {
+                SharedBurndownWeekdayRow(
+                    start: range.start,
+                    end: range.end,
+                    now: range.now
+                )
+                .frame(height: 12)
+
+                HStack(alignment: .top, spacing: 8) {
                     ForEach(all) { entry in
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(entry.pool.kind == .exhausted
-                                      ? entry.provider.tint.drained()
-                                      : entry.provider.tint)
-                                .frame(width: 7, height: 7)
-                            Text(entry.provider.title)
-                                .font(.caption2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(entry.pool.kind == .exhausted
+                                          ? entry.provider.tint.drained()
+                                          : entry.provider.tint)
+                                    .frame(width: 7, height: 7)
+                                Text(entry.provider.title)
+                                    .font(.caption2.weight(.medium))
+                            }
                             if let delta = entry.pool.deltaPct {
-                                Text(delta >= 0
-                                     ? "+\(Int(delta.rounded()))"
-                                     : "\(Int(delta.rounded()))")
+                                Text(paceLabel(delta))
                                     .font(.caption2)
                                     .monospacedDigit()
                                     .foregroundStyle(
                                         delta < 0 ? Color.orange : .secondary)
+                            } else {
+                                Text("pace pending")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Spacer()
                 }
             }
             .cardStyle()
         }
+    }
+
+    private func paceLabel(_ delta: Double) -> String {
+        let points = abs(Int(delta.rounded()))
+        if points == 0 { return "on budget" }
+        return "\(points)% \(delta > 0 ? "ahead" : "behind")"
+    }
+}
+
+private struct SharedBurndownWeekdayRow: View {
+    let start: Double
+    let end: Double
+    let now: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let span = end - start
+            ForEach(burndownWeekdayTicks(start: start, end: end)) { tick in
+                Text(tick.label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(
+                        Color.secondary.opacity(tick.time <= now ? 1 : 0.55)
+                    )
+                    .position(
+                        x: CGFloat((tick.time - start) / span)
+                            * geometry.size.width,
+                        y: geometry.size.height / 2
+                    )
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -245,12 +358,19 @@ struct BurndownCanvas: View {
             else { return }
 
             let span = end - start
+            let dayTicks = burndownWeekdayTicks(start: start, end: end)
+            let axisHeight: CGFloat = dayTicks.isEmpty ? 0 : 16
+            let plotSize = CGSize(
+                width: size.width,
+                height: max(0, size.height - axisHeight)
+            )
             func x(_ t: Double) -> CGFloat {
-                CGFloat((t - start) / span) * size.width
+                CGFloat((t - start) / span) * plotSize.width
             }
             // Remaining percent, so 100 is the top and exhaustion is the floor.
             func y(_ pct: Double) -> CGFloat {
-                size.height - CGFloat(max(0, min(pct, 100)) / 100) * size.height
+                plotSize.height
+                    - CGFloat(max(0, min(pct, 100)) / 100) * plotSize.height
             }
 
             let actual = (pool.actual ?? []).compactMap { pair -> CGPoint? in
@@ -273,8 +393,10 @@ struct BurndownCanvas: View {
                 var drift = Path()
                 drift.move(to: first)
                 for point in actual.dropFirst() { drift.addLine(to: point) }
-                drift.addLine(to: CGPoint(x: last.x, y: y(idealAt(last.x, size: size))))
-                drift.addLine(to: CGPoint(x: first.x, y: y(idealAt(first.x, size: size))))
+                drift.addLine(to: CGPoint(
+                    x: last.x, y: y(idealAt(last.x, size: plotSize))))
+                drift.addLine(to: CGPoint(
+                    x: first.x, y: y(idealAt(first.x, size: plotSize))))
                 drift.closeSubpath()
                 context.fill(drift, with: .color(tint.opacity(0.16)))
             }
@@ -323,7 +445,7 @@ struct BurndownCanvas: View {
             if let last = actual.last {
                 var marker = Path()
                 marker.move(to: CGPoint(x: last.x, y: 0))
-                marker.addLine(to: CGPoint(x: last.x, y: size.height))
+                marker.addLine(to: CGPoint(x: last.x, y: plotSize.height))
                 context.stroke(
                     marker,
                     with: .color(.secondary.opacity(0.25)),
@@ -333,6 +455,30 @@ struct BurndownCanvas: View {
                     x: last.x - 2.5, y: last.y - 2.5, width: 5, height: 5))
                 context.fill(dot, with: .color(tint))
             }
+
+            // Weekdays run across both the measured curve and its forecast.
+            // Future labels are quieter so "history" and "preview" remain
+            // distinguishable without needing a second legend.
+            if !dayTicks.isEmpty {
+                let latestSample = (pool.actual ?? [])
+                    .compactMap { $0.first }
+                    .max() ?? start
+                for tick in dayTicks {
+                    let labelColor = tick.time <= latestSample
+                        ? Color.secondary
+                        : Color.secondary.opacity(0.55)
+                    context.draw(
+                        Text(tick.label)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(labelColor),
+                        at: CGPoint(
+                            x: x(tick.time),
+                            y: plotSize.height + axisHeight / 2
+                        ),
+                        anchor: .center
+                    )
+                }
+            }
         }
         .accessibilityLabel(pool.headline ?? "Burndown")
     }
@@ -341,6 +487,35 @@ struct BurndownCanvas: View {
     private func idealAt(_ px: CGFloat, size: CGSize) -> Double {
         guard size.width > 0 else { return 100 }
         return 100 * (1 - Double(px / size.width))
+    }
+}
+
+private struct BurndownWeekdayTick: Identifiable {
+    let time: Double
+    let label: String
+
+    var id: Double { time }
+}
+
+/// Up to seven labels, centered in equal slices of the quota window. Weekly
+/// pools therefore get one label per day; short sessions omit the axis, while
+/// monthly billing windows stay legible.
+private func burndownWeekdayTicks(
+    start: Double,
+    end: Double
+) -> [BurndownWeekdayTick] {
+    let secondsPerDay = 24.0 * 60 * 60
+    let span = end - start
+    guard span >= 2 * secondsPerDay else { return [] }
+
+    let count = min(7, max(2, Int(ceil(span / secondsPerDay))))
+    let slice = span / Double(count)
+    return (0..<count).map { index in
+        let time = start + (Double(index) + 0.5) * slice
+        let label = Date(timeIntervalSince1970: time).formatted(
+            .dateTime.weekday(.abbreviated)
+        )
+        return BurndownWeekdayTick(time: time, label: label)
     }
 }
 
