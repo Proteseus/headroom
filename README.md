@@ -91,7 +91,9 @@ Supabase / GitHub tokens).
 
 Wi‑Fi first; USB CDC fallback on the same cable when the LAN path fails.
 **Tap** a glance slot for detail; **long-press** home (~400ms) →
-`POST /sync/refresh`.
+`POST /sync/refresh`. **Tap the header** to swap home's lower half between
+activity (Vercel / Git / Local) and a burndown per provider; the choice is
+kept in NVS across reboots.
 
 After the first cable flash, `OTA_HOSTNAME` is reachable for updates:
 

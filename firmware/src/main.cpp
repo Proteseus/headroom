@@ -19,6 +19,7 @@
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <esp_task_wdt.h>
+#include <Preferences.h>
 #include <Arduino_GFX_Library.h>
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
@@ -336,6 +337,38 @@ static String localHost = "";
 static uint8_t localN = 0;
 static ServerRow localRows[MAX_SERVERS];
 static Page page = PAGE_GLANCE;
+
+// Home's lower half has two readings of the same desk: what's left (a burndown
+// per provider, under its ring) or what shipped (Vercel / Git / Local columns).
+// Burndown leads — it's the reading you can't get anywhere else at a glance.
+// Tap the header band to switch; the choice survives reboots in NVS so the
+// board comes back the way it was left.
+enum HomeMode : uint8_t { HOME_BURNDOWN = 0, HOME_ACTIVITY = 1 };
+static HomeMode homeMode = HOME_BURNDOWN;
+static Preferences prefs;
+static const char *PREFS_NS = "headroom";
+// Key renamed with the ordering flip — the old one's 0/1 meant the opposite,
+// and a stale value would silently pin a board to the wrong default.
+static const char *PREF_HOME_MODE = "home_pane";
+
+static const char *homeModeName(HomeMode m) {
+  return m == HOME_BURNDOWN ? "burndown" : "activity";
+}
+
+static void homeModeLoad() {
+  // Read-only open on a namespace that doesn't exist yet just fails — default.
+  if (!prefs.begin(PREFS_NS, true)) return;
+  homeMode = prefs.getUChar(PREF_HOME_MODE, HOME_BURNDOWN) == HOME_ACTIVITY
+                 ? HOME_ACTIVITY
+                 : HOME_BURNDOWN;
+  prefs.end();
+}
+
+static void homeModeSave() {
+  if (!prefs.begin(PREFS_NS, false)) return;
+  prefs.putUChar(PREF_HOME_MODE, (uint8_t)homeMode);
+  prefs.end();
+}
 
 // Shared Sources panel state (same payload Mac Settings reads/writes).
 static const uint8_t MAX_SOURCES = 8;
@@ -1416,10 +1449,12 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
 // faster than the window can afford.
 static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                          int16_t w, int16_t h, uint16_t accent) {
-  const uint16_t track = dimToward(accent, COL_BG, 0.30f);
+  const uint16_t track = dimToward(accent, COL_BG, 0.45f);
   gfx->drawRect(x, y, w, h, track);
   if (!b.ok || b.t1 <= b.t0) {
-    drawTextAt("collecting history", x + 8, y + h / 2 - 8, 2, COL_DIM);
+    // "collecting history" is 216px at size 2 — it doesn't fit a home column.
+    drawTextAt(w >= 232 ? "collecting history" : "no data",
+               x + 8, y + h / 2 - 8, 2, COL_DIM);
     return;
   }
 
@@ -1434,21 +1469,36 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     return (int16_t)(y + h - 1 - (int16_t)(r * (h - 1) / 100.0f));
   };
 
-  // Budget line, dotted so the solid actual curve stays dominant.
-  for (int16_t i = 0; i < w; i += 4) {
-    int16_t yy = (int16_t)(y + (int32_t)i * (h - 1) / (w - 1));
-    gfx->drawPixel((int16_t)(x + i), yy, COL_DIM);
-    gfx->drawPixel((int16_t)(x + i + 1), yy, COL_DIM);
+  // A 1px run vanishes on a 122px home chart at desk distance, so every stroke
+  // here is 3px: the segment plus a row either side, clamped inside the box so
+  // a full or empty pool doesn't eat the border.
+  auto stroke = [&](int16_t ax, int16_t ay, int16_t bx, int16_t by,
+                    uint16_t col) {
+    for (int16_t d = -1; d <= 1; d++) {
+      const int16_t a = (int16_t)(ay + d), c = (int16_t)(by + d);
+      if (a < y || a > y + h - 1 || c < y || c > y + h - 1) continue;
+      gfx->drawLine(ax, a, bx, c, col);
+    }
+  };
+
+  // Budget line, dashed so the solid actual curve still reads as the subject.
+  const uint16_t budget = dimToward(COL_WHITE, COL_BG, 0.55f);
+  for (int16_t i = 0; i < w; i += 6) {
+    const int16_t i2 = (int16_t)((i + 3 < w) ? i + 3 : w - 1);
+    const int16_t ya = (int16_t)(y + (int32_t)i * (h - 1) / (w - 1));
+    const int16_t yb = (int16_t)(y + (int32_t)i2 * (h - 1) / (w - 1));
+    gfx->drawLine((int16_t)(x + i), ya, (int16_t)(x + i2), yb, budget);
+    if (ya + 1 <= y + h - 1) {
+      gfx->drawLine((int16_t)(x + i), (int16_t)(ya + 1),
+                    (int16_t)(x + i2), (int16_t)(yb + 1), budget);
+    }
   }
 
   // Actual curve.
   const uint16_t line = b.exhausted ? COL_DIM : (b.warn ? COL_RED : accent);
   for (uint8_t i = 1; i < b.n; i++) {
-    gfx->drawLine(px(b.t[i - 1]), py(b.remaining[i - 1]),
-                  px(b.t[i]), py(b.remaining[i]), line);
-    // Second row so the curve reads at arm's length.
-    gfx->drawLine(px(b.t[i - 1]), (int16_t)(py(b.remaining[i - 1]) + 1),
-                  px(b.t[i]), (int16_t)(py(b.remaining[i]) + 1), line);
+    stroke(px(b.t[i - 1]), py(b.remaining[i - 1]),
+           px(b.t[i]), py(b.remaining[i]), line);
   }
 
   // Projection: dashed, and a marker where it hits the floor. An estimate off
@@ -1458,40 +1508,51 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     const int16_t x0 = px(b.projT[0]), y0 = py(b.projR[0]);
     const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
     const int16_t steps = (int16_t)(x1 - x0);
-    const int16_t stride = b.estimated ? 10 : 6;
-    const int16_t dash = b.estimated ? 2 : 3;
+    const int16_t stride = b.estimated ? 9 : 6;
+    const int16_t dash = b.estimated ? 4 : 4;
     const uint16_t projCol =
-        b.estimated ? dimToward(line, COL_BG, 0.55f) : line;
+        b.estimated ? dimToward(line, COL_BG, 0.70f) : line;
     for (int16_t i = 0; i < steps; i += stride) {
       int16_t ax = (int16_t)(x0 + i);
       int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-      gfx->drawLine(ax, ay, (int16_t)(ax + dash),
-                    (int16_t)(y0 + (int32_t)(y1 - y0) * (i + dash) /
-                              (steps ? steps : 1)), projCol);
+      stroke(ax, ay, (int16_t)(ax + dash),
+             (int16_t)(y0 + (int32_t)(y1 - y0) * (i + dash) /
+                       (steps ? steps : 1)), projCol);
     }
-    if (b.warn) gfx->fillCircle(x1, y1, 3, COL_RED);
+    if (b.warn) gfx->fillCircle(x1, y1, 4, COL_RED);
   }
 
   // Now marker.
   if (b.n > 0) {
     const int16_t nx = px(b.t[b.n - 1]);
-    gfx->fillCircle(nx, py(b.remaining[b.n - 1]), 2, COL_WHITE);
+    const int16_t ny = py(b.remaining[b.n - 1]);
+    gfx->fillCircle(nx, ny, 3, COL_WHITE);
+    gfx->drawCircle(nx, ny, 4, COL_BG);   // keeps it off the curve it sits on
   }
 }
 
-// Headroom tap targets (logical coords) → detail pages.
+// Headroom tap targets (logical coords) → detail pages, plus the header chip
+// that flips the lower half between activity and burndowns.
+enum HitKind : uint8_t { HIT_PAGE = 0, HIT_MODE = 1 };
 struct GlanceHit {
   int16_t x, y, w, h;
+  HitKind kind;
   Page target;
 };
-static GlanceHit glanceHits[6];
+static const uint8_t MAX_GLANCE_HITS = 8;   // 3 rings + 3 lower slots + header
+static GlanceHit glanceHits[MAX_GLANCE_HITS];
 static uint8_t glanceHitN = 0;
 
 static void glanceClearHits() { glanceHitN = 0; }
 
 static void glanceAddHit(int16_t x, int16_t y, int16_t w, int16_t h, Page target) {
-  if (glanceHitN >= 6) return;
-  glanceHits[glanceHitN++] = {x, y, w, h, target};
+  if (glanceHitN >= MAX_GLANCE_HITS) return;
+  glanceHits[glanceHitN++] = {x, y, w, h, HIT_PAGE, target};
+}
+
+static void glanceAddModeHit(int16_t x, int16_t y, int16_t w, int16_t h) {
+  if (glanceHitN >= MAX_GLANCE_HITS) return;
+  glanceHits[glanceHitN++] = {x, y, w, h, HIT_MODE, PAGE_GLANCE};
 }
 
 static void nativeToLogical(int16_t nx, int16_t ny, int16_t *lx, int16_t *ly) {
@@ -1519,46 +1580,14 @@ static void flashGlanceSlot(const GlanceHit &h) {
   // No delay — next page paint replaces this immediately.
 }
 
-static void drawGlancePage() {
-  gfx->clear(COL_BG);
-  glanceClearHits();
-  const int16_t W = scrW();
-  const int16_t H = scrH();
-  const int16_t padX = UI_PAD;
-  const int16_t top = UI_PAD;
-  const int16_t bot = UI_PAD;
-  const int16_t footY = H - bot - 6;
+static const Burndown &burnFor(Page p);
 
-  drawTextAt("Headroom", padX, top, 3, COL_WHITE);
-  char when[8];
-  if (updatedHHMM(when, sizeof when)) {
-    drawRightAt(when, W - padX, top + 6, 2, COL_DIM);
-  }
-
-  // 3 equal top slots (quota rings); lower row gives Local less width.
-  const int16_t span = W - padX * 2;
-  const int16_t slot = span / 3;
-  const int16_t ringR = 32;
-  const int16_t ringCy = top + 74;
-  const int16_t midY = ringCy + ringR + 48;  // clear labels under rings
-  const int16_t lowBottom = footY - 4;
-
-  const Page topPages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
+// Lower half, activity reading: what shipped lately.
+static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
+                               int16_t lowBottom) {
   const Page lowPages[3] = {PAGE_VERCEL, PAGE_GIT, PAGE_LOCAL};
-  const uint16_t topAccent[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
-  const char *topLabel[3] = {"Claude", "Codex", "Cursor"};
 
-  const ProviderQuota *qs[3] = {&claudeQ, &codexQ, &cursorQ};
-  for (uint8_t i = 0; i < 3; i++) {
-    int16_t colX = padX + (int16_t)i * slot;
-    glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)), topPages[i]);
-    drawQuotaRing(colX + slot / 2, ringCy, ringR, *qs[i], topAccent[i],
-                  topLabel[i]);
-  }
-
-  gfx->drawFastHLine(padX, midY, span, COL_DIM);
-
-  // Lower row — Local narrow (ports); Vercel/Git share the rest (~2–3 more chars).
+  // Local narrow (ports); Vercel/Git share the rest (~2–3 more chars).
   const int16_t lowTop = midY + 6;
   const int16_t localW = 78;
   const int16_t wideW = (span - localW) / 2;
@@ -1632,25 +1661,124 @@ static void drawGlancePage() {
       }
     }
   }
+}
 
-  // Sources footer — same list as Mac Settings (green/amber/red/off).
-  if (sourceN > 0) {
-    const int16_t srcR = 3;
-    const int16_t gap = 12;
-    const int16_t totalW = (int16_t)sourceN * gap - (gap - 2 * srcR);
-    int16_t sx = padX + (span - totalW) / 2;
-    for (uint8_t i = 0; i < sourceN; i++) {
-      uint16_t col = COL_DIM;
-      if (sourceRows[i].enabled) {
-        if (sourceRows[i].ok)
-          col = sourceRows[i].stale ? COL_AMBER : COL_GREEN;
-        else
-          col = COL_RED;
+// "3d 4h" / "6h 20m" / "45m" — two units, widest case 6 chars so it fits the
+// right half of a 122px column caption at text size 2.
+static String shortDur(uint32_t secs) {
+  const uint32_t m = secs / 60;
+  if (m < 1) return "now";
+  if (m < 60) return String(m) + "m";
+  const uint32_t h = m / 60, rm = m % 60;
+  if (h < 24) return rm ? String(h) + "h " + String(rm) + "m" : String(h) + "h";
+  const uint32_t d = h / 24, rh = h % 24;
+  return rh ? String(d) + "d " + String(rh) + "h" : String(d) + "d";
+}
+
+// One unit, for captions that already spend characters on a prefix.
+static String coarseDur(uint32_t secs) {
+  const uint32_t m = secs / 60;
+  if (m < 60) return String(m ? m : 1) + "m";
+  const uint32_t h = m / 60;
+  return h < 24 ? String(h) + "h" : String(h / 24) + "d";
+}
+
+// Lower half, burndown reading: one chart per provider, each under its ring,
+// so a column reads top-to-bottom as "where I am" then "where that lands".
+static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
+                               int16_t lowBottom) {
+  const Page pages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
+  const uint16_t accents[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
+  const int16_t slot = span / 3;
+  const int16_t colPad = 4;
+  const int16_t capH = 20;      // caption line above each chart
+  const int16_t chartY = (int16_t)(midY + 6 + capH);
+  const int16_t chartH = (int16_t)(lowBottom - chartY);
+
+  for (uint8_t i = 0; i < 3; i++) {
+    const int16_t colX = (int16_t)(padX + (int16_t)i * slot);
+    glanceAddHit(colX, midY, slot, (int16_t)(lowBottom - midY), pages[i]);
+    const Burndown &b = burnFor(pages[i]);
+
+    // Caption carries the two numbers the chart can only imply: how much is
+    // left, and how long it has to last. Naming the pool would be redundant —
+    // "3d 4h" is a weekly window and "4h" is a session, plainly.
+    const int16_t capY = midY + 6;
+    const int16_t capL = (int16_t)(colX + colPad);
+    const int16_t capR = (int16_t)(colX + slot - colPad);
+    if (b.ok && b.n > 0) {
+      char left[8];
+      snprintf(left, sizeof left, "%d%%",
+               (int)(b.remaining[b.n - 1] + 0.5f));
+      drawTextAt(left, capL, capY, 2, accents[i]);
+
+      // Sample time, not wall clock — the board has no RTC, and the newest
+      // point is "now" as far as this chart is concerned.
+      const uint32_t now = b.t[b.n - 1];
+      if (b.warn && !b.exhausted && b.projN == 2 && b.projT[1] > now) {
+        drawRightAt("out " + coarseDur(b.projT[1] - now), capR, capY, 2,
+                    COL_RED);
+      } else if (b.t1 > now) {
+        drawRightAt(shortDur(b.t1 - now), capR, capY, 2, COL_DIM);
       }
-      gfx->fillCircle(sx + srcR, footY + 2, srcR, col);
-      sx += gap;
+    }
+
+    if (chartH >= 40) {
+      drawBurndown(b, (int16_t)(colX + colPad), chartY,
+                   (int16_t)(slot - colPad * 2), chartH, accents[i]);
     }
   }
+}
+
+static void drawGlancePage() {
+  gfx->clear(COL_BG);
+  glanceClearHits();
+  const int16_t W = scrW();
+  const int16_t H = scrH();
+  const int16_t padX = UI_PAD;
+  const int16_t top = UI_PAD;
+  const int16_t bot = UI_PAD;
+
+  drawTextAt("Headroom", padX, top, 3, COL_WHITE);
+  // The chip names what the lower half is showing; the whole header band above
+  // the rings switches it. A fingertip is ~40px on this panel, so the target is
+  // the band, not the word — the outline is only there to say it's a control.
+  const char *modeName = homeModeName(homeMode);
+  const int16_t chipX = padX + 152;
+  const int16_t chipW = (int16_t)(textWidth(modeName, 2) + 16);
+  gfx->drawRoundRect(chipX - 8, top + 2, chipW, 24, 6, COL_DIM);
+  drawTextAt(modeName, chipX, top + 6, 2, COL_DIM);
+  glanceAddModeHit(0, 0, W, (int16_t)(top + 34));
+
+  char when[8];
+  if (updatedHHMM(when, sizeof when)) {
+    drawRightAt(when, W - padX, top + 6, 2, COL_DIM);
+  }
+
+  // 3 equal top slots (quota rings).
+  const int16_t span = W - padX * 2;
+  const int16_t slot = span / 3;
+  const int16_t ringR = 32;
+  const int16_t ringCy = top + 74;
+  const int16_t midY = ringCy + ringR + 48;  // clear labels under rings
+  const int16_t lowBottom = H - bot;         // no footer — run to the margin
+
+  const Page topPages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
+  const uint16_t topAccent[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
+  const char *topLabel[3] = {"Claude", "Codex", "Cursor"};
+
+  const ProviderQuota *qs[3] = {&claudeQ, &codexQ, &cursorQ};
+  for (uint8_t i = 0; i < 3; i++) {
+    int16_t colX = padX + (int16_t)i * slot;
+    glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)), topPages[i]);
+    drawQuotaRing(colX + slot / 2, ringCy, ringR, *qs[i], topAccent[i],
+                  topLabel[i]);
+  }
+
+  gfx->drawFastHLine(padX, midY, span, COL_DIM);
+
+  if (homeMode == HOME_BURNDOWN) drawGlanceBurndown(padX, span, midY, lowBottom);
+  else drawGlanceActivity(padX, span, midY, lowBottom);
 
   drawWifiDot(padX, top);
   present();
@@ -2163,6 +2291,14 @@ static void goHome() {
   goToPage(PAGE_GLANCE, "home");
 }
 
+static void toggleHomeMode() {
+  homeMode = homeMode == HOME_ACTIVITY ? HOME_BURNDOWN : HOME_ACTIVITY;
+  homeModeSave();
+  Serial.printf("tap → home mode %s\n", homeModeName(homeMode));
+  if (haveData) drawDashboard();
+  else drawStatus("fetching...", COL_DIM);
+}
+
 static bool pageEnabled(Page p) {
   switch (p) {
     case PAGE_GLANCE: return true;
@@ -2256,7 +2392,9 @@ static void handleInput() {
     if (page == PAGE_GLANCE) {
       GlanceHit hit;
       if (gestureTapHit && glanceHitAt(touchStartX, touchStartY, &hit)) {
-        if (!pageEnabled(hit.target)) {
+        if (hit.kind == HIT_MODE) {
+          toggleHomeMode();
+        } else if (!pageEnabled(hit.target)) {
           drawStatus("disabled in Sources", COL_AMBER);
           delay(200);
           drawDashboard();
@@ -2286,6 +2424,7 @@ void setup() {
   powerInit();
   pinMode(BTN_BOOT, INPUT_PULLUP);
   bool touchOk = touchInit();
+  homeModeLoad();   // before the first home paint
 
   bool pok = panel->begin();
   Serial.printf("panel->begin: %s\n", pok ? "ok" : "FAIL");
