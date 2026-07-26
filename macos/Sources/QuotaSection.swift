@@ -172,7 +172,6 @@ struct QuotaRow: View {
                 percent: window.percent ?? 0,
                 tint: tint,
                 pacePercent: window.pacePercent,
-                paceOnTop: (window.percent ?? 0) <= (window.pacePercent ?? 100),
                 accessibilityLabel: "\(window.title) usage"
             )
             HStack {

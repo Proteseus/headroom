@@ -36,7 +36,6 @@ struct CodexBarProgressBar: View {
     let percent: Double
     let tint: Color
     let pacePercent: Double?
-    let paceOnTop: Bool
     let accessibilityLabel: String
 
     @Environment(\.displayScale) private var displayScale
@@ -93,7 +92,8 @@ struct CodexBarProgressBar: View {
                 context.blendMode = .normal
                 context.fill(
                     stripes.center.applying(shift),
-                    with: .color(paceOnTop ? .green : tint.drained())
+                    // Match the neutral pace tick used by quota rings.
+                    with: .color(.primary)
                 )
             }
         }
