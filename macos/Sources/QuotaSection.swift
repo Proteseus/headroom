@@ -258,9 +258,9 @@ struct PaceRingsCanvas: View {
         switch ring.kind {
         // Already spent reads as absence, not alarm.
         case .exhausted: tint.drained()
-        case .critical: .red
+        // Behind pace, but still brand-colored — the caption carries the forecast.
         case .ahead: .orange
-        case .ok: tint
+        case .ok, .critical: tint
         }
     }
 

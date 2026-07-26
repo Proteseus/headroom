@@ -288,9 +288,8 @@ struct BurndownPlot: View {
     private var statusTint: Color {
         switch pool.kind {
         case .exhausted: tint.drained()
-        case .critical: .red
         case .ahead: .orange
-        case .ok: tint
+        case .ok, .critical: tint
         }
     }
 
@@ -437,7 +436,7 @@ struct BurndownCanvas: View {
                 if pool.exhaustsBeforeReset == true, let hit = projected.last {
                     let dot = Path(ellipseIn: CGRect(
                         x: hit.x - 3, y: hit.y - 3, width: 6, height: 6))
-                    context.fill(dot, with: .color(.red))
+                    context.fill(dot, with: .color(tint))
                 }
             }
 
