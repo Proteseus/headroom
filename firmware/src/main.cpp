@@ -1502,20 +1502,25 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
              px(b.t2[i]), py(b.remaining2[i]), line2);
     }
     if (b.projN2 == 2) {
-      const int16_t x0 = px(b.projT2[0]), y0 = py(b.projR2[0]);
-      const int16_t x1 = px(b.projT2[1]), y1 = py(b.projR2[1]);
-      const int16_t steps = (int16_t)(x1 - x0);
-      const int16_t stride = b.estimated2 ? 7 : 8;
-      const int16_t dash = b.estimated2 ? 5 : 6;
-      for (int16_t i = 0; i < steps; i += stride) {
-        int16_t ax = (int16_t)(x0 + i);
-        int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-        const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
-        stroke(ax, ay, (int16_t)(ax + seg),
-               (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
-                         (steps ? steps : 1)), line2);
+      const float dR2 = b.projR2[1] - b.projR2[0];
+      if (dR2 < -0.5f || dR2 > 0.5f || b.warn2) {
+        const int16_t x0 = px(b.projT2[0]), y0 = py(b.projR2[0]);
+        const int16_t x1 = px(b.projT2[1]), y1 = py(b.projR2[1]);
+        if (dR2 < -0.5f || dR2 > 0.5f) {
+          const int16_t steps = (int16_t)(x1 - x0);
+          const int16_t stride = b.estimated2 ? 7 : 8;
+          const int16_t dash = b.estimated2 ? 5 : 6;
+          for (int16_t i = 0; i < steps; i += stride) {
+            int16_t ax = (int16_t)(x0 + i);
+            int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
+            const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
+            stroke(ax, ay, (int16_t)(ax + seg),
+                   (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
+                             (steps ? steps : 1)), line2);
+          }
+        }
+        if (b.warn2) gfx->fillCircle(x1, y1, 3, COL_RED);
       }
-      if (b.warn2) gfx->fillCircle(x1, y1, 3, COL_RED);
     }
     if (b.n2 > 0) {
       gfx->fillCircle(px(b.t2[b.n2 - 1]), py(b.remaining2[b.n2 - 1]), 2, line2);
@@ -1530,22 +1535,29 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   }
 
   // Projection: lightly dashed accent (long on, short gap) plus a marker
-  // where it hits the floor. Estimates stay a touch sparser.
+  // where it hits the floor. Estimates stay a touch sparser. Skip a level
+  // forecast — measured-zero pace would paint a bar across the whole window
+  // and erase the budget diagonal (Codex idle after an early burn).
   if (b.projN == 2) {
-    const int16_t x0 = px(b.projT[0]), y0 = py(b.projR[0]);
-    const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
-    const int16_t steps = (int16_t)(x1 - x0);
-    const int16_t stride = b.estimated ? 7 : 8;
-    const int16_t dash = b.estimated ? 5 : 6;
-    for (int16_t i = 0; i < steps; i += stride) {
-      int16_t ax = (int16_t)(x0 + i);
-      int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-      const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
-      stroke(ax, ay, (int16_t)(ax + seg),
-             (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
-                       (steps ? steps : 1)), line);
+    const float dR = b.projR[1] - b.projR[0];
+    if (dR < -0.5f || dR > 0.5f || b.warn) {
+      const int16_t x0 = px(b.projT[0]), y0 = py(b.projR[0]);
+      const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
+      if (dR < -0.5f || dR > 0.5f) {
+        const int16_t steps = (int16_t)(x1 - x0);
+        const int16_t stride = b.estimated ? 7 : 8;
+        const int16_t dash = b.estimated ? 5 : 6;
+        for (int16_t i = 0; i < steps; i += stride) {
+          int16_t ax = (int16_t)(x0 + i);
+          int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
+          const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
+          stroke(ax, ay, (int16_t)(ax + seg),
+                 (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
+                           (steps ? steps : 1)), line);
+        }
+      }
+      if (b.warn) gfx->fillCircle(x1, y1, 4, COL_RED);
     }
-    if (b.warn) gfx->fillCircle(x1, y1, 4, COL_RED);
   }
 
   // Now marker (primary).

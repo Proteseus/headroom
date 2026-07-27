@@ -97,15 +97,56 @@ def _rows(items, fields, limit):
 
 
 def _thin(points, limit):
-    """Keep at most `limit` points, evenly spaced, always keeping the newest."""
+    """Keep at most `limit` points, preferring shape over even spacing.
+
+    Even index-spacing on a long plateau (Codex idle after an early burn)
+    spends the budget on identical y values and erases the drop. Keep first,
+    last, and every meaningful remaining-% change, then fill evenly.
+    """
     points = [p for p in (points or []) if isinstance(p, (list, tuple)) and len(p) >= 2]
     if len(points) <= limit:
         return [[int(t), round(float(v), 1)] for t, v in points]
-    step = (len(points) - 1) / float(limit - 1)
-    picked = [points[int(round(i * step))] for i in range(limit)]
-    if picked[-1] is not points[-1]:
-        picked[-1] = points[-1]
-    return [[int(t), round(float(v), 1)] for t, v in picked]
+
+    keep = {0, len(points) - 1}
+    last_v = float(points[0][1])
+    for i in range(1, len(points) - 1):
+        v = float(points[i][1])
+        if abs(v - last_v) >= 1.0:
+            keep.add(i)
+            last_v = v
+
+    if len(keep) < limit:
+        step = (len(points) - 1) / float(limit - 1)
+        for i in range(limit):
+            keep.add(int(round(i * step)))
+            if len(keep) >= limit:
+                break
+    elif len(keep) > limit:
+        ordered = sorted(keep)
+        step = (len(ordered) - 1) / float(limit - 1)
+        keep = {ordered[int(round(i * step))] for i in range(limit)}
+        keep.add(0)
+        keep.add(len(points) - 1)
+        while len(keep) > limit:
+            mid = sorted(keep)[len(keep) // 2]
+            if mid in (0, len(points) - 1):
+                break
+            keep.discard(mid)
+
+    return [[int(points[i][0]), round(float(points[i][1]), 1)]
+            for i in sorted(keep)]
+
+
+def _proj_for_device(projected):
+    """Projection for the board, or [] when it would read as a flat bar.
+
+    A measured-zero pace projects level out to the reset. On Mac that sits
+    beside the budget fill; on a ~400px board it is the whole chart.
+    """
+    proj = _thin(projected, 2)
+    if len(proj) >= 2 and abs(float(proj[0][1]) - float(proj[1][1])) < 1.0:
+        return []
+    return proj
 
 
 def _trim_burndown(pool):
@@ -118,7 +159,7 @@ def _trim_burndown(pool):
         "t0": int(pool["window_start"]),
         "t1": int(pool["window_end"]),
         "pts": _thin(pool.get("actual"), MAX_BURNDOWN_POINTS),
-        "proj": _thin(pool.get("projected"), 2),
+        "proj": _proj_for_device(pool.get("projected")),
         "warn": bool(pool.get("exhausts_before_reset")),
         # Projection rests on the token-history estimate rather than measured
         # samples, so the board draws it more faintly.
@@ -167,7 +208,7 @@ def _burndown_for(provider, pools):
                 trimmed["pool2"] = secondary.get("pool")
                 trimmed["status2"] = secondary.get("status")
                 trimmed["pts2"] = pts
-                trimmed["proj2"] = _thin(secondary.get("projected"), 2)
+                trimmed["proj2"] = _proj_for_device(secondary.get("projected"))
                 trimmed["warn2"] = bool(secondary.get("exhausts_before_reset"))
                 trimmed["est2"] = secondary.get("rate_source") == "estimated"
         return trimmed
