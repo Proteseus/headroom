@@ -12,7 +12,7 @@ that into one glance:
 | Always on | What you see |
 |---|---|
 | **ESP32 AMOLED** | Claude / Codex / Cursor quota rings, Vercel, git, local ports |
-| **Menu bar** | Three thin remaining-quota meters + amber/red attention pip |
+| **Menu bar** | Thin remaining-quota meters for enabled providers + amber/red attention pip |
 | **Popover** | Overview rings, daily burn, spend, Actions / Supabase / servers |
 
 One Python host on your Mac reads local auth + CLIs and serves a single JSON
@@ -42,88 +42,107 @@ tap a slot for detail, long-press to force-refresh.
 ## Why it exists
 
 - **Quota anxiety is real.** Session / weekly windows, pace, and spend are
-  scattered across three products. Headroom puts hottest pool % + pace on one
-  ring (and three menu-bar ticks).
+  scattered across products. Headroom puts hottest pool % + pace on one
+  ring (and a menu-bar tick per enabled provider).
 - **Ship status is ambient.** Failed Actions, Vercel builds, Supabase alerts,
   and listening local servers surface as an attention pip — not another tab.
 - **Local-first.** The host talks to credentials and CLIs you already have.
   The board can fall back to USB CDC when hotel Wi‑Fi blocks mDNS.
 
-## Quick start
+## Requirements
 
-### 1. Host
+| Need | Notes |
+|---|---|
+| macOS 14+ | Menu bar app |
+| Python 3.9+ | Bundled host is **stdlib only** (system `/usr/bin/python3`) |
+| At least one of Claude / Codex / Cursor | Already signed in locally |
+| Optional: Xcode + [xcodegen](https://github.com/yonaskolb/XcodeGen) | Only if you build from source |
+| Optional: PlatformIO | Only if you flash the ESP32 |
+
+No Headroom cloud account. Tokens stay on your Mac.
+
+## Quick start (from scratch)
+
+### Option A — Release app (easiest)
+
+1. Download **HeadroomBar-macos.zip** from
+   [Releases](https://github.com/michellzappa/headroom/releases).
+2. Unzip and open `HeadroomBar.app` (right-click → Open the first time if
+   Gatekeeper complains — builds are ad-hoc signed).
+3. Click the menu bar meters → on first launch you’ll get a **Welcome** sheet.
+4. Tap **Start host & keep at login** — the app installs a LaunchAgent that runs
+   the **Python host bundled inside the .app**.
+5. Confirm which providers were detected (Claude / Codex / Cursor) and Continue.
+
+That’s it. The host stays up after you quit the menu bar (ESP32-friendly).
+
+### Option B — Build from source
 
 ```bash
-cd host
-cp config.example.json ~/.headroom/config.json   # edit authors / org / timezone
-python3 headroom_server.py                       # http://0.0.0.0:8737/usage
-curl -s localhost:8737/usage | python3 -m json.tool
+git clone https://github.com/michellzappa/headroom.git
+cd headroom
+./scripts/build-app.sh          # embeds host → dist/HeadroomBar.app
+open dist/HeadroomBar.app
 ```
 
-Optional login item (edit `REPLACE_WITH_*` paths in the plist first):
+Or the two-piece flow (host from clone, debug app):
 
 ```bash
-mkdir -p ~/.headroom/logs
-cp host/com.mz.headroom.plist ~/Library/LaunchAgents/
-# then: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
-```
-
-### 2. Menu bar
-
-```bash
-cd macos
-xcodegen generate   # if you change project.yml
+./scripts/install-host.sh
+cd macos && ../scripts/sync-embedded-host.sh && xcodegen generate
 xcodebuild -project HeadroomBar.xcodeproj -scheme HeadroomBar \
   -configuration Debug -derivedDataPath .build build
 open .build/Build/Products/Debug/HeadroomBar.app
 ```
 
-No Dock icon. Settings live under the popover gear (endpoint, source toggles,
-Supabase / GitHub tokens).
+**Foreground try** (no login item): `./scripts/install-host.sh --foreground`  
+**Uninstall LaunchAgent:** `./scripts/uninstall-host.sh` (`--purge` wipes `~/.headroom`)
 
-### 3. ESP32 (optional)
+### What happens on first run
+
+- `~/.headroom/sources.json` is seeded from **local detection** — only providers
+  that look signed-in are enabled. If none are found, all three quota sources
+  stay on so the UI can show sign-in errors.
+- The Welcome sheet lets you confirm toggles before the overview appears.
+- Edit `~/.headroom/config.json` later for git authors / GitHub org / timezone.
+
+```bash
+curl -s localhost:8737/health | python3 -m json.tool
+curl -s localhost:8737/setup  | python3 -m json.tool
+```
+
+### ESP32 desk display (optional)
+
+Hardware is optional. The menu bar alone is useful.
 
 1. `cp firmware/src/config_example.h firmware/src/config.h` — Wi‑Fi SSIDs +
    Mac hostname (`scutil --get LocalHostName`) or fallback IP.
-2. Paste the host token into `HOST_TOKEN` (see below). The host prints it at
-   startup and keeps it in `~/.headroom/token`.
+2. Paste the host token into `HOST_TOKEN` (`~/.headroom/token` after first start).
 3. `cd firmware && pio run -t upload && pio device monitor`
 
-Wi‑Fi first; USB CDC fallback on the same cable when the LAN path fails.
-**Tap** a glance slot for detail; **long-press** home (~400ms) →
-`POST /sync/refresh`. **Tap the header** to swap home's lower half between
-activity (Vercel / Git / Local) and a burndown per provider; the choice is
-kept in NVS across reboots.
+Wi‑Fi first; USB CDC fallback when LAN fails. **Tap** a glance slot for detail;
+**long-press** home → `POST /sync/refresh`.
 
-After the first cable flash, `OTA_HOSTNAME` is reachable for updates:
+### Troubleshooting
 
-```bash
-pio run -t upload --upload-port headroom.local
-```
-
-The board fetches `GET /usage?view=device` — a ~2KB projection of the full
-document holding only what it renders. That matters on the cable: 30KB at
-115200 baud is ~2.6s per poll. `host/device_view.py` owns the projection and
-its row caps mirror the `MAX_*` constants in `firmware/src/main.cpp`;
-`host/test_contract.py` fails if the two drift.
+| Symptom | Fix |
+|---|---|
+| Welcome / host isn’t running | Tap **Start host & keep at login** in the popover |
+| Host unhealthy | `tail -f ~/.headroom/logs/headroom.err` |
+| Empty provider | Sign into that app/CLI; enable under Settings → Sources |
+| Gatekeeper blocks .app | Right-click → Open (ad-hoc CI builds aren’t notarized yet) |
+| Restart host | `launchctl kickstart -k gui/$(id -u)/com.mz.headroom` |
+| Build a fresh .app | `./scripts/build-app.sh` → `dist/HeadroomBar.app` |
 
 ### Access control
 
-`/usage` carries repo names, commit subjects, local server paths and ports, and
-spend. The host binds `0.0.0.0` so the board can reach it, which also exposes
-that to everyone else on the network — so **non-loopback callers must present a
-token**. Loopback (the menu bar, `curl localhost`, the USB bridge) needs
-nothing.
+`/usage` carries repo names, commit subjects, local paths/ports, and spend.
+The host binds `0.0.0.0` so the board can reach it — **non-loopback callers
+must present a token**. Loopback needs nothing.
 
-The token is generated on first run into `~/.headroom/token` (mode 0600) and
-printed at startup. Send it as `X-Headroom-Token:` or `Authorization: Bearer`:
-
-```bash
-curl -s -H "X-Headroom-Token: $(cat ~/.headroom/token)" http://mz-mbp.local:8737/usage
-```
-
-Override it with `auth_token` in `~/.headroom/config.json`, or set
-`"require_auth": false` there to restore the old open-network behaviour.
+Token is generated into `~/.headroom/token` (mode 0600). Send
+`X-Headroom-Token:` or `Authorization: Bearer`. Override with `auth_token` /
+`"require_auth": false` in `~/.headroom/config.json`.
 
 ## What it tracks
 
@@ -139,13 +158,19 @@ Override it with `auth_token` in `~/.headroom/config.json`, or set
 | Local servers | `lsof` TCP LISTEN → labeled ports (stop from the menu bar) |
 | Daily burn | Per-day %-point burn across Claude / Codex / Cursor |
 
-Toggle sources in `~/.headroom/sources.json` or Mac Settings. Failures keep the
-last-good snapshot (`cache_util.keep_stale`).
+Toggle sources in `~/.headroom/sources.json` or Mac Settings — CodexBar-style:
+only enabled quota providers appear in the menu bar, overview rings, and tabs.
+Firmware still knows the three built-in pages but hides disabled ones. Failures
+keep the last-good snapshot (`cache_util.keep_stale`).
 
 Each row above is one entry in `SOURCES` in `host/sources_config.py` — id,
-title, poll interval, fetcher, and the two formatters. The HTTP payload, the
-Settings list, the ESP32 footer dots, and the poll schedule all derive from it,
-so adding a source means adding one entry rather than editing four places.
+title, poll interval, fetcher, and the two formatters. Quota rows also carry
+`kind="quota"`, pool specs, and a burn headline; from that the host derives
+sample pools, daily burn, and `/usage` → `providers[]`. The HTTP payload, the
+Settings list, the ESP32 footer dots, and the poll schedule all follow the
+registry, so adding an activity source is one entry. Adding a coding provider
+is one entry + a fetcher module (Mac still maps known ids for meters until the
+UI is fully schema-driven).
 
 ### Tests
 
@@ -183,6 +208,7 @@ Everything below is loopback-open and token-gated off-box.
 | `GET /usage` | Full flat JSON for the menu bar |
 | `GET /usage?view=device` | ~2KB projection the ESP32 polls |
 | `GET /health` | Uptime + compact source status + cache age |
+| `GET /setup` | Detected credentials + enabled map (first-run sheet) |
 | `POST /sync/refresh` | Force-refresh (LAN OK — ESP32 long-press) |
 | `POST /sources` | Toggle enabled sources (loopback) |
 | `POST /supabase/refresh` | Force Supabase poll (loopback) |

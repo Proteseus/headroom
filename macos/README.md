@@ -1,19 +1,31 @@
 # Headroom for the menu bar
 
-Native macOS 14+ companion to the ESP32 display. Same
-`http://127.0.0.1:8737/usage` feed.
+Native macOS 14+ companion. The Release `.app` **bundles the Python host** —
+first launch can install it as a login item from the Welcome sheet.
 
-- Status item: three thin remaining-quota meters (Claude, Codex, Cursor) plus an
-  amber/red attention pip
+- Status item: thin remaining-quota meters for **enabled** providers + attention pip
 - Overview: quota rings, daily burn, attention + spend
-- Provider tabs + activity / Supabase / local servers
+- Welcome / setup sheet when the host is down or on first open
 - Settings: endpoint, source toggles, tokens
 
-## Build
+## Easiest path
+
+Download `HeadroomBar-macos.zip` from GitHub Releases, open the app, tap
+**Start host & keep at login**.
+
+Or from a clone:
+
+```sh
+./scripts/build-app.sh
+open dist/HeadroomBar.app
+```
+
+## Debug build
 
 ```sh
 cd macos
-xcodegen generate   # after project.yml changes
+../scripts/sync-embedded-host.sh   # embeds ../host into the app bundle
+xcodegen generate
 xcodebuild \
   -project HeadroomBar.xcodeproj \
   -scheme HeadroomBar \
@@ -23,24 +35,10 @@ xcodebuild \
 open ".build/Build/Products/Debug/HeadroomBar.app"
 ```
 
-No Dock icon. Start the host first:
-
-```sh
-python3 ../host/headroom_server.py
-```
+Full walkthrough: [../README.md](../README.md#quick-start-from-scratch).
 
 ## README screenshots
 
-From the repo root (exports Overview against `docs/demo_usage.json`):
-
 ```sh
 ./scripts/generate_screenshots.sh
-```
-
-Or only the app export:
-
-```sh
-HeadroomBar.app/Contents/MacOS/HeadroomBar \
-  --export-screenshots ../docs/screenshots \
-  --fixture ../docs/demo_usage.json
 ```
