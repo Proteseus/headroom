@@ -586,6 +586,9 @@ def _compute_doc():
         "quota": quota,
         "codex": _flatten_codex(state["codex"]),
         "cursor": _flatten_cursor(state["cursor"]),
+        # Dynamic provider list (enabled flags + pool schema). Prefer this over
+        # the legacy Claude-top-level / codex / cursor objects when adding UI.
+        "providers": _providers_payload(state),
         "vercel": {
             "ok": bool(vercel.get("ok")),
             "team": vercel.get("team"),
@@ -749,6 +752,7 @@ def _sources_payload(state):
             "id": source.id,
             "title": source.title,
             "hint": source.hint,
+            "kind": source.kind,
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
@@ -756,6 +760,47 @@ def _sources_payload(state):
             "error": payload.get("error"),
             "detail": sources_config.detail_for(source.id, payload),
             "age_s": (int(max(0, now - age)) if age > 0 else None),
+        })
+    return rows
+
+
+def _providers_payload(state):
+    """Normalized quota providers for dynamic Mac clients.
+
+    Additive next to the legacy flat Claude + nested codex/cursor fields so
+    firmware and older builds keep working. Pool keys match the nested fetcher
+    shape; `ring` tells the UI which meters to chart.
+    """
+    enabled = sources_config.enabled_map()
+    rows = []
+    for source in sources_config.QUOTA_SOURCES:
+        payload = state.get(source.id) or {}
+        pools = {}
+        for spec in source.pools:
+            bucket = payload.get(spec.key) or {}
+            resets = bucket.get("resets_in_s")
+            window = bucket.get("window_s") or spec.default_window_s
+            pools[spec.id] = {
+                "title": spec.title,
+                "pct": bucket.get("pct"),
+                "window_s": window,
+                "resets_in_s": resets,
+                "resets_in": oauth_usage.fmt_resets(resets),
+                "pace_pct": (
+                    oauth_usage.pace_pct(resets, window) if window else None),
+                "ring": bool(spec.ring),
+            }
+        rows.append({
+            "id": source.id,
+            "title": source.title,
+            "kind": "quota",
+            "enabled": bool(enabled.get(source.id, True)),
+            "ok": bool(payload.get("ok")),
+            "plan": payload.get("plan"),
+            "error": payload.get("error"),
+            "accent": source.accent,
+            "headline": source.headline[0] if source.headline else None,
+            "pools": pools,
         })
     return rows
 
@@ -822,7 +867,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
-        if path not in ("", "/usage", "/health"):
+        if path not in ("", "/usage", "/health", "/setup"):
             self.send_error(404)
             return
         if not self._allowed():
@@ -830,6 +875,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/health":
             self._send_json(200, _health_payload())
+            return
+        if path == "/setup":
+            self._send_json(200, {
+                "ok": True,
+                **sources_config.detection_payload(),
+            })
             return
         view = urllib.parse.parse_qs(split.query).get("view", [""])[0]
         usage, device = _bodies()
@@ -932,16 +983,16 @@ def _refresh_one(source_id, force=False):
 def _observe_burn():
     try:
         with _lock:
-            quota = dict(_state["claude"])
-            codex = dict(_state["codex"])
-            cursor = dict(_state["cursor"])
-        today_burn = daily_burn.observe(quota, codex, cursor, tz=_local_tz())
-        print(
-            "burn today "
-            f"claude={today_burn.get('claude')}%  "
-            f"codex={today_burn.get('codex')}%  "
-            f"cursor={today_burn.get('cursor')}%"
+            payloads = {
+                sid: dict(_state[sid])
+                for sid in sources_config.BURN_SOURCE_IDS
+            }
+        today_burn = daily_burn.observe(payloads=payloads, tz=_local_tz())
+        parts = "  ".join(
+            f"{sid}={today_burn.get(sid)}%"
+            for sid in sources_config.BURN_SOURCE_IDS
         )
+        print("burn today " + parts)
     except Exception as exc:
         print("daily_burn error:", exc)
 

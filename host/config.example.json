@@ -1,12 +1,9 @@
 {
   "timezone": "America/Los_Angeles",
   "dev_root": "~/Dev",
-  "git_authors": [
-    "Your Name",
-    "you@example.com"
-  ],
+  "git_authors": [],
   "vercel_team_slugs": [],
-  "github_org_prefix": "your-org/",
+  "github_org_prefix": "",
   "github_always_repos": [],
   "github_max_discovered": 6
 }

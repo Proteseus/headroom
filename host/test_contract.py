@@ -145,6 +145,39 @@ class DeviceViewContractTests(unittest.TestCase):
         device = len(json.dumps(device_view.build(doc), separators=(",", ":")))
         self.assertLess(device, full // 2)
 
+    def test_cursor_burndown_overlays_total_and_api(self):
+        """Cursor ships Total + API on one chart; Auto is never the second line."""
+        window = {
+            "window_s": 30 * 24 * 3600,
+            "window_start": 1_700_000_000,
+            "window_end": 1_700_000_000 + 30 * 24 * 3600,
+            "actual": [[1_700_000_100, 90.0], [1_700_000_200, 80.0]],
+            "projected": [[1_700_000_200, 80.0], [1_700_100_000, 0.0]],
+            "exhausts_before_reset": False,
+            "rate_source": "measured",
+        }
+        doc = {
+            "burndown": {
+                "cursor": {
+                    "total": {**window, "pool": "total", "status": "ok"},
+                    "auto": {**window, "pool": "auto", "status": "ok",
+                             "actual": [[1_700_000_100, 100.0]]},
+                    "api": {**window, "pool": "api", "status": "exhausted",
+                            "actual": [[1_700_000_100, 40.0],
+                                       [1_700_000_200, 0.0]],
+                            "exhausts_before_reset": True},
+                }
+            }
+        }
+        device = device_view.build(doc)
+        burn = device["burndown"]["cursor"]
+        self.assertEqual(burn["pool"], "total")
+        self.assertEqual(burn["pool2"], "api")
+        self.assertEqual(burn["status2"], "exhausted")
+        self.assertTrue(burn["warn2"])
+        self.assertEqual(burn["pts2"][-1][1], 0.0)
+        self.assertNotIn("auto", json.dumps(burn))
+
 
 class RollupContractTests(unittest.TestCase):
     def test_rollup_exposes_every_registered_source(self):

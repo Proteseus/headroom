@@ -62,14 +62,19 @@ CURSOR_FIELDS = (
     "on_demand_label",
 )
 
-# Burndown for the board: one pool per provider, and only the marks it draws.
-# The ideal line is a straight run from (t0, 100) to (t1, 0), so it is derived
-# on the board rather than sent. Keys are short because this rides CDC.
+# Burndown for the board: one pool per provider (Claude/Codex), or Total+API
+# overlaid for Cursor. The ideal line is a straight run from (t0, 100) to
+# (t1, 0), so it is derived on the board rather than sent. Keys are short
+# because this rides CDC. Secondary series (Cursor API) use *2 suffixes.
 MAX_BURNDOWN_POINTS = 24
-BURNDOWN_FIELDS = ("pool", "status", "t0", "t1", "pts", "proj", "warn", "est")
+BURNDOWN_FIELDS = (
+    "pool", "status", "t0", "t1", "pts", "proj", "warn", "est",
+    "pool2", "status2", "pts2", "proj2", "warn2", "est2",
+)
 # Longest window wins — a weekly shape is worth a chart, a 5h session is noise
-# at 368px. Cursor's pools tie on length, so precedence breaks it.
-BURNDOWN_POOL_ORDER = ("week", "total", "auto", "api", "session")
+# at 368px. Cursor's pools tie on length; Total then API are the two that matter.
+BURNDOWN_POOL_ORDER = ("week", "total", "api", "auto", "session")
+CURSOR_BURNDOWN_POOLS = ("total", "api")
 
 DEPLOY_FIELDS = ("project", "status", "target", "ago", "branch")
 COMMIT_FIELDS = ("repo", "subject", "ago", "branch")
@@ -103,11 +108,26 @@ def _thin(points, limit):
     return [[int(t), round(float(v), 1)] for t, v in picked]
 
 
-def _burndown_for(pools):
-    """Pick one pool for the board and strip it to the drawable marks."""
-    if not isinstance(pools, dict) or not pools:
+def _trim_burndown(pool):
+    """Strip one pool to the drawable marks the board understands."""
+    if pool.get("window_start") is None or pool.get("window_end") is None:
         return None
-    ordered = sorted(
+    return {
+        "pool": pool.get("pool"),
+        "status": pool.get("status"),
+        "t0": int(pool["window_start"]),
+        "t1": int(pool["window_end"]),
+        "pts": _thin(pool.get("actual"), MAX_BURNDOWN_POINTS),
+        "proj": _thin(pool.get("projected"), 2),
+        "warn": bool(pool.get("exhausts_before_reset")),
+        # Projection rests on the token-history estimate rather than measured
+        # samples, so the board draws it more faintly.
+        "est": pool.get("rate_source") == "estimated",
+    }
+
+
+def _ordered_pools(pools):
+    return sorted(
         (p for p in pools.values() if isinstance(p, dict)),
         key=lambda p: (
             -(p.get("window_s") or 0),
@@ -115,23 +135,44 @@ def _burndown_for(pools):
             if p.get("pool") in BURNDOWN_POOL_ORDER else len(BURNDOWN_POOL_ORDER),
         ),
     )
+
+
+def _burndown_for(provider, pools):
+    """Pick the pool(s) for the board and strip them to drawable marks.
+
+    Claude/Codex: longest window only. Cursor: Total + API overlaid — they are
+    independent budgets on the same billing cycle, and Auto is always empty.
+    """
+    if not isinstance(pools, dict) or not pools:
+        return None
+    ordered = _ordered_pools(pools)
     if not ordered:
         return None
-    best = ordered[0]
-    if best.get("window_start") is None or best.get("window_end") is None:
-        return None
-    return {
-        "pool": best.get("pool"),
-        "status": best.get("status"),
-        "t0": int(best["window_start"]),
-        "t1": int(best["window_end"]),
-        "pts": _thin(best.get("actual"), MAX_BURNDOWN_POINTS),
-        "proj": _thin(best.get("projected"), 2),
-        "warn": bool(best.get("exhausts_before_reset")),
-        # Projection rests on the token-history estimate rather than measured
-        # samples, so the board draws it more faintly.
-        "est": best.get("rate_source") == "estimated",
-    }
+
+    if provider == "cursor":
+        by_name = {p.get("pool"): p for p in ordered}
+        primary = by_name.get("total") or next(
+            (by_name[name] for name in CURSOR_BURNDOWN_POOLS if name in by_name),
+            ordered[0],
+        )
+        trimmed = _trim_burndown(primary)
+        if trimmed is None:
+            return None
+        secondary = by_name.get("api")
+        if secondary is not None and secondary is not primary:
+            # Share the primary axis when the two disagree on a few seconds of
+            # resets_in jitter — they are the same billing cycle.
+            pts = _thin(secondary.get("actual"), MAX_BURNDOWN_POINTS)
+            if pts:
+                trimmed["pool2"] = secondary.get("pool")
+                trimmed["status2"] = secondary.get("status")
+                trimmed["pts2"] = pts
+                trimmed["proj2"] = _thin(secondary.get("projected"), 2)
+                trimmed["warn2"] = bool(secondary.get("exhausts_before_reset"))
+                trimmed["est2"] = secondary.get("rate_source") == "estimated"
+        return trimmed
+
+    return _trim_burndown(ordered[0])
 
 
 def build(doc):
@@ -169,7 +210,7 @@ def build(doc):
 
     burndown = {}
     for provider, pools in (doc.get("burndown") or {}).items():
-        trimmed = _burndown_for(pools)
+        trimmed = _burndown_for(provider, pools)
         if trimmed is not None:
             burndown[provider] = trimmed
     if burndown:

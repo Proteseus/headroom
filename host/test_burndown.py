@@ -128,6 +128,22 @@ class ForecastTests(unittest.TestCase):
         self.assertIsNone(got["exhausts_at"])
         self.assertEqual(got["status"], burndown.STATUS_OK)
 
+    def test_flat_usage_still_projects_level_to_the_reset(self):
+        # "Nothing is moving" is a forecast. Emitting no series would render
+        # identically to having no measurement at all.
+        got = burndown.compute("claude", "week", payload(60.0),
+                               now=NOW, tz=TZ, rows=rows(40.0, 40.0))
+        self.assertEqual(len(got["projected"]), 2)
+        first, last = got["projected"]
+        self.assertEqual(first[1], last[1])
+        self.assertEqual(last[0], got["window_end"])
+
+    def test_exhausted_pool_projects_nothing(self):
+        got = burndown.compute("claude", "week", payload(100.0),
+                               now=NOW, tz=TZ, rows=rows(5.0, 0.0))
+        self.assertEqual(got["projected"], [])
+        self.assertEqual(got["status"], burndown.STATUS_EXHAUSTED)
+
     def test_projection_stops_at_the_reset(self):
         got = burndown.compute("claude", "week", payload(60.0),
                                now=NOW, tz=TZ, rows=rows(60.0, 40.0))

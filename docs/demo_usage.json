@@ -17,12 +17,49 @@
     "cost_usd": 4.25
   },
   "by_day": [
-    {"date": "2026-07-20", "claude": 8.2, "codex": 4.1, "cursor": 1.2, "total": 13.5},
-    {"date": "2026-07-21", "claude": 6.0, "codex": 5.5, "cursor": 0.8, "total": 12.3},
-    {"date": "2026-07-22", "claude": 9.4, "codex": 3.2, "cursor": 2.1, "total": 14.7},
-    {"date": "2026-07-23", "claude": 4.1, "codex": 7.8, "cursor": 1.5, "total": 13.4},
-    {"date": "2026-07-24", "claude": 7.2, "codex": 6.0, "cursor": 2.4, "total": 15.6},
-    {"date": "2026-07-25", "claude": 3.5, "codex": 2.1, "cursor": 0.6, "total": 6.2}
+    {"date": "2026-07-20", "claude": 8.2, "codex": 4.1, "cursor": 1.2, "total": 13.5,
+     "burns": {"claude": 8.2, "codex": 4.1, "cursor": 1.2}},
+    {"date": "2026-07-21", "claude": 6.0, "codex": 5.5, "cursor": 0.8, "total": 12.3,
+     "burns": {"claude": 6.0, "codex": 5.5, "cursor": 0.8}},
+    {"date": "2026-07-22", "claude": 9.4, "codex": 3.2, "cursor": 2.1, "total": 14.7,
+     "burns": {"claude": 9.4, "codex": 3.2, "cursor": 2.1}},
+    {"date": "2026-07-23", "claude": 4.1, "codex": 7.8, "cursor": 1.5, "total": 13.4,
+     "burns": {"claude": 4.1, "codex": 7.8, "cursor": 1.5}},
+    {"date": "2026-07-24", "claude": 7.2, "codex": 6.0, "cursor": 2.4, "total": 15.6,
+     "burns": {"claude": 7.2, "codex": 6.0, "cursor": 2.4}},
+    {"date": "2026-07-25", "claude": 3.5, "codex": 2.1, "cursor": 0.6, "total": 6.2,
+     "burns": {"claude": 3.5, "codex": 2.1, "cursor": 0.6}}
+  ],
+  "providers": [
+    {
+      "id": "claude", "title": "Claude", "kind": "quota", "enabled": true,
+      "ok": true, "plan": "Max 5x", "accent": "#D97757", "headline": "week",
+      "pools": {
+        "session": {"title": "Session", "pct": 42.0, "pace_pct": 38.0,
+                    "resets_in": "2h 14m", "ring": true},
+        "week": {"title": "Weekly", "pct": 63.0, "pace_pct": 55.0,
+                 "resets_in": "3d 6h", "ring": true}
+      }
+    },
+    {
+      "id": "codex", "title": "Codex", "kind": "quota", "enabled": true,
+      "ok": true, "plan": "Team", "accent": "#10A37F", "headline": "week",
+      "pools": {
+        "session": {"title": "Session", "pct": null, "ring": true},
+        "week": {"title": "Weekly", "pct": 72.0, "pace_pct": 58.0,
+                 "resets_in": "3d 17h", "ring": true}
+      }
+    },
+    {
+      "id": "cursor", "title": "Cursor", "kind": "quota", "enabled": true,
+      "ok": true, "plan": "Pro", "accent": "#789BC8", "headline": "total",
+      "pools": {
+        "total": {"title": "Total", "pct": 34.0, "pace_pct": 48.0,
+                  "resets_in": "4d 19h", "ring": true},
+        "auto": {"title": "Auto", "pct": 12.0, "pace_pct": 48.0, "ring": false},
+        "api": {"title": "API", "pct": 41.0, "pace_pct": 48.0, "ring": true}
+      }
+    }
   ],
   "codex": {
     "ok": true,
@@ -224,13 +261,13 @@
     ]
   },
   "sources": [
-    {"id": "claude", "title": "Claude", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "codex", "title": "Codex", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "cursor", "title": "Cursor", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "vercel", "title": "Vercel", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "git", "title": "Git", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "github", "title": "GitHub", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "supabase", "title": "Supabase", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "local", "title": "Local", "enabled": true, "ok": true, "configured": true, "stale": false}
+    {"id": "claude", "title": "Claude", "kind": "quota", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "codex", "title": "Codex", "kind": "quota", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "cursor", "title": "Cursor", "kind": "quota", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "vercel", "title": "Vercel", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "git", "title": "Git", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "github", "title": "GitHub", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "supabase", "title": "Supabase", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
+    {"id": "local", "title": "Local", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false}
   ]
 }

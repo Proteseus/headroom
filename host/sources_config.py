@@ -6,6 +6,11 @@ poll schedule, and the log line all follow from it. Enabled flags persist to
 ~/.headroom/sources.json; both Mac Settings and the ESP32 read them back via
 /usage → sources[].
 
+Quota providers (Claude / Codex / Cursor / …) are sources with kind="quota"
+plus pool specs. POOLS, daily-burn headlines, and /usage → providers[] all
+derive from those rows — so a Claude-only user can disable the rest, and a
+new provider is one registry entry + a fetcher rather than a client enum.
+
 Stdlib only.
 """
 
@@ -14,10 +19,11 @@ from __future__ import annotations
 import json
 import os
 import threading
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Optional
 
 import codex_usage
 import cursor_usage
+import detect_sources
 import git_activity
 import github_actions
 import local_servers
@@ -26,6 +32,17 @@ import supabase_usage
 import vercel_builds
 
 STORE_PATH = os.path.expanduser("~/.headroom/sources.json")
+
+
+class PoolSpec(NamedTuple):
+    """One quota meter on a provider payload (session, week, total, …)."""
+
+    id: str
+    key: str
+    title: str
+    default_window_s: Optional[int] = None
+    # Sampled for burndown history even when False; False hides the ring.
+    ring: bool = True
 
 
 class Source(NamedTuple):
@@ -39,6 +56,16 @@ class Source(NamedTuple):
     detail: Callable     # detail(payload) -> short status string or None
     summary: Callable    # summary(payload) -> log line body for a good fetch
     blank: Callable      # blank() -> the payload shape before the first fetch
+    # "quota" feeds burndown / daily burn / provider tabs; everything else is
+    # activity (Vercel, git, …) and only shows in Settings + ship-status panes.
+    kind: str = "activity"
+    pools: tuple = ()
+    # Daily-burn headline: try these pool keys in order (first pct wins).
+    headline: tuple = ()
+    # If every headline key is missing, use max(pct) across these (Cursor).
+    headline_fallback_max: tuple = ()
+    # #RRGGBB — shared with firmware COL_* and macos UsageProvider.tint.
+    accent: Optional[str] = None
 
 
 # ---------------- detail formatters (Mac Settings + ESP32 rows) ----------------
@@ -189,16 +216,35 @@ def _blank_supabase():
 
 
 # Order matters — Mac Settings rows and the ESP32 footer dots follow it.
+# Quota accents match firmware COL_CLAUDE / COL_OPENAI / COL_CURSOR.
+_CLAUDE_POOLS = (
+    PoolSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
+    PoolSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
+)
+_CODEX_POOLS = (
+    PoolSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
+    PoolSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
+)
+_CURSOR_POOLS = (
+    PoolSpec("total", "total", "Total"),
+    PoolSpec("auto", "auto", "Auto", ring=False),
+    PoolSpec("api", "api", "API"),
+)
+
 SOURCES = (
     Source("claude", "Claude", "Keychain / ~/.claude credentials", 60,
            oauth_usage.fetch_quota, _detail_claude, _summary_claude,
-           _blank_quota),
+           _blank_quota, kind="quota", pools=_CLAUDE_POOLS,
+           headline=("week", "session"), accent="#D97757"),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
            codex_usage.fetch_quota, _detail_codex, _summary_codex,
-           _blank_quota),
+           _blank_quota, kind="quota", pools=_CODEX_POOLS,
+           headline=("week", "session"), accent="#10A37F"),
     Source("cursor", "Cursor", "Cursor IDE signed-in JWT", 60,
            cursor_usage.fetch_quota, _detail_cursor, _summary_cursor,
-           _blank_cursor),
+           _blank_cursor, kind="quota", pools=_CURSOR_POOLS,
+           headline=("total",), headline_fallback_max=("auto", "api"),
+           accent="#789BC8"),
     Source("vercel", "Vercel", "Vercel CLI login", 60,
            vercel_builds.fetch_deployments, _detail_vercel, _summary_vercel,
            _blank_vercel),
@@ -219,12 +265,18 @@ SOURCES = (
 BY_ID = {source.id: source for source in SOURCES}
 SOURCE_IDS = tuple(source.id for source in SOURCES)
 
-# Refreshing any of these should also feed the daily burn history.
-BURN_SOURCE_IDS = ("claude", "codex", "cursor")
+# Quota subset — pollers, daily burn, burndown samples, /usage providers[].
+QUOTA_SOURCES = tuple(s for s in SOURCES if s.kind == "quota")
+BURN_SOURCE_IDS = tuple(s.id for s in QUOTA_SOURCES)
 
 
 def get(source_id):
     return BY_ID.get(source_id)
+
+
+def is_quota(source_id):
+    source = BY_ID.get(source_id)
+    return bool(source and source.kind == "quota")
 
 
 def meta_for(source_id):
@@ -232,6 +284,40 @@ def meta_for(source_id):
     if source is None:
         return {"title": source_id, "hint": ""}
     return {"title": source.title, "hint": source.hint}
+
+
+def headline_pct(source_id, payload):
+    """Stable plan-window % used for daily burn accounting. None if unknown."""
+    source = BY_ID.get(source_id)
+    payload = payload or {}
+    if source is None or source.kind != "quota":
+        return None
+    for key in source.headline:
+        pct = (payload.get(key) or {}).get("pct")
+        if pct is not None:
+            try:
+                return float(pct)
+            except (TypeError, ValueError):
+                continue
+    vals = []
+    for key in source.headline_fallback_max:
+        pct = (payload.get(key) or {}).get("pct")
+        if pct is None:
+            continue
+        try:
+            vals.append(float(pct))
+        except (TypeError, ValueError):
+            continue
+    return max(vals) if vals else None
+
+
+def pool_rows():
+    """Flat (provider, pool_id, key, default_window_s) for quota_samples."""
+    rows = []
+    for source in QUOTA_SOURCES:
+        for pool in source.pools:
+            rows.append((source.id, pool.id, pool.key, pool.default_window_s))
+    return tuple(rows)
 
 
 def detail_for(source_id, payload):
@@ -258,19 +344,40 @@ _state = None
 
 
 def _default_enabled():
-    return {sid: True for sid in SOURCE_IDS}
+    """First-run defaults: only sources that look signed-in locally."""
+    return detect_sources.suggested_enabled(SOURCE_IDS)
 
 
 def _load():
     try:
         with open(STORE_PATH) as handle:
             data = json.load(handle)
+    except FileNotFoundError:
+        # Seed once so Claude-only machines don't poll empty Codex/Cursor.
+        enabled = _default_enabled()
+        state = {
+            "enabled": enabled,
+            "seeded_from": "detect",
+            "detected": detect_sources.detected_map(),
+        }
+        try:
+            _save(state)
+        except OSError:
+            pass
+        return {"enabled": enabled}
     except (OSError, json.JSONDecodeError):
         return {"enabled": _default_enabled()}
     if not isinstance(data, dict):
         return {"enabled": _default_enabled()}
-    enabled = _default_enabled()
+    enabled = {sid: False for sid in SOURCE_IDS}
+    # Legacy files without an explicit map keep prior all-on behaviour only
+    # when the key is missing entirely and the file has other content — but
+    # normal files always have "enabled". Missing ids default off so new
+    # sources don't surprise existing installs.
     raw = data.get("enabled") if isinstance(data.get("enabled"), dict) else {}
+    if not raw and data.get("seeded_from") is None:
+        # Pre-detect era file that somehow lacks enabled — treat as all on.
+        return {"enabled": {sid: True for sid in SOURCE_IDS}}
     for sid in SOURCE_IDS:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
@@ -315,6 +422,25 @@ def set_enabled(updates):
         _save(state)
         return dict(enabled)
 
+
+def detection_payload():
+    """Shape for GET /setup — what local probes found + current enables."""
+    detected = detect_sources.detected_map()
+    enabled = enabled_map()
+    return {
+        "detected": detected,
+        "enabled": enabled,
+        "sources": [
+            {
+                "id": source.id,
+                "title": source.title,
+                "kind": source.kind,
+                "detected": bool(detected.get(source.id, False)),
+                "enabled": bool(enabled.get(source.id, False)),
+            }
+            for source in SOURCES
+        ],
+    }
 
 def reset_for_tests():
     """Drop cached enabled flags (unit tests only)."""

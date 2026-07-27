@@ -18,9 +18,11 @@ blob every tick, and the file stays greppable.
 
 Window identity is derived, not stored by the API: a pool reporting `window_s`
 and `resets_in_s` implies `window_start = now - (window_s - resets_in_s)`. That
-value is stable across samples by construction, so it is carried on each row
-and used to group samples into windows. Small API jitter is absorbed by
-snapping to the previous window_start when it is within WINDOW_TOLERANCE_S.
+value is stable across samples by construction, so it is carried on each row.
+In practice the sources report `resets_in_s` loosely enough that it is not
+stable at all, so a derived start only replaces the previous one once a full
+window has passed — see `window_start_for`. Reads then select by sample *time*
+inside that window, so labels forked before the hold still reunite on the chart.
 
 Stdlib only.
 """
@@ -32,7 +34,7 @@ import os
 import threading
 import time
 
-import oauth_usage
+import sources_config
 
 STORE_PATH = os.path.expanduser("~/.headroom/quota_samples.jsonl")
 
@@ -43,7 +45,8 @@ RETENTION_S = 14 * 24 * 3600
 # Rewrite the file once it grows past this many lines (~2x a full retention
 # window), dropping rows older than the cutoff.
 COMPACT_AT_LINES = 60_000
-# Two window_start estimates closer than this are the same window.
+# Slack on "a full window later", so a reset observed slightly early still
+# reads as a roll rather than jitter.
 WINDOW_TOLERANCE_S = 15 * 60
 # Bytes read from the tail to reseed bucket/window state after a restart.
 TAIL_BYTES = 64 * 1024
@@ -65,17 +68,10 @@ class Pool:
         return (self.provider, self.pool)
 
 
-# Claude and Codex both expose Anthropic-style session/weekly buckets. Cursor's
-# pools ride the billing cycle, so their length only ever comes from the
-# payload.
-POOLS = (
-    Pool("claude", "session", "session", oauth_usage.SESSION_WINDOW_S),
-    Pool("claude", "week", "week", oauth_usage.WEEK_WINDOW_S),
-    Pool("codex", "session", "session", oauth_usage.SESSION_WINDOW_S),
-    Pool("codex", "week", "week", oauth_usage.WEEK_WINDOW_S),
-    Pool("cursor", "total", "total"),
-    Pool("cursor", "auto", "auto"),
-    Pool("cursor", "api", "api"),
+# Derived from sources_config.QUOTA_SOURCES — add pools there, not here.
+POOLS = tuple(
+    Pool(provider, pool, key, default_window_s)
+    for provider, pool, key, default_window_s in sources_config.pool_rows()
 )
 
 BY_ID = {pool.id: pool for pool in POOLS}
@@ -135,12 +131,25 @@ def extract(provider, pool_id, payload):
 
 
 def window_start_for(now, window_s, resets_in_s, previous=None):
-    """Derive the window's start, snapping to `previous` when within jitter."""
-    elapsed = window_s - max(0, min(int(resets_in_s), int(window_s)))
+    """Derive the window's start, holding `previous` until the window rolls.
+
+    A window that genuinely rolled starts a full window after the last one, so
+    that is the bar a new estimate has to clear. Anything short of it is the
+    source misreporting `resets_in_s` — most often a cached response served
+    after the machine wakes, which freezes `resets_in_s` while `now` keeps
+    moving and walks the derived start forward a poll interval at a time.
+
+    Holding rather than snapping matters because a fork is not cosmetic: every
+    sample collected before it belongs to a window nothing queries again, which
+    is enough to starve the burndown fit of the history it needs.
+    """
+    window_s = int(window_s)
+    elapsed = window_s - max(0, min(int(resets_in_s), window_s))
     start = int(round(now - elapsed))
-    if previous is not None and abs(start - previous) <= WINDOW_TOLERANCE_S:
-        return int(previous)
-    return start
+    if previous is None:
+        return start
+    rolled = start >= int(previous) + window_s - WINDOW_TOLERANCE_S
+    return start if rolled else int(previous)
 
 
 def _iter_rows(handle):
@@ -271,24 +280,51 @@ def read(*, provider=None, pool=None, since=None, window_start=None):
     return out
 
 
-def current_window(provider, pool, *, window_start=None):
-    """Rows belonging to the newest window for one pool, oldest first.
+def latest_window_start(provider, pool):
+    """window_start on the newest sample for one pool, or None."""
+    rows = read(provider=provider, pool=pool)
+    for row in reversed(rows):
+        start = row.get("window_start")
+        if isinstance(start, (int, float)):
+            return int(start)
+    return None
 
-    Pass `window_start` to pin a specific window; otherwise the newest
-    window_start present in the file wins.
+
+def current_window(provider, pool, *, window_start=None, window_s=None):
+    """Rows belonging to one billing window, oldest first.
+
+    Pass `window_start` (and ideally `window_s`) to pin the live window.
+    Selection is by sample *time* falling inside `[start, start+window_s)`, not
+    by exact `window_start` equality: `resets_in_s` jitter used to fork a fresh
+    label every few polls, and equality then stranded the real burn curve on
+    orphan labels the chart never reads again.
+
+    When unpinned, the newest sample's `window_start` / `window_s` define the
+    range. A stored label further ahead than the live one no longer wins.
     """
     rows = read(provider=provider, pool=pool)
     if not rows:
         return []
-    if window_start is None:
-        starts = [
-            row["window_start"] for row in rows
-            if isinstance(row.get("window_start"), (int, float))
-        ]
-        if not starts:
+    if window_start is None or window_s is None:
+        for row in reversed(rows):
+            if window_start is None and isinstance(
+                    row.get("window_start"), (int, float)):
+                window_start = int(row["window_start"])
+            if window_s is None and isinstance(row.get("window_s"), (int, float)):
+                window_s = int(row["window_s"])
+            if window_start is not None and window_s is not None:
+                break
+        if window_start is None:
             return rows
-        window_start = max(starts)
-    return [row for row in rows if row.get("window_start") == window_start]
+    start = int(window_start)
+    if not window_s:
+        return [row for row in rows if row.get("window_start") == start]
+    end = start + int(window_s)
+    return [
+        row for row in rows
+        if isinstance(row.get("t"), (int, float))
+        and start <= int(row["t"]) <= end
+    ]
 
 
 def windows(provider, pool):

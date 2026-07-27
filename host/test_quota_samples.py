@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -69,6 +70,27 @@ class WindowStartTests(unittest.TestCase):
             NOW + 120, WEEK_S, WEEK_S, previous=first)
         self.assertNotEqual(after, first)
 
+    def test_stale_resets_do_not_fork_a_window(self):
+        # A cached response after a wake repeats `resets_in_s` while the clock
+        # moves on, walking the derived start forward. That is not a reset.
+        first = quota_samples.window_start_for(NOW, WEEK_S, 3 * 24 * 3600)
+        stale = quota_samples.window_start_for(
+            NOW + 3600, WEEK_S, 3 * 24 * 3600, previous=first)
+        self.assertEqual(stale, first)
+
+    def test_large_jitter_short_of_a_window_holds(self):
+        first = quota_samples.window_start_for(NOW, WEEK_S, 3 * 24 * 3600)
+        # A single reading 16h out — seen in the wild — must not fork either.
+        glitched = quota_samples.window_start_for(
+            NOW, WEEK_S, 3 * 24 * 3600 + 16 * 3600, previous=first)
+        self.assertEqual(glitched, first)
+
+    def test_reset_observed_slightly_early_still_rolls(self):
+        first = quota_samples.window_start_for(NOW, WEEK_S, 60)
+        after = quota_samples.window_start_for(
+            NOW, WEEK_S, WEEK_S - 300, previous=first)
+        self.assertNotEqual(after, first)
+
 
 class RecordTests(unittest.TestCase):
     def setUp(self):
@@ -126,6 +148,48 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(len(quota_samples.windows("claude", "week")), 2)
         current = quota_samples.current_window("claude", "week")
         self.assertEqual([row["pct"] for row in current], [2.0])
+
+    def test_current_window_ignores_an_orphaned_future_start(self):
+        # A window_start further ahead than the live one, left behind by a bad
+        # reading, must not become the pin — but a sample that actually fell
+        # inside the live window still belongs on the curve.
+        start = int(NOW - (WEEK_S - 600))
+        rows = [
+            {"t": NOW, "provider": "claude", "pool": "week", "pct": 40.0,
+             "window_s": WEEK_S, "resets_in_s": 600, "window_start": start},
+            {"t": NOW + 300, "provider": "claude", "pool": "week", "pct": 41.0,
+             "window_s": WEEK_S, "resets_in_s": 600, "window_start": start + 99_000},
+            {"t": NOW + 600, "provider": "claude", "pool": "week", "pct": 42.0,
+             "window_s": WEEK_S, "resets_in_s": 600, "window_start": start},
+        ]
+        with open(self.path, "w") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+        current = quota_samples.current_window("claude", "week")
+        self.assertEqual([row["pct"] for row in current], [40.0, 41.0, 42.0])
+
+    def test_current_window_reunites_forked_labels_by_time(self):
+        # Codex-style resets_in freeze walks window_start forward each poll.
+        # The burn from 0→18% lives on the early labels; later flat samples
+        # wear new ones. Time-range selection puts them back on one curve.
+        real_start = int(NOW - 24 * 3600)
+        rows = [
+            {"t": real_start + 3600, "provider": "codex", "pool": "week",
+             "pct": 0.0, "window_s": WEEK_S, "resets_in_s": WEEK_S - 3600,
+             "window_start": real_start},
+            {"t": real_start + 7200, "provider": "codex", "pool": "week",
+             "pct": 18.0, "window_s": WEEK_S, "resets_in_s": WEEK_S - 7200,
+             "window_start": real_start},
+            {"t": real_start + 12 * 3600, "provider": "codex", "pool": "week",
+             "pct": 18.0, "window_s": WEEK_S, "resets_in_s": WEEK_S - 3600,
+             "window_start": real_start + 5 * 3600},  # forked label
+        ]
+        with open(self.path, "w") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+        current = quota_samples.current_window(
+            "codex", "week", window_start=real_start, window_s=WEEK_S)
+        self.assertEqual([row["pct"] for row in current], [0.0, 18.0, 18.0])
 
     def test_compact_drops_rows_past_retention(self):
         quota_samples.record({"claude": claude_payload()}, now=NOW)

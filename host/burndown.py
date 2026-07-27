@@ -181,11 +181,20 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
     remaining = max(0.0, 100.0 - used_pct)
 
     if rows is None:
-        rows = quota_samples.current_window(provider, pool)
-    window_start = quota_samples.window_start_for(
-        now, window_s, resets_in_s,
-        previous=(rows[-1].get("window_start") if rows else None),
-    )
+        # Resolve the live window first, then gather every sample whose
+        # timestamp falls inside it — including ones stamped with a forked
+        # window_start from resets_in jitter. Equality on the label alone is
+        # what used to hide yesterday's burn behind a flat "today only" line.
+        previous = quota_samples.latest_window_start(provider, pool)
+        window_start = quota_samples.window_start_for(
+            now, window_s, resets_in_s, previous=previous)
+        rows = quota_samples.current_window(
+            provider, pool, window_start=window_start, window_s=window_s)
+    else:
+        window_start = quota_samples.window_start_for(
+            now, window_s, resets_in_s,
+            previous=(rows[-1].get("window_start") if rows else None),
+        )
     window_end = window_start + window_s
 
     # Even-spend position right now. Equivalent to 100 - pace_pct, kept in
@@ -230,14 +239,20 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
 
     if rate_per_s is not None:
         burn_rate = rate_per_s * per
-    if rate_per_s:
-        exhausts_in_s = remaining / rate_per_s
-        exhausts_at = int(now + exhausts_in_s)
         # Draw the projection only as far as the reset; past that it is moot.
-        end = min(exhausts_at, window_end)
-        projected = [[int(now), round(remaining, 2)],
-                     [int(end),
-                      round(max(0.0, remaining - rate_per_s * (end - now)), 2)]]
+        end = window_end
+        if rate_per_s > 0:
+            exhausts_in_s = remaining / rate_per_s
+            exhausts_at = int(now + exhausts_in_s)
+            end = min(exhausts_at, window_end)
+        # A flat pace still lands somewhere — level, at the reset — and saying
+        # so is not the same as saying nothing. An absent line reads as "no
+        # forecast yet", which is the one thing a measured zero is not.
+        if end > now:
+            projected = [[int(now), round(remaining, 2)],
+                         [int(end),
+                          round(max(0.0, remaining - rate_per_s * (end - now)),
+                                2)]]
 
     units_left = max(resets_in_s, 1) / per
     allowance = remaining / units_left if units_left > 0 else None
