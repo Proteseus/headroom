@@ -33,6 +33,9 @@ KEYCHAIN_ACCOUNT = "access-token"
 CONFIG_PATH = os.path.expanduser("~/.headroom/github.json")
 KEEP_RUNS = 8
 UA = "Headroom/1"
+# Only failures this fresh light Attention. Older runs still appear in the
+# activity feed, but a 100-day-old red CI on some other repo shouldn't nag.
+ATTENTION_FAIL_MAX_AGE_S = 24 * 3600
 # Bot / advisory workflows — show in the feed if useful later, but don't
 # inflate Attention fail counts (same PR often fans out into many of these).
 NOISE_WORKFLOW_NAMES = {
@@ -306,6 +309,29 @@ def _fail_cluster_key(row):
     )
 
 
+def _is_fresh_failure(row, now=None):
+    """Failures without a timestamp stay fresh so we never hide unknown age."""
+    if row.get("status") != "failure":
+        return False
+    created = row.get("created_at")
+    if created is None:
+        return True
+    try:
+        age = (now if now is not None else time.time()) - float(created)
+    except (TypeError, ValueError):
+        return True
+    return age <= ATTENTION_FAIL_MAX_AGE_S
+
+
+def attention_fail_count(rows, now=None):
+    """Distinct fresh failure clusters that should light the Attention pip."""
+    return len({
+        _fail_cluster_key(row)
+        for row in rows
+        if _is_fresh_failure(row, now=now)
+    })
+
+
 def _fetch_repo_runs(token, repo):
     owner, _, name = repo.partition("/")
     if not owner or not name:
@@ -370,12 +396,7 @@ def fetch_actions(force=False):
             seen.add(rid)
             deduped.append(row)
         rows = deduped[:KEEP_RUNS]
-        fail_keys = {
-            _fail_cluster_key(row)
-            for row in rows
-            if row.get("status") == "failure"
-        }
-        fail_count = len(fail_keys)
+        fail_count = attention_fail_count(rows, now=now)
         running_count = sum(1 for row in rows if row.get("status") == "running")
         result = {
             "ok": True,

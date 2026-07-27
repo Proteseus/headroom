@@ -44,6 +44,7 @@ import burndown
 import claude_history
 import daily_burn
 import device_view
+import github_actions
 import local_servers
 import oauth_usage
 import quota_samples
@@ -149,6 +150,11 @@ def _build_activity(vercel, git, supabase=None, github=None):
     github = github or {}
     for run in (github.get("runs") or [])[:8]:
         status = run.get("status") or "failure"
+        # Same 24h gate as Attention: day-old red CI shouldn't crowd the feed.
+        if status == "failure" and not github_actions._is_fresh_failure(run):
+            continue
+        if status not in ("failure", "running"):
+            continue
         subject = run.get("display_title") or run.get("name") or "Workflow"
         items.append({
             "id": f"github:{run.get('id')}",
@@ -199,8 +205,42 @@ def _build_activity(vercel, git, supabase=None, github=None):
             "inspector_url": project.get("dashboard_url"),
         })
 
-    items.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
+    items.sort(
+        key=lambda item: (
+            0 if (
+                item.get("kind") == "github"
+                and item.get("status") in ("failure", "running")
+            ) else 1,
+            -(item.get("created_at") or 0),
+        )
+    )
     return items[:14]
+
+
+def _github_attention_summary(github):
+    """Actionable one-liner for fresh Actions failures (fail_count already aged)."""
+    fails = int(github.get("fail_count") or 0)
+    if fails <= 0:
+        return None
+    fresh = [
+        row for row in (github.get("runs") or [])
+        if github_actions._is_fresh_failure(row)
+    ]
+    # One cluster → name it. Several → count, with the newest as a hint.
+    if fails == 1 and fresh:
+        row = fresh[0]
+        repo = (row.get("repo") or "").rsplit("/", 1)[-1]
+        workflow = row.get("name") or row.get("display_title") or "workflow"
+        if repo:
+            return f"{repo} · {workflow} failed"
+        return f"{workflow} failed"
+    if fresh:
+        row = fresh[0]
+        repo = (row.get("repo") or "").rsplit("/", 1)[-1]
+        workflow = row.get("name") or row.get("display_title")
+        if repo and workflow:
+            return f"{fails} GitHub Actions failures · {repo} {workflow}"
+    return f"{fails} GitHub Actions failure" + ("" if fails == 1 else "s")
 
 
 def _event_from(rec, cutoff):
@@ -627,10 +667,13 @@ def _build_attention(doc):
     github = doc.get("github") or {}
     if github.get("configured") and (github.get("fail_count") or 0) > 0:
         fails = int(github["fail_count"])
+        summary = _github_attention_summary(github) or (
+            f"{fails} GitHub Actions failure" + ("" if fails == 1 else "s")
+        )
         add(
             "critical",
             "github",
-            f"{fails} GitHub Actions failure" + ("" if fails == 1 else "s"),
+            summary,
             40 + min(30, fails * 5),
         )
 

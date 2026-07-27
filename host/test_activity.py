@@ -85,6 +85,63 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(items[0]["status"], "error")
         self.assertIn("auth", items[0]["error_message"])
 
+    def test_pins_failing_actions_above_newer_commits(self):
+        import time
+        now = time.time()
+        commits = [{
+            "sha": "new",
+            "short_sha": "new",
+            "repo": "headroom",
+            "subject": "fresh commit",
+            "created_at": now,
+            "pushed": True,
+        }]
+        github = {
+            "runs": [{
+                "id": "1",
+                "status": "failure",
+                "name": "CI",
+                "display_title": "fresh fail",
+                "repo": "acme/app",
+                "created_at": now - 600,
+                "ago": "10m",
+                "url": "https://github.com/acme/app/actions/runs/1",
+            }],
+        }
+        items = headroom_server._build_activity(
+            {}, {"commits": commits}, github=github)
+        self.assertEqual(items[0]["kind"], "github")
+        self.assertEqual(items[0]["status"], "failure")
+        self.assertEqual(items[1]["kind"], "commit")
+
+    def test_omits_stale_action_failures(self):
+        import time
+        now = time.time()
+        commits = [{
+            "sha": "new",
+            "short_sha": "new",
+            "repo": "headroom",
+            "subject": "fresh commit",
+            "created_at": now,
+            "pushed": True,
+        }]
+        github = {
+            "runs": [{
+                "id": "1",
+                "status": "failure",
+                "name": "CI",
+                "display_title": "ancient fail",
+                "repo": "acme/app",
+                "created_at": now - (100 * 86400),
+                "ago": "100d",
+                "url": "https://github.com/acme/app/actions/runs/1",
+            }],
+        }
+        items = headroom_server._build_activity(
+            {}, {"commits": commits}, github=github)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["kind"], "commit")
+
 
 if __name__ == "__main__":
     unittest.main()

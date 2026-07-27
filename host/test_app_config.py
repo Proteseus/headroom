@@ -57,8 +57,28 @@ class AppConfigTests(unittest.TestCase):
 class AttentionTests(unittest.TestCase):
     def test_critical_on_actions_fail(self):
         import headroom_server as hs
+        import time
+        now = time.time()
         doc = {
-            "github": {"configured": True, "fail_count": 2},
+            "github": {
+                "configured": True,
+                "fail_count": 2,
+                "runs": [
+                    {
+                        "status": "failure",
+                        "repo": "acme/app",
+                        "name": "CI",
+                        "created_at": now - 60,
+                    },
+                    {
+                        "status": "failure",
+                        "repo": "acme/api",
+                        "name": "PR Check",
+                        "created_at": now - 120,
+                        "sha": "abc",
+                    },
+                ],
+            },
             "supabase": {"configured": True, "alert_count": 0},
             "vercel": {"deployments": []},
             "codex": {"ok": True},
@@ -69,6 +89,55 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(attention["level"], "critical")
         self.assertGreater(attention["score"], 0)
         self.assertTrue(attention["reasons"])
+        self.assertIn("GitHub Actions failures", attention["summary"])
+        self.assertIn("app", attention["summary"])
+
+    def test_names_single_fresh_failure(self):
+        import headroom_server as hs
+        import time
+        attention = hs._build_attention({
+            "github": {
+                "configured": True,
+                "fail_count": 1,
+                "runs": [{
+                    "status": "failure",
+                    "repo": "envisioning/app",
+                    "name": "PR Check",
+                    "created_at": time.time() - 600,
+                }],
+            },
+            "supabase": {"configured": True, "alert_count": 0},
+            "vercel": {"deployments": []},
+            "codex": {"ok": True},
+            "cursor": {"ok": True},
+            "sources": [],
+        })
+        self.assertEqual(attention["level"], "critical")
+        self.assertEqual(attention["summary"], "app · PR Check failed")
+
+    def test_stale_fail_count_zero_is_ok(self):
+        """Age-gating happens in github_actions; Attention trusts fail_count."""
+        import headroom_server as hs
+        import time
+        attention = hs._build_attention({
+            "github": {
+                "configured": True,
+                "fail_count": 0,
+                "runs": [{
+                    "status": "failure",
+                    "repo": "envisioning/signals",
+                    "name": "CI",
+                    "created_at": time.time() - 100 * 86400,
+                }],
+            },
+            "supabase": {"configured": True, "alert_count": 0},
+            "vercel": {"deployments": []},
+            "codex": {"ok": True},
+            "cursor": {"ok": True},
+            "sources": [],
+        })
+        self.assertEqual(attention["level"], "ok")
+        self.assertEqual(attention["reasons"], [])
 
     def test_ok_when_clear(self):
         import headroom_server as hs

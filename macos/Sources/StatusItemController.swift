@@ -56,10 +56,8 @@ final class StatusItemController: NSObject {
 
     private func update(snapshot: UsageSnapshot, healthy: Bool) {
         let attention = snapshot.attention
-        if attention?.isWarning != true,
-           AttentionAck.dismissedFingerprint != nil {
-            AttentionAck.dismissedFingerprint = nil
-        }
+        // Keep a dismissed fingerprint across brief ok blips — wiping on ok
+        // resurrects the same day-old Actions warning on the next poll.
         let showPip = AttentionAck.shouldShowPip(for: attention)
         statusItem.button?.image = MeterIconRenderer.render(
             snapshot: snapshot,
