@@ -70,12 +70,14 @@ final class StatusItemController: NSObject {
             statusItem.button?.toolTip =
                 "Headroom — \(attention.summary ?? "Needs attention")"
         } else {
-            let parts = UsageProvider.allCases.map { provider in
+            let parts = snapshot.activeQuotaProviders.map { provider in
                 let meter = snapshot.meter(for: provider)
                 let pct = Int((meter.headline.percent ?? 0).rounded())
                 return "\(provider.title) \(pct)%"
             }
-            statusItem.button?.toolTip = "Headroom — \(parts.joined(separator: ", "))"
+            statusItem.button?.toolTip = parts.isEmpty
+                ? "Headroom"
+                : "Headroom — \(parts.joined(separator: ", "))"
         }
     }
 
@@ -134,17 +136,19 @@ enum MeterIconRenderer {
         let size = NSSize(width: 18, height: 18)
         let warning = attentionLevel == "warn" || attentionLevel == "critical"
         let image = NSImage(size: size, flipped: false) { _ in
-            let providers = UsageProvider.allCases
+            let providers = snapshot.activeQuotaProviders.isEmpty
+                ? UsageProvider.allCases
+                : snapshot.activeQuotaProviders
             let barWidthPixels = 30
             let barHeightPixels = 6
             let gapPixels = 4
             let barX = (canvasPixels - barWidthPixels) / 2
             let stackHeight =
-                providers.count * barHeightPixels
+                max(1, providers.count) * barHeightPixels
                 + max(0, providers.count - 1) * gapPixels
             let stackY = (canvasPixels - stackHeight) / 2
 
-            // Top → bottom matches overview left → right: Claude, Codex, Cursor.
+            // Top → bottom matches overview left → right.
             for (index, provider) in providers.enumerated() {
                 let fromTop = index
                 let y =
@@ -167,8 +171,7 @@ enum MeterIconRenderer {
 
             if warning {
                 let pip = PixelRect(x: 26, y: 26, width: 8, height: 8)
-                let color: NSColor = attentionLevel == "critical"
-                    ? .systemRed : .systemOrange
+                let color = HeadroomPalette.nsAttention(attentionLevel)
                 color.setFill()
                 NSBezierPath(
                     ovalIn: pip.rect
@@ -178,7 +181,10 @@ enum MeterIconRenderer {
         }
         // Template icons can't show the colored warning pip.
         image.isTemplate = !warning
-        let labels = UsageProvider.allCases.map(\.title).joined(separator: ", ")
+        let active = snapshot.activeQuotaProviders.isEmpty
+            ? UsageProvider.allCases
+            : snapshot.activeQuotaProviders
+        let labels = active.map(\.title).joined(separator: ", ")
         image.accessibilityDescription = "\(labels) quota used"
         return image
     }

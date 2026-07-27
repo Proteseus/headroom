@@ -10,11 +10,13 @@
 		139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */; };
 		1F03D9610CC85D4FD882100D /* HeadroomClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76493F57A34B588CA92177E8 /* HeadroomClient.swift */; };
 		24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */; };
+		48113C60FEF142E052CBC7FE /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D8CE872551AB6AD7C5907D4 /* SetupView.swift */; };
 		519E1CC03DF30BACA9A68C57 /* ModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */; };
 		643D8FF59EDA3FEEF0383FE9 /* ActivitySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC2840177C0A32C7B57D30C /* ActivitySection.swift */; };
 		6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C6E5C825AA4083B2D5D01D /* DashboardView.swift */; };
 		743BE437DAB076D2A18536FC /* BurndownCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F697ED3E44E4DEE6772061 /* BurndownCard.swift */; };
 		767319788439235C4346740F /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8FFA0192883B0646427B4A /* Keychain.swift */; };
+		76977934D8F6C671758E7C23 /* host in Resources */ = {isa = PBXBuildFile; fileRef = 61E25F65EF77B15978EBAB9A /* host */; };
 		7B1E2A79ECD3D61C593BA259 /* QuotaSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7E31C02552716E1A881F0E /* QuotaSection.swift */; };
 		957C0977FADF81B7F0A09DCF /* DailyBurnCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */; };
 		CE802023FF267E5828A30C68 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98E41B964E7DEC1B013050A /* Models.swift */; };
@@ -24,6 +26,7 @@
 		E3292B0D6131AA58D4DBF95A /* ContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7C049952EFC44A4B729CA4 /* ContractTests.swift */; };
 		ECCB2C9F3B7070CCC829FEFD /* SupabaseSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FFB46B5E0311502D45E572D /* SupabaseSection.swift */; };
 		F5071CA6442D145EE272A3D5 /* CodexBarProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */; };
+		F650ABB26FB3EACB5FE1B091 /* HostController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0B59E73A490F3BD97B96A8 /* HostController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,13 +50,16 @@
 		3F8FFA0192883B0646427B4A /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		4490B2ABE0BD42C2973881A1 /* HeadroomBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HeadroomBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		59FDCB5B55570D6033460FCE /* CodexBarProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarProgressBar.swift; sourceTree = "<group>"; };
+		61E25F65EF77B15978EBAB9A /* host */ = {isa = PBXFileReference; lastKnownFileType = folder; path = host; sourceTree = SOURCE_ROOT; };
 		6580B7FFA04EC60ED9A67225 /* ServersSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServersSection.swift; sourceTree = "<group>"; };
 		6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		6D8CE872551AB6AD7C5907D4 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		6FFB46B5E0311502D45E572D /* SupabaseSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseSection.swift; sourceTree = "<group>"; };
 		76493F57A34B588CA92177E8 /* HeadroomClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadroomClient.swift; sourceTree = "<group>"; };
 		9FC2840177C0A32C7B57D30C /* ActivitySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitySection.swift; sourceTree = "<group>"; };
 		B58F0F520C2720E7294BF847 /* DailyBurnCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBurnCard.swift; sourceTree = "<group>"; };
 		C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageStore.swift; sourceTree = "<group>"; };
+		CA0B59E73A490F3BD97B96A8 /* HostController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostController.swift; sourceTree = "<group>"; };
 		EF26A59D2FA0AD2FA579616C /* ModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsTests.swift; sourceTree = "<group>"; };
 		F98E41B964E7DEC1B013050A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -62,6 +68,7 @@
 		1C5034EF29758D7127392134 = {
 			isa = PBXGroup;
 			children = (
+				61E25F65EF77B15978EBAB9A /* host */,
 				C37E3C45889E12F298863A64 /* Sources */,
 				F7E5858F74A6F2268C9146FA /* Tests */,
 				EC157A29D711BB9D027F2FB1 /* Products */,
@@ -79,10 +86,12 @@
 				05C6E5C825AA4083B2D5D01D /* DashboardView.swift */,
 				2AB34204DDB5B4C163BA4385 /* HeadroomApp.swift */,
 				76493F57A34B588CA92177E8 /* HeadroomClient.swift */,
+				CA0B59E73A490F3BD97B96A8 /* HostController.swift */,
 				3F8FFA0192883B0646427B4A /* Keychain.swift */,
 				F98E41B964E7DEC1B013050A /* Models.swift */,
 				3D7E31C02552716E1A881F0E /* QuotaSection.swift */,
 				6580B7FFA04EC60ED9A67225 /* ServersSection.swift */,
+				6D8CE872551AB6AD7C5907D4 /* SetupView.swift */,
 				6BEBE31E2772A68E57B9AA4A /* StatusItemController.swift */,
 				6FFB46B5E0311502D45E572D /* SupabaseSection.swift */,
 				C6D6CF520EDCDA13E1F80B82 /* UsageStore.swift */,
@@ -116,6 +125,7 @@
 			buildConfigurationList = 7B8702B2BEF1F1BE4666E134 /* Build configuration list for PBXNativeTarget "HeadroomBar" */;
 			buildPhases = (
 				01024D8B4077D1C37BB6D136 /* Sources */,
+				FE64E192DA7D5AAD6A820507 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -180,6 +190,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		FE64E192DA7D5AAD6A820507 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				76977934D8F6C671758E7C23 /* host in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		01024D8B4077D1C37BB6D136 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -193,10 +214,12 @@
 				6B1E43809049FFEDDEE74073 /* DashboardView.swift in Sources */,
 				139E0E36E0012800893DB79A /* HeadroomApp.swift in Sources */,
 				1F03D9610CC85D4FD882100D /* HeadroomClient.swift in Sources */,
+				F650ABB26FB3EACB5FE1B091 /* HostController.swift in Sources */,
 				767319788439235C4346740F /* Keychain.swift in Sources */,
 				CE802023FF267E5828A30C68 /* Models.swift in Sources */,
 				7B1E2A79ECD3D61C593BA259 /* QuotaSection.swift in Sources */,
 				CF0CDD903ACBE35469AF2FA6 /* ServersSection.swift in Sources */,
+				48113C60FEF142E052CBC7FE /* SetupView.swift in Sources */,
 				D52012E3C8B42DA9E4C79C56 /* StatusItemController.swift in Sources */,
 				ECCB2C9F3B7070CCC829FEFD /* SupabaseSection.swift in Sources */,
 				24FC5B953D39F12881FAB2EC /* UsageStore.swift in Sources */,

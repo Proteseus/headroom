@@ -15,6 +15,8 @@ struct UsageSnapshot: Decodable, Sendable {
     var byDay: [DailyBurnDay]?
     var codex: CodexUsage?
     var cursor: CursorUsage?
+    /// Normalized quota providers from the host registry (additive).
+    var providers: [QuotaProviderInfo]?
     var vercel: VercelUsage?
     var git: GitUsage?
     var github: GitHubUsage?
@@ -44,6 +46,7 @@ struct UsageSnapshot: Decodable, Sendable {
         byDay: [DailyBurnDay]? = nil,
         codex: CodexUsage? = nil,
         cursor: CursorUsage? = nil,
+        providers: [QuotaProviderInfo]? = nil,
         vercel: VercelUsage? = nil,
         git: GitUsage? = nil,
         github: GitHubUsage? = nil,
@@ -69,6 +72,7 @@ struct UsageSnapshot: Decodable, Sendable {
         self.byDay = byDay
         self.codex = codex
         self.cursor = cursor
+        self.providers = providers
         self.vercel = vercel
         self.git = git
         self.github = github
@@ -82,7 +86,7 @@ struct UsageSnapshot: Decodable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case updated, plan, today, codex, cursor, vercel, git, github, activity, local
+        case updated, plan, today, codex, cursor, providers, vercel, git, github, activity, local
         case supabase, sources, attention, burndown
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
@@ -96,13 +100,47 @@ struct UsageSnapshot: Decodable, Sendable {
         case weekResetsIn = "week_resets_in"
     }
 
+    /// Enabled coding-quota providers in host registry order.
+    ///
+    /// CodexBar-style: only what the user turned on in Settings → Sources.
+    /// Falls back to every known provider when the host omitted sources
+    /// (offline / empty snapshot).
+    var activeQuotaProviders: [UsageProvider] {
+        guard let sources, !sources.isEmpty else {
+            return UsageProvider.allCases
+        }
+        let known = Dictionary(uniqueKeysWithValues:
+            UsageProvider.allCases.map { ($0.rawValue, $0) })
+        let hasKind = sources.contains { $0.kind != nil }
+        let quotaRows = sources.filter { row in
+            if hasKind { return row.kind == "quota" }
+            return known[row.id] != nil
+        }
+        var seen = Set<String>()
+        var out: [UsageProvider] = []
+        for row in quotaRows where row.enabled != false {
+            guard let provider = known[row.id], seen.insert(row.id).inserted else {
+                continue
+            }
+            out.append(provider)
+        }
+        // Host listed quota sources but none enabled — respect that.
+        if !quotaRows.isEmpty { return out }
+        return UsageProvider.allCases
+    }
+
+
     /// Pools for one provider ordered fastest-window-first, so the shortest
     /// window becomes the outermost ring. Cursor's pools share a billing cycle
-    /// and tie on length, so a fixed precedence breaks it.
+    /// and tie on length, so a fixed precedence breaks it — Total then API;
+    /// Auto is sampled but not charted (always empty for most plans).
     func burndownRings(for provider: UsageProvider) -> [Burndown] {
-        let precedence = ["session", "total", "auto", "api", "week"]
+        let precedence = ["session", "total", "api", "auto", "week"]
         let pools = burndown?[provider.rawValue]?.values ?? [:].values
-        return pools.sorted { lhs, rhs in
+        let visible = provider == .cursor
+            ? pools.filter { $0.pool == "total" || $0.pool == "api" }
+            : Array(pools)
+        return visible.sorted { lhs, rhs in
             let lw = lhs.windowS ?? .greatestFiniteMagnitude
             let rw = rhs.windowS ?? .greatestFiniteMagnitude
             if lw != rw { return lw < rw }
@@ -159,6 +197,9 @@ struct UsageSnapshot: Decodable, Sendable {
                 costLabel: codex?.costLabel
             )
         case .cursor:
+            // Total (included) and API (on-demand) are independent pools that
+            // share a billing cycle. Auto is omitted — it sits at 0% for most
+            // plans and used to steal the second ring from API.
             ProviderMeter(
                 provider: provider,
                 ok: cursor?.ok ?? false,
@@ -170,12 +211,6 @@ struct UsageSnapshot: Decodable, Sendable {
                     reset: cursor?.resetsIn
                 ),
                 secondary: MeterWindow(
-                    title: "Auto",
-                    percent: cursor?.autoPct,
-                    pacePercent: cursor?.autoPacePct,
-                    reset: cursor?.resetsIn
-                ),
-                tertiary: MeterWindow(
                     title: "API",
                     percent: cursor?.apiPct,
                     pacePercent: cursor?.apiPacePct,
@@ -376,15 +411,58 @@ struct DailyBurnDay: Decodable, Sendable, Identifiable {
     var codex: Double?
     var cursor: Double?
     var total: Double?
+    /// Dynamic map mirroring host `by_day[].burns` (preferred when present).
+    var burns: [String: Double]?
 
     var id: String { date }
 
     func burn(for provider: UsageProvider) -> Double {
-        switch provider {
-        case .claude: claude ?? 0
-        case .codex: codex ?? 0
-        case .cursor: cursor ?? 0
+        if let burns, let value = burns[provider.rawValue] {
+            return value
         }
+        switch provider {
+        case .claude: return claude ?? 0
+        case .codex: return codex ?? 0
+        case .cursor: return cursor ?? 0
+        }
+    }
+
+    /// Total across the given providers (enabled set), not every column.
+    func total(for providers: [UsageProvider]) -> Double {
+        if providers.isEmpty { return total ?? 0 }
+        return providers.reduce(0) { $0 + burn(for: $1) }
+    }
+}
+
+/// One coding-quota provider as advertised by the host registry.
+struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
+    var id: String
+    var title: String?
+    var kind: String?
+    var enabled: Bool?
+    var ok: Bool?
+    var plan: String?
+    var error: String?
+    var accent: String?
+    var headline: String?
+    var pools: [String: QuotaPoolInfo]?
+}
+
+struct QuotaPoolInfo: Decodable, Sendable {
+    var title: String?
+    var pct: Double?
+    var pacePct: Double?
+    var windowS: Double?
+    var resetsInS: Double?
+    var resetsIn: String?
+    var ring: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case title, pct, ring
+        case pacePct = "pace_pct"
+        case windowS = "window_s"
+        case resetsInS = "resets_in_s"
+        case resetsIn = "resets_in"
     }
 }
 
@@ -677,6 +755,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var id: String
     var title: String?
     var hint: String?
+    /// "quota" or "activity" — from the host registry.
+    var kind: String?
     var enabled: Bool?
     var ok: Bool?
     var stale: Bool?
@@ -686,7 +766,7 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var ageS: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, hint, enabled, ok, stale, configured, error, detail
+        case id, title, hint, kind, enabled, ok, stale, configured, error, detail
         case ageS = "age_s"
     }
 }

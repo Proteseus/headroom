@@ -8,20 +8,30 @@ struct QuotaOverviewCard: View {
     /// Tapping a ring jumps to that provider's detail tab.
     let onSelect: (UsageProvider) -> Void
 
+    private var providers: [UsageProvider] { snapshot.activeQuotaProviders }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Coding quotas")
                 .font(.headline)
-            HStack(spacing: 10) {
-                ForEach(UsageProvider.allCases, id: \.rawValue) { provider in
-                    ProviderQuotaRing(
-                        meter: snapshot.meter(for: provider),
-                        rings: snapshot.burndownRings(for: provider),
-                        tint: provider.tint
-                    )
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onSelect(provider) }
+            if providers.isEmpty {
+                Text("Enable a coding provider in Settings → Sources.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+            } else {
+                HStack(spacing: 10) {
+                    ForEach(providers, id: \.rawValue) { provider in
+                        ProviderQuotaRing(
+                            meter: snapshot.meter(for: provider),
+                            rings: snapshot.burndownRings(for: provider),
+                            tint: snapshot.tint(for: provider)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onSelect(provider) }
+                    }
                 }
             }
             if let primary = snapshot.burndownPrimary, let headline = primary.headline {
@@ -38,6 +48,9 @@ struct QuotaOverviewCard: View {
 struct ProviderQuotaCard: View {
     let provider: UsageProvider
     let meter: ProviderMeter
+    var tint: Color? = nil
+
+    private var brand: Color { tint ?? provider.tint }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -49,10 +62,10 @@ struct ProviderQuotaCard: View {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
-            QuotaRow(window: meter.primary, tint: provider.tint)
-            QuotaRow(window: meter.secondary, tint: provider.tint)
+            QuotaRow(window: meter.primary, tint: brand)
+            QuotaRow(window: meter.secondary, tint: brand)
             if let tertiary = meter.tertiary {
-                QuotaRow(window: tertiary, tint: provider.tint)
+                QuotaRow(window: tertiary, tint: brand)
             }
             if let pace = meter.paceLabel {
                 HStack {
@@ -73,7 +86,7 @@ struct ProviderQuotaCard: View {
             if !meter.ok, let error = meter.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(HeadroomPalette.amber)
                     .lineLimit(2)
             }
         }

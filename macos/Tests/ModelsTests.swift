@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import HeadroomBar
 
@@ -126,8 +128,9 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.meter(for: .cursor).primary.percent, 4)
         XCTAssertEqual(value.meter(for: .cursor).primary.title, "Total")
         XCTAssertEqual(value.meter(for: .cursor).primary.reset, "7d 43m")
-        XCTAssertEqual(value.meter(for: .cursor).secondary.title, "Auto")
-        XCTAssertEqual(value.meter(for: .cursor).tertiary?.title, "API")
+        XCTAssertEqual(value.meter(for: .cursor).secondary.title, "API")
+        XCTAssertEqual(value.meter(for: .cursor).secondary.percent, 34)
+        XCTAssertNil(value.meter(for: .cursor).tertiary)
         XCTAssertEqual(value.meter(for: .cursor).headline.title, "Total")
         XCTAssertEqual(value.meter(for: .cursor).headline.percent, 4)
         XCTAssertEqual(value.vercel?.deployments?.first?.project, "signals")
@@ -164,5 +167,52 @@ final class ModelsTests: XCTestCase {
             for: value.attention,
             dismissedFingerprint: value.attention?.fingerprint
         ))
+    }
+
+    func testProviderTintPrefersHostAccent() throws {
+        let json = """
+        {
+          "providers": [
+            {"id": "claude", "accent": "#D97757"},
+            {"id": "codex", "accent": "#10A37F"},
+            {"id": "cursor", "accent": "#789BC8"}
+          ]
+        }
+        """
+        let value = try JSONDecoder().decode(
+            UsageSnapshot.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertNotNil(HeadroomPalette.color(hex: "#D97757"))
+        XCTAssertNotNil(HeadroomPalette.color(hex: "10A37F"))
+        XCTAssertNil(HeadroomPalette.color(hex: "nope"))
+
+        func rgb(_ color: Color) -> (CGFloat, CGFloat, CGFloat) {
+            let ns = NSColor(color).usingColorSpace(.deviceRGB)!
+            return (ns.redComponent, ns.greenComponent, ns.blueComponent)
+        }
+        func assertClose(_ a: Color, _ b: Color, file: StaticString = #filePath,
+                         line: UInt = #line) {
+            let lhs = rgb(a)
+            let rhs = rgb(b)
+            XCTAssertEqual(lhs.0, rhs.0, accuracy: 0.002, file: file, line: line)
+            XCTAssertEqual(lhs.1, rhs.1, accuracy: 0.002, file: file, line: line)
+            XCTAssertEqual(lhs.2, rhs.2, accuracy: 0.002, file: file, line: line)
+        }
+
+        // Host accents resolve to the same RGB as the firmware fallbacks.
+        assertClose(value.tint(for: .claude), UsageProvider.claude.tint)
+        assertClose(value.tint(for: .codex), UsageProvider.codex.tint)
+        assertClose(value.tint(for: .cursor), UsageProvider.cursor.tint)
+
+        // Custom host accent wins over the fallback.
+        let customJSON = """
+        {"providers":[{"id":"claude","accent":"#112233"}]}
+        """
+        let custom = try JSONDecoder().decode(
+            UsageSnapshot.self,
+            from: Data(customJSON.utf8)
+        )
+        assertClose(custom.tint(for: .claude), HeadroomPalette.color(hex: "#112233")!)
     }
 }

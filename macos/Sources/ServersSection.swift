@@ -31,7 +31,9 @@ struct ServersSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(server.reachable == false ? .red : .green)
+                    .fill(server.reachable == false
+                          ? HeadroomPalette.red
+                          : HeadroomPalette.green)
                     .frame(width: 7, height: 7)
                 Text(server.name ?? "Server")
                     .font(.subheadline.weight(.medium))
@@ -66,7 +68,7 @@ struct ServersSection: View {
                             Image(systemName: "stop.circle")
                         }
                         .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(HeadroomPalette.red)
                         .help("Stop server")
                         .accessibilityLabel("Stop")
                     }

@@ -38,6 +38,11 @@ final class ContractTests: XCTestCase {
         XCTAssertNotNil(snapshot.weekPct, "week_pct")
         XCTAssertNotNil(snapshot.today, "today")
         XCTAssertNotNil(snapshot.byDay, "by_day")
+        XCTAssertNotNil(snapshot.providers, "providers")
+        XCTAssertEqual(snapshot.providers?.count, 3)
+        XCTAssertEqual(
+            snapshot.activeQuotaProviders.map(\.rawValue),
+            ["claude", "codex", "cursor"])
         XCTAssertNotNil(snapshot.codex, "codex")
         XCTAssertNotNil(snapshot.cursor, "cursor")
         XCTAssertNotNil(snapshot.vercel, "vercel")
@@ -49,7 +54,7 @@ final class ContractTests: XCTestCase {
 
     func testEveryProviderMeterResolves() throws {
         let snapshot = try decodeDemo()
-        for provider in UsageProvider.allCases {
+        for provider in snapshot.activeQuotaProviders {
             let meter = snapshot.meter(for: provider)
             XCTAssertTrue(meter.ok, "\(provider.title) should be ok in the fixture")
             XCTAssertNotNil(
@@ -66,7 +71,23 @@ final class ContractTests: XCTestCase {
         for source in sources {
             XCTAssertFalse(source.id.isEmpty)
             XCTAssertNotNil(source.title, "\(source.id) title")
+            XCTAssertNotNil(source.kind, "\(source.id) kind")
         }
+        XCTAssertEqual(
+            sources.filter { $0.kind == "quota" }.map(\.id),
+            ["claude", "codex", "cursor"])
+    }
+
+    func testDisabledQuotaProviderIsHidden() throws {
+        var snapshot = try decodeDemo()
+        snapshot.sources = snapshot.sources?.map { source in
+            var row = source
+            if row.id == "cursor" { row.enabled = false }
+            return row
+        }
+        XCTAssertEqual(
+            snapshot.activeQuotaProviders.map(\.rawValue),
+            ["claude", "codex"])
     }
 
     func testHealthReportDecodesTheHostShape() throws {
@@ -98,5 +119,14 @@ final class ContractTests: XCTestCase {
             endpoint: "http://mz-mbp.local:8737/usage", token: "abc")
         XCTAssertEqual(client.token, "abc")
         XCTAssertEqual(client.endpoint, "http://mz-mbp.local:8737/usage")
+    }
+
+    func testLoopbackSkipsHostKeychain() {
+        XCTAssertTrue(HeadroomClient.isLoopback("http://127.0.0.1:8737/usage"))
+        XCTAssertTrue(HeadroomClient.isLoopback("http://localhost:8737/usage"))
+        XCTAssertFalse(HeadroomClient.isLoopback("http://mz-mbp.local:8737/usage"))
+        // Must not call TokenStore.host.read() — a wedged keychain freezes UI.
+        let client = HeadroomClient(endpoint: "http://127.0.0.1:8737/usage")
+        XCTAssertNil(client.token)
     }
 }

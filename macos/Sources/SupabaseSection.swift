@@ -32,7 +32,7 @@ struct SupabaseSection: View {
             } else if data?.ok != true {
                 Text(data?.error ?? "Supabase unavailable")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(HeadroomPalette.amber)
             } else {
                 Text("\(data?.projectCount ?? allProjects.count) projects")
                     .font(.caption)
@@ -82,7 +82,9 @@ struct SupabaseSection: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(project.healthy == true ? .green : .red)
+                    .fill(project.healthy == true
+                          ? HeadroomPalette.green
+                          : HeadroomPalette.red)
                     .frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(project.name ?? project.ref)
@@ -124,7 +126,7 @@ struct SupabaseSection: View {
                     .foregroundStyle(
                         project.healthy == true
                             ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(Color.red)
+                            : AnyShapeStyle(HeadroomPalette.red)
                     )
                     .padding(.leading, 15)
             }

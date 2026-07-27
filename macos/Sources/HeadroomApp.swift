@@ -41,6 +41,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         store.start()
+        Task { @MainActor in
+            await Self.ensureHostRunning(store: store)
+        }
+    }
+
+    /// If nothing answers on :8737 and this .app has a bundled host, install
+    /// the LaunchAgent and wait for /health so first open isn't an error card.
+    private static func ensureHostRunning(store: UsageStore) async {
+        if await HostController.isReachable() {
+            await store.refresh()
+            return
+        }
+        guard HostController.isBundled else { return }
+        do {
+            _ = try HostController.installAndStart()
+            if await HostController.waitUntilReady() {
+                await store.refresh()
+            }
+        } catch {
+            // SetupView surfaces the error; don't crash launch.
+        }
     }
 
     private static func argValue(_ flag: String) -> String? {
@@ -263,7 +284,7 @@ private struct SettingsView: View {
                             .foregroundStyle(
                                 hostTokenStored
                                     ? AnyShapeStyle(.secondary)
-                                    : AnyShapeStyle(Color.orange))
+                                    : AnyShapeStyle(HeadroomPalette.amber))
                     }
                 }
             } header: {
@@ -271,7 +292,7 @@ private struct SettingsView: View {
             } footer: {
                 Text(endpointIsRemote
                      ? "Remote hosts require the token from ~/.headroom/token."
-                     : "Mac and ESP32 both read this host. Source toggles also hide ESP32 pages.")
+                     : "Mac and ESP32 both read this host. If the popover says the host isn’t running, from the Headroom clone run ./scripts/install-host.sh. Source toggles also hide ESP32 pages.")
             }
 
             Section {
@@ -322,7 +343,7 @@ private struct SettingsView: View {
             Section {
                 LabeledContent("Status") {
                     Text(tokenStored ? "Keychain" : "Not connected")
-                        .foregroundStyle(tokenStored ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+                        .foregroundStyle(tokenStored ? AnyShapeStyle(.secondary) : AnyShapeStyle(HeadroomPalette.amber))
                 }
                 SecureField("sbp_… or access token", text: $supabaseToken)
                     .onSubmit {
@@ -367,7 +388,7 @@ private struct SettingsView: View {
             Section {
                 LabeledContent("Status") {
                     Text(githubTokenStored ? "Keychain" : "Not connected")
-                        .foregroundStyle(githubTokenStored ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+                        .foregroundStyle(githubTokenStored ? AnyShapeStyle(.secondary) : AnyShapeStyle(HeadroomPalette.amber))
                 }
                 SecureField("ghp_… (repo + actions:read)", text: $githubToken)
                     .onSubmit {
@@ -576,7 +597,7 @@ private struct SourceRow: View {
                     .foregroundStyle(
                         source.ok == true || !enabled
                             ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(Color.orange)
+                            : AnyShapeStyle(HeadroomPalette.amber)
                     )
                     .lineLimit(1)
             }
@@ -620,11 +641,11 @@ private struct SourceRow: View {
     }
 
     private var dotColor: Color {
-        if !enabled { return .secondary }
+        if !enabled { return HeadroomPalette.dim }
         if source.ok == true {
-            return source.stale == true ? .orange : .green
+            return source.stale == true ? HeadroomPalette.amber : HeadroomPalette.green
         }
-        return .red
+        return HeadroomPalette.red
     }
 
     private func ageLabel(_ age: Int) -> String {

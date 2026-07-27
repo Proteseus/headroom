@@ -44,7 +44,7 @@ struct ActivitySection: View {
             if item.status == "error", let error = item.errorMessage {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(HeadroomPalette.red)
                     .lineLimit(2)
                     .padding(.leading, 16)
             }
@@ -89,14 +89,10 @@ struct ActivitySection: View {
     }
 
     private func color(_ item: ActivityItem) -> Color {
+        // Same rule as firmware statusColor: red for bad, dim otherwise.
         switch item.status {
-        case "ready": .green
-        case "building", "running": .orange
-        case "error", "failure": .orange
-        case "canceled", "cancelled": .secondary
-        case "pushed": .blue
-        case "local": .purple
-        default: .secondary
+        case "error", "failure": HeadroomPalette.red
+        default: HeadroomPalette.dim
         }
     }
 

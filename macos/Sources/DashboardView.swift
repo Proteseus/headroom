@@ -10,6 +10,8 @@ struct DashboardView: View {
     private var selectedProviderRaw = UsageProvider.codex.rawValue
     @AppStorage("selectedDashboard")
     private var selectedDashboardRaw = DashboardSelection.overview.rawValue
+    @AppStorage("setupCompleted")
+    private var setupCompleted = false
     @State private var serverToStop: LocalServer?
 
     private var selectedProvider: UsageProvider {
@@ -20,34 +22,54 @@ struct DashboardView: View {
         DashboardSelection(rawValue: selectedDashboardRaw) ?? .overview
     }
 
+    private var needsSetup: Bool {
+        !setupCompleted || store.errorMessage != nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             ScrollView {
                 VStack(spacing: 16) {
-                    providerSwitcher
-                    if selectedDashboard == .overview {
-                        QuotaOverviewCard(snapshot: store.snapshot) { provider in
-                            selectedProviderRaw = provider.rawValue
-                            selectedDashboardRaw = provider.rawValue
+                    if needsSetup {
+                        SetupView(
+                            store: store,
+                            isFirstRun: !setupCompleted
+                        ) {
+                            setupCompleted = true
+                            Task { await store.refresh() }
                         }
-                        OverviewBurndownCard(snapshot: store.snapshot)
-                        DailyBurnCard(days: store.snapshot.byDay ?? [])
-                        AttentionCard(snapshot: store.snapshot)
                     } else {
-                        ProviderQuotaCard(
-                            provider: selectedProvider,
-                            meter: store.snapshot.meter(for: selectedProvider)
-                        )
-                        BurndownCard(
-                            provider: selectedProvider,
-                            rings: store.snapshot.burndownRings(for: selectedProvider)
-                        )
+                        providerSwitcher
+                        if selectedDashboard == .overview {
+                            QuotaOverviewCard(snapshot: store.snapshot) { provider in
+                                selectedProviderRaw = provider.rawValue
+                                selectedDashboardRaw = provider.rawValue
+                            }
+                            OverviewBurndownCard(snapshot: store.snapshot)
+                            DailyBurnCard(
+                                days: store.snapshot.byDay ?? [],
+                                providers: store.snapshot.activeQuotaProviders,
+                                tintFor: store.snapshot.tint(for:)
+                            )
+                            AttentionCard(snapshot: store.snapshot)
+                        } else {
+                            ProviderQuotaCard(
+                                provider: selectedProvider,
+                                meter: store.snapshot.meter(for: selectedProvider),
+                                tint: store.snapshot.tint(for: selectedProvider)
+                            )
+                            BurndownCard(
+                                provider: selectedProvider,
+                                rings: store.snapshot.burndownRings(for: selectedProvider),
+                                tint: store.snapshot.tint(for: selectedProvider)
+                            )
+                        }
+                        ActivitySection(items: store.snapshot.activity ?? [])
+                        SupabaseSection(data: store.snapshot.supabase)
+                        ServersSection(store: store, pendingStop: $serverToStop)
                     }
-                    ActivitySection(items: store.snapshot.activity ?? [])
-                    SupabaseSection(data: store.snapshot.supabase)
-                    ServersSection(store: store, pendingStop: $serverToStop)
                 }
                 .padding(16)
             }
@@ -92,17 +114,20 @@ struct DashboardView: View {
     }
 
     private var headerDotColor: Color {
-        if store.errorMessage != nil { return .orange }
+        if store.errorMessage != nil { return HeadroomPalette.amber }
         if AttentionAck.shouldShowPip(for: store.snapshot.attention) {
-            if store.snapshot.attention?.isCritical == true { return .red }
-            return .orange
+            if store.snapshot.attention?.isCritical == true {
+                return HeadroomPalette.red
+            }
+            return HeadroomPalette.amber
         }
-        return .green
+        return HeadroomPalette.green
     }
 
     private var providerSwitcher: some View {
-        HStack(spacing: 2) {
-            ForEach(DashboardSelection.allCases, id: \.rawValue) { selection in
+        let tabs = DashboardSelection.tabs(for: store.snapshot.activeQuotaProviders)
+        return HStack(spacing: 2) {
+            ForEach(tabs, id: \.rawValue) { selection in
                 let isSelected = selectedDashboardRaw == selection.rawValue
                 Button {
                     selectedDashboardRaw = selection.rawValue
@@ -135,6 +160,13 @@ struct DashboardView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dashboard")
+        .onChange(of: store.snapshot.activeQuotaProviders.map(\.rawValue)) { _, ids in
+            // Drop onto Overview if the selected provider was disabled.
+            if selectedDashboard != .overview,
+               !ids.contains(selectedDashboardRaw) {
+                selectedDashboardRaw = DashboardSelection.overview.rawValue
+            }
+        }
     }
 
     private var footer: some View {

@@ -31,10 +31,28 @@ struct HeadroomClient: Sendable {
     var token: String?
 
     init(endpoint: String? = nil, token: String? = nil) {
-        self.endpoint = endpoint
+        let resolved = endpoint
             ?? UserDefaults.standard.string(forKey: "usageEndpoint")
             ?? Self.defaultEndpoint
-        self.token = token ?? TokenStore.host.read()
+        self.endpoint = resolved
+        // Host waves loopback through — don't touch Keychain on the hot path.
+        // A wedged securityd (or unlock prompt) would otherwise freeze the
+        // MainActor and the menu-bar icon never paints.
+        if let token {
+            self.token = token
+        } else if Self.isLoopback(resolved) {
+            self.token = nil
+        } else {
+            self.token = TokenStore.host.read()
+        }
+    }
+
+    /// Same rule as Settings: token only matters off-machine.
+    static func isLoopback(_ endpoint: String) -> Bool {
+        guard let host = URL(string: endpoint)?.host()?.lowercased() else {
+            return false
+        }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
 
     static var displayEndpoint: String {
@@ -95,6 +113,12 @@ struct HeadroomClient: Sendable {
         let url = try base().appendingPathComponent("health")
         let data = try await send(request(url, timeout: 5))
         return try JSONDecoder().decode(HealthReport.self, from: data)
+    }
+
+    func fetchSetup() async throws -> SetupPayload {
+        let url = try base().appendingPathComponent("setup")
+        let data = try await send(request(url, timeout: 5))
+        return try JSONDecoder().decode(SetupPayload.self, from: data)
     }
 
     func refresh(sources: [String]?) async throws {
