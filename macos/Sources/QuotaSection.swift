@@ -253,16 +253,6 @@ struct PaceRingsCanvas: View {
     var lineWidth: CGFloat = 7
     var spacing: CGFloat = 4
 
-    private func arcTint(_ ring: Burndown) -> Color {
-        switch ring.kind {
-        // Already spent reads as absence, not alarm.
-        case .exhausted: tint.drained()
-        // Behind pace, but still brand-colored — the caption carries the forecast.
-        case .ahead: .orange
-        case .ok, .critical: tint
-        }
-    }
-
     var body: some View {
         Canvas { context, size in
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -295,9 +285,11 @@ struct PaceRingsCanvas: View {
                         endAngle: .degrees(-90 + max(0, min(used, 100)) * 3.6),
                         clockwise: false
                     )
+                    // Brand tint only — pace/exhaustion live in the caption,
+                    // not a color shift that fights the provider palette.
                     context.stroke(
                         arc,
-                        with: .color(arcTint(ring)),
+                        with: .color(tint),
                         style: StrokeStyle(lineWidth: width, lineCap: .butt)
                     )
                 }
@@ -348,7 +340,6 @@ struct QuotaRingCanvas: View {
             )
 
             if let percent {
-                let fillTint = percent >= 100 ? tint.drained() : tint
                 var usage = Path()
                 usage.addArc(
                     center: center,
@@ -359,7 +350,7 @@ struct QuotaRingCanvas: View {
                 )
                 context.stroke(
                     usage,
-                    with: .color(fillTint),
+                    with: .color(tint),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
                 )
             }

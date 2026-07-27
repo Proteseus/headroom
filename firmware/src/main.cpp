@@ -1444,9 +1444,9 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
 }
 
 // Burndown chart: dotted budget line falling from full at the window's start
-// to zero at its reset, the actual remaining-% curve over it, and a dashed
-// tail for where the current pace lands. Below the budget line means burning
-// faster than the window can afford.
+// to zero at its reset, the actual remaining-% curve over it, and a lightly
+// dashed accent tail for where the current pace lands. Below the budget line
+// means burning faster than the window can afford.
 static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                          int16_t w, int16_t h, uint16_t accent) {
   const uint16_t track = dimToward(accent, COL_BG, 0.45f);
@@ -1501,23 +1501,21 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
            px(b.t[i]), py(b.remaining[i]), line);
   }
 
-  // Projection: dashed, and a marker where it hits the floor. An estimate off
-  // token history draws sparser and dimmer than one fitted from real samples,
-  // so certainty is visible without reading anything.
+  // Projection: lightly dashed accent (long on, short gap) plus a marker
+  // where it hits the floor. Estimates stay a touch sparser.
   if (b.projN == 2) {
     const int16_t x0 = px(b.projT[0]), y0 = py(b.projR[0]);
     const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
     const int16_t steps = (int16_t)(x1 - x0);
-    const int16_t stride = b.estimated ? 9 : 6;
-    const int16_t dash = b.estimated ? 4 : 4;
-    const uint16_t projCol =
-        b.estimated ? dimToward(line, COL_BG, 0.70f) : line;
+    const int16_t stride = b.estimated ? 7 : 8;
+    const int16_t dash = b.estimated ? 5 : 6;
     for (int16_t i = 0; i < steps; i += stride) {
       int16_t ax = (int16_t)(x0 + i);
       int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-      stroke(ax, ay, (int16_t)(ax + dash),
-             (int16_t)(y0 + (int32_t)(y1 - y0) * (i + dash) /
-                       (steps ? steps : 1)), projCol);
+      const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
+      stroke(ax, ay, (int16_t)(ax + seg),
+             (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
+                       (steps ? steps : 1)), line);
     }
     if (b.warn) gfx->fillCircle(x1, y1, 4, COL_RED);
   }

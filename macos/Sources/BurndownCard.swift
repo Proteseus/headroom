@@ -198,11 +198,11 @@ struct OverviewBurndownCard: View {
                             }
                             context.stroke(
                                 forecast,
-                                with: .color(tint.opacity(0.65)),
+                                with: .color(tint),
                                 style: StrokeStyle(
                                     lineWidth: 1.5,
                                     lineJoin: .round,
-                                    dash: [4, 3]
+                                    dash: [6, 2]
                                 )
                             )
                         }
@@ -421,15 +421,15 @@ struct BurndownCanvas: View {
                 var forecast = Path()
                 forecast.move(to: projected[0])
                 for point in projected.dropFirst() { forecast.addLine(to: point) }
-                // An estimate off token history should look provisional next
-                // to a projection fitted from real samples: finer dots, less
-                // weight. Same claim, visibly less certainty.
+                // Long dash / short gap keeps the projection readable as
+                // provisional without the old sparse look. Estimates stay a
+                // touch finer so certainty is still visible.
                 context.stroke(
                     forecast,
-                    with: .color(tint.opacity(pool.isEstimated ? 0.45 : 0.7)),
+                    with: .color(tint),
                     style: StrokeStyle(
                         lineWidth: pool.isEstimated ? 1 : 1.5,
-                        dash: pool.isEstimated ? [1.5, 3] : [4, 3]
+                        dash: pool.isEstimated ? [3, 2] : [6, 2]
                     )
                 )
                 // Mark the wall if the pace hits it before the reset.
