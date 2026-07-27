@@ -269,6 +269,7 @@ struct ProviderQuota {
 // Burndown for one provider: the actual remaining-% curve plus where the
 // current pace lands. The ideal line is a straight run from (t0,100) to
 // (t1,0), so the host never sends it — we derive it here.
+// Cursor may carry a second series (API) overlaid on the same axis.
 static const uint8_t MAX_BURN_PTS = 24;   // mirrors device_view.MAX_BURNDOWN_POINTS
 struct Burndown {
   bool ok = false;
@@ -282,6 +283,16 @@ struct Burndown {
   bool warn = false;       // pace runs out before the window resets
   bool exhausted = false;
   bool estimated = false;  // projection from token history, not from samples
+  // Optional overlay (Cursor API). n2==0 means absent.
+  uint8_t n2 = 0;
+  uint32_t t2[MAX_BURN_PTS];
+  float remaining2[MAX_BURN_PTS];
+  uint8_t projN2 = 0;
+  uint32_t projT2[2];
+  float projR2[2];
+  bool warn2 = false;
+  bool exhausted2 = false;
+  bool estimated2 = false;
 };
 
 enum Page : uint8_t {
@@ -686,7 +697,7 @@ static JsonDocument usageFilter() {
   filter["sources"][0]["ok"] = true;
   filter["sources"][0]["stale"] = true;
   // Whole subtree, like codex/cursor above: device_view has already trimmed it
-  // to one pool per provider, so there is nothing further to filter out.
+  // (one pool, or Total+API for Cursor), so there is nothing further to filter.
   filter["burndown"] = true;
   return filter;
 }
@@ -739,16 +750,18 @@ static bool applyUsageDoc(JsonDocument &doc) {
     codexQ = ProviderQuota{};
   }
 
-  // Cursor (nested Total + Auto + API pools)
+  // Cursor (nested Total + API pools; Auto is omitted from the UI)
   JsonObject cur = doc["cursor"].as<JsonObject>();
   if (!cur.isNull()) {
     cursorQ.ok            = cur["ok"] | false;
     cursorQ.plan          = String((const char *)(cur["plan"] | ""));
     cursorQ.totalPct      = cur["total_pct"].isNull() ? -1.f : (float)(cur["total_pct"] | -1.0);
-    cursorQ.sessionPct    = cur["auto_pct"].isNull() ? -1.f : (float)(cur["auto_pct"] | -1.0);
+    // sessionPct unused for Cursor — Auto is always empty and used to steal
+    // the second ring from API. weekPct holds API.
+    cursorQ.sessionPct    = -1.f;
     cursorQ.weekPct       = cur["api_pct"].isNull()  ? -1.f : (float)(cur["api_pct"] | -1.0);
     cursorQ.totalPace     = cur["total_pace_pct"].isNull() ? -1.f : (float)(cur["total_pace_pct"] | -1.0);
-    cursorQ.sessionPace   = cur["auto_pace_pct"].isNull() ? -1.f : (float)(cur["auto_pace_pct"] | -1.0);
+    cursorQ.sessionPace   = -1.f;
     cursorQ.weekPace      = cur["api_pace_pct"].isNull()  ? -1.f : (float)(cur["api_pace_pct"] | -1.0);
     String resets = String((const char *)(cur["resets_in"] | ""));
     cursorQ.sessionResets = resets;
@@ -762,7 +775,7 @@ static bool applyUsageDoc(JsonDocument &doc) {
     cursorQ = ProviderQuota{};
   }
 
-  // Burndown series (one pool per provider; host picks the longest window)
+  // Burndown series (one pool per provider; Cursor may overlay API as *2)
   claudeBurn = Burndown();
   codexBurn = Burndown();
   cursorBurn = Burndown();
@@ -802,6 +815,33 @@ static bool applyUsageDoc(JsonDocument &doc) {
           out.projT[out.projN] = (uint32_t)(pair[0] | 0);
           out.projR[out.projN] = (float)(pair[1] | 0.0);
           out.projN++;
+        }
+      }
+      // Optional Cursor API overlay.
+      JsonArray pts2 = b["pts2"].as<JsonArray>();
+      if (!pts2.isNull()) {
+        out.warn2 = b["warn2"] | false;
+        out.estimated2 = b["est2"] | false;
+        out.exhausted2 =
+            strcmp((const char *)(b["status2"] | ""), "exhausted") == 0;
+        for (JsonVariant v : pts2) {
+          if (out.n2 >= MAX_BURN_PTS) break;
+          JsonArray pair = v.as<JsonArray>();
+          if (pair.isNull() || pair.size() < 2) continue;
+          out.t2[out.n2] = (uint32_t)(pair[0] | 0);
+          out.remaining2[out.n2] = (float)(pair[1] | 0.0);
+          out.n2++;
+        }
+        JsonArray proj2 = b["proj2"].as<JsonArray>();
+        if (!proj2.isNull()) {
+          for (JsonVariant v : proj2) {
+            if (out.projN2 >= 2) break;
+            JsonArray pair = v.as<JsonArray>();
+            if (pair.isNull() || pair.size() < 2) continue;
+            out.projT2[out.projN2] = (uint32_t)(pair[0] | 0);
+            out.projR2[out.projN2] = (float)(pair[1] | 0.0);
+            out.projN2++;
+          }
         }
       }
       out.ok = out.n > 0;
@@ -1175,69 +1215,26 @@ static void drawBar(int16_t x, int16_t y, int16_t w, int16_t h,
   }
 }
 
-static void drawQuotaRow(const char *title, float pct, float pace,
-                         const String &resets, const String &paceLabel,
-                         const String &runsOut, int16_t y, int16_t pad,
-                         uint16_t accent) {
-  const int16_t W = scrW();
-  char buf[48];
-  drawTextAt(title, pad, y, 2, COL_WHITE);
-  drawBar(pad, y + 26, W - pad * 2, 12, pct, pace, accent);
-
-  char pctBuf[12];
-  snprintf(buf, sizeof buf, "%s used", fmtPct(pctBuf, sizeof pctBuf, pct));
-  drawTextAt(buf, pad, y + 48, 2, COL_WHITE);
-  if (resets.length()) {
-    snprintf(buf, sizeof buf, "Resets in %s", resets.c_str());
-    drawRightAt(buf, W - pad, y + 48, 2, COL_DIM);
-  }
-  // CodexBar pace line: "50% in deficit" … "Runs out in 3h 14m"
-  if (paceLabel.length())
-    drawTextAt(paceLabel, pad, y + 70, 2, COL_DIM);
-  if (runsOut.length()) {
-    snprintf(buf, sizeof buf, "Runs out in %s", runsOut.c_str());
-    drawRightAt(buf, W - pad, y + 70, 2, COL_DIM);
-  }
-}
-
-// Three Cursor lanes fit above the footer using the same bar/label treatment
-// with tighter vertical rhythm and no separate pace-detail line.
-// Compact meter inside an arbitrary column. Two of these side by side cost the
-// same 68px as one full-width row, which is what buys the burndown its space.
-static void drawQuotaRowIn(const char *title, float pct, float pace,
-                           const String &resets, int16_t x, int16_t y,
-                           int16_t w, uint16_t accent, bool showResets) {
-  char buf[48];
-  char pctBuf[12];
-  drawTextAt(title, x, y, 2, COL_WHITE);
-  drawBar(x, y + 20, w, 9, pct, pace, accent);
-  snprintf(buf, sizeof buf, "%s used", fmtPct(pctBuf, sizeof pctBuf, pct));
-  drawTextAt(buf, x, y + 37, 2, COL_WHITE);
-  if (showResets && resets.length()) {
-    snprintf(buf, sizeof buf, "Resets in %s", resets.c_str());
-    drawRightAt(buf, (int16_t)(x + w), y + 37, 2, COL_DIM);
-  }
-}
+// Compact full-width meter for model pages: title, bar, pct + reset on one
+// line. Sized so two of them fit in the top half and leave the bottom half
+// for the burndown chart (side-by-side columns were too narrow for the labels).
+static const int16_t QUOTA_ROW_H = 54;
 
 static void drawQuotaRowCompact(const char *title, float pct, float pace,
                                 const String &resets, int16_t y, int16_t pad,
                                 uint16_t accent) {
-  drawQuotaRowIn(title, pct, pace, resets, pad, y,
-                 (int16_t)(scrW() - pad * 2), accent, true);
-}
-
-// Two meters across one row. The reset label only rides the right-hand column;
-// at half width there is no room for it under both.
-static void drawQuotaRowPair(const char *titleA, float pctA, float paceA,
-                             const char *titleB, float pctB, float paceB,
-                             const String &resets, int16_t y, int16_t pad,
-                             uint16_t accent) {
-  const int16_t span = (int16_t)(scrW() - pad * 2);
-  const int16_t gap = 20;
-  const int16_t colW = (int16_t)((span - gap) / 2);
-  drawQuotaRowIn(titleA, pctA, paceA, "", pad, y, colW, accent, false);
-  drawQuotaRowIn(titleB, pctB, paceB, resets, (int16_t)(pad + colW + gap), y,
-                 colW, accent, true);
+  const int16_t x = pad;
+  const int16_t w = (int16_t)(scrW() - pad * 2);
+  char buf[48];
+  char pctBuf[12];
+  drawTextAt(title, x, y, 2, COL_WHITE);
+  drawBar(x, y + 18, w, 10, pct, pace, accent);
+  snprintf(buf, sizeof buf, "%s used", fmtPct(pctBuf, sizeof pctBuf, pct));
+  drawTextAt(buf, x, y + 36, 2, COL_WHITE);
+  if (resets.length()) {
+    snprintf(buf, sizeof buf, "Resets in %s", resets.c_str());
+    drawRightAt(buf, (int16_t)(x + w), y + 36, 2, COL_DIM);
+  }
 }
 
 static String truncFit(const String &s, int16_t maxW, uint8_t size) {
@@ -1271,18 +1268,16 @@ static String clipFit(const String &s, int16_t maxW, uint8_t size) {
   return "";
 }
 
-// Name left + age right-aligned in a fixed column (short names don't shift ages).
+// Name left + age right-aligned; clip name to one space before the age.
 static void drawNameAgoRow(int16_t x, int16_t y, int16_t colW,
                            const String &name, const String &ago,
                            uint16_t nameCol, uint16_t agoCol) {
   gfx->setTextSize(2);
-  int16_t x1, y1; uint16_t aw, ah;
-  gfx->getTextBounds("999h", 0, 0, &x1, &y1, &aw, &ah);  // widest age we expect
-  const int16_t agoReserve = (int16_t)aw;
-  const int16_t gap = 4;
-  String clipped = clipFit(name, (int16_t)(colW - agoReserve - gap), 2);
-  drawTextAt(clipped, x, y, 2, nameCol);
+  int16_t x1, y1; uint16_t aw, ah, sw, sh;
   gfx->getTextBounds(ago.c_str(), 0, 0, &x1, &y1, &aw, &ah);
+  gfx->getTextBounds(" ", 0, 0, &x1, &y1, &sw, &sh);  // one space gap
+  String clipped = clipFit(name, (int16_t)(colW - (int16_t)aw - (int16_t)sw), 2);
+  drawTextAt(clipped, x, y, 2, nameCol);
   gfx->setTextColor(agoCol);
   gfx->setCursor(x + colW - (int16_t)aw, y);
   gfx->print(ago);
@@ -1297,7 +1292,9 @@ static uint16_t statusColor(const String &status) {
 
 // Normalize "ago" strings to whole hours for glance columns.
 static String gitHoursAgo(const String &ago) {
-  if (!ago.length()) return "—";
+  // ASCII only: gfx->print walks bytes into the 5x7 table, so a UTF-8 dash
+  // would paint three CP437 glyphs.
+  if (!ago.length()) return "-";
   int days = 0, hours = 0;
   const char *p = ago.c_str();
   while (*p) {
@@ -1361,10 +1358,11 @@ static uint8_t providerLayers(const ProviderQuota &q, PaceLayer *out,
   uint8_t n = 0;
   if (!q.ok || max == 0) return 0;
   if (q.totalPct >= 0) {
-    // Cursor: Total is the headline, Auto the breakdown under it. Both ride
-    // the same billing cycle, so there is no faster/slower to order by.
+    // Cursor: Total (included) then API (on-demand). Both ride the same
+    // billing cycle, so there is no faster/slower to order by — Total is the
+    // headline ring, API the one that actually drains when you burn tokens.
     out[n++] = {q.totalPct, q.totalPace};
-    if (n < max && q.sessionPct >= 0) out[n++] = {q.sessionPct, q.sessionPace};
+    if (n < max && q.weekPct >= 0) out[n++] = {q.weekPct, q.weekPace};
     return n;
   }
   if (q.sessionPct >= 0) out[n++] = {q.sessionPct, q.sessionPace};
@@ -1494,7 +1492,37 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     }
   }
 
-  // Actual curve.
+  // Cursor API under Total so the headline pool sits on top when they share
+  // an accent. Dimmed so the two stay distinguishable.
+  if (b.n2 > 1) {
+    const uint16_t line2 = b.exhausted2 ? COL_DIM
+                         : (b.warn2 ? COL_RED : dimToward(accent, COL_BG, 0.70f));
+    for (uint8_t i = 1; i < b.n2; i++) {
+      stroke(px(b.t2[i - 1]), py(b.remaining2[i - 1]),
+             px(b.t2[i]), py(b.remaining2[i]), line2);
+    }
+    if (b.projN2 == 2) {
+      const int16_t x0 = px(b.projT2[0]), y0 = py(b.projR2[0]);
+      const int16_t x1 = px(b.projT2[1]), y1 = py(b.projR2[1]);
+      const int16_t steps = (int16_t)(x1 - x0);
+      const int16_t stride = b.estimated2 ? 7 : 8;
+      const int16_t dash = b.estimated2 ? 5 : 6;
+      for (int16_t i = 0; i < steps; i += stride) {
+        int16_t ax = (int16_t)(x0 + i);
+        int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
+        const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
+        stroke(ax, ay, (int16_t)(ax + seg),
+               (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
+                         (steps ? steps : 1)), line2);
+      }
+      if (b.warn2) gfx->fillCircle(x1, y1, 3, COL_RED);
+    }
+    if (b.n2 > 0) {
+      gfx->fillCircle(px(b.t2[b.n2 - 1]), py(b.remaining2[b.n2 - 1]), 2, line2);
+    }
+  }
+
+  // Actual curve (primary / Total).
   const uint16_t line = b.exhausted ? COL_DIM : (b.warn ? COL_RED : accent);
   for (uint8_t i = 1; i < b.n; i++) {
     stroke(px(b.t[i - 1]), py(b.remaining[i - 1]),
@@ -1520,7 +1548,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     if (b.warn) gfx->fillCircle(x1, y1, 4, COL_RED);
   }
 
-  // Now marker.
+  // Now marker (primary).
   if (b.n > 0) {
     const int16_t nx = px(b.t[b.n - 1]);
     const int16_t ny = py(b.remaining[b.n - 1]);
@@ -1621,7 +1649,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
           y += rowH;
         }
       } else {
-        drawTextAt(vercelOk ? "—" : "down", x, y, 2, COL_DIM);
+        drawTextAt(vercelOk ? "-" : "down", x, y, 2, COL_DIM);
       }
     } else if (i == 1) {
       // Git — repo leaf (no owner) + age in hours (right-aligned).
@@ -1638,7 +1666,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
           y += rowH;
         }
       } else {
-        drawTextAt(gitOk ? "—" : "down", x, y, 2, COL_DIM);
+        drawTextAt(gitOk ? "-" : "down", x, y, 2, COL_DIM);
       }
     } else {
       // Local — one teal dot + port per listening server.
@@ -1650,7 +1678,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
           gfx->fillCircle(x + dotR, y + 8, dotR, COL_LOCAL);
           String port = localRows[s].port > 0
                             ? (":" + String(localRows[s].port))
-                            : "—";
+                            : "-";
           drawTextAt(port, x + textX, y, 2, COL_WHITE);
           y += rowH;
         }
@@ -1705,16 +1733,26 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
     const int16_t capL = (int16_t)(colX + colPad);
     const int16_t capR = (int16_t)(colX + slot - colPad);
     if (b.ok && b.n > 0) {
+      // When Cursor overlays API, the caption tracks the worse remaining —
+      // Total alone would look fine while API is already toast.
+      float rem = b.remaining[b.n - 1];
+      if (b.n2 > 0 && b.remaining2[b.n2 - 1] < rem) {
+        rem = b.remaining2[b.n2 - 1];
+      }
       char left[8];
-      snprintf(left, sizeof left, "%d%%",
-               (int)(b.remaining[b.n - 1] + 0.5f));
+      snprintf(left, sizeof left, "%d%%", (int)(rem + 0.5f));
       drawTextAt(left, capL, capY, 2, accents[i]);
 
       // Sample time, not wall clock — the board has no RTC, and the newest
       // point is "now" as far as this chart is concerned.
       const uint32_t now = b.t[b.n - 1];
-      if (b.warn && !b.exhausted && b.projN == 2 && b.projT[1] > now) {
+      const bool warn = b.warn || b.warn2;
+      const bool exhausted = b.exhausted && (b.n2 == 0 || b.exhausted2);
+      if (warn && !exhausted && b.projN == 2 && b.projT[1] > now) {
         drawRightAt("out " + coarseDur(b.projT[1] - now), capR, capY, 2,
+                    COL_RED);
+      } else if (b.warn2 && !b.exhausted2 && b.projN2 == 2 && b.projT2[1] > now) {
+        drawRightAt("out " + coarseDur(b.projT2[1] - now), capR, capY, 2,
                     COL_RED);
       } else if (b.t1 > now) {
         drawRightAt(shortDur(b.t1 - now), capR, capY, 2, COL_DIM);
@@ -1814,89 +1852,67 @@ static void drawQuotaPage() {
   drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
 
+  // Content below the header rule splits evenly: meters on top, burndown below.
+  // Glance rings already carry pct/pace, so the detail page's job is readable
+  // full-width bars plus a chart large enough to read at desk distance.
+  const int16_t contentTop = top + 72;
+  const int16_t contentBot = (int16_t)(H - bot - 10 - 12);  // above footer rule
+  const int16_t midY =
+      (int16_t)(contentTop + (contentBot - contentTop) / 2);
+
   if (q.ok && (q.totalPct >= 0 || q.sessionPct >= 0 || q.weekPct >= 0)) {
-    int16_t rowY = top + 72;
+    int16_t rowY = contentTop;
     if (isCursor) {
+      // Total + API stacked full-width. Auto is omitted (empty on most plans).
+      // They share a reset window — label it once on the first meter.
       if (q.totalPct >= 0) {
         drawQuotaRowCompact("Total", q.totalPct, q.totalPace,
                             q.sessionResets, rowY, padX, accent);
-        rowY += 68;
-      }
-      if (q.sessionPct >= 0) {
-        drawQuotaRowCompact("Auto", q.sessionPct, q.sessionPace,
-                            q.sessionResets, rowY, padX, accent);
-        rowY += 68;
-      }
-      // Three rows leave no room for a chart. Auto and API both roll on the
-      // same billing cycle Total already summarises, so API yields to the
-      // burndown when there is one.
-      if (q.weekPct >= 0 && !burnFor(page).ok) {
-        drawQuotaRowCompact("API", q.weekPct, q.weekPace,
-                            q.weekResets, rowY, padX, accent);
-        rowY += 68;
-      }
-    } else {
-      // Tall rows and a chart do not both fit in 368px. When there is a
-      // burndown to show it wins, and the meters fall back to the compact row
-      // — the glance rings already carry pct and pace, so the chart is the
-      // only thing on this page you cannot get one level up.
-      const bool compact = burnFor(page).ok;
-      // Team Codex often has only a weekly window — skip empty session.
-      if (q.sessionPct >= 0) {
-        if (compact) {
-          drawQuotaRowCompact("Session", q.sessionPct, q.sessionPace,
-                              q.sessionResets, rowY, padX, accent);
-          rowY += 68;
-        } else {
-          drawQuotaRow("Session", q.sessionPct, q.sessionPace, q.sessionResets,
-                       "", "", rowY, padX, accent);
-          rowY += 98;
-        }
+        rowY += QUOTA_ROW_H;
       }
       if (q.weekPct >= 0) {
-        if (compact) {
-          drawQuotaRowCompact("Weekly", q.weekPct, q.weekPace, q.weekResets,
-                              rowY, padX, accent);
-          rowY += 68;
-        } else {
-          drawQuotaRow("Weekly", q.weekPct, q.weekPace, q.weekResets,
-                       isCodex ? q.paceLabel : "",
-                       isCodex ? q.runsOutIn : "",
-                       rowY, padX, accent);
-          rowY += (isCodex && q.paceLabel.length()) ? 120 : 98;
-        }
+        drawQuotaRowCompact("API", q.weekPct, q.weekPace,
+                            q.totalPct >= 0 ? String() : q.weekResets,
+                            rowY, padX, accent);
+        rowY += QUOTA_ROW_H;
+      }
+    } else {
+      // Team Codex often has only a weekly window — skip empty session.
+      if (q.sessionPct >= 0) {
+        drawQuotaRowCompact("Session", q.sessionPct, q.sessionPace,
+                            q.sessionResets, rowY, padX, accent);
+        rowY += QUOTA_ROW_H;
+      }
+      if (q.weekPct >= 0) {
+        drawQuotaRowCompact("Weekly", q.weekPct, q.weekPace, q.weekResets,
+                            rowY, padX, accent);
+        rowY += QUOTA_ROW_H;
       }
     }
 
-    // Burndown for the provider's longest window, under the meters. Measured
-    // against the footer rule rather than a guessed margin, so the guard
-    // matches what actually fits.
-    const Burndown &burn = burnFor(page);
-    const int16_t chartH = 52;
-    const int16_t chartBottom = (int16_t)(H - bot - 10 - 12);  // the footer rule
-    if (burn.ok && rowY + 26 + chartH <= chartBottom) {
-      drawTextAt("Burndown", padX, rowY, 2, COL_WHITE);
-      if (burn.warn) {
-        drawRightAt("runs out early", W - padX, rowY, 2, COL_RED);
-      } else if (burn.estimated) {
-        drawRightAt("estimated", W - padX, rowY, 2, COL_DIM);
-      }
-      rowY += 26;
-      drawBurndown(burn, padX, rowY, (int16_t)(W - padX * 2), chartH, accent);
-      rowY += chartH + 12;
-    }
-
-    // Limit Reset Credits (Codex only)
-    if (isCodex && q.resetCredits >= 0) {
-      gfx->drawFastHLine(padX, rowY, W - padX * 2, COL_DIM);
-      rowY += 14;
-      drawTextAt("Limit Reset Credits", padX, rowY, 2, COL_WHITE);
-      rowY += 30;
-      String left = String(q.resetCredits) + " available";
-      drawTextAt(left, padX, rowY, 2, COL_WHITE);
+    // Codex reset credits: one line in leftover top-half space, never the chart.
+    if (isCodex && q.resetCredits >= 0 && rowY + 20 <= midY) {
+      char cred[40];
+      snprintf(cred, sizeof cred, "%d reset credits", q.resetCredits);
+      drawTextAt(cred, padX, rowY, 2, COL_DIM);
       if (q.resetCreditExpiries.length()) {
         drawRightAt(q.resetCreditExpiries.c_str(), W - padX, rowY, 2, COL_DIM);
       }
+    }
+
+    // Bottom half: burndown for the provider's longest window.
+    const Burndown &burn = burnFor(page);
+    int16_t burnY = midY;
+    drawTextAt("Burndown", padX, burnY, 2, COL_WHITE);
+    if (burn.warn || burn.warn2) {
+      drawRightAt("runs out early", W - padX, burnY, 2, COL_RED);
+    } else if (burn.estimated) {
+      drawRightAt("estimated", W - padX, burnY, 2, COL_DIM);
+    }
+    burnY += 22;
+    const int16_t chartH = (int16_t)(contentBot - burnY);
+    if (chartH >= 36) {
+      drawBurndown(burn, padX, burnY, (int16_t)(W - padX * 2), chartH, accent);
     }
   } else if (isCursor) {
     drawTextAt("cursor quota unavailable", padX, top + 100, 2, COL_RED);
