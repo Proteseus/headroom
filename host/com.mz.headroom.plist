@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Runs the headroom usage server at login and keeps it alive.
-     Install:
+     Prefer the installer (fills paths for you):
+       ./scripts/install-host.sh
+     Manual install:
        mkdir -p ~/.headroom/logs
        # Edit ProgramArguments / WorkingDirectory to your clone path, then:
        cp host/com.mz.headroom.plist ~/Library/LaunchAgents/
@@ -8,7 +10,7 @@
      Restart:
        launchctl kickstart -k gui/$(id -u)/com.mz.headroom
      Uninstall:
-       launchctl bootout gui/$(id -u)/com.mz.headroom
+       ./scripts/uninstall-host.sh
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

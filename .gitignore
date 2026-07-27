@@ -12,6 +12,9 @@ __pycache__/
 
 # macOS / Xcode derived data (sources + project.yml + .xcodeproj are tracked)
 macos/.build/
+macos/.build-release/
+macos/host/
+dist/
 *.xcuserstate
 xcuserdata/
 

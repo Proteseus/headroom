@@ -2,7 +2,8 @@
 """Render a faithful ESP32 Headroom glance preview (logical 448×368).
 
 Matches firmware/src/main.cpp drawGlancePage palette + layout closely enough
-for README screenshots. Uses Adafruit-GFX-ish monospace sizing (6×8 × textSize).
+for README screenshots. Text goes through gfx_font, which blits the same
+classic 5×7 glyphs Arduino_GFX draws, at the same 6×8 × textSize metrics.
 """
 
 from __future__ import annotations
@@ -10,10 +11,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+
+import gfx_font
 
 # Logical landscape canvas (what the board draws into).
 W, H = 448, 368
@@ -33,35 +35,18 @@ COL_RED = (175, 105, 100)
 COL_BLACK = (0, 0, 0)
 
 
-def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    # Adafruit default is ~6px wide at size 1; size N ≈ 6N × 8N.
-    px = 8 * size
-    candidates = [
-        "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",
-        "/System/Library/Fonts/Supplemental/Courier New.ttf",
-        "/Library/Fonts/Courier New.ttf",
-        "/System/Library/Fonts/Menlo.ttc",
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, px)
-            except OSError:
-                continue
-    return ImageFont.load_default()
-
-
-FONT2 = _font(2)
-FONT3 = _font(3)
+# A "font" here is just an Arduino_GFX textSize — gfx_font blits the same 5×7
+# bitmap glyphs the panel does, so the preview isn't a lookalike in Courier.
+FONT2 = 2
+FONT3 = 3
 
 
 def text_w(draw: ImageDraw.ImageDraw, s: str, font) -> int:
-    box = draw.textbbox((0, 0), s, font=font)
-    return box[2] - box[0]
+    return gfx_font.text_width(s, font)
 
 
 def draw_text(draw: ImageDraw.ImageDraw, s: str, x: int, y: int, font, fill):
-    draw.text((x, y), s, font=font, fill=fill)
+    gfx_font.draw_text(draw, s, x, y, font, fill)
 
 
 def status_color(status: str):
@@ -73,7 +58,7 @@ def status_color(status: str):
 
 def git_hours_ago(ago: str | None) -> str:
     if not ago:
-        return "—"
+        return "-"
     days = hours = 0
     i = 0
     s = ago
@@ -113,10 +98,10 @@ def clip_fit(draw, s: str, max_w: int, font) -> str:
 
 
 def draw_name_ago(draw, x, y, col_w, name, ago, name_col, ago_col):
-    ago_reserve = text_w(draw, "999h", FONT2)
-    clipped = clip_fit(draw, name, col_w - ago_reserve - 4, FONT2)
-    draw_text(draw, clipped, x, y, FONT2, name_col)
     aw = text_w(draw, ago, FONT2)
+    gap = text_w(draw, " ", FONT2)  # one space before the age
+    clipped = clip_fit(draw, name, col_w - aw - gap, FONT2)
+    draw_text(draw, clipped, x, y, FONT2, name_col)
     draw_text(draw, ago, x + col_w - aw, y, FONT2, ago_col)
 
 
@@ -189,8 +174,8 @@ def pace_layers(provider: dict | None, cursor_total: bool = False):
     out = []
     if cursor_total and provider.get("total_pct") is not None:
         out.append((provider.get("total_pct"), provider.get("total_pace_pct")))
-        if provider.get("auto_pct") is not None:
-            out.append((provider.get("auto_pct"), provider.get("auto_pace_pct")))
+        if provider.get("api_pct") is not None:
+            out.append((provider.get("api_pct"), provider.get("api_pace_pct")))
         return out
     for pct_k, pace_k in (("session_pct", "session_pace_pct"),
                           ("week_pct", "week_pace_pct")):
@@ -292,7 +277,7 @@ def render_glance(doc: dict) -> Image.Image:
             )
             y += row_h
     else:
-        draw_text(draw, "—" if vercel.get("ok") else "down", x, y, FONT2, COL_DIM)
+        draw_text(draw, "-" if vercel.get("ok") else "down", x, y, FONT2, COL_DIM)
 
     # Git
     x = low_x[1] + col_pad
@@ -314,7 +299,7 @@ def render_glance(doc: dict) -> Image.Image:
             )
             y += row_h
     else:
-        draw_text(draw, "—" if git.get("ok") else "down", x, y, FONT2, COL_DIM)
+        draw_text(draw, "-" if git.get("ok") else "down", x, y, FONT2, COL_DIM)
 
     # Local
     x = low_x[2] + col_pad
@@ -333,7 +318,7 @@ def render_glance(doc: dict) -> Image.Image:
                 fill=COL_LOCAL,
             )
             port = s.get("port")
-            label = f":{port}" if port else "—"
+            label = f":{port}" if port else "-"
             draw_text(draw, label, x + text_x, y, FONT2, COL_WHITE)
             y += row_h
     else:

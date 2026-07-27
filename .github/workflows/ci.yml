@@ -59,9 +59,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Generate project
+      - name: Embed host + generate project
         working-directory: macos
-        run: xcodegen generate
+        run: |
+          ../scripts/sync-embedded-host.sh
+          xcodegen generate
       - name: Build and test
         working-directory: macos
         run: |
