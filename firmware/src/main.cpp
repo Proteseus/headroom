@@ -548,8 +548,14 @@ static bool requestSyncRefreshHttp() {
 // debug logs: only lines starting with "HR " are protocol.
 // Background polls use a short timeout so a missing host can't freeze touch;
 // explicit long-press sync may wait longer.
-static const uint32_t USB_TIMEOUT_POLL_MS = 900;
+// ~5KB device view at 115200 ≈ 0.5s of wire; leave headroom for a busy host
+// so a full burndown frame isn't truncated mid-read.
+static const uint32_t USB_TIMEOUT_POLL_MS = 1500;
 static const uint32_t USB_TIMEOUT_SYNC_MS = 3500;
+// While the chart has no pts yet (common for a few seconds after host restart),
+// poll much faster than POLL_INTERVAL_S so "Collecting history" doesn't sit
+// for a full minute on a payload that was merely early.
+static const uint32_t BURN_WARMUP_POLL_MS = 5000;
 // The host serves the board its ?view=device projection (~2KB), so this no
 // longer has to hold a 30KB document. CDC RX buffers come out of DRAM, not
 // PSRAM, so the 24KB given back here is 24KB the UI and Wi-Fi stack can use.
@@ -1559,43 +1565,132 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
 // Host `updated` ends in ±HHMM — needed before drawBurndown for local day rules.
 static int32_t updatedTzOffsetS();
 
+static bool burnHistoryReady() {
+  return (claudeBurn.ok && claudeBurn.n > 0) ||
+         (codexBurn.ok && codexBurn.n > 0) ||
+         (cursorBurn.ok && cursorBurn.n > 0);
+}
+
+// Eight-dot orbit while burndown pts are empty. Unit octagon — no trig/frame.
+static const int8_t SPIN_DX[8] = {7, 5, 0, -5, -7, -5, 0, 5};
+static const int8_t SPIN_DY[8] = {0, 5, 7, 5, 0, -5, -7, -5};
+static bool collectSpinActive = false;
+static int16_t collectSpinCx = 0, collectSpinCy = 0;
+static uint8_t collectSpinFrame = 255;
+
+static void paintHistorySpinner(int16_t cx, int16_t cy, uint8_t frame) {
+  const int16_t box = 18;
+  gfx->fillRect((int16_t)(cx - box / 2), (int16_t)(cy - box / 2), box, box,
+                COL_BG);
+  for (uint8_t i = 0; i < 8; i++) {
+    const uint8_t dist = (uint8_t)((i + 8 - (frame & 7)) & 7);
+    if (dist > 3) continue;
+    const uint16_t col = dist == 0 ? COL_WHITE
+                       : dist == 1 ? COL_DIM
+                       : dimToward(COL_DIM, COL_BG, 0.45f);
+    gfx->fillCircle((int16_t)(cx + SPIN_DX[i]), (int16_t)(cy + SPIN_DY[i]),
+                    1, col);
+  }
+}
+
+// "Collecting history" + spinner. Narrow charts get a short label (the full
+// phrase is ~216px at size 2 and will not fit a home column).
+static void drawCollectingHistory(int16_t x, int16_t y, int16_t w) {
+  if (w >= 232) {
+    drawTextAt(LABEL_COLLECTING_HISTORY, x, y, 2, COL_DIM);
+    collectSpinCx = (int16_t)(x + textWidth(LABEL_COLLECTING_HISTORY, 2) + 16);
+  } else {
+    drawTextAt(LABEL_NO_DATA, x, y, 2, COL_DIM);
+    collectSpinCx = (int16_t)(x + textWidth(LABEL_NO_DATA, 2) + 14);
+  }
+  collectSpinCy = (int16_t)(y + 6);
+  collectSpinActive = true;
+  collectSpinFrame = (uint8_t)((millis() / 100) & 7);
+  paintHistorySpinner(collectSpinCx, collectSpinCy, collectSpinFrame);
+}
+
+static void tickCollectingSpinner() {
+  if (!collectSpinActive || burnHistoryReady()) {
+    collectSpinActive = false;
+    return;
+  }
+  const uint8_t frame = (uint8_t)((millis() / 100) & 7);
+  if (frame == collectSpinFrame) return;
+  collectSpinFrame = frame;
+  paintHistorySpinner(collectSpinCx, collectSpinCy, frame);
+  const int16_t box = 18;
+  gfx->flushLogicalRect((int16_t)(collectSpinCx - box / 2),
+                        (int16_t)(collectSpinCy - box / 2), box, box);
+}
+
 // Burndown chart: dotted budget line falling from full at the window's start
 // to zero at its reset, the actual remaining-% curve over it, and a lightly
 // dashed accent tail for where the current pace lands. Below the budget line
-// means burning faster than the window can afford. Windows ≥2 days also get
-// local midnight rules + weekday names (same furniture as Mac/iOS provider
-// cards and the home overall chart).
+// means burning faster than the window can afford.
+//
+// X-axis matches Mac/iOS BurndownChartAxis: at most seven weekday-named
+// columns (never day-of-month numbers); monthly windows clip to seven days
+// covering "now"; session windows get hour ticks instead of a blank axis.
 static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                          int16_t w, int16_t h, uint16_t accent) {
-  // Reserve a label band under the plot when the window spans real days.
-  const bool showDays =
-      b.ok && b.t1 > b.t0 && (b.t1 - b.t0) >= 2u * 86400u && h >= 48;
-  const int16_t axisH = showDays ? 12 : 0;
+  if (!b.ok || b.t1 <= b.t0) {
+    const uint16_t track = dimToward(accent, COL_BG, 0.45f);
+    gfx->drawRect(x, y, w, h, track);
+    drawCollectingHistory(x + 8, (int16_t)(y + h / 2 - 8), w);
+    return;
+  }
+  collectSpinActive = false;
+
+  const uint32_t win0 = b.t0;
+  const uint32_t win1 = b.t1;
+  const uint32_t winSpan = win1 - win0;
+  // "Now" ≈ last actual sample.
+  uint32_t nowT = win0;
+  if (b.n > 0) nowT = b.t[b.n - 1];
+
+  // Plot domain: full window if ≤7d+slack, else 7 days covering now.
+  const uint32_t weekS = 7u * 86400u;
+  uint32_t plot0 = win0;
+  uint32_t plot1 = win1;
+  if (winSpan > weekS + 3600u) {
+    plot0 = (nowT > 3u * 86400u) ? (nowT - 3u * 86400u) : 0;
+    plot1 = plot0 + weekS;
+    if (plot0 < win0) {
+      plot0 = win0;
+      plot1 = plot0 + weekS;
+    }
+    if (plot1 > win1) {
+      plot1 = win1;
+      plot0 = (plot1 > weekS) ? (plot1 - weekS) : win0;
+      if (plot0 < win0) plot0 = win0;
+    }
+  }
+  if (plot1 <= plot0) plot1 = plot0 + 3600u;
+  const uint32_t plotSpan = plot1 - plot0;
+  const bool showDays = plotSpan >= 2u * 86400u;
+  const bool showHours = !showDays;
+  const int16_t axisH = (showDays || showHours) && h >= 48 ? 12 : 0;
   const int16_t plotH = (int16_t)(h - axisH);
 
   const uint16_t track = dimToward(accent, COL_BG, 0.45f);
   gfx->drawRect(x, y, w, plotH, track);
-  if (!b.ok || b.t1 <= b.t0) {
-    // LABEL_COLLECTING_HISTORY is ~216px at size 2 — it doesn't fit a home column.
-    drawTextAt(w >= 232 ? LABEL_COLLECTING_HISTORY : LABEL_NO_DATA,
-               x + 8, y + plotH / 2 - 8, 2, COL_DIM);
-    return;
-  }
 
-  const uint32_t span = b.t1 - b.t0;
   auto px = [&](uint32_t t) -> int16_t {
-    if (t <= b.t0) return x;
-    if (t >= b.t1) return (int16_t)(x + w - 1);
-    return (int16_t)(x + (int32_t)((uint64_t)(t - b.t0) * (w - 1) / span));
+    if (t <= plot0) return x;
+    if (t >= plot1) return (int16_t)(x + w - 1);
+    return (int16_t)(x + (int32_t)((uint64_t)(t - plot0) * (w - 1) / plotSpan));
   };
   auto py = [&](float remaining) -> int16_t {
     float r = remaining < 0 ? 0 : (remaining > 100 ? 100 : remaining);
     return (int16_t)(y + plotH - 1 - (int16_t)(r * (plotH - 1) / 100.0f));
   };
+  // Budget % from the full pool window (not the clipped plot).
+  auto budgetR = [&](uint32_t t) -> float {
+    if (t <= win0) return 100.0f;
+    if (t >= win1) return 0.0f;
+    return 100.0f * (1.0f - (float)(t - win0) / (float)winSpan);
+  };
 
-  // A 1px run vanishes on a 122px home chart at desk distance, so every stroke
-  // here is 3px: the segment plus a row either side, clamped inside the box so
-  // a full or empty pool doesn't eat the border.
   auto stroke = [&](int16_t ax, int16_t ay, int16_t bx, int16_t by,
                     uint16_t col) {
     for (int16_t d = -1; d <= 1; d++) {
@@ -1605,53 +1700,75 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     }
   };
 
-  // Day boundaries as vertical rules + weekday (or date) labels — mirrors
-  // Mac drawBurndownCalendar / home drawGlanceBurndown. Skip the first edge
-  // rule (it would sit on the left border). Dense monthly windows drop to
-  // one mark a week so the grid stays readable.
-  if (showDays) {
+  // Axis: ≤7 weekday names, or hour ticks for sessions.
+  if (axisH > 0) {
     const int32_t tz = updatedTzOffsetS();
-    const uint32_t localT0 = (uint32_t)((int64_t)b.t0 + tz);
-    const uint32_t localDay0 = localT0 - (localT0 % 86400u);
-    const uint8_t dayCount =
-        (uint8_t)((span + 86400u - 1u) / 86400u);
-    const bool daily = dayCount > 0 && (w / (int16_t)dayCount) >= 22;
-    const uint8_t step = daily ? 1 : 7;
     const uint16_t grid = dimToward(COL_WHITE, COL_BG, 0.22f);
-    static const char *const WD[] = {
-        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     const int16_t axisY = (int16_t)(y + plotH + 2);
-    for (uint16_t d = 0; d < 62; d = (uint16_t)(d + step)) {
-      const uint32_t localMidnight = localDay0 + (uint32_t)d * 86400u;
-      const uint32_t dayUtc = (uint32_t)((int64_t)localMidnight - tz);
-      if (dayUtc >= b.t1) break;
-      const int16_t dx = px(dayUtc);
-      if (dayUtc > b.t0) {
-        gfx->drawFastVLine(dx, (int16_t)(y + 1), (int16_t)(plotH - 2), grid);
-      }
-      time_t tt = (time_t)localMidnight;
-      struct tm parts;
-      gmtime_r(&tt, &parts);
-      if (daily) {
+    if (showDays) {
+      static const char *const WD[] = {
+          "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+      const uint32_t localP0 = (uint32_t)((int64_t)plot0 + tz);
+      const uint32_t localDay0 = localP0 - (localP0 % 86400u);
+      uint8_t labeled = 0;
+      for (uint16_t d = 0; d < 14 && labeled < 7; d++) {
+        const uint32_t localMidnight = localDay0 + (uint32_t)d * 86400u;
+        const uint32_t dayUtc = (uint32_t)((int64_t)localMidnight - tz);
+        if (dayUtc >= plot1) break;
+        if (dayUtc + 86400u <= plot0) continue;  // day fully before plot
+        const int16_t dx = px(dayUtc > plot0 ? dayUtc : plot0);
+        if (dayUtc > plot0) {
+          gfx->drawFastVLine(dx, (int16_t)(y + 1), (int16_t)(plotH - 2), grid);
+        }
+        time_t tt = (time_t)localMidnight;
+        struct tm parts;
+        gmtime_r(&tt, &parts);
         drawTextAt(WD[parts.tm_wday], (int16_t)(dx + 2), axisY, 1, COL_DIM);
-      } else {
+        labeled++;
+      }
+    } else {
+      // Hour ticks — local clock via tz on the unix stamp.
+      const uint32_t localP0 = (uint32_t)((int64_t)plot0 + tz);
+      uint32_t localHour = localP0 - (localP0 % 3600u);
+      if (localHour < localP0) localHour += 3600u;
+      uint8_t labeled = 0;
+      for (; labeled < 12; labeled++) {
+        const uint32_t hourUtc = (uint32_t)((int64_t)localHour - tz);
+        if (hourUtc >= plot1) break;
+        const int16_t dx = px(hourUtc);
+        if (hourUtc > plot0) {
+          gfx->drawFastVLine(dx, (int16_t)(y + 1), (int16_t)(plotH - 2), grid);
+        }
         char label[8];
-        snprintf(label, sizeof label, "%d", parts.tm_mday);
+        snprintf(label, sizeof label, "%02u:%02u",
+                 (unsigned)((localHour / 3600u) % 24u), 0u);
         drawTextAt(label, (int16_t)(dx + 2), axisY, 1, COL_DIM);
+        localHour += 3600u;
       }
     }
   }
 
-  // Budget line, dashed so the solid actual curve still reads as the subject.
-  const uint16_t budget = dimToward(COL_WHITE, COL_BG, 0.55f);
-  for (int16_t i = 0; i < w; i += 6) {
-    const int16_t i2 = (int16_t)((i + 3 < w) ? i + 3 : w - 1);
-    const int16_t ya = (int16_t)(y + (int32_t)i * (plotH - 1) / (w - 1));
-    const int16_t yb = (int16_t)(y + (int32_t)i2 * (plotH - 1) / (w - 1));
-    gfx->drawLine((int16_t)(x + i), ya, (int16_t)(x + i2), yb, budget);
-    if (ya + 1 <= y + plotH - 1) {
-      gfx->drawLine((int16_t)(x + i), (int16_t)(ya + 1),
-                    (int16_t)(x + i2), (int16_t)(yb + 1), budget);
+  // Budget line across the visible plot (full-window %).
+  {
+    const uint16_t budget = dimToward(COL_WHITE, COL_BG, 0.55f);
+    const uint32_t b0 = plot0 > win0 ? plot0 : win0;
+    const uint32_t b1 = plot1 < win1 ? plot1 : win1;
+    if (b1 > b0) {
+      const int16_t x0 = px(b0), y0 = py(budgetR(b0));
+      const int16_t x1 = px(b1), y1 = py(budgetR(b1));
+      const int16_t steps = (int16_t)(x1 - x0);
+      for (int16_t i = 0; i < steps; i += 6) {
+        const int16_t i2 = (int16_t)((i + 3 < steps) ? i + 3 : steps);
+        const int16_t ya =
+            (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
+        const int16_t yb =
+            (int16_t)(y0 + (int32_t)(y1 - y0) * i2 / (steps ? steps : 1));
+        gfx->drawLine((int16_t)(x0 + i), ya, (int16_t)(x0 + i2), yb, budget);
+        if (ya + 1 <= y + plotH - 1) {
+          gfx->drawLine((int16_t)(x0 + i), (int16_t)(ya + 1),
+                        (int16_t)(x0 + i2), (int16_t)(yb + 1), budget);
+        }
+      }
     }
   }
 
@@ -2041,10 +2158,11 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
   const int16_t chartW = span;
 
   if (ready == 0 || chartH < 40) {
-    drawTextAt(LABEL_COLLECTING_HISTORY, chartX + 8,
-               chartY + (chartH > 0 ? chartH / 2 : 8), 2, COL_DIM);
+    drawCollectingHistory(chartX + 8,
+                          chartY + (chartH > 0 ? chartH / 2 : 8), chartW);
     return;
   }
+  collectSpinActive = false;
 
   // Fixed local calendar week: today−3 … today+4. Resets inside still paint;
   // farther ones stay off-canvas so history isn't compressed (matches
@@ -2455,6 +2573,9 @@ static void drawLocalPage() {
 }
 
 static void drawDashboard() {
+  // Full redraws own the panel; the spinner tick only resumes if a collecting
+  // empty-state paints again below.
+  collectSpinActive = false;
   if (page != PAGE_GLANCE) glanceClearHits();
   if (page == PAGE_GLANCE) drawGlancePage();
   else if (page == PAGE_VERCEL) drawVercelPage();
@@ -2667,6 +2788,9 @@ static uint8_t fetchFails = 0;
 static const uint8_t FETCH_BACKOFF_MAX = 8;   // POLL_INTERVAL_S * 8 ceiling
 
 static uint32_t pollIntervalMs() {
+  // A successful-but-empty first payload after host restart used to park here
+  // for a full POLL_INTERVAL_S with "Collecting history" frozen on screen.
+  if (haveData && !burnHistoryReady()) return BURN_WARMUP_POLL_MS;
   uint32_t mult = fetchFails < FETCH_BACKOFF_MAX ? fetchFails : FETCH_BACKOFF_MAX;
   if (mult == 0) mult = 1;
   return (uint32_t)POLL_INTERVAL_S * 1000u * mult;
@@ -2867,6 +2991,11 @@ void setup() {
     int16_t hostY = bootY;
     bootProgress("LINK", 0);
     bool ok = fetchUsageUsb(USB_TIMEOUT_SYNC_MS);
+    for (uint8_t i = 0; ok && !burnHistoryReady() && i < 8; i++) {
+      bootProgress("BURN", i);
+      delay(400);
+      ok = fetchUsageUsb(USB_TIMEOUT_SYNC_MS);
+    }
     bootY = hostY;
 
     if (ok) {
@@ -2875,7 +3004,7 @@ void setup() {
       bootLine("WIFI", "PENDING", COL_CRT_DIM);
       bootLine("HOST", "USB", COL_CRT_DIM);
       bootLine("LINK", "USB", COL_CRT);
-      bootLine("USAGE", "OK", COL_CRT);
+      bootLine("USAGE", burnHistoryReady() ? "OK" : "WARM", COL_CRT);
       bootLine("READY", "GO", COL_CRT);
       delay(320);
       drawDashboard();
@@ -2921,6 +3050,13 @@ void setup() {
       hostY = bootY;
       bootProgress("LINK", 0);
       ok = fetchUsage(USB_TIMEOUT_SYNC_MS);
+      // Host's first publish after restart often has meters but no burndown
+      // pts yet. Pull a few more times before parking on "Collecting history".
+      for (uint8_t i = 0; ok && !burnHistoryReady() && i < 8; i++) {
+        bootProgress("BURN", i);
+        delay(400);
+        ok = fetchUsage(USB_TIMEOUT_SYNC_MS);
+      }
       bootY = hostY;
       const char *linkLabel = ok
           ? (resolvedHost.length() ? resolvedHost.c_str() : "USB")
@@ -2928,11 +3064,12 @@ void setup() {
       bootLine("LINK", linkLabel, ok ? COL_CRT : COL_RED);
 
       if (ok) {
-        Serial.printf("host=%s  fetch ok  claude=%d codex=%d cursor=%d vercel=%d git=%d local=%d\n",
+        Serial.printf("host=%s  fetch ok  burn=%d claude=%d codex=%d cursor=%d vercel=%d git=%d local=%d\n",
                       resolvedHost.length() ? resolvedHost.c_str() : "usb",
+                      (int)burnHistoryReady(),
                       (int)claudeQ.ok, (int)codexQ.ok,
                       (int)cursorQ.ok, (int)vercelOk, (int)gitOk, (int)localOk);
-        bootLine("USAGE", "OK", COL_CRT);
+        bootLine("USAGE", burnHistoryReady() ? "OK" : "WARM", COL_CRT);
         bootLine("READY", "GO", COL_CRT);
         delay(320);
         drawDashboard();
@@ -2981,6 +3118,9 @@ void loop() {
       otaBegin();
     }
   }
+
+  // Animate the collecting-history spinner between polls (partial flush).
+  if (!touchDown) tickCollectingSpinner();
 
   // Background poll — skip while finger is down.
   if (!touchDown && millis() - lastPoll >= pollIntervalMs()) {
