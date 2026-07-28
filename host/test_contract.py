@@ -34,11 +34,24 @@ def _demo_doc():
         return json.load(handle)
 
 
+# Matched loosely on the name alone: how the builder returns the filter is the
+# board's business, and pinning the whole signature turned a refactor there into
+# a ValueError here instead of the contract check it exists to run.
+FILTER_BUILDER_RE = re.compile(r"^static\b[^\n]*\busageFilter\w*\s*\(", re.M)
+
+
 def _firmware_filter_paths():
-    """Key paths from usageFilter() in main.cpp, e.g. ('vercel', 'deployments')."""
+    """Key paths from the usageFilter builder in main.cpp, e.g. ('vercel', 'deployments')."""
     with open(FIRMWARE_PATH) as handle:
         source = handle.read()
-    start = source.index("static JsonDocument usageFilter()")
+    match = FILTER_BUILDER_RE.search(source)
+    if not match:
+        raise AssertionError(
+            "no usageFilter* builder in firmware/src/main.cpp — it was renamed "
+            "or removed; point FILTER_BUILDER_RE at the real one so this "
+            "contract keeps checking something"
+        )
+    start = match.start()
     end = source.index("\n}", start)
     body = source[start:end]
 
@@ -55,6 +68,11 @@ def _firmware_filter_paths():
     for match in re.finditer(r'for \(const char \*key : \{(.+?)\}\)', body, re.S):
         for key in re.findall(r'"([^"]+)"', match.group(1)):
             paths.add((key,))
+    if not paths:
+        raise AssertionError(
+            "parsed zero keys out of the usageFilter builder — the assignment "
+            "style changed, and an empty set would pass this contract silently"
+        )
     return paths
 
 
