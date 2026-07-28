@@ -78,6 +78,20 @@ struct ProviderQuotaCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            if let credits = meter.resetCreditsLabel {
+                HStack {
+                    Text(credits)
+                    Spacer()
+                    if let expiry = meter.resetCreditsExpiryLabel {
+                        Text(expiry)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
             if let cost = meter.costLabel {
                 Text(cost)
                     .font(.caption)

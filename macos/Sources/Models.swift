@@ -194,6 +194,8 @@ struct UsageSnapshot: Decodable, Sendable {
                 ),
                 paceLabel: codex?.paceLabel,
                 runsOutIn: codex?.runsOutIn,
+                resetCreditsLabel: codex?.resetCreditsLabel,
+                resetCreditsExpiryLabel: codex?.resetCreditsExpiryLabel,
                 costLabel: codex?.costLabel
             )
         case .cursor:
@@ -350,6 +352,10 @@ struct ProviderMeter: Sendable {
     var tertiary: MeterWindow?
     var paceLabel: String?
     var runsOutIn: String?
+    /// Codex limit-reset credit inventory, e.g. "2 reset credits".
+    var resetCreditsLabel: String?
+    /// Joined expiry countdowns for those credits, e.g. "6d 5h · 18d 3h".
+    var resetCreditsExpiryLabel: String?
     var costLabel: String?
 
     init(
@@ -362,6 +368,8 @@ struct ProviderMeter: Sendable {
         tertiary: MeterWindow? = nil,
         paceLabel: String? = nil,
         runsOutIn: String? = nil,
+        resetCreditsLabel: String? = nil,
+        resetCreditsExpiryLabel: String? = nil,
         costLabel: String? = nil
     ) {
         self.provider = provider
@@ -373,6 +381,8 @@ struct ProviderMeter: Sendable {
         self.tertiary = tertiary
         self.paceLabel = paceLabel
         self.runsOutIn = runsOutIn
+        self.resetCreditsLabel = resetCreditsLabel
+        self.resetCreditsExpiryLabel = resetCreditsExpiryLabel
         self.costLabel = costLabel
     }
 
@@ -479,10 +489,24 @@ struct CodexUsage: Decodable, Sendable {
     var paceLabel: String?
     var runsOutIn: String?
     var resetCreditsAvailable: Int?
+    var resetCreditsExpiries: [String]?
     var costUSD: Double?
     var costLimitUSD: Double?
     var costLabel: String?
     var costReached: Bool?
+
+    /// Matches the ESP32 line: "N reset credits". Nil when the host omitted the field.
+    var resetCreditsLabel: String? {
+        guard let available = resetCreditsAvailable else { return nil }
+        return "\(available) reset credits"
+    }
+
+    /// Expiry countdowns joined the same way the board does (" · ").
+    var resetCreditsExpiryLabel: String? {
+        let parts = (resetCreditsExpiries ?? []).filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
 
     enum CodingKeys: String, CodingKey {
         case ok, plan, error
@@ -495,6 +519,7 @@ struct CodexUsage: Decodable, Sendable {
         case paceLabel = "pace_label"
         case runsOutIn = "runs_out_in"
         case resetCreditsAvailable = "reset_credits_available"
+        case resetCreditsExpiries = "reset_credits_expiries"
         case costUSD = "cost_usd"
         case costLimitUSD = "cost_limit_usd"
         case costLabel = "cost_label"

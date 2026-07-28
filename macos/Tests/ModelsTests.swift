@@ -30,6 +30,8 @@ final class ModelsTests: XCTestCase {
             "week_pct": 72.0,
             "week_pace_pct": 55.0,
             "week_resets_in": "3d",
+            "reset_credits_available": 2,
+            "reset_credits_expiries": ["6d 5h", "18d 3h"],
             "cost_usd": 120.5,
             "cost_limit_usd": 500.0,
             "cost_label": "$120 / $500"
@@ -150,8 +152,17 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.byDay?.last?.total, 5.75)
         XCTAssertEqual(value.byDay?.last?.burn(for: .claude), 3.5)
         XCTAssertEqual(value.codex?.costLabel, "$120 / $500")
+        XCTAssertEqual(value.codex?.resetCreditsAvailable, 2)
+        XCTAssertEqual(value.codex?.resetCreditsExpiries, ["6d 5h", "18d 3h"])
+        XCTAssertEqual(value.meter(for: .codex).resetCreditsLabel, "2 reset credits")
+        XCTAssertEqual(
+            value.meter(for: .codex).resetCreditsExpiryLabel,
+            "6d 5h · 18d 3h"
+        )
         XCTAssertEqual(value.cursor?.costLabel, "$15 / $20")
         XCTAssertEqual(value.meter(for: .claude).costLabel, "$4 today")
+        XCTAssertNil(value.meter(for: .claude).resetCreditsLabel)
+        XCTAssertNil(value.meter(for: .cursor).resetCreditsLabel)
         XCTAssertEqual(value.attention?.level, "warn")
         XCTAssertEqual(value.attention?.summary, "1 Supabase alert")
         XCTAssertTrue(value.attention?.isWarning == true)

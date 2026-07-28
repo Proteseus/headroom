@@ -64,6 +64,18 @@ final class ContractTests: XCTestCase {
         }
     }
 
+    func testCodexResetCreditsSurfaceOnTheMeter() throws {
+        let snapshot = try decodeDemo()
+        XCTAssertEqual(snapshot.codex?.resetCreditsAvailable, 2)
+        XCTAssertEqual(
+            snapshot.codex?.resetCreditsExpiries,
+            ["6d 5h", "18d 3h"]
+        )
+        let meter = snapshot.meter(for: .codex)
+        XCTAssertEqual(meter.resetCreditsLabel, "2 reset credits")
+        XCTAssertEqual(meter.resetCreditsExpiryLabel, "6d 5h · 18d 3h")
+    }
+
     func testSourcesCarryTheFieldsSettingsRenders() throws {
         let snapshot = try decodeDemo()
         let sources = try XCTUnwrap(snapshot.sources)
