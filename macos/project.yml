@@ -121,9 +121,12 @@ targets:
       - path: ../Shared/WidgetSnapshot.swift
       - path: ../Shared/HeadroomRings.swift
       - path: ../Shared/HeadroomCopy.swift
-      # Palette only — it is deliberately free of the model layer so the
-      # widget can tint rings without compiling HeadroomModels.swift.
+      # Palette and chart geometry only — all three are deliberately free of
+      # the model layer so the widget can tint rings and draw the combined
+      # burndown without compiling HeadroomModels.swift.
       - path: ../Shared/HeadroomPalette.swift
+      - path: ../Shared/BurndownChartMath.swift
+      - path: ../Shared/BurndownChartCanvas.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.widget

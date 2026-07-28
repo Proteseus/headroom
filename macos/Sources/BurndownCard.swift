@@ -74,23 +74,11 @@ struct OverviewBurndownCard: View {
         let renewsAt: Double?
     }
 
-    /// One pool per provider: longest window for Claude/Codex, Total for Cursor.
-    /// Cursor's API pool stays on the Cursor detail chart — four lines here is
-    /// more than the overview can usefully carry.
+    /// One pool per provider — `UsageSnapshot.overviewBurndown` makes that
+    /// pick, so the phone and the widget draw the same line.
     private var series: [Series] {
         snapshot.visibleQuotaProviders.compactMap { provider in
-            let pools = snapshot.burndownRings(forProviderID: provider.id)
-            let pool: Burndown?
-            if provider.id == UsageProvider.cursor.rawValue {
-                pool = pools.first(where: { $0.pool == "total" })
-                    ?? pools.max(by: {
-                        ($0.windowS ?? 0) < ($1.windowS ?? 0)
-                    })
-            } else {
-                pool = pools.max(by: {
-                    ($0.windowS ?? 0) < ($1.windowS ?? 0)
-                })
-            }
+            let pool = snapshot.overviewBurndown(forProviderID: provider.id)
             guard let pool, !(pool.actual ?? []).isEmpty else { return nil }
             return Series(
                 id: provider.id,
@@ -684,135 +672,6 @@ struct MultiBurndownCanvas: View {
                 )
             }
         }
-    }
-}
-
-// MARK: - Shared chart furniture
-//
-// Day/hour marks come from BurndownChartAxis so Mac, iOS and ESP32 agree:
-// ≤7 weekday-named columns, never day-of-month numbers, hours for sessions.
-
-/// Room for the "100%" scale labels.
-private let burndownGutter: CGFloat = 30
-/// Band under the plot holding the weekday / hour labels.
-private let burndownAxisHeight: CGFloat = 16
-/// Slack above and below the plot so the 100% and 0% labels, which sit centred
-/// on the outermost grid lines, are not clipped by the canvas edge.
-private let burndownEdgeInset: CGFloat = 7
-
-/// Where the series actually gets drawn inside a canvas of `size`.
-private func burndownPlotRect(in size: CGSize, axis: Bool) -> CGRect {
-    let reserved = burndownEdgeInset * 2 + (axis ? burndownAxisHeight : 0)
-    return CGRect(
-        x: burndownGutter,
-        y: burndownEdgeInset,
-        width: max(0, size.width - burndownGutter),
-        height: max(0, size.height - reserved)
-    )
-}
-
-/// Reference lines at empty, half and full, labelled in the gutter. Three is
-/// as many as a chart this short carries before the grid starts competing with
-/// the data it is there to measure.
-private func drawBurndownScale(_ context: inout GraphicsContext, plot: CGRect) {
-    for percent in [100.0, 50.0, 0.0] {
-        let lineY = plot.maxY - CGFloat(percent / 100) * plot.height
-        let isHalf = percent == 50
-        var line = Path()
-        line.move(to: CGPoint(x: plot.minX, y: lineY))
-        line.addLine(to: CGPoint(x: plot.maxX, y: lineY))
-        context.stroke(
-            line,
-            with: .color(.secondary.opacity(isHalf ? 0.12 : 0.22)),
-            style: StrokeStyle(lineWidth: 1, dash: isHalf ? [2, 3] : [])
-        )
-        context.draw(
-            Text("\(Int(percent))%")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color.secondary.opacity(0.7)),
-            at: CGPoint(x: plot.minX - 5, y: lineY),
-            anchor: .trailing
-        )
-    }
-}
-
-/// Day boundaries as vertical rules, labelled with weekday names (≤7).
-private func drawBurndownCalendar(
-    _ context: inout GraphicsContext,
-    plot: CGRect,
-    start: Double,
-    end: Double,
-    now: Double
-) {
-    let columns = BurndownChartAxis.dayColumns(
-        start: Date(timeIntervalSince1970: start),
-        end: Date(timeIntervalSince1970: end)
-    )
-    guard !columns.isEmpty, plot.width > 0, end > start else { return }
-
-    func x(_ time: Double) -> CGFloat {
-        plot.minX + CGFloat((time - start) / (end - start)) * plot.width
-    }
-
-    let labelY = plot.maxY + burndownEdgeInset + burndownAxisHeight / 2
-
-    for column in columns {
-        let from = column.start.timeIntervalSince1970
-        if from > start {
-            var rule = Path()
-            rule.move(to: CGPoint(x: x(from), y: plot.minY))
-            rule.addLine(to: CGPoint(x: x(from), y: plot.maxY))
-            context.stroke(
-                rule, with: .color(.secondary.opacity(0.14)), lineWidth: 1)
-        }
-
-        // Centred in the band, so a part-day column keeps its name.
-        context.draw(
-            Text(column.mid.formatted(.dateTime.weekday(.abbreviated)))
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(
-                    Color.secondary.opacity(from <= now ? 1 : 0.55)
-                ),
-            at: CGPoint(x: x(column.mid.timeIntervalSince1970), y: labelY),
-            anchor: .center
-        )
-    }
-}
-
-/// Hour ticks for session-scale windows so the axis is never blank.
-private func drawBurndownHours(
-    _ context: inout GraphicsContext,
-    plot: CGRect,
-    start: Double,
-    end: Double
-) {
-    let hours = BurndownChartAxis.hourMarks(
-        start: Date(timeIntervalSince1970: start),
-        end: Date(timeIntervalSince1970: end)
-    )
-    guard !hours.isEmpty, plot.width > 0, end > start else { return }
-
-    func x(_ time: Double) -> CGFloat {
-        plot.minX + CGFloat((time - start) / (end - start)) * plot.width
-    }
-
-    let labelY = plot.maxY + burndownEdgeInset + burndownAxisHeight / 2
-    for hour in hours {
-        let t = hour.timeIntervalSince1970
-        if t > start {
-            var rule = Path()
-            rule.move(to: CGPoint(x: x(t), y: plot.minY))
-            rule.addLine(to: CGPoint(x: x(t), y: plot.maxY))
-            context.stroke(
-                rule, with: .color(.secondary.opacity(0.14)), lineWidth: 1)
-        }
-        context.draw(
-            Text(hour.formatted(.dateTime.hour().minute()))
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color.secondary),
-            at: CGPoint(x: x(t) + 3, y: labelY),
-            anchor: .leading
-        )
     }
 }
 
