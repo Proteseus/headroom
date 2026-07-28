@@ -10,6 +10,7 @@
 
 #include <Arduino.h>
 #include <string.h>
+#include <time.h>
 #include <Wire.h>
 #include <WiFi.h>
 #include <WiFiMulti.h>
@@ -262,7 +263,7 @@ struct ProviderQuota {
   String paceLabel;          // e.g. "50% in deficit"
   String runsOutIn;          // e.g. "3h 14m"
   int resetCredits = -1;     // -1 = unknown / N/A
-  String resetCreditExpiries; // "10d 7h · 22d 4h"
+  String resetCreditExpiries; // "10d 7h - 22d 4h"
   String onDemand;           // Cursor: "$30 / $30 on-demand"
 };
 
@@ -689,6 +690,9 @@ static bool requestSyncRefresh() {
   return requestSyncRefreshUsb();
 }
 
+// Forward decl — applyUsageDoc folds host middots before the helper's body.
+static String boardAscii(const char *s);
+
 // Only these keys survive deserialization. The host's ?view=device projection
 // already drops the rest, but the filter also protects the board if it is
 // pointed at an older host still serving the full ~30KB document.
@@ -769,7 +773,7 @@ static bool applyUsageDoc(JsonDocument &doc) {
       for (JsonVariant v : ex) {
         const char *s = v.as<const char *>();
         if (!s || !s[0]) continue;
-        if (codexQ.resetCreditExpiries.length()) codexQ.resetCreditExpiries += " · ";
+        if (codexQ.resetCreditExpiries.length()) codexQ.resetCreditExpiries += " - ";
         codexQ.resetCreditExpiries += s;
       }
     }
@@ -820,7 +824,7 @@ static bool applyUsageDoc(JsonDocument &doc) {
       if (out.t1 <= out.t0) continue;
       out.warn = b["warn"] | false;
       out.estimated = b["est"] | false;
-      out.verdict = (const char *)(b["verdict"] | "");
+      out.verdict = boardAscii((const char *)(b["verdict"] | ""));
       out.exhausted =
           strcmp((const char *)(b["status"] | ""), "exhausted") == 0;
       JsonArray pts = b["pts"].as<JsonArray>();
@@ -1288,6 +1292,47 @@ static void drawQuotaRowCompact(const char *title, float pct, float pace,
   }
 }
 
+// glcdfont is ASCII-only. Host copy uses middot (U+00B7 = UTF-8 C2 B7) which
+// otherwise paints as two garbage glyphs — "On track XX 15%". device_view
+// already substitutes, but older hosts and firmware-built strings still need
+// this pass.
+static String boardAscii(const char *s) {
+  String out;
+  if (!s || !s[0]) return out;
+  out.reserve(strlen(s));
+  while (*s) {
+    const unsigned char c = (unsigned char)*s;
+    if (c < 0x80) {
+      out += (char)c;
+      s++;
+      continue;
+    }
+    // Middot · and the common dash codepoints → ASCII hyphen.
+    if (c == 0xC2 && (unsigned char)s[1] == 0xB7) {  // U+00B7
+      out += '-';
+      s += 2;
+      continue;
+    }
+    if (c == 0xE2 && (unsigned char)s[1] == 0x80 &&
+        ((unsigned char)s[2] == 0x93 || (unsigned char)s[2] == 0x94)) {
+      // U+2013 en-dash / U+2014 em-dash
+      out += '-';
+      s += 3;
+      continue;
+    }
+    // Skip any other multi-byte sequence so we don't emit continuation bytes.
+    if ((c & 0xE0) == 0xC0 && s[1]) { s += 2; out += '-'; continue; }
+    if ((c & 0xF0) == 0xE0 && s[1] && s[2]) { s += 3; out += '-'; continue; }
+    if ((c & 0xF8) == 0xF0 && s[1] && s[2] && s[3]) {
+      s += 4;
+      out += '-';
+      continue;
+    }
+    s++;
+  }
+  return out;
+}
+
 static String truncFit(const String &s, int16_t maxW, uint8_t size) {
   // Ellipsize so a line fits in maxW pixels at the given text size.
   gfx->setTextSize(size);
@@ -1511,18 +1556,29 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
   gfx->print(label);
 }
 
+// Host `updated` ends in ±HHMM — needed before drawBurndown for local day rules.
+static int32_t updatedTzOffsetS();
+
 // Burndown chart: dotted budget line falling from full at the window's start
 // to zero at its reset, the actual remaining-% curve over it, and a lightly
 // dashed accent tail for where the current pace lands. Below the budget line
-// means burning faster than the window can afford.
+// means burning faster than the window can afford. Windows ≥2 days also get
+// local midnight rules + weekday names (same furniture as Mac/iOS provider
+// cards and the home overall chart).
 static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                          int16_t w, int16_t h, uint16_t accent) {
+  // Reserve a label band under the plot when the window spans real days.
+  const bool showDays =
+      b.ok && b.t1 > b.t0 && (b.t1 - b.t0) >= 2u * 86400u && h >= 48;
+  const int16_t axisH = showDays ? 12 : 0;
+  const int16_t plotH = (int16_t)(h - axisH);
+
   const uint16_t track = dimToward(accent, COL_BG, 0.45f);
-  gfx->drawRect(x, y, w, h, track);
+  gfx->drawRect(x, y, w, plotH, track);
   if (!b.ok || b.t1 <= b.t0) {
     // LABEL_COLLECTING_HISTORY is ~216px at size 2 — it doesn't fit a home column.
     drawTextAt(w >= 232 ? LABEL_COLLECTING_HISTORY : LABEL_NO_DATA,
-               x + 8, y + h / 2 - 8, 2, COL_DIM);
+               x + 8, y + plotH / 2 - 8, 2, COL_DIM);
     return;
   }
 
@@ -1534,7 +1590,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   };
   auto py = [&](float remaining) -> int16_t {
     float r = remaining < 0 ? 0 : (remaining > 100 ? 100 : remaining);
-    return (int16_t)(y + h - 1 - (int16_t)(r * (h - 1) / 100.0f));
+    return (int16_t)(y + plotH - 1 - (int16_t)(r * (plotH - 1) / 100.0f));
   };
 
   // A 1px run vanishes on a 122px home chart at desk distance, so every stroke
@@ -1544,19 +1600,56 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                     uint16_t col) {
     for (int16_t d = -1; d <= 1; d++) {
       const int16_t a = (int16_t)(ay + d), c = (int16_t)(by + d);
-      if (a < y || a > y + h - 1 || c < y || c > y + h - 1) continue;
+      if (a < y || a > y + plotH - 1 || c < y || c > y + plotH - 1) continue;
       gfx->drawLine(ax, a, bx, c, col);
     }
   };
+
+  // Day boundaries as vertical rules + weekday (or date) labels — mirrors
+  // Mac drawBurndownCalendar / home drawGlanceBurndown. Skip the first edge
+  // rule (it would sit on the left border). Dense monthly windows drop to
+  // one mark a week so the grid stays readable.
+  if (showDays) {
+    const int32_t tz = updatedTzOffsetS();
+    const uint32_t localT0 = (uint32_t)((int64_t)b.t0 + tz);
+    const uint32_t localDay0 = localT0 - (localT0 % 86400u);
+    const uint8_t dayCount =
+        (uint8_t)((span + 86400u - 1u) / 86400u);
+    const bool daily = dayCount > 0 && (w / (int16_t)dayCount) >= 22;
+    const uint8_t step = daily ? 1 : 7;
+    const uint16_t grid = dimToward(COL_WHITE, COL_BG, 0.22f);
+    static const char *const WD[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    const int16_t axisY = (int16_t)(y + plotH + 2);
+    for (uint16_t d = 0; d < 62; d = (uint16_t)(d + step)) {
+      const uint32_t localMidnight = localDay0 + (uint32_t)d * 86400u;
+      const uint32_t dayUtc = (uint32_t)((int64_t)localMidnight - tz);
+      if (dayUtc >= b.t1) break;
+      const int16_t dx = px(dayUtc);
+      if (dayUtc > b.t0) {
+        gfx->drawFastVLine(dx, (int16_t)(y + 1), (int16_t)(plotH - 2), grid);
+      }
+      time_t tt = (time_t)localMidnight;
+      struct tm parts;
+      gmtime_r(&tt, &parts);
+      if (daily) {
+        drawTextAt(WD[parts.tm_wday], (int16_t)(dx + 2), axisY, 1, COL_DIM);
+      } else {
+        char label[8];
+        snprintf(label, sizeof label, "%d", parts.tm_mday);
+        drawTextAt(label, (int16_t)(dx + 2), axisY, 1, COL_DIM);
+      }
+    }
+  }
 
   // Budget line, dashed so the solid actual curve still reads as the subject.
   const uint16_t budget = dimToward(COL_WHITE, COL_BG, 0.55f);
   for (int16_t i = 0; i < w; i += 6) {
     const int16_t i2 = (int16_t)((i + 3 < w) ? i + 3 : w - 1);
-    const int16_t ya = (int16_t)(y + (int32_t)i * (h - 1) / (w - 1));
-    const int16_t yb = (int16_t)(y + (int32_t)i2 * (h - 1) / (w - 1));
+    const int16_t ya = (int16_t)(y + (int32_t)i * (plotH - 1) / (w - 1));
+    const int16_t yb = (int16_t)(y + (int32_t)i2 * (plotH - 1) / (w - 1));
     gfx->drawLine((int16_t)(x + i), ya, (int16_t)(x + i2), yb, budget);
-    if (ya + 1 <= y + h - 1) {
+    if (ya + 1 <= y + plotH - 1) {
       gfx->drawLine((int16_t)(x + i), (int16_t)(ya + 1),
                     (int16_t)(x + i2), (int16_t)(yb + 1), budget);
     }
@@ -1855,30 +1948,52 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
   }
 
   if (b.projN == 2) {
-    const float dR = b.projR[1] - b.projR[0];
+    uint32_t p0t = b.projT[0], p1t = b.projT[1];
+    float p0r = b.projR[0], p1r = b.projR[1];
+    // Crop at held reset — same as Mac/iOS OverallBurndownChartMath.
+    if (b.t1 > 0 && p1t > b.t1 && p1t > p0t) {
+      const float u = (float)(b.t1 - p0t) / (float)(p1t - p0t);
+      p1r = p0r + u * (p1r - p0r);
+      p1t = b.t1;
+    }
+    if (p0r < 0) p0r = 0;
+    if (p1r < 0) p1r = 0;
+    const float dR = p1r - p0r;
     if (dR < -0.5f || dR > 0.5f || b.warn) {
       uint32_t ta, tb; float ra, rb;
-      if (clipBurnSeg(b.projT[0], b.projR[0], b.projT[1], b.projR[1],
-                      tLo, tHi, &ta, &ra, &tb, &rb)) {
+      if (clipBurnSeg(p0t, p0r, p1t, p1r, tLo, tHi, &ta, &ra, &tb, &rb)) {
         const int16_t x0 = px(ta), y0 = py(ra);
         const int16_t x1 = px(tb), y1 = py(rb);
-        if (dR < -0.5f || dR > 0.5f) {
-          const int16_t steps = (int16_t)(x1 - x0);
-          const int16_t stride = 8;
-          const int16_t dash = 6;
+        // 6 on / 2 off along X — same pattern Mac/iOS use for projections.
+        const int16_t steps = (int16_t)(x1 - x0);
+        const int16_t stride = 8;
+        const int16_t dash = 6;
+        if (steps > 0 && (dR < -0.5f || dR > 0.5f)) {
           for (int16_t i = 0; i < steps; i += stride) {
             const int16_t ax = (int16_t)(x0 + i);
             const int16_t ay =
-                (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-            const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
+                (int16_t)(y0 + (int32_t)(y1 - y0) * i / steps);
+            const int16_t seg =
+                (i + dash > steps) ? (int16_t)(steps - i) : dash;
             stroke(ax, ay, (int16_t)(ax + seg),
-                   (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
-                             (steps ? steps : 1)),
+                   (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) / steps),
                    line);
           }
         }
-        if (b.warn && tb == b.projT[1]) gfx->fillCircle(x1, y1, 3, line);
+        if (tb == p1t) {
+          const int16_t r = (b.warn && p1r <= 0.5f) ? 3 : 2;
+          gfx->fillCircle(x1, y1, r, line);
+        }
       }
+    }
+  }
+
+  // Accent dotted reset at t1 when it falls inside the shared domain.
+  if (b.t1 > tLo && b.t1 < tHi) {
+    const int16_t rx = px(b.t1);
+    for (int16_t yy = (int16_t)(y + 1); yy < (int16_t)(y + h - 1); yy += 4) {
+      const int16_t seg = (yy + 2 < y + h - 1) ? 2 : 1;
+      gfx->drawFastVLine(rx, yy, seg, accent);
     }
   }
 
@@ -1931,7 +2046,9 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
     return;
   }
 
-  // Local calendar week: today−3 … today+4, matching OverviewBurndownCard.
+  // Fixed local calendar week: today−3 … today+4. Resets inside still paint;
+  // farther ones stay off-canvas so history isn't compressed (matches
+  // OverallBurndownChartMath on Mac/iOS).
   const int32_t tz = updatedTzOffsetS();
   const uint32_t localNow = (uint32_t)((int64_t)nowT + tz);
   const uint32_t localDay = localNow - (localNow % 86400u);
@@ -1953,8 +2070,13 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
   // Unix day 0 = Thu → (days + 4) % 7 = Sun..Sat.
   const int startWd = (int)(((localDay / 86400u) + 4u) % 7u);
   const int16_t axisY = (int16_t)(chartY + chartH + 2);
-  for (uint8_t d = 0; d < 7; d++) {
+  const uint32_t daySpan = (tHi > tLo) ? (tHi - tLo) : 1u;
+  const uint8_t dayCount =
+      (uint8_t)((daySpan + 86400u - 1u) / 86400u);
+  const uint8_t daysToLabel = dayCount > 14 ? 14 : dayCount;
+  for (uint8_t d = 0; d < daysToLabel; d++) {
     const uint32_t dayT = tLo + (uint32_t)d * 86400u;
+    if (dayT > tHi) break;
     const int16_t dx =
         (int16_t)(chartX +
                   (int32_t)((uint64_t)(dayT - tLo) * (chartW - 1) / (tHi - tLo)));
@@ -2221,8 +2343,8 @@ static void drawVercelPage() {
       drawRightAt(right.c_str(), W - padX, rowY, 2, COL_DIM);
 
       String sub = r.status;
-      if (r.target.length()) sub += " · " + r.target;
-      else if (r.branch.length()) sub += " · " + r.branch;
+      if (r.target.length()) sub += " - " + r.target;
+      else if (r.branch.length()) sub += " - " + r.branch;
       drawTextAt(truncFit(sub, W - padX * 2 - 20, 2),
                  padX + 18, rowY + 20, 2, COL_DIM);
 
