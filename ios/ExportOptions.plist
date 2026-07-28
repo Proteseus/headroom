@@ -6,19 +6,15 @@
 	<string>app-store-connect</string>
 	<key>destination</key>
 	<string>export</string>
+	<!-- Automatic, to match CODE_SIGN_STYLE in macos/project.yml. Manual export
+	     named two App Store profiles that only ever existed on the maintainer's
+	     Mac, so CI archived fine and then failed at export with "No iOS App
+	     Store profiles ... installed". With the ASC API key that build-ios.sh
+	     passes as -allowProvisioningUpdates, Xcode mints them on the runner. -->
 	<key>signingStyle</key>
-	<string>manual</string>
+	<string>automatic</string>
 	<key>teamID</key>
 	<string>992N457T8D</string>
-	<key>signingCertificate</key>
-	<string>Apple Distribution</string>
-	<key>provisioningProfiles</key>
-	<dict>
-		<key>com.centaur-labs.headroom</key>
-		<string>Headroom App Store</string>
-		<key>com.centaur-labs.headroom.widget</key>
-		<string>Headroom Widget App Store</string>
-	</dict>
 	<key>uploadSymbols</key>
 	<true/>
 	<key>manageAppVersionAndBuildNumber</key>

@@ -45,7 +45,7 @@ unattended. You do not need them:
 |---|---|---|
 | Team | `$HEADROOM_TEAM_ID` (992N457T8D) | `export HEADROOM_TEAM_ID=ABCDE12345` |
 | Bundle prefix | `com.centaur-labs` | edit `macos/project.yml` |
-| iOS profiles | `ios/ExportOptions.plist` | edit the names to match yours |
+| iOS profiles | minted by Xcode from `$HEADROOM_TEAM_ID` | nothing to edit |
 
 `scripts/build-app.sh` passes `CODE_SIGNING_ALLOWED=NO`, so a local Mac build
 touches none of this. Only notarized releases and TestFlight uploads do.
