@@ -26,8 +26,8 @@ struct MobileSettingsScreen: View {
                         )
                         .foregroundStyle(
                             store.mobilePermissions[permission]
-                                ? Color.green
-                                : Color.secondary
+                                ? AnyShapeStyle(HeadroomPalette.green)
+                                : AnyShapeStyle(.secondary)
                         )
                     }
                 }
@@ -85,7 +85,9 @@ struct MobileSettingsScreen: View {
                 Text(sourceStatus(source))
                     .font(.caption)
                     .foregroundStyle(
-                        source.ok == false ? Color.orange : Color.secondary
+                        source.ok == false
+                            ? AnyShapeStyle(HeadroomPalette.amber)
+                            : AnyShapeStyle(.secondary)
                     )
             }
             Spacer()

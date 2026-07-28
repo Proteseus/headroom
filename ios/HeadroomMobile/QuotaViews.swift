@@ -108,7 +108,7 @@ private struct ProviderSummaryRow: View {
                 if provider.ok == false, let error = provider.error {
                     Text(error)
                         .font(.caption2)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(HeadroomPalette.amber)
                         .lineLimit(2)
                 } else if let headline = provider.headline {
                     Text(headline)
@@ -143,7 +143,9 @@ private struct ProviderQuotaDetail: View {
                                 .foregroundStyle(.secondary)
                             Text(provider.ok == false ? HeadroomCopy.needsAttention : "Connected")
                                 .foregroundStyle(
-                                    provider.ok == false ? Color.orange : Color.green
+                                    provider.ok == false
+                                        ? HeadroomPalette.amber
+                                        : HeadroomPalette.green
                                 )
                         }
                         .font(.subheadline)
@@ -199,7 +201,45 @@ private struct BurndownChart: View {
     let pool: Burndown
     let tint: Color
 
+    private var axisDomain: BurndownChartAxis.Domain? {
+        guard let start = pool.windowStart, let end = pool.windowEnd else {
+            return nil
+        }
+        let now = (pool.actual ?? []).compactMap { pair -> Double? in
+            pair.count >= 2 ? pair[0] : nil
+        }.max() ?? Date().timeIntervalSince1970
+        return BurndownChartAxis.domain(
+            windowStart: start, windowEnd: end, now: now
+        )
+    }
+
     private var points: [BurndownPoint] {
+        guard let domain = axisDomain else {
+            return rawPoints(ideal: pool.ideal, actual: pool.actual,
+                             projected: pool.croppedProjected)
+        }
+        // Clip series to the (possibly 7-day-capped) plot domain so monthly
+        // pools don't smear past the weekday columns.
+        let ideal = OverallBurndownChartMath.clipPolyline(
+            pool.ideal ?? [],
+            start: domain.startEpoch, end: domain.endEpoch
+        )
+        let actual = OverallBurndownChartMath.clipPolyline(
+            pool.actual ?? [],
+            start: domain.startEpoch, end: domain.endEpoch
+        )
+        let projected = OverallBurndownChartMath.clipPolyline(
+            pool.croppedProjected,
+            start: domain.startEpoch, end: domain.endEpoch
+        )
+        return rawPoints(ideal: ideal, actual: actual, projected: projected)
+    }
+
+    private func rawPoints(
+        ideal: [[Double]]?,
+        actual: [[Double]]?,
+        projected: [[Double]]?
+    ) -> [BurndownPoint] {
         func rows(_ values: [[Double]]?, series: String) -> [BurndownPoint] {
             (values ?? []).enumerated().compactMap { index, pair in
                 guard pair.count >= 2 else { return nil }
@@ -211,35 +251,9 @@ private struct BurndownChart: View {
                 )
             }
         }
-        return rows(pool.ideal, series: "Budget")
-            + rows(pool.actual, series: "Actual")
-            + rows(pool.croppedProjected, series: "Projected")
-    }
-
-    /// Full pool window — same axis Mac's Canvas uses, not the sample span.
-    private var timeRange: ClosedRange<Date>? {
-        guard let start = pool.windowStart, let end = pool.windowEnd,
-              end > start else { return nil }
-        return Date(timeIntervalSince1970: start)
-            ... Date(timeIntervalSince1970: end)
-    }
-
-    /// Local midnights covered by the window (≥2 days), matching Mac.
-    private var dayMarks: [Date] {
-        guard let range = timeRange else { return [] }
-        let start = range.lowerBound.timeIntervalSince1970
-        let end = range.upperBound.timeIntervalSince1970
-        guard end - start >= 2 * 24 * 60 * 60 else { return [] }
-        let calendar = Calendar.current
-        var days: [Date] = []
-        var midnight = calendar.startOfDay(for: range.lowerBound)
-        while midnight.timeIntervalSince1970 < end {
-            days.append(midnight)
-            guard let next = calendar.date(byAdding: .day, value: 1, to: midnight)
-            else { break }
-            midnight = next
-        }
-        return days
+        return rows(ideal, series: "Budget")
+            + rows(actual, series: "Actual")
+            + rows(projected, series: "Projected")
     }
 
     var body: some View {
@@ -251,7 +265,9 @@ private struct BurndownChart: View {
                     Text(pool.headline ?? pool.resetsIn.map { "Resets \($0)" } ?? "")
                         .font(.caption)
                         .foregroundStyle(
-                            pool.inDeficit == true ? Color.orange : Color.secondary
+                            pool.inDeficit == true
+                                ? AnyShapeStyle(HeadroomPalette.amber)
+                                : AnyShapeStyle(.secondary)
                         )
                 }
                 Spacer()
@@ -266,18 +282,23 @@ private struct BurndownChart: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 24)
-            } else {
+            } else if let domain = axisDomain {
                 let nowDate = points
                     .filter { $0.series == "Actual" }
                     .map(\.date)
-                    .max() ?? .now
-                let days = dayMarks
-                // One mark per day when columns stay readable; otherwise weekly
-                // (Mac drawBurndownCalendar — month windows otherwise moiré).
-                let daily = days.count > 0 && days.count <= 14
-                let axisDates = days.enumerated()
-                    .filter { $0.offset % (daily ? 1 : 7) == 0 }
-                    .map(\.element)
+                    .max() ?? domain.end
+                // Names sit at band centres, rules at the midnights between
+                // them — a part-day column still gets its weekday.
+                let dayColumns = BurndownChartAxis.dayColumns(
+                    start: domain.start, end: domain.end
+                )
+                let dayLabels = dayColumns.map(\.mid)
+                let dayRules = BurndownChartAxis.dayGridLines(
+                    start: domain.start, end: domain.end
+                )
+                let hourDates = BurndownChartAxis.hourMarks(
+                    start: domain.start, end: domain.end
+                )
 
                 Chart(points) { point in
                     LineMark(
@@ -297,40 +318,36 @@ private struct BurndownChart: View {
                     "Actual": tint,
                     "Projected": tint.opacity(0.55),
                 ])
-                .chartXScale(domain: timeRange ?? nowDate...nowDate)
+                .chartXScale(domain: domain.start...domain.end)
                 .chartYScale(domain: 0...100)
                 .chartPlotStyle { $0.clipped() }
                 .chartXAxis {
-                    if axisDates.isEmpty {
-                        AxisMarks(values: .automatic) { _ in
+                    if domain.showsDayAxis {
+                        AxisMarks(values: dayRules) { _ in
                             AxisGridLine()
                         }
+                        AxisMarks(values: dayLabels) { value in
+                            AxisValueLabel {
+                                if let date = value.as(Date.self) {
+                                    Text(
+                                        date,
+                                        format: .dateTime.weekday(.abbreviated)
+                                    )
+                                    .foregroundStyle(
+                                        date <= nowDate
+                                            ? Color.secondary
+                                            : Color.secondary.opacity(0.55)
+                                    )
+                                }
+                            }
+                        }
                     } else {
-                        AxisMarks(values: axisDates) { value in
+                        AxisMarks(values: hourDates) { value in
                             AxisGridLine()
                             AxisValueLabel {
                                 if let date = value.as(Date.self) {
-                                    if daily {
-                                        Text(
-                                            date,
-                                            format: .dateTime.weekday(.abbreviated)
-                                        )
-                                        .foregroundStyle(
-                                            date <= nowDate
-                                                ? Color.secondary
-                                                : Color.secondary.opacity(0.55)
-                                        )
-                                    } else {
-                                        Text(
-                                            date,
-                                            format: .dateTime.month(.abbreviated).day()
-                                        )
-                                        .foregroundStyle(
-                                            date <= nowDate
-                                                ? Color.secondary
-                                                : Color.secondary.opacity(0.55)
-                                        )
-                                    }
+                                    Text(date, format: .dateTime.hour().minute())
+                                        .foregroundStyle(Color.secondary)
                                 }
                             }
                         }
@@ -643,9 +660,7 @@ struct DailyBurnChart: View {
                                 x: .value("Day", day.date),
                                 y: .value(
                                     "Burn",
-                                    day.burns?[provider.id] ?? legacyBurn(
-                                        day: day, provider: provider.id
-                                    )
+                                    day.burn(forProviderID: provider.id)
                                 )
                             )
                             .foregroundStyle(
@@ -663,7 +678,7 @@ struct DailyBurnChart: View {
                     AxisMarks { value in
                         AxisValueLabel {
                             if let raw = value.as(String.self) {
-                                Text(shortDay(raw))
+                                Text(HeadroomFormat.shortWeekday(isoDate: raw))
                             }
                         }
                     }
@@ -674,21 +689,4 @@ struct DailyBurnChart: View {
         .headroomCard()
     }
 
-    private func legacyBurn(day: DailyBurnDay, provider: String) -> Double {
-        switch provider {
-        case "claude": day.claude ?? 0
-        case "codex": day.codex ?? 0
-        case "cursor": day.cursor ?? 0
-        default: 0
-        }
-    }
-
-    private func shortDay(_ value: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: value) else { return String(value.suffix(5)) }
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
-    }
 }

@@ -193,12 +193,10 @@ struct MobileStatusCard: View {
     }
 
     private var statusColor: Color {
-        if store.isStale { return .orange }
-        switch store.snapshot.attention?.level {
-        case "critical": return .red
-        case "warn": return .orange
-        default: return .green
-        }
+        HeadroomPalette.status(
+            level: store.snapshot.attention?.level,
+            isStale: store.isStale
+        )
     }
 }
 
@@ -220,7 +218,7 @@ struct ArchivedDataNotice: View {
                 }
             } icon: {
                 Image(systemName: "clock.arrow.circlepath")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(HeadroomPalette.amber)
             }
         }
     }
@@ -246,12 +244,12 @@ private struct MobileAttentionCard: View {
             let reasons = attention?.reasons ?? []
             if reasons.isEmpty {
                 Label(HeadroomCopy.allClear, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(HeadroomPalette.green)
             } else {
                 ForEach(reasons.prefix(5)) { reason in
                     HStack(alignment: .top, spacing: 9) {
                         Circle()
-                            .fill(reason.level == "critical" ? .red : .orange)
+                            .fill(HeadroomPalette.attention(reason.level))
                             .frame(width: 7, height: 7)
                             .padding(.top, 5)
                         Text(reason.summary ?? HeadroomCopy.needsAttention)

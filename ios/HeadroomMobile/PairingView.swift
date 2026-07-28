@@ -103,7 +103,7 @@ struct PairingView: View {
             if let validationMessage {
                 Section {
                     Text(validationMessage)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(HeadroomPalette.red)
                 }
             }
 

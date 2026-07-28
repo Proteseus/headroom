@@ -55,7 +55,7 @@ struct ServicesScreen: View {
                     .foregroundStyle(.secondary)
             } else if usage?.ok != true {
                 Label(usage?.error ?? "Supabase unavailable", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(HeadroomPalette.amber)
             } else {
                 ForEach(usage?.projects ?? []) { project in
                     DisclosureGroup {
@@ -65,7 +65,9 @@ struct ServicesScreen: View {
                                 value: service.status ?? (service.healthy == true ? "healthy" : "unhealthy")
                             )
                             .foregroundStyle(
-                                service.healthy == false ? Color.red : Color.secondary
+                                service.healthy == false
+                                    ? AnyShapeStyle(HeadroomPalette.red)
+                                    : AnyShapeStyle(.secondary)
                             )
                         }
                     } label: {
@@ -76,7 +78,9 @@ struct ServicesScreen: View {
                         } label: {
                             HStack {
                                 Circle()
-                                    .fill(project.healthy == true ? .green : .red)
+                                    .fill(project.healthy == true
+                                          ? HeadroomPalette.green
+                                          : HeadroomPalette.red)
                                     .frame(width: 8, height: 8)
                                 VStack(alignment: .leading) {
                                     Text(project.name ?? project.ref)
@@ -112,7 +116,7 @@ struct ServicesScreen: View {
                     .foregroundStyle(.secondary)
             } else if usage?.ok != true {
                 Label(usage?.error ?? "Plausible unavailable", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(HeadroomPalette.amber)
             } else {
                 ForEach(
                     Array(plausibleSites.enumerated()),
@@ -127,7 +131,7 @@ struct ServicesScreen: View {
                             Circle()
                                 .fill(
                                     (site.realtime ?? 0) > 0
-                                        ? Color.green
+                                        ? HeadroomPalette.green
                                         : Color.secondary.opacity(0.3)
                                 )
                                 .frame(width: 8, height: 8)
@@ -137,14 +141,16 @@ struct ServicesScreen: View {
                                 Text(plausibleDetail(site))
                                     .font(.caption)
                                     .foregroundStyle(
-                                        site.error == nil ? Color.secondary : Color.orange
+                                        site.error == nil
+                                            ? AnyShapeStyle(.secondary)
+                                            : AnyShapeStyle(HeadroomPalette.amber)
                                     )
                             }
                             Spacer()
                             if let live = site.realtime, live > 0 {
                                 Text("\(live) live")
                                     .font(.caption.monospacedDigit().weight(.semibold))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(HeadroomPalette.green)
                             }
                         }
                     }
@@ -157,7 +163,7 @@ struct ServicesScreen: View {
                 Spacer()
                 if let today = store.snapshot.plausible?.visitorsToday {
                     let label = store.snapshot.plausible?.windowLabel ?? "today"
-                    Text("\(compactNumber(today)) \(label)")
+                    Text("\(HeadroomFormat.compact(today)) \(label)")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -175,7 +181,9 @@ struct ServicesScreen: View {
                 ForEach(servers) { server in
                     HStack {
                         Circle()
-                            .fill(server.reachable == false ? .red : .green)
+                            .fill(server.reachable == false
+                                  ? HeadroomPalette.red
+                                  : HeadroomPalette.green)
                             .frame(width: 8, height: 8)
                         VStack(alignment: .leading) {
                             Text(server.name ?? "Server")
@@ -192,7 +200,7 @@ struct ServicesScreen: View {
                                 serverToStop = server
                             }
                             .labelStyle(.iconOnly)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(HeadroomPalette.red)
                             // An archived PID may belong to something else by
                             // now. Never fire a kill at a stale process id.
                             .disabled(!store.mobilePermissions.servers || store.isStale)
@@ -207,10 +215,10 @@ struct ServicesScreen: View {
         if let error = site.error { return error }
         var bits: [String] = []
         if let today = site.visitorsToday {
-            bits.append("\(compactNumber(today)) \(site.windowLabel)")
+            bits.append("\(HeadroomFormat.compact(today)) \(site.windowLabel)")
         }
         if let week = site.visitors7d, site.range != "7d" {
-            bits.append("\(compactNumber(week)) / 7d")
+            bits.append("\(HeadroomFormat.compact(week)) / 7d")
         }
         if let bounce = site.bounceRate7d {
             bits.append("\(Int(bounce.rounded()))% bounce")

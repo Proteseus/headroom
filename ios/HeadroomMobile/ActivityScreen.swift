@@ -28,7 +28,7 @@ struct ActivityScreen: View {
                                item.status == "error" || item.status == "failure" {
                                 Text(error)
                                     .font(.caption)
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(HeadroomPalette.red)
                                     .lineLimit(3)
                             }
                         }
@@ -66,9 +66,9 @@ struct ActivityScreen: View {
 
     private func statusColor(_ status: String?) -> Color {
         switch status {
-        case "error", "failure": .red
-        case "building", "running": .orange
-        case "ready", "pushed", "committed": .green
+        case "error", "failure": HeadroomPalette.red
+        case "building", "running": HeadroomPalette.amber
+        case "ready", "pushed", "committed": HeadroomPalette.green
         default: .secondary
         }
     }

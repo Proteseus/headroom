@@ -361,6 +361,99 @@ final class ModelsTests: XCTestCase {
         )
     }
 
+    func testProviderAxisCapsWeekdayMarksAtSeven() {
+        // Sun afternoon → next Sun afternoon used to produce 8 midnights and a
+        // clipped leftover label. Cap at seven weekday columns.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = Date(timeIntervalSince1970: 1_752_235_200) // 2025-07-13 14:00 UTC Sun
+        let end = Date(timeIntervalSince1970: 1_752_840_000)   // 2025-07-20 14:00 UTC Sun
+        let columns = BurndownChartAxis.dayColumns(
+            start: start, end: end, calendar: calendar
+        )
+        XCTAssertEqual(columns.count, 7)
+        // Bands tile the domain edge to edge and stay inside it: Swift Charts
+        // drops an out-of-domain value, which is how iOS ended up one column
+        // short of the Mac canvas.
+        XCTAssertEqual(columns.first?.start, start)
+        XCTAssertEqual(columns.last?.end, end)
+        for (index, column) in columns.enumerated() {
+            XCTAssertLessThan(column.start, column.end)
+            XCTAssertGreaterThan(column.mid, column.start)
+            XCTAssertLessThan(column.mid, column.end)
+            if index + 1 < columns.count {
+                XCTAssertEqual(column.end, columns[index + 1].start)
+            }
+        }
+        // Every band names the day its midpoint falls in, so no two adjacent
+        // columns can carry the same weekday.
+        let names = columns.map { column -> Int in
+            calendar.component(.weekday, from: column.mid)
+        }
+        XCTAssertEqual(Set(names).count, 7)
+
+        // A window that resets at midnight gets the same seven, not eight.
+        let midnightStart = Date(timeIntervalSince1970: 1_752_192_000)
+        let midnightColumns = BurndownChartAxis.dayColumns(
+            start: midnightStart,
+            end: midnightStart.addingTimeInterval(7 * 24 * 60 * 60),
+            calendar: calendar
+        )
+        XCTAssertEqual(midnightColumns.count, 7)
+        XCTAssertEqual(midnightColumns.first?.start, midnightStart)
+
+        // A pool resetting in the small hours: the 2h sliver folds into the
+        // previous band rather than costing a name or adding an eighth.
+        let smallHoursStart = start.addingTimeInterval(12 * 60 * 60)
+        let smallHours = BurndownChartAxis.dayColumns(
+            start: smallHoursStart,
+            end: smallHoursStart.addingTimeInterval(7 * 24 * 60 * 60),
+            calendar: calendar
+        )
+        XCTAssertEqual(smallHours.count, 7)
+        XCTAssertEqual(
+            Set(smallHours.map { calendar.component(.weekday, from: $0.mid) })
+                .count,
+            7
+        )
+
+        let monthStart = Date(timeIntervalSince1970: 1_751_328_000) // ~Jul 1 2025
+        let monthEnd = Date(timeIntervalSince1970: 1_753_920_000)   // ~Aug 1 2025
+        let nowInMonth = Date(timeIntervalSince1970: 1_752_580_800) // ~Jul 17
+        let domain = BurndownChartAxis.domain(
+            windowStart: monthStart.timeIntervalSince1970,
+            windowEnd: monthEnd.timeIntervalSince1970,
+            now: nowInMonth.timeIntervalSince1970
+        )!
+        XCTAssertLessThanOrEqual(
+            domain.end.timeIntervalSince(domain.start),
+            7 * 24 * 60 * 60 + 1
+        )
+        let monthColumns = BurndownChartAxis.dayColumns(
+            start: domain.start, end: domain.end, calendar: calendar
+        )
+        XCTAssertEqual(monthColumns.count, 7)
+    }
+
+    func testProviderSessionAxisUsesHoursNotDays() {
+        let start = Date(timeIntervalSince1970: 1_785_246_900)
+        let end = start.addingTimeInterval(5 * 60 * 60)
+        let domain = BurndownChartAxis.domain(
+            windowStart: start.timeIntervalSince1970,
+            windowEnd: end.timeIntervalSince1970,
+            now: start.timeIntervalSince1970 + 3600
+        )!
+        XCTAssertFalse(domain.showsDayAxis)
+        XCTAssertTrue(
+            BurndownChartAxis.dayColumns(start: domain.start, end: domain.end)
+                .isEmpty
+        )
+        XCTAssertFalse(
+            BurndownChartAxis.hourMarks(start: domain.start, end: domain.end)
+                .isEmpty
+        )
+    }
+
     func testClipPolylineInterpolatesAtDomainEdge() {
         let clipped = OverallBurndownChartMath.clipPolyline(
             [[0, 100], [100, 0]],

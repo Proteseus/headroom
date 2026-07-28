@@ -104,27 +104,9 @@ private struct DailyBurnBar: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 3))
             }
-            Text(dayLabel(day.date))
+            Text(HeadroomFormat.shortWeekday(isoDate: day.date))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func dayLabel(_ isoDate: String) -> String {
-        let parts = isoDate.split(separator: "-")
-        guard parts.count == 3,
-              let year = Int(parts[0]),
-              let month = Int(parts[1]),
-              let day = Int(parts[2]),
-              let date = Calendar.current.date(
-                from: DateComponents(year: year, month: month, day: day)
-              )
-        else {
-            return String(isoDate.suffix(5))
-        }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
     }
 }

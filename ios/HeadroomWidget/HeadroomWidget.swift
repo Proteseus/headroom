@@ -61,7 +61,10 @@ struct HeadroomWidgetView: View {
                     HStack {
                         HeadroomRings(
                             layers: provider.ringLayers,
-                            tint: Color(widgetHex: provider.accent) ?? .cyan
+                            tint: HeadroomPalette.providerTint(
+                                id: provider.id,
+                                accent: provider.accent
+                            )
                         )
                         .frame(width: 54, height: 54)
                         VStack(alignment: .leading) {
@@ -82,7 +85,10 @@ struct HeadroomWidgetView: View {
                         VStack {
                             HeadroomRings(
                                 layers: provider.ringLayers,
-                                tint: Color(widgetHex: provider.accent) ?? .cyan
+                                tint: HeadroomPalette.providerTint(
+                                    id: provider.id,
+                                    accent: provider.accent
+                                )
                             )
                             .frame(width: 54, height: 54)
                             Text(provider.title)
@@ -104,12 +110,10 @@ struct HeadroomWidgetView: View {
     }
 
     private var statusColor: Color {
-        if entry.snapshot.isStale { return .orange }
-        switch entry.snapshot.attentionLevel {
-        case "critical": return .red
-        case "warn": return .orange
-        default: return .green
-        }
+        HeadroomPalette.status(
+            level: entry.snapshot.attentionLevel,
+            isStale: entry.snapshot.isStale
+        )
     }
 }
 
@@ -131,19 +135,6 @@ private extension HeadroomWidgetSnapshot.Provider {
                 pacePercent: nil
             ),
         ]
-    }
-}
-
-private extension Color {
-    init?(widgetHex: String?) {
-        guard var value = widgetHex, !value.isEmpty else { return nil }
-        value.removeAll(where: { $0 == "#" })
-        guard value.count == 6, let rgb = Int(value, radix: 16) else { return nil }
-        self.init(
-            red: Double((rgb >> 16) & 0xff) / 255,
-            green: Double((rgb >> 8) & 0xff) / 255,
-            blue: Double(rgb & 0xff) / 255
-        )
     }
 }
 

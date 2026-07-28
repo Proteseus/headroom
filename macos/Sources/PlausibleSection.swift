@@ -73,7 +73,7 @@ struct PlausibleSection: View {
         if live > 0 {
             bits.append("\(live) live")
         }
-        bits.append("\(compact(visitors)) \(label)")
+        bits.append("\(HeadroomFormat.compact(visitors)) \(label)")
         return bits.joined(separator: " · ")
     }
 
@@ -125,29 +125,16 @@ struct PlausibleSection: View {
         let label = site.windowLabel
         var bits: [String] = []
         if let visitors {
-            bits.append("\(compact(visitors)) \(label)")
+            bits.append("\(HeadroomFormat.compact(visitors)) \(label)")
         }
         // Avoid "1.2k 7d · 1.2k / 7d" when the primary window is already 7d.
         if let week, site.range != "7d" {
-            bits.append("\(compact(week)) / 7d")
+            bits.append("\(HeadroomFormat.compact(week)) / 7d")
         }
         if let bounce = site.bounceRate7d {
             bits.append(String(format: "%.0f%% bounce", bounce))
         }
         return bits.isEmpty ? "No stats yet" : bits.joined(separator: " · ")
-    }
-
-    private func compact(_ value: Int) -> String {
-        if value >= 1_000_000 {
-            return String(format: "%.1fM", Double(value) / 1_000_000)
-        }
-        if value >= 10_000 {
-            return String(format: "%.1fk", Double(value) / 1_000)
-        }
-        if value >= 1_000 {
-            return String(format: "%.1fk", Double(value) / 1_000)
-        }
-        return "\(value)"
     }
 
     private func open(_ site: PlausibleSite) {

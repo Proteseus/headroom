@@ -285,15 +285,14 @@ struct OverviewBurndownCard: View {
                                     .monospacedDigit()
                                     .foregroundStyle(.secondary)
                             }
+                            // Legend verdicts stay secondary whatever they
+                            // say — see BurndownVerdict.textTint.
                             Text(entry.pool.verdict
                                   ?? HeadroomCopy.collectingHistory)
                                 .font(.caption2)
                                 .monospacedDigit()
                                 .lineLimit(2)
-                                .foregroundStyle(
-                                    entry.pool.kind == .critical
-                                        ? AnyShapeStyle(Color.red)
-                                        : AnyShapeStyle(.secondary))
+                                .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -317,9 +316,12 @@ struct BurndownVerdict: View {
     /// Colour only where colour is information. Running out and being spent
     /// change the tint; burning ahead of budget does not, because the gap
     /// between the curve and the budget line already shows it.
+    /// No alarm colour here. See `BurndownPlot.statusTint` — running out is a
+    /// reading the words already deliver ("Runs out tomorrow 04:18"); painting
+    /// it red says it a second time, louder. Only exhaustion shifts the
+    /// colour, and it recedes rather than warns.
     private var textTint: Color {
         switch pool.kind {
-        case .critical: .red
         case .exhausted: .secondary
         default: pool.hasForecast ? .primary : .secondary
         }
@@ -327,7 +329,6 @@ struct BurndownVerdict: View {
 
     private var dotTint: Color {
         switch pool.kind {
-        case .critical: .red
         case .exhausted: .secondary
         default: pool.hasForecast ? tint : .secondary
         }
@@ -370,9 +371,11 @@ struct BurndownStats: View {
             }, dimmed: pool.kind == .exhausted)
             // An estimate off token history is worth marking; a measured rate
             // should not be hedged.
+            // Burning is a measurement, not an alarm. Whether it exceeds
+            // Budget is visible in the cell beside it — colouring it red
+            // editorialises a number the user can compare themselves.
             cell(pool.isEstimated ? "Burning · est" : "Burning",
-                 rate(pool.burnRatePct),
-                 hot: pool.kind == .critical)
+                 rate(pool.burnRatePct))
             cell("Budget", rate(pool.allowancePct),
                  dimmed: pool.kind == .exhausted)
         }
@@ -384,7 +387,7 @@ struct BurndownStats: View {
 
     @ViewBuilder
     private func cell(_ label: String, _ value: String?,
-                      hot: Bool = false, dimmed: Bool = false) -> some View {
+                      dimmed: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label.uppercased())
                 .font(.system(size: 9, weight: .semibold))
@@ -394,8 +397,8 @@ struct BurndownStats: View {
             Text(value ?? "—")
                 .font(.callout)
                 .monospacedDigit()
-                .foregroundStyle(value == nil || dimmed ? AnyShapeStyle(.secondary)
-                                 : hot ? AnyShapeStyle(Color.red)
+                .foregroundStyle(value == nil || dimmed
+                                 ? AnyShapeStyle(.secondary)
                                  : AnyShapeStyle(.primary))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -542,46 +545,62 @@ struct MultiBurndownCanvas: View {
 
     var body: some View {
         Canvas { context, size in
-            guard end > start else { return }
-
-            let span = end - start
-            let days = burndownDays(start: start, end: end)
-            let plot = burndownPlotRect(in: size, axis: !days.isEmpty)
-            func x(_ t: Double) -> CGFloat {
-                plot.minX + CGFloat((t - start) / span) * plot.width
-            }
-            // Remaining percent, so 100 is the top and exhaustion is the floor.
-            func y(_ pct: Double) -> CGFloat {
-                plot.maxY
-                    - CGFloat(max(0, min(pct, 100)) / 100) * plot.height
-            }
-            /// The budget line's height at a given instant.
-            func budget(_ t: Double) -> Double {
-                100 * (1 - (t - start) / span)
-            }
-
-            // --- the grid the curve is read against
-            drawBurndownScale(&context, plot: plot)
             let sampleTimes = pools.flatMap { pool in
                 (pool.actual ?? []).compactMap { pair -> Double? in
                     pair.count >= 2 ? pair[0] : nil
                 }
             }
-            drawBurndownCalendar(
-                &context, plot: plot, start: start, end: end,
-                now: sampleTimes.max() ?? start)
+            let now = sampleTimes.max() ?? Date().timeIntervalSince1970
+            guard let domain = BurndownChartAxis.domain(
+                windowStart: start, windowEnd: end, now: now
+            ) else { return }
 
-            // --- budget line: full at the window's start, zero at its reset
-            var ideal = Path()
-            ideal.move(to: CGPoint(x: x(start), y: y(100)))
-            ideal.addLine(to: CGPoint(x: x(end), y: y(0)))
-            context.stroke(
-                ideal,
-                with: .color(.secondary.opacity(0.45)),
-                style: StrokeStyle(lineWidth: 1, dash: [3, 3])
-            )
+            let plotStart = domain.startEpoch
+            let plotEnd = domain.endEpoch
+            let winStart = domain.windowStartEpoch
+            let winEnd = domain.windowEndEpoch
+            let plotSpan = plotEnd - plotStart
+            let winSpan = winEnd - winStart
+            guard plotSpan > 0, winSpan > 0 else { return }
 
-            // API under Total when both share this canvas.
+            let showAxis = true  // days or hours — never a blank band
+            let plot = burndownPlotRect(in: size, axis: showAxis)
+            func x(_ t: Double) -> CGFloat {
+                plot.minX + CGFloat((t - plotStart) / plotSpan) * plot.width
+            }
+            func y(_ pct: Double) -> CGFloat {
+                plot.maxY
+                    - CGFloat(max(0, min(pct, 100)) / 100) * plot.height
+            }
+            /// Budget height from the *full* pool window, not the clipped plot.
+            func budget(_ t: Double) -> Double {
+                100 * (1 - (t - winStart) / winSpan)
+            }
+
+            drawBurndownScale(&context, plot: plot)
+            if domain.showsDayAxis {
+                drawBurndownCalendar(
+                    &context, plot: plot, start: plotStart, end: plotEnd,
+                    now: now)
+            } else {
+                drawBurndownHours(
+                    &context, plot: plot, start: plotStart, end: plotEnd)
+            }
+
+            // Budget diagonal clipped to the plot — uses full-window %.
+            let b0 = max(plotStart, winStart)
+            let b1 = min(plotEnd, winEnd)
+            if b1 > b0 {
+                var ideal = Path()
+                ideal.move(to: CGPoint(x: x(b0), y: y(budget(b0))))
+                ideal.addLine(to: CGPoint(x: x(b1), y: y(budget(b1))))
+                context.stroke(
+                    ideal,
+                    with: .color(.secondary.opacity(0.45)),
+                    style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+                )
+            }
+
             let ordered = pools.sorted {
                 ($0.pool == "api" ? 0 : 1) < ($1.pool == "api" ? 0 : 1)
             }
@@ -592,15 +611,14 @@ struct MultiBurndownCanvas: View {
                 let isApi = pool.pool == "api"
                 let seriesTint = isApi ? base.opacity(0.75) : base
 
-                let samples = (pool.actual ?? []).compactMap { pair -> Double? in
-                    pair.count >= 2 ? pair[0] : nil
-                }
-                let actual = (pool.actual ?? []).compactMap { pair -> CGPoint? in
-                    guard pair.count >= 2 else { return nil }
-                    return CGPoint(x: x(pair[0]), y: y(pair[1]))
+                let clippedActual = OverallBurndownChartMath.clipPolyline(
+                    pool.actual ?? [], start: plotStart, end: plotEnd
+                )
+                let samples = clippedActual.map { $0[0] }
+                let actual = clippedActual.map {
+                    CGPoint(x: x($0[0]), y: y($0[1]))
                 }
 
-                // --- drift: the gap between the budget and reality (primary only)
                 if !isApi,
                    actual.count >= 2,
                    let firstSample = samples.first,
@@ -616,7 +634,6 @@ struct MultiBurndownCanvas: View {
                     context.fill(drift, with: .color(seriesTint.opacity(0.16)))
                 }
 
-                // --- what actually happened
                 if actual.count >= 2 {
                     var line = Path()
                     line.move(to: actual[0])
@@ -629,11 +646,9 @@ struct MultiBurndownCanvas: View {
                     )
                 }
 
-                // --- where this pace lands
-                let projected = (pool.croppedProjected).compactMap { pair -> CGPoint? in
-                    guard pair.count >= 2 else { return nil }
-                    return CGPoint(x: x(pair[0]), y: y(pair[1]))
-                }
+                let projected = OverallBurndownChartMath.clipPolyline(
+                    pool.croppedProjected, start: plotStart, end: plotEnd
+                ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
                 if projected.count >= 2 {
                     var forecast = Path()
                     forecast.move(to: projected[0])
@@ -641,10 +656,7 @@ struct MultiBurndownCanvas: View {
                     context.stroke(
                         forecast,
                         with: .color(seriesTint),
-                        style: StrokeStyle(
-                            lineWidth: 1.5,
-                            dash: [6, 2]
-                        )
+                        style: StrokeStyle(lineWidth: 1.5, dash: [6, 2])
                     )
                     if pool.exhaustsBeforeReset == true, let hit = projected.last {
                         let dot = Path(ellipseIn: CGRect(
@@ -661,7 +673,6 @@ struct MultiBurndownCanvas: View {
                 }
             }
 
-            // --- now marker (once, shared)
             if let nx = nowX {
                 var marker = Path()
                 marker.move(to: CGPoint(x: nx, y: plot.minY))
@@ -678,46 +689,16 @@ struct MultiBurndownCanvas: View {
 
 // MARK: - Shared chart furniture
 //
-// Both burndowns draw the same grid, so the geometry lives here rather than
-// twice. Percent scale down the left, day boundaries as vertical rules, and
-// weekday labels along the bottom.
+// Day/hour marks come from BurndownChartAxis so Mac, iOS and ESP32 agree:
+// ≤7 weekday-named columns, never day-of-month numbers, hours for sessions.
 
 /// Room for the "100%" scale labels.
 private let burndownGutter: CGFloat = 30
-/// Band under the plot holding the weekday labels.
+/// Band under the plot holding the weekday / hour labels.
 private let burndownAxisHeight: CGFloat = 16
 /// Slack above and below the plot so the 100% and 0% labels, which sit centred
 /// on the outermost grid lines, are not clipped by the canvas edge.
 private let burndownEdgeInset: CGFloat = 7
-
-private struct BurndownDay {
-    /// Local midnight opening this day. Earlier than the charted range for the
-    /// first day when the range starts mid-day.
-    let date: Date
-
-    var midnight: Double { date.timeIntervalSince1970 }
-}
-
-/// The local days a charted range covers. Empty below two days: one label is
-/// not an axis, and a 5h session window is the common case there.
-///
-/// Walked with `Calendar` rather than by adding 86400, so the rules stay on
-/// real midnights across a DST change.
-private func burndownDays(start: Double, end: Double) -> [BurndownDay] {
-    let secondsPerDay = 24.0 * 60 * 60
-    guard end - start >= 2 * secondsPerDay else { return [] }
-
-    let calendar = Calendar.current
-    var days: [BurndownDay] = []
-    var midnight = calendar.startOfDay(for: Date(timeIntervalSince1970: start))
-    while midnight.timeIntervalSince1970 < end {
-        days.append(BurndownDay(date: midnight))
-        guard let next = calendar.date(byAdding: .day, value: 1, to: midnight)
-        else { break }
-        midnight = next
-    }
-    return days
-}
 
 /// Where the series actually gets drawn inside a canvas of `size`.
 private func burndownPlotRect(in size: CGSize, axis: Bool) -> CGRect {
@@ -755,13 +736,7 @@ private func drawBurndownScale(_ context: inout GraphicsContext, plot: CGRect) {
     }
 }
 
-/// Day boundaries as vertical rules, labelled along the bottom.
-///
-/// A month of daily rules is a moiré pattern rather than a grid, so once the
-/// days are too narrow to label the chart falls back to one rule a week —
-/// which is the unit anyone reading a monthly billing cycle counts in anyway.
-/// The label follows suit: a weekday names a day, but seven of them in a row
-/// all reading "Tue" names nothing, so weekly rules carry a date instead.
+/// Day boundaries as vertical rules, labelled with weekday names (≤7).
 private func drawBurndownCalendar(
     _ context: inout GraphicsContext,
     plot: CGRect,
@@ -769,47 +744,74 @@ private func drawBurndownCalendar(
     end: Double,
     now: Double
 ) {
-    let days = burndownDays(start: start, end: end)
-    guard !days.isEmpty, plot.width > 0, end > start else { return }
+    let columns = BurndownChartAxis.dayColumns(
+        start: Date(timeIntervalSince1970: start),
+        end: Date(timeIntervalSince1970: end)
+    )
+    guard !columns.isEmpty, plot.width > 0, end > start else { return }
 
     func x(_ time: Double) -> CGFloat {
         plot.minX + CGFloat((time - start) / (end - start)) * plot.width
     }
 
-    let daily = plot.width / CGFloat(days.count) >= 22
-    let marks = days.enumerated()
-        .filter { $0.offset % (daily ? 1 : 7) == 0 }
-        .map(\.element)
     let labelY = plot.maxY + burndownEdgeInset + burndownAxisHeight / 2
 
-    for (index, day) in marks.enumerated() {
-        if day.midnight > start {
+    for column in columns {
+        let from = column.start.timeIntervalSince1970
+        if from > start {
             var rule = Path()
-            rule.move(to: CGPoint(x: x(day.midnight), y: plot.minY))
-            rule.addLine(to: CGPoint(x: x(day.midnight), y: plot.maxY))
+            rule.move(to: CGPoint(x: x(from), y: plot.minY))
+            rule.addLine(to: CGPoint(x: x(from), y: plot.maxY))
             context.stroke(
                 rule, with: .color(.secondary.opacity(0.14)), lineWidth: 1)
         }
 
-        let from = x(max(start, day.midnight))
-        let to = x(index + 1 < marks.count ? marks[index + 1].midnight : end)
-        guard to - from >= (daily ? 22 : 42) else { continue }
-        // Spans still to come are quieter, so history and forecast stay
-        // distinguishable without needing a second legend.
-        let label = Text(
-            daily
-                ? day.date.formatted(.dateTime.weekday(.abbreviated))
-                : day.date.formatted(.dateTime.month(.abbreviated).day())
-        )
-        .font(.system(size: 9, weight: .medium))
-        .foregroundStyle(Color.secondary.opacity(day.midnight <= now ? 1 : 0.55))
-
-        // A weekday names the span it sits in, so it is centred; a date names
-        // the instant the rule marks, so it sits against it.
+        // Centred in the band, so a part-day column keeps its name.
         context.draw(
-            label,
-            at: CGPoint(x: daily ? (from + to) / 2 : from + 3, y: labelY),
-            anchor: daily ? .center : .leading
+            Text(column.mid.formatted(.dateTime.weekday(.abbreviated)))
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(
+                    Color.secondary.opacity(from <= now ? 1 : 0.55)
+                ),
+            at: CGPoint(x: x(column.mid.timeIntervalSince1970), y: labelY),
+            anchor: .center
+        )
+    }
+}
+
+/// Hour ticks for session-scale windows so the axis is never blank.
+private func drawBurndownHours(
+    _ context: inout GraphicsContext,
+    plot: CGRect,
+    start: Double,
+    end: Double
+) {
+    let hours = BurndownChartAxis.hourMarks(
+        start: Date(timeIntervalSince1970: start),
+        end: Date(timeIntervalSince1970: end)
+    )
+    guard !hours.isEmpty, plot.width > 0, end > start else { return }
+
+    func x(_ time: Double) -> CGFloat {
+        plot.minX + CGFloat((time - start) / (end - start)) * plot.width
+    }
+
+    let labelY = plot.maxY + burndownEdgeInset + burndownAxisHeight / 2
+    for hour in hours {
+        let t = hour.timeIntervalSince1970
+        if t > start {
+            var rule = Path()
+            rule.move(to: CGPoint(x: x(t), y: plot.minY))
+            rule.addLine(to: CGPoint(x: x(t), y: plot.maxY))
+            context.stroke(
+                rule, with: .color(.secondary.opacity(0.14)), lineWidth: 1)
+        }
+        context.draw(
+            Text(hour.formatted(.dateTime.hour().minute()))
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Color.secondary),
+            at: CGPoint(x: x(t) + 3, y: labelY),
+            anchor: .leading
         )
     }
 }
