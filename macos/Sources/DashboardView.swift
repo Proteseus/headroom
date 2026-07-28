@@ -219,6 +219,13 @@ struct DashboardView: View {
     }
 
     private var statusLine: String {
+        if store.isRefreshing {
+            // Recovering from an outage kicks /sync/refresh; say so instead of
+            // leaving "Updated … ago" frozen under the spinner.
+            return store.errorMessage == nil && store.lastRefresh != nil
+                ? HeadroomCopy.refreshing
+                : HeadroomCopy.reconnecting
+        }
         if let error = store.errorMessage {
             return error
         }

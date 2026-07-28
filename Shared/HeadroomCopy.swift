@@ -40,6 +40,10 @@ enum HeadroomCopy {
     static let connected = "Connected"
     static let macUnavailable = "Mac unavailable"
     static let collectingHistory = "Collecting history"
+    /// Host just answered again; sources are being kicked so meters move.
+    static let reconnecting = "Reconnecting…"
+    /// In-flight poll / sync while the link is already healthy.
+    static let refreshing = "Refreshing…"
     static let clearAttention = "Clear"
     static let refreshAll = "Refresh all"
 

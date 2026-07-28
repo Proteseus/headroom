@@ -66,17 +66,33 @@ final class UsageStore: ObservableObject {
         onSnapshotChange?(value, healthy)
     }
 
-    func refresh() async {
+    /// - Parameter forceSync: Ask the host to re-poll every source before
+    ///   reading `/usage`. Used after wake and by callers that want fresh
+    ///   numbers, not just the last published document.
+    func refresh(forceSync: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
 
+        // Coming back from a failed poll: the host may be up again while its
+        // sources are still sitting on pre-outage ages. A plain GET looks like
+        // nothing happened — kick a sync so the dashboard actually moves.
+        let recovering = errorMessage != nil
         do {
-            let value = try await client.fetchUsage()
+            var value = try await client.fetchUsage()
             snapshot = value
-            lastRefresh = Date()
             errorMessage = nil
             onSnapshotChange?(value, true)
+
+            if recovering || forceSync {
+                try? await client.refresh(sources: nil)
+                await client.waitForRefresh(sources: nil)
+                value = try await client.fetchUsage()
+                snapshot = value
+                onSnapshotChange?(value, true)
+            }
+
+            lastRefresh = Date()
         } catch {
             errorMessage = error.localizedDescription
             onSnapshotChange?(snapshot, false)

@@ -17,6 +17,7 @@ struct HeadroomApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
     private var statusController: StatusItemController?
+    private var wakeObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -41,8 +42,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         store.start()
+        // After sleep the poll loop may still be on the idle cadence, and the
+        // host's own poller is cold — force a source sync so bars move again.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak store] _ in
+            Task { @MainActor in
+                store?.noteInteraction()
+                await store?.refresh(forceSync: true)
+            }
+        }
         Task { @MainActor in
             await Self.ensureHostRunning(store: store)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
     }
 
