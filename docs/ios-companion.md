@@ -35,7 +35,8 @@ ESP32 / generic LAN clients. The phone always uses
   Mac Settings splits them, plus Face ID-protected local server stops.
   Credentials remain in the Mac Keychain.
 - Attention summary and local notifications.
-- Small and medium Home Screen widgets backed by an App Group cache.
+- Home Screen widgets backed by an App Group cache: rings on the small size,
+  the combined burndown on the medium one.
 - Best-effort iOS background refresh.
 - Pull-to-refresh, including the existing LAN-safe `POST /sync/refresh`.
 - iPhone and iPad layouts from one target.
