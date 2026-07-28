@@ -93,15 +93,22 @@ struct HeadroomWidgetView: View {
                     Spacer()
                 }
             }
+
+            if entry.snapshot.isStale {
+                Text(HeadroomCopy.ago(entry.snapshot.age))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .containerBackground(.background, for: .widget)
     }
 
     private var statusColor: Color {
+        if entry.snapshot.isStale { return .orange }
         switch entry.snapshot.attentionLevel {
-        case "critical": .red
-        case "warn": .orange
-        default: .green
+        case "critical": return .red
+        case "warn": return .orange
+        default: return .green
         }
     }
 }

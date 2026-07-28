@@ -35,7 +35,7 @@ enum MobileBackgroundRefresh {
                     endpoint: MobileConnection.endpoint,
                     token: MobileTokenStore.read() ?? ""
                 )
-                let snapshot = try await client.fetchUsage()
+                let snapshot = try await client.fetchAndArchiveUsage()
                 MobileWidgetCache.save(snapshot)
                 await MobileNotifications.notifyIfNeeded(snapshot.attention)
                 boxedTask.value.setTaskCompleted(success: true)

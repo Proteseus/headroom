@@ -177,6 +177,11 @@ struct PairingView: View {
             try MobileTokenStore.save(
                 token.trimmingCharacters(in: .whitespacesAndNewlines)
             )
+            // Saved history belongs to the Mac it came from. Pointing at a
+            // different one has to start from empty, not from its numbers.
+            if normalized != MobileConnection.endpoint {
+                store.forgetArchive()
+            }
             UserDefaults.standard.set(normalized, forKey: MobileConnection.endpointKey)
             UserDefaults.standard.set(true, forKey: MobileConnection.configuredKey)
             validationMessage = nil

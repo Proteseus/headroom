@@ -6,6 +6,7 @@ struct ActivityScreen: View {
 
     var body: some View {
         List {
+            ArchivedDataNotice(store: store)
             ForEach(store.snapshot.activity ?? []) { item in
                 Button {
                     open(item)

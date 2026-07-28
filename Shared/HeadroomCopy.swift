@@ -43,6 +43,30 @@ enum HeadroomCopy {
     static let clearAttention = "Clear"
     static let refreshAll = "Refresh all"
 
+    /// Shown when the phone is drawing its last saved payload because the Mac
+    /// is not answering. The numbers are real, they are just not current, and
+    /// the copy has to say which.
+    static let recentHistory = "Recent history"
+    static let recentHistoryHint = "Saved on this iPhone. Not live."
+    static let nothingSavedYet = "Nothing saved yet"
+
+    /// "Recent history · 2 hours ago" — one label, both facts.
+    static func recentHistory(age: TimeInterval) -> String {
+        "\(recentHistory) · \(ago(age))"
+    }
+
+    /// Coarse on purpose: "4 minutes ago" on a quota bar reads as precision
+    /// the saved number does not have.
+    static func ago(_ age: TimeInterval) -> String {
+        let minutes = Int((age / 60).rounded())
+        if minutes < 2 { return "just now" }
+        if minutes < 60 { return "\(minutes) min ago" }
+        let hours = Int((age / 3600).rounded())
+        if hours < 24 { return hours == 1 ? "1 hour ago" : "\(hours) hours ago" }
+        let days = Int((age / 86_400).rounded())
+        return days == 1 ? "1 day ago" : "\(days) days ago"
+    }
+
     // MARK: Empty states
 
     static let noHistoryYet = "No history yet"

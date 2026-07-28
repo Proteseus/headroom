@@ -101,8 +101,14 @@ struct MobileHeadroomClient: Sendable {
     let token: String
 
     func fetchUsage() async throws -> UsageSnapshot {
+        try await fetchUsagePayload().snapshot
+    }
+
+    /// The decoded snapshot plus the bytes it came from, so callers can archive
+    /// the payload verbatim instead of re-encoding a decode-only model.
+    func fetchUsagePayload() async throws -> (snapshot: UsageSnapshot, payload: Data) {
         let data = try await send(url: try usageURL)
-        return try JSONDecoder().decode(UsageSnapshot.self, from: data)
+        return (try JSONDecoder().decode(UsageSnapshot.self, from: data), data)
     }
 
     func requestRefresh() async throws {

@@ -49,6 +49,7 @@ struct QuotasScreen: View {
 
     var body: some View {
         List {
+            ArchivedDataNotice(store: store)
             ForEach(store.visibleProviders) { provider in
                 NavigationLink {
                     ProviderQuotaDetail(

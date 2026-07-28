@@ -79,7 +79,8 @@ private struct OverviewScreen: View {
             await store.refresh(forceServerSync: true)
         }
         .task {
-            if store.lastRefresh == nil {
+            // Archived content still counts as "nothing fetched yet".
+            if store.capturedAt == nil || store.isShowingArchive {
                 await store.refresh()
             }
         }
@@ -115,7 +116,11 @@ struct MobileStatusCard: View {
     }
 
     private var statusTitle: String {
-        if store.errorMessage != nil { return HeadroomCopy.macUnavailable }
+        if store.isStale {
+            return store.hasSnapshot
+                ? HeadroomCopy.recentHistory
+                : HeadroomCopy.macUnavailable
+        }
         if store.snapshot.attention?.isWarning == true {
             return HeadroomCopy.needsAttention
         }
@@ -123,19 +128,50 @@ struct MobileStatusCard: View {
     }
 
     private var statusSubtitle: String {
-        if let error = store.errorMessage { return error }
-        if let date = store.lastRefresh {
+        if let error = store.errorMessage {
+            guard let age = store.age else { return error }
+            return "\(HeadroomCopy.ago(age)) · \(error)"
+        }
+        // Archived and not yet contradicted: the fetch is still in flight.
+        if store.isShowingArchive, let age = store.age {
+            return HeadroomCopy.ago(age)
+        }
+        if let date = store.capturedAt {
             return "Updated \(date.formatted(date: .omitted, time: .shortened))"
         }
         return MobileConnection.endpoint
     }
 
     private var statusColor: Color {
-        if store.errorMessage != nil { return .orange }
+        if store.isStale { return .orange }
         switch store.snapshot.attention?.level {
         case "critical": return .red
         case "warn": return .orange
         default: return .green
+        }
+    }
+}
+
+/// The one-line "this is saved, not live" marker for the screens that have no
+/// status card of their own. Every screen that draws numbers needs to say when
+/// they stopped being current, or the Quotas tab quietly lies for a day.
+struct ArchivedDataNotice: View {
+    @ObservedObject var store: MobileUsageStore
+
+    var body: some View {
+        if store.isStale, let age = store.age {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(HeadroomCopy.recentHistory(age: age))
+                        .font(.footnote.weight(.medium))
+                    Text(HeadroomCopy.recentHistoryHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundStyle(.orange)
+            }
         }
     }
 }

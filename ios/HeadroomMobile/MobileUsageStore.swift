@@ -8,12 +8,36 @@ final class MobileUsageStore: ObservableObject {
     @Published private(set) var changingSourceID: String?
     @Published private(set) var mobilePermissions = MobilePermissions.allDisabled
     @Published private(set) var errorMessage: String?
-    @Published private(set) var lastRefresh: Date?
+    /// When the Mac handed us the snapshot on screen — live this session, or
+    /// read back from the archive on a cold launch.
+    @Published private(set) var capturedAt: Date?
+    /// The snapshot on screen came off disk; nothing has reached the Mac yet.
+    @Published private(set) var isShowingArchive = false
+
+    init() {
+        guard let entry = MobileSnapshotArchive.load() else { return }
+        snapshot = entry.snapshot
+        capturedAt = entry.capturedAt
+        isShowingArchive = true
+    }
 
     var isConfigured: Bool { MobileConnection.isConfigured }
 
     var visibleProviders: [QuotaProviderInfo] {
         snapshot.visibleQuotaProviders
+    }
+
+    /// True once we are drawing numbers the Mac has not confirmed this session,
+    /// whether that is a cold launch with the Mac asleep or a refresh that
+    /// failed after one succeeded.
+    var isStale: Bool { isShowingArchive || errorMessage != nil }
+
+    /// Whether there is anything real on screen, live or archived.
+    var hasSnapshot: Bool { capturedAt != nil }
+
+    /// How old the numbers on screen are, for the copy that says so.
+    var age: TimeInterval? {
+        capturedAt.map { Date().timeIntervalSince($0) }
     }
 
     func refresh(forceServerSync: Bool = false) async {
@@ -35,12 +59,15 @@ final class MobileUsageStore: ObservableObject {
                     try await Task.sleep(for: .milliseconds(700))
                 }
             }
-            snapshot = try await client.fetchUsage()
+            snapshot = try await client.fetchAndArchiveUsage()
             errorMessage = nil
-            lastRefresh = Date()
+            capturedAt = Date()
+            isShowingArchive = false
             MobileWidgetCache.save(snapshot)
             await MobileNotifications.notifyIfNeeded(snapshot.attention)
         } catch {
+            // Keep whatever is on screen. Losing a week of burndown because the
+            // Mac went to sleep is worse than showing it with its age attached.
             errorMessage = error.localizedDescription
         }
     }
@@ -54,9 +81,19 @@ final class MobileUsageStore: ObservableObject {
     func applySnapshot(_ value: UsageSnapshot) {
         snapshot = value
         errorMessage = nil
-        lastRefresh = Date()
+        capturedAt = Date()
+        isShowingArchive = false
         mobilePermissions = .allEnabled
         isLoading = false
+    }
+
+    /// Called when the connection is re-pointed. The archive describes the Mac
+    /// we just stopped talking to, so it goes with it.
+    func forgetArchive() {
+        MobileSnapshotArchive.clear()
+        snapshot = .empty
+        capturedAt = nil
+        isShowingArchive = false
     }
 
     func setSource(_ id: String, enabled: Bool) async {

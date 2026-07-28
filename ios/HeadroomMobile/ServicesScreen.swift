@@ -9,6 +9,7 @@ struct ServicesScreen: View {
 
     var body: some View {
         List {
+            ArchivedDataNotice(store: store)
             supabaseSection
             plausibleSection
             localServersSection
@@ -192,7 +193,9 @@ struct ServicesScreen: View {
                             }
                             .labelStyle(.iconOnly)
                             .foregroundStyle(.red)
-                            .disabled(!store.mobilePermissions.servers)
+                            // An archived PID may belong to something else by
+                            // now. Never fire a kill at a stale process id.
+                            .disabled(!store.mobilePermissions.servers || store.isStale)
                         }
                     }
                 }

@@ -21,6 +21,19 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
     var attentionSummary: String?
     var providers: [Provider]
 
+    /// Unlike the app, a widget never learns that a fetch failed — it only ever
+    /// sees the cache. So it judges by age, with a couple of refresh intervals
+    /// of slack before it calls the numbers history.
+    static let freshWindow: TimeInterval = 45 * 60
+
+    var isStale: Bool {
+        Date().timeIntervalSince(updatedAt) > Self.freshWindow
+    }
+
+    var age: TimeInterval {
+        Date().timeIntervalSince(updatedAt)
+    }
+
     static let placeholder = HeadroomWidgetSnapshot(
         updatedAt: .now,
         attentionLevel: nil,
