@@ -173,9 +173,10 @@ def series(*, tz=None, days=EXPOSE_DAYS):
             "burns": burns,
             "total": round(sum(burns.values()), 2),
         }
-        # Dual-write fixed columns so existing Mac / ESP32 parsers keep working.
-        for provider in providers:
-            entry[provider] = burns[provider]
+        # Dual-write only the classic three columns so firmware / older Mac
+        # parsers keep working. New quota ids live in `burns` alone.
+        for provider in ("claude", "codex", "cursor"):
+            entry[provider] = burns.get(provider, 0.0)
         out.append(entry)
     return out
 

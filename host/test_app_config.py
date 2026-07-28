@@ -32,6 +32,13 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(app_config.github_org_prefix(), "")
         self.assertEqual(app_config.github_always_repos(), ())
         self.assertEqual(app_config.github_max_discovered(), 6)
+        self.assertEqual(app_config.plausible_sites(), ())
+        self.assertEqual(app_config.plausible_host(), "https://plausible.io")
+        self.assertEqual(app_config.plausible_range(), "24h")
+        self.assertEqual(
+            app_config.mobile_permissions(),
+            {"read", "refresh", "sources", "servers"},
+        )
 
     def test_overrides_from_file(self):
         with open(self.path, "w") as handle:
@@ -43,6 +50,10 @@ class AppConfigTests(unittest.TestCase):
                 "github_org_prefix": "acme/",
                 "github_always_repos": ["acme/app"],
                 "github_max_discovered": 2,
+                "plausible_sites": ["acme.dev"],
+                "plausible_host": "https://analytics.example.com/",
+                "plausible_range": "7d",
+                "mobile_permissions": ["read", "sources", "unknown"],
             }, handle)
         app_config.reload()
         self.assertEqual(app_config.timezone_name(), "America/Los_Angeles")
@@ -52,6 +63,30 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(app_config.github_org_prefix(), "acme/")
         self.assertEqual(app_config.github_always_repos(), ("acme/app",))
         self.assertEqual(app_config.github_max_discovered(), 2)
+        self.assertEqual(app_config.plausible_sites(), ("acme.dev",))
+        self.assertEqual(
+            app_config.plausible_host(), "https://analytics.example.com")
+        self.assertEqual(app_config.plausible_range(), "7d")
+        self.assertEqual(app_config.mobile_permissions(), {"read", "sources"})
+
+    def test_persists_mobile_permissions_without_losing_other_config(self):
+        with open(self.path, "w") as handle:
+            json.dump({"timezone": "Europe/Amsterdam"}, handle)
+        granted = app_config.set_mobile_permissions(["read", "refresh", "bad"])
+        self.assertEqual(granted, {"read", "refresh"})
+        self.assertEqual(app_config.mobile_permissions(), {"read", "refresh"})
+        self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
+
+    def test_persists_attention_ack_without_losing_other_config(self):
+        with open(self.path, "w") as handle:
+            json.dump({"timezone": "Europe/Amsterdam"}, handle)
+        value = app_config.set_attention_ack_fingerprint("warn|vercel|1 failed")
+        self.assertEqual(value, "warn|vercel|1 failed")
+        self.assertEqual(
+            app_config.attention_ack_fingerprint(),
+            "warn|vercel|1 failed",
+        )
+        self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
 
 
 class AttentionTests(unittest.TestCase):
@@ -114,6 +149,42 @@ class AttentionTests(unittest.TestCase):
         })
         self.assertEqual(attention["level"], "critical")
         self.assertEqual(attention["summary"], "app · PR Check failed")
+
+    def test_acknowledgement_clears_only_matching_attention(self):
+        import headroom_server as hs
+        doc = {
+            "github": {"configured": True, "fail_count": 0},
+            "supabase": {"configured": True, "alert_count": 0},
+            "vercel": {"deployments": [{"status": "error"}]},
+            "codex": {"ok": True},
+            "cursor": {"ok": True},
+            "sources": [],
+        }
+        with mock.patch(
+            "headroom_server.app_config.attention_ack_fingerprint",
+            return_value=None,
+        ):
+            active = hs._build_attention(doc)
+        self.assertEqual(active["level"], "warn")
+        self.assertFalse(active["acknowledged"])
+
+        with mock.patch(
+            "headroom_server.app_config.attention_ack_fingerprint",
+            return_value=active["fingerprint"],
+        ):
+            cleared = hs._build_attention(doc)
+        self.assertEqual(cleared["level"], "ok")
+        self.assertEqual(cleared["reasons"], [])
+        self.assertTrue(cleared["acknowledged"])
+
+        doc["vercel"]["deployments"].append({"status": "error"})
+        with mock.patch(
+            "headroom_server.app_config.attention_ack_fingerprint",
+            return_value=active["fingerprint"],
+        ):
+            changed = hs._build_attention(doc)
+        self.assertEqual(changed["level"], "critical")
+        self.assertFalse(changed["acknowledged"])
 
     def test_stale_fail_count_zero_is_ok(self):
         """Age-gating happens in github_actions; Attention trusts fail_count."""

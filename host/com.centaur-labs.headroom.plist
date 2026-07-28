@@ -5,10 +5,10 @@
      Manual install:
        mkdir -p ~/.headroom/logs
        # Edit ProgramArguments / WorkingDirectory to your clone path, then:
-       cp host/com.mz.headroom.plist ~/Library/LaunchAgents/
-       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mz.headroom.plist
+       cp host/com.centaur-labs.headroom.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.centaur-labs.headroom.plist
      Restart:
-       launchctl kickstart -k gui/$(id -u)/com.mz.headroom
+       launchctl kickstart -k gui/$(id -u)/com.centaur-labs.headroom
      Uninstall:
        ./scripts/uninstall-host.sh
 -->
@@ -17,7 +17,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.mz.headroom</string>
+  <string>com.centaur-labs.headroom</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>

@@ -93,7 +93,7 @@ class ForecastTests(unittest.TestCase):
         self.assertAlmostEqual(got["exhausts_in_s"], 2 * DAY_S, delta=60)
         self.assertTrue(got["exhausts_before_reset"])
         self.assertEqual(got["status"], burndown.STATUS_CRITICAL)
-        self.assertIn("run out", got["headline"])
+        self.assertIn("Out ", got["headline"])
 
     def test_slow_burn_with_slack_is_ok(self):
         got = burndown.compute("claude", "week", payload(45.0),
@@ -110,7 +110,8 @@ class ForecastTests(unittest.TestCase):
         self.assertLess(got["delta_pct"], -5)
         self.assertFalse(got["exhausts_before_reset"])
         self.assertEqual(got["status"], burndown.STATUS_AHEAD)
-        self.assertIn("budget", got["headline"])
+        self.assertIn("Burn ", got["headline"])
+        self.assertIn(" vs ", got["headline"])
         self.assertAlmostEqual(got["allowance_pct"], 10.0, places=1)
 
     def test_too_little_history_makes_no_claim(self):
@@ -150,6 +151,30 @@ class ForecastTests(unittest.TestCase):
         self.assertEqual(len(got["projected"]), 2)
         self.assertLessEqual(got["projected"][-1][0], got["window_end"])
         self.assertGreaterEqual(got["projected"][-1][1], 0.0)
+
+    def test_month_window_fit_reaches_past_one_day(self):
+        # Cursor-style: burn landed ~36h ago, then a long flat. A 24h lookback
+        # would read slope zero; the month window's third (~10d, capped at 7d)
+        # still sees the drop.
+        month_s = 30 * DAY_S
+        resets = 2 * DAY_S
+        start = int(NOW - (month_s - resets))
+        history = []
+        # Flat at 95% remaining until the burn, then flat at 85%.
+        for t in range(int(NOW - 3 * DAY_S), int(NOW - 36 * 3600), 300):
+            history.append({"t": t, "pct": 5.0, "window_start": start})
+        for t in range(int(NOW - 36 * 3600), int(NOW) + 1, 300):
+            history.append({"t": t, "pct": 15.0, "window_start": start})
+        body = {
+            "ok": True,
+            "total": {"pct": 15.0, "resets_in_s": resets, "window_s": month_s},
+        }
+        got = burndown.compute("cursor", "total", body, now=NOW, tz=TZ,
+                               rows=history)
+        self.assertIsNotNone(got["burn_rate_pct"])
+        self.assertGreater(got["burn_rate_pct"], 0.0)
+        self.assertEqual(len(got["projected"]), 2)
+        self.assertLess(got["projected"][-1][1], got["projected"][0][1])
 
 
 class RateUnitTests(unittest.TestCase):
@@ -197,14 +222,16 @@ class RateUnitTests(unittest.TestCase):
         got = burndown.compute("claude", "week", payload(70.0),
                                now=NOW, tz=TZ, rows=rows(30.2, 30.0))
         self.assertEqual(got["status"], burndown.STATUS_AHEAD)
-        self.assertIn("0.2%/day", got["headline"])
+        self.assertIn("0.2 vs", got["headline"])
+        self.assertIn("%/day", got["headline"])
 
     def test_single_point_is_singular(self):
         got = burndown.compute("claude", "week", payload(56.14),
                                now=NOW, tz=TZ, rows=rows(45.0, 43.86))
         self.assertEqual(got["status"], burndown.STATUS_OK)
-        self.assertIn("1 point to spare", got["headline"])
+        self.assertIn("1 point", got["headline"])
         self.assertNotIn("1 points", got["headline"])
+        self.assertNotIn("to spare", got["headline"])
 
 
 class PriorTests(unittest.TestCase):
@@ -222,8 +249,9 @@ class PriorTests(unittest.TestCase):
     def test_estimated_headline_hedges(self):
         got = burndown.compute("claude", "week", payload(60.0), now=NOW, tz=TZ,
                                rows=[], prior_pct_per_day=20.0)
-        self.assertIn("about 20%/day", got["headline"])
-        self.assertIn("Based on your recent usage", got["headline"])
+        self.assertIn("~20%/day", got["headline"])
+        self.assertNotIn("about ", got["headline"])
+        self.assertNotIn("Based on your recent usage", got["headline"])
 
     def test_measured_samples_beat_the_prior(self):
         # A wildly wrong prior must not survive contact with real data.
@@ -231,6 +259,7 @@ class PriorTests(unittest.TestCase):
                                rows=rows(60.0, 40.0), prior_pct_per_day=999.0)
         self.assertEqual(got["rate_source"], "measured")
         self.assertAlmostEqual(got["burn_rate_pct"], 20.0, places=1)
+        self.assertNotIn("~", got["headline"])
         self.assertNotIn("about", got["headline"])
 
     def test_no_prior_and_no_samples_makes_no_claim(self):
@@ -277,12 +306,124 @@ class ExhaustedTests(unittest.TestCase):
     def test_exhausted_headline_states_the_reset(self):
         got = burndown.compute("claude", "week", payload(100.0),
                                now=NOW, tz=TZ, rows=rows(20.0, 0.0))
-        self.assertEqual(got["headline"], "Exhausted. Resets in 3d.")
+        self.assertEqual(got["headline"], "Exhausted · resets 3d")
 
     def test_healthy_pool_is_not_exhausted(self):
         got = burndown.compute("claude", "week", payload(60.0),
                                now=NOW, tz=TZ, rows=rows(60.0, 40.0))
         self.assertFalse(got["exhausted"])
+
+
+class GrantedResetTests(unittest.TestCase):
+    """A provider handing everyone a fresh window mid-cycle. Nothing about the
+    elapsed clock says a reset happened, and until the window moves every
+    number on the card is drawn from two cycles at once."""
+
+    RESET_AT = int(NOW - 6 * 3600)
+    NEW_RESETS = WEEK_S - 6 * 3600
+
+    def rows_across_the_reset(self):
+        """A flat day on the old window, then six hours of real burn."""
+        old_start = int(self.RESET_AT - 5 * DAY_S)
+        out = [
+            {"t": int(self.RESET_AT - 24 * 3600 + i * 300),
+             "provider": "codex", "pool": "week", "pct": 18.0,
+             "window_s": WEEK_S, "resets_in_s": 2 * DAY_S,
+             "window_start": old_start, "window_end": old_start + WEEK_S}
+            for i in range(int(24 * 3600 // 300))
+        ]
+        steps = int(6 * 3600 // 300)
+        out += [
+            {"t": int(self.RESET_AT + i * 300),
+             "provider": "codex", "pool": "week",
+             "pct": round(12.0 * i / steps, 2),
+             "window_s": WEEK_S,
+             "resets_in_s": int(WEEK_S - i * 300),
+             "window_start": self.RESET_AT,
+             "window_end": self.RESET_AT + WEEK_S}
+            for i in range(steps + 1)
+        ]
+        return out
+
+    def compute(self):
+        return burndown.compute(
+            "codex", "week",
+            {"ok": True, "week": {"pct": 12.0, "window_s": WEEK_S,
+                                  "resets_in_s": self.NEW_RESETS}},
+            now=NOW, tz=TZ, rows=self.rows_across_the_reset())
+
+    def test_window_follows_the_granted_reset(self):
+        got = self.compute()
+        self.assertEqual(got["window_start"], self.RESET_AT)
+        self.assertEqual(got["window_end"], self.RESET_AT + WEEK_S)
+
+    def test_curve_starts_at_the_reset_not_before_it(self):
+        got = self.compute()
+        self.assertEqual(got["actual"][0][0], self.RESET_AT)
+        # 82% remaining is last cycle's plateau. It must not be on this chart.
+        self.assertNotIn(82.0, [point[1] for point in got["actual"]])
+
+    def test_rate_is_measured_after_the_reset(self):
+        # 12 points in 6h is 48/day. Fitting across the reset instead sees a
+        # jump upward, reads the slope as positive, and reports 0.
+        got = self.compute()
+        self.assertEqual(got["rate_source"], "measured")
+        self.assertAlmostEqual(got["burn_rate_pct"], 48.0, delta=1.0)
+
+    def test_axis_and_countdown_cannot_disagree(self):
+        # The caption is rendered from resets_in and the chart ends at
+        # window_end. They are the same instant or the card contradicts itself.
+        got = self.compute()
+        self.assertEqual(got["window_end"] - int(NOW), got["resets_in_s"])
+        self.assertEqual(got["ideal"][-1][0], got["window_end"])
+
+
+class VerdictTests(unittest.TestCase):
+    """One short phrase per state, sitting above a stat row rather than
+    restating it. Every surface renders the same words."""
+
+    def test_critical_names_the_moment(self):
+        got = burndown.compute("claude", "week", payload(60.0),
+                               now=NOW, tz=TZ, rows=rows(60.0, 40.0))
+        self.assertTrue(got["verdict"].startswith("Runs out "))
+
+    def test_on_track_states_the_slack(self):
+        got = burndown.compute("claude", "week", payload(45.0),
+                               now=NOW, tz=TZ, rows=rows(60.0, 55.0))
+        # 55 left against the 42.9 an even spend would leave.
+        self.assertEqual(got["verdict"], "On track · 12%")
+
+    def test_ahead_of_pace_still_says_whether_it_lasts(self):
+        got = burndown.compute("claude", "week", payload(70.0),
+                               now=NOW, tz=TZ, rows=rows(35.0, 30.0))
+        self.assertEqual(got["verdict"], "Over pace")
+
+    def test_exhausted_points_at_the_reset(self):
+        got = burndown.compute("claude", "week", payload(100.0),
+                               now=NOW, tz=TZ, rows=rows(20.0, 0.0))
+        self.assertEqual(got["verdict"], "Spent, back in 3d")
+
+    def test_no_forecast_says_so_rather_than_guessing(self):
+        got = burndown.compute("claude", "week", payload(60.0),
+                               now=NOW, tz=TZ, rows=[])
+        self.assertEqual(got["verdict"], "Collecting history")
+
+    def test_verdict_never_repeats_the_stat_row(self):
+        # Left / Burning / Budget live in the row beside it. A verdict that
+        # also carried them is how the card grew back into a paragraph.
+        got = burndown.compute("claude", "week", payload(60.0),
+                               now=NOW, tz=TZ, rows=rows(60.0, 40.0))
+        self.assertNotIn("%/day", got["verdict"])
+        self.assertNotIn("left", got["verdict"].lower())
+
+
+class AllowanceTests(unittest.TestCase):
+    def test_allowance_is_dropped_once_it_stops_meaning_anything(self):
+        # 40% left with a minute to go is not a "57000%/day budget".
+        got = burndown.compute("claude", "week", payload(60.0, resets_in_s=60),
+                               now=NOW, tz=TZ, rows=[])
+        self.assertIsNone(got["allowance_pct"])
+        self.assertNotIn("budget", got["headline"])
 
 
 class AggregateTests(unittest.TestCase):

@@ -12,6 +12,11 @@ import sqlite3
 import subprocess
 
 import app_config
+import copilot_usage
+import gemini_usage
+import jetbrains_usage
+import windsurf_usage
+import zed_usage
 
 
 def claude_signed_in():
@@ -107,7 +112,7 @@ def github_signed_in():
     try:
         raw = subprocess.check_output(
             ["/usr/bin/security", "find-generic-password",
-             "-s", "com.mz.headroom.github", "-a", "access-token", "-w"],
+             "-s", "com.centaur-labs.headroom.github", "-a", "access-token", "-w"],
             stderr=subprocess.DEVNULL, text=True,
         ).strip()
         if raw:
@@ -124,7 +129,7 @@ def supabase_signed_in():
     try:
         raw = subprocess.check_output(
             ["/usr/bin/security", "find-generic-password",
-             "-s", "com.mz.headroom.supabase", "-a", "access-token", "-w"],
+             "-s", "com.centaur-labs.headroom.supabase", "-a", "access-token", "-w"],
             stderr=subprocess.DEVNULL, text=True,
         ).strip()
         if raw:
@@ -139,6 +144,21 @@ def supabase_signed_in():
         return False
 
 
+def plausible_signed_in():
+    if (os.environ.get("PLAUSIBLE_API_KEY")
+            or os.environ.get("HEADROOM_PLAUSIBLE_TOKEN")):
+        return True
+    try:
+        raw = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.plausible", "-a", "access-token", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        return bool(raw)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 def local_available():
     return True
 
@@ -147,11 +167,17 @@ PROBES = {
     "claude": claude_signed_in,
     "codex": codex_signed_in,
     "cursor": cursor_signed_in,
+    "copilot": copilot_usage.signed_in,
+    "gemini": gemini_usage.signed_in,
+    "windsurf": windsurf_usage.signed_in,
+    "jetbrains": jetbrains_usage.signed_in,
+    "zed": zed_usage.signed_in,
     "vercel": vercel_signed_in,
     "git": git_available,
     "github": github_signed_in,
     "local": local_available,
     "supabase": supabase_signed_in,
+    "plausible": plausible_signed_in,
 }
 
 
@@ -166,7 +192,7 @@ def detected_map():
     return out
 
 
-def suggested_enabled(source_ids):
+def suggested_enabled(source_ids, quota_ids=None):
     """First-run enabled flags: on only when a local credential/path exists.
 
     If no coding provider is detected, enable all quota sources so the UI
@@ -174,9 +200,12 @@ def suggested_enabled(source_ids):
     """
     detected = detected_map()
     enabled = {sid: bool(detected.get(sid, False)) for sid in source_ids}
-    quota_ids = [sid for sid in ("claude", "codex", "cursor") if sid in enabled]
-    if quota_ids and not any(enabled[sid] for sid in quota_ids):
-        for sid in quota_ids:
+    if quota_ids is None:
+        quota_ids = ("claude", "codex", "cursor")
+    known = set(quota_ids)
+    selected = [sid for sid in source_ids if sid in known]
+    if selected and not any(enabled[sid] for sid in selected):
+        for sid in selected:
             enabled[sid] = True
     # Local servers need no auth and are useful on day one.
     if "local" in enabled:

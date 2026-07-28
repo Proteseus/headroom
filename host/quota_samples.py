@@ -16,13 +16,20 @@ one row per pool per BUCKET_S. At 5-minute buckets that is ~7 rows/interval and
 ~28k rows over the retention window, a few MB. Appending beats rewriting a JSON
 blob every tick, and the file stays greppable.
 
-Window identity is derived, not stored by the API: a pool reporting `window_s`
-and `resets_in_s` implies `window_start = now - (window_s - resets_in_s)`. That
-value is stable across samples by construction, so it is carried on each row.
-In practice the sources report `resets_in_s` loosely enough that it is not
-stable at all, so a derived start only replaces the previous one once a full
-window has passed — see `window_start_for`. Reads then select by sample *time*
-inside that window, so labels forked before the hold still reunite on the chart.
+Window identity is derived, not stored by the API. The anchor is the *reset
+instant* — `window_end = now + resets_in_s` — rather than the start, because
+the end is the one moment the source actually reports and the one the UI
+prints. Deriving the start from a held end (`end - window_s`) is what keeps a
+chart's axis and its "6d 23h to reset" caption from disagreeing; anchoring the
+other way round lets them drift apart by days.
+
+In practice the sources report `resets_in_s` loosely enough that a fresh
+reading is not stable at all, so a derived end only replaces the held one once
+a full window has passed — see `window_for`. The exception is a reset granted
+out of band (Codex handing everyone a fresh week mid-window), which no
+elapsed-time rule can ever recognise; `rolled_window` detects those from the
+reading itself. Reads then select by sample *time* inside the window, so labels
+forked before the hold still reunite on the chart.
 
 Stdlib only.
 """
@@ -48,6 +55,10 @@ COMPACT_AT_LINES = 60_000
 # Slack on "a full window later", so a reset observed slightly early still
 # reads as a roll rather than jitter.
 WINDOW_TOLERANCE_S = 15 * 60
+# Out-of-band reset detection. Both bars have to be cleared at once — see
+# `rolled_window` for why either alone is ambiguous.
+RESET_MIN_DROP_PCT = 1.0
+RESET_MIN_GAIN_S = 15 * 60
 # Bytes read from the tail to reseed bucket/window state after a restart.
 TAIL_BYTES = 64 * 1024
 
@@ -78,11 +89,10 @@ BY_ID = {pool.id: pool for pool in POOLS}
 PROVIDERS = tuple(dict.fromkeys(pool.provider for pool in POOLS))
 
 _lock = threading.Lock()
-# (provider, pool) -> last bucket epoch written, so a restart or a fast poll
-# does not duplicate a row.
-_last_bucket = {}
-# (provider, pool) -> last window_start, for jitter snapping.
-_last_window = {}
+# (provider, pool) -> newest row written. Carries the bucket (so a restart or a
+# fast poll does not duplicate a row) and the pct/resets_in/window_end a roll
+# decision needs.
+_last_row = {}
 _seeded = False
 
 
@@ -130,26 +140,70 @@ def extract(provider, pool_id, payload):
     }
 
 
-def window_start_for(now, window_s, resets_in_s, previous=None):
-    """Derive the window's start, holding `previous` until the window rolls.
+def _previous_end(previous, window_s):
+    """The reset instant carried by a stored row, or None."""
+    if not isinstance(previous, dict):
+        return None
+    end = _num(previous.get("window_end"))
+    if end is not None:
+        return int(end)
+    start = _num(previous.get("window_start"))
+    # Rows written before window_end was carried on each sample.
+    return None if start is None else int(start) + int(window_s)
 
-    A window that genuinely rolled starts a full window after the last one, so
-    that is the bar a new estimate has to clear. Anything short of it is the
-    source misreporting `resets_in_s` — most often a cached response served
-    after the machine wakes, which freezes `resets_in_s` while `now` keeps
-    moving and walks the derived start forward a poll interval at a time.
+
+def rolled_window(previous, pct, resets_in_s, now):
+    """True when this reading belongs to a later window than `previous`'s.
+
+    Two independent facts have to agree, because either one alone is
+    ambiguous. Used percent fell, which cannot happen inside a window — you
+    do not un-spend — except that a credit grant lowers it without rolling
+    anything. And `resets_in_s` jumped past the decay the clock predicts,
+    which jitter and post-wake cached responses also do — except that those
+    repeat the previous `pct` rather than dropping it. Only a real roll
+    produces both at the same moment.
+
+    Over two weeks of live samples across every pool this fires exactly on the
+    genuine rolls and on nothing else, including the multi-hour `resets_in_s`
+    jumps that follow a sleep.
+    """
+    prev_pct = _num((previous or {}).get("pct"))
+    prev_resets = _num((previous or {}).get("resets_in_s"))
+    prev_t = _num((previous or {}).get("t"))
+    if prev_pct is None or prev_resets is None or prev_t is None:
+        return False
+    if prev_pct - pct < RESET_MIN_DROP_PCT:
+        return False
+    expected = prev_resets - max(0.0, now - prev_t)
+    return resets_in_s - expected >= RESET_MIN_GAIN_S
+
+
+def window_for(now, window_s, resets_in_s, *, pct=None, previous=None):
+    """Derive `(start, end)` for one reading, holding the end against jitter.
+
+    A window that rolled on time puts its reset a full window after the held
+    one, so that is the bar a fresh reading has to clear. Anything short of it
+    is the source misreporting `resets_in_s` — most often a cached response
+    served after the machine wakes, which freezes `resets_in_s` while `now`
+    keeps moving and walks the derived window forward a poll at a time.
 
     Holding rather than snapping matters because a fork is not cosmetic: every
     sample collected before it belongs to a window nothing queries again, which
-    is enough to starve the burndown fit of the history it needs.
+    is enough to starve the burndown fit of the history it needs. But holding
+    against *everything* is how a reset granted early stays invisible for days,
+    so `rolled_window` gets a say too.
     """
     window_s = int(window_s)
-    elapsed = window_s - max(0, min(int(resets_in_s), window_s))
-    start = int(round(now - elapsed))
-    if previous is None:
-        return start
-    rolled = start >= int(previous) + window_s - WINDOW_TOLERANCE_S
-    return start if rolled else int(previous)
+    resets_in_s = max(0, min(int(resets_in_s), window_s))
+    end = int(round(now + resets_in_s))
+    previous_end = _previous_end(previous, window_s)
+    if previous_end is not None:
+        on_time = end >= previous_end + window_s - WINDOW_TOLERANCE_S
+        early = pct is not None and rolled_window(
+            previous, pct, resets_in_s, now)
+        if not (on_time or early):
+            end = previous_end
+    return end - window_s, end
 
 
 def _iter_rows(handle):
@@ -165,12 +219,65 @@ def _iter_rows(handle):
             yield row
 
 
+def _relabel_locked(rows):
+    """Replay `window_for` over every row, oldest first. Returns rows changed.
+
+    Window labels are derived, so they are only ever as good as the rule that
+    derived them. Replaying that rule across the whole log is what lets a fix
+    reach the history it was already wrong about; without it a window
+    mislabelled before the fix stays mislabelled until it rolls on its own,
+    which on a weekly pool is a week of wrong charts.
+
+    Only the derived keys move. The readings themselves are never touched.
+    """
+    rows.sort(key=lambda row: row.get("t") or 0)
+    previous = {}
+    changed = 0
+    for row in rows:
+        key = (row.get("provider"), row.get("pool"))
+        spec = BY_ID.get(key)
+        if spec is None:
+            continue
+        window_s = _num(row.get("window_s")) or spec.default_window_s
+        pct = _num(row.get("pct"))
+        resets_in_s = _num(row.get("resets_in_s"))
+        if not window_s or pct is None or resets_in_s is None:
+            continue
+        start, end = window_for(row["t"], int(window_s), int(resets_in_s),
+                                pct=pct, previous=previous.get(key))
+        if (row.get("window_start") != start
+                or row.get("window_end") != end):
+            changed += 1
+        row["window_start"] = start
+        row["window_end"] = end
+        previous[key] = row
+    return changed
+
+
+def _migrate_locked():
+    """One-shot relabel of a store written before windows carried their end."""
+    try:
+        with open(STORE_PATH) as handle:
+            rows = list(_iter_rows(handle))
+    except OSError:
+        return False
+    stale = any(row.get("window_end") is None
+                and (row.get("provider"), row.get("pool")) in BY_ID
+                for row in rows)
+    if not stale:
+        return False
+    if _relabel_locked(rows):
+        print(f"quota_samples: relabelled {len(rows)} rows onto held windows")
+    return _rewrite(rows)
+
+
 def _seed_locked():
-    """Reseed bucket/window state from the file tail so a restart is a no-op."""
+    """Reseed per-pool state from the file tail so a restart is a no-op."""
     global _seeded
     if _seeded:
         return
     _seeded = True
+    _migrate_locked()
     try:
         size = os.path.getsize(STORE_PATH)
         with open(STORE_PATH, "rb") as handle:
@@ -185,14 +292,34 @@ def _seed_locked():
         key = (row.get("provider"), row.get("pool"))
         if key not in BY_ID:
             continue
-        bucket = row.get("t")
-        if isinstance(bucket, (int, float)):
-            prev = _last_bucket.get(key)
-            if prev is None or bucket > prev:
-                _last_bucket[key] = int(bucket)
-        start = row.get("window_start")
-        if isinstance(start, (int, float)):
-            _last_window[key] = int(start)
+        bucket = _num(row.get("t"))
+        if bucket is None:
+            continue
+        previous = _last_row.get(key)
+        if previous is None or bucket > _num(previous.get("t")):
+            _last_row[key] = row
+
+
+def _rewrite(rows):
+    """Replace the store with `rows`, atomically. False when it could not.
+
+    Called both under `_lock` (relabelling) and outside it (compaction), which
+    is why it takes rows rather than reaching for module state.
+    """
+    tmp = STORE_PATH + ".tmp"
+    try:
+        with open(tmp, "w") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+        os.replace(tmp, STORE_PATH)
+    except OSError as exc:
+        print("quota_samples rewrite error:", exc)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def _append_locked(rows):
@@ -226,18 +353,18 @@ def record(state, *, now=None, persist=True):
                 reading = extract(spec.provider, spec.pool, payload)
                 if reading is None:
                     continue
-                if _last_bucket.get(spec.id) == bucket_t:
+                previous = _last_row.get(spec.id)
+                if previous is not None and _num(previous.get("t")) == bucket_t:
                     continue  # already sampled this bucket
 
-                start = window_start_for(
+                start, end = window_for(
                     now,
                     reading["window_s"],
                     reading["resets_in_s"],
-                    previous=_last_window.get(spec.id),
+                    pct=reading["pct"],
+                    previous=previous,
                 )
-                _last_bucket[spec.id] = bucket_t
-                _last_window[spec.id] = start
-                written.append({
+                row = {
                     "t": bucket_t,
                     "provider": spec.provider,
                     "pool": spec.pool,
@@ -245,7 +372,10 @@ def record(state, *, now=None, persist=True):
                     "window_s": reading["window_s"],
                     "resets_in_s": reading["resets_in_s"],
                     "window_start": start,
-                })
+                    "window_end": end,
+                }
+                _last_row[spec.id] = row
+                written.append(row)
 
             if persist and written:
                 _append_locked(written)
@@ -280,14 +410,15 @@ def read(*, provider=None, pool=None, since=None, window_start=None):
     return out
 
 
-def latest_window_start(provider, pool):
-    """window_start on the newest sample for one pool, or None."""
+def latest_row(provider, pool):
+    """The newest stored sample for one pool, or None.
+
+    Callers pass this straight back into `window_for` as `previous`: it is the
+    only thing a roll decision needs, and reading it here keeps that decision
+    in one place rather than one copy per caller.
+    """
     rows = read(provider=provider, pool=pool)
-    for row in reversed(rows):
-        start = row.get("window_start")
-        if isinstance(start, (int, float)):
-            return int(start)
-    return None
+    return rows[-1] if rows else None
 
 
 def current_window(provider, pool, *, window_start=None, window_s=None):
@@ -359,27 +490,12 @@ def compact(*, now=None):
             kept = [row for row in _iter_rows(handle) if row.get("t", 0) >= cutoff]
     except OSError:
         return 0
-
-    tmp = STORE_PATH + ".tmp"
-    try:
-        with open(tmp, "w") as handle:
-            for row in kept:
-                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
-        os.replace(tmp, STORE_PATH)
-    except OSError as exc:
-        print("quota_samples compact error:", exc)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        return 0
-    return len(kept)
+    return len(kept) if _rewrite(kept) else 0
 
 
 def reset_for_tests():
-    """Clear in-memory bucket/window state (unit tests only)."""
+    """Clear in-memory per-pool state (unit tests only)."""
     global _seeded
     with _lock:
-        _last_bucket.clear()
-        _last_window.clear()
+        _last_row.clear()
         _seeded = False

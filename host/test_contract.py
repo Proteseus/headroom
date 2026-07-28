@@ -1,7 +1,7 @@
 """The /usage contract, checked against both clients.
 
-The document shape is written down three times — Python dicts here, Swift
-Codable structs in macos/Sources/Models.swift, and field reads in
+The document shape is written down three times — Python dicts here, shared
+Swift Codable structs in Shared/HeadroomModels.swift, and field reads in
 firmware/src/main.cpp — and nothing forced them to agree. Renaming a key was a
 silent break: Swift decodes it to nil, the board renders "--", and neither
 fails loudly.
@@ -24,6 +24,7 @@ import sources_config
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMO_PATH = os.path.join(REPO_ROOT, "docs", "demo_usage.json")
 FIRMWARE_PATH = os.path.join(REPO_ROOT, "firmware", "src", "main.cpp")
+MODELS_PATH = os.path.join(REPO_ROOT, "Shared", "HeadroomModels.swift")
 
 
 def _demo_doc():
@@ -73,9 +74,9 @@ EMITTABLE = (
     | {("sources",)}
     | {("sources", key) for key in device_view.SOURCE_FIELDS}
     | {("burndown",)}
-    | {("burndown", provider) for provider in ("claude", "codex", "cursor")}
+    | {("burndown", provider) for provider in sources_config.BURN_SOURCE_IDS}
     | {("burndown", provider, key)
-       for provider in ("claude", "codex", "cursor")
+       for provider in sources_config.BURN_SOURCE_IDS
        for key in device_view.BURNDOWN_FIELDS}
 )
 
@@ -189,8 +190,8 @@ class RollupContractTests(unittest.TestCase):
         doc = headroom_server.publish()
         for key in ("updated", "today", "by_day", "codex", "cursor", "vercel",
                     "git", "github", "activity", "local", "supabase",
-                    "sources", "attention", "quota_ok", "session_pct",
-                    "week_pct"):
+                    "plausible", "sources", "attention", "quota_ok",
+                    "session_pct", "week_pct"):
             self.assertIn(key, doc)
 
     def test_demo_fixture_matches_the_served_shape(self):
@@ -202,6 +203,170 @@ class RollupContractTests(unittest.TestCase):
             unknown, [],
             "docs/demo_usage.json has keys the host no longer serves",
         )
+
+
+def _swift_wire_names():
+    """Every JSON key Shared/HeadroomModels.swift is able to decode.
+
+    Three sources, because the file uses all three styles: the raw value where
+    a case is remapped (`case windowStart = "window_start"`), the case name
+    where it isn't (`case provider, pool`), and the stored property name for
+    the structs that rely on synthesized keys.
+    """
+    with open(MODELS_PATH) as handle:
+        source = handle.read()
+
+    names = set()
+    for block in re.finditer(r"enum CodingKeys[^{]*\{(.*?)\n    \}", source, re.S):
+        for line in block.group(1).splitlines():
+            line = line.strip()
+            if not line.startswith("case "):
+                continue
+            for part in line[len("case "):].split(","):
+                part = part.strip()
+                if "=" in part:
+                    raw = re.search(r'"([^"]+)"', part)
+                    if raw:
+                        names.add(raw.group(1))
+                elif part:
+                    names.add(part)
+    names |= set(re.findall(r"^\s*(?:var|let)\s+([A-Za-z_]\w*)\s*:", source, re.M))
+    return names
+
+
+# Paths whose child keys are *data*, not field names — pool ids, model names,
+# provider ids. Descending into them would compare Swift field names against
+# values.
+DYNAMIC_MAP_PATHS = {
+    "providers[].pools",
+    "quota",
+    "by_model",
+    "by_day[].burns",
+    # Per-provider maps keyed by registry id, then by pool id.
+    "burndown",
+    "burndown[]",
+}
+
+# Subtrees skipped whole, by path. `history` is long-range Claude token detail
+# the host aggregates for its own burn priors and for `curl`; enumerating its
+# dozen inner fields here would be noise, not coverage.
+UNDECODED_SUBTREES = {
+    "history",
+}
+
+# Individual keys the host emits that no Swift client decodes.
+#
+# Adding a line here is a decision: it says the Mac and iPhone deliberately
+# ignore that field. A key arriving here *by accident* is the failure this test
+# exists to catch — it almost always means one side of a rename landed.
+UNDECODED_KEYS = {
+    # Token windows shaped exactly like `today`, which Swift does decode. The
+    # apps chart burn from `by_day` instead.
+    "week",
+    "session_5h",
+    "last_hour",
+    # Containers whose children are dynamic (pool ids, model names) and whose
+    # own contents nothing on the Swift side reads.
+    "quota",
+    "by_model",
+    # Token mix inside every window. TokenBucket decodes total + cost_usd only.
+    "input",
+    "output",
+    "cache_read",
+    "cache_write",
+    # Derived convenience fields on codex/cursor, superseded by the burndown
+    # rows the apps actually read.
+    "cost_remaining_usd",
+    "pace_delta_pct",
+    "pace_in_deficit",
+    "runs_out_in_s",
+    "session_resets_in_s",
+    "week_resets_in_s",
+}
+
+
+def _emitted_key_names():
+    """Field names the host serves, from a live document and the demo fixture.
+
+    Both, because a bare machine has no Supabase or Plausible section and would
+    quietly stop checking those keys; the committed fixture keeps the floor the
+    same everywhere.
+    """
+    names = set()
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            if path in DYNAMIC_MAP_PATHS:
+                for value in node.values():
+                    walk(value, f"{path}[]")
+                return
+            for key, value in node.items():
+                names.add(key)
+                child = f"{path}.{key}" if path else key
+                if child in UNDECODED_SUBTREES:
+                    continue
+                walk(value, child)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, f"{path}[]")
+
+    walk(headroom_server.publish(), "")
+    walk(_demo_doc(), "")
+    return names
+
+
+class SwiftModelContractTests(unittest.TestCase):
+    """Renames caught mechanically rather than one assertion at a time.
+
+    The other tests in this file pin hand-picked fields, which means a renamed
+    key three levels down — `burndown[].exhausts_before_reset`, say — passes
+    everything: the host still emits it, Swift decodes nil, and a card renders
+    blank. This walks the whole served document instead.
+
+    Scope is the /usage document. /health and /setup are decoded by models that
+    live in the app rather than in Shared/, and are covered by their own tests.
+    """
+
+    def test_every_emitted_key_is_known_to_the_swift_models(self):
+        unknown = sorted(
+            _emitted_key_names() - _swift_wire_names()
+            - UNDECODED_KEYS - UNDECODED_SUBTREES)
+        self.assertEqual(
+            unknown, [],
+            "the host emits keys Shared/HeadroomModels.swift can't decode: "
+            f"{unknown}. Either the Swift side missed a rename, or the field "
+            "is deliberately unread — in which case add it to UNDECODED_KEYS "
+            "with a reason.",
+        )
+
+    def test_the_allowlist_does_not_outlive_the_keys_it_excuses(self):
+        """A stale exemption would silently re-hide a real rename later."""
+        emitted = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    emitted.add(key)
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(headroom_server.publish())
+        walk(_demo_doc())
+        stale = sorted((UNDECODED_KEYS | UNDECODED_SUBTREES) - emitted)
+        self.assertEqual(
+            stale, [],
+            f"these keys are excused but no longer served: {stale} — drop them "
+            "from UNDECODED_KEYS / UNDECODED_SUBTREES",
+        )
+
+    def test_the_parser_finds_the_models_it_is_checking_against(self):
+        """A regex that silently matches nothing would make this test vacuous."""
+        names = _swift_wire_names()
+        self.assertGreater(len(names), 100)
+        for key in ("window_start", "remaining_pct", "cost_usd", "provider"):
+            self.assertIn(key, names)
 
 
 class AttentionContractTests(unittest.TestCase):

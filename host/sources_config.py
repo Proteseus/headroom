@@ -11,6 +11,11 @@ plus pool specs. POOLS, daily-burn headlines, and /usage → providers[] all
 derive from those rows — so a Claude-only user can disable the rest, and a
 new provider is one registry entry + a fetcher rather than a client enum.
 
+`kind` is about metering; `group` is about what the thing *is*. Onboarding and
+Settings split rows by group: the AI coding tools you're signed into locally
+(no keys to paste) versus the dev tools you connect with a token. Section
+titles live in Shared/HeadroomCopy.swift — the registry only owns membership.
+
 Stdlib only.
 """
 
@@ -22,16 +27,27 @@ import threading
 from typing import Callable, NamedTuple, Optional
 
 import codex_usage
+import copilot_usage
 import cursor_usage
 import detect_sources
+import gemini_usage
 import git_activity
 import github_actions
+import jetbrains_usage
 import local_servers
 import oauth_usage
+import plausible_usage
 import supabase_usage
 import vercel_builds
+import windsurf_usage
+import zed_usage
 
 STORE_PATH = os.path.expanduser("~/.headroom/sources.json")
+
+# Onboarding / Settings groups. Order is the order sections render in.
+GROUP_AI = "ai"              # coding models you're already signed into
+GROUP_DEVTOOLS = "devtools"  # everything else you point Headroom at
+GROUP_IDS = (GROUP_AI, GROUP_DEVTOOLS)
 
 
 class PoolSpec(NamedTuple):
@@ -59,6 +75,9 @@ class Source(NamedTuple):
     # "quota" feeds burndown / daily burn / provider tabs; everything else is
     # activity (Vercel, git, …) and only shows in Settings + ship-status panes.
     kind: str = "activity"
+    # GROUP_AI or GROUP_DEVTOOLS — which Settings/onboarding section it lands
+    # in. Independent of kind: a dev tool could grow a quota meter one day.
+    group: str = GROUP_DEVTOOLS
     pools: tuple = ()
     # Daily-burn headline: try these pool keys in order (first pct wins).
     headline: tuple = ()
@@ -88,6 +107,26 @@ def _detail_codex(payload):
 
 def _detail_cursor(payload):
     return _window_detail(payload, "total", "total")
+
+
+def _detail_copilot(payload):
+    return _window_detail(payload, "premium", "premium")
+
+
+def _detail_gemini(payload):
+    return _window_detail(payload, "pro", "pro")
+
+
+def _detail_windsurf(payload):
+    return _window_detail(payload, "week", "week")
+
+
+def _detail_jetbrains(payload):
+    return _window_detail(payload, "month", "month")
+
+
+def _detail_zed(payload):
+    return _window_detail(payload, "predictions", "predictions")
 
 
 def _detail_vercel(payload):
@@ -134,6 +173,22 @@ def _detail_supabase(payload):
     return f"{count} projects"
 
 
+def _detail_plausible(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error")
+    count = payload.get("site_count") or 0
+    live = payload.get("realtime") or 0
+    today = payload.get("visitors_today") or 0
+    label = payload.get("range_label") or "today"
+    bits = [f"{count} site" + ("" if count == 1 else "s")]
+    if live:
+        bits.append(f"{live} live")
+    bits.append(f"{today} {label}")
+    return " · ".join(bits)
+
+
 # ---------------- log summaries (stdout under the LaunchAgent) ----------------
 
 def _summary_claude(payload):
@@ -156,6 +211,34 @@ def _summary_cursor(payload):
     api = (payload.get("api") or {}).get("pct")
     return (f"plan={payload.get('plan')}  auto={auto}%  api={api}%  "
             f"resets={payload.get('resets_in_s')}")
+
+
+def _summary_copilot(payload):
+    premium = (payload.get("premium") or {}).get("pct")
+    chat = (payload.get("chat") or {}).get("pct")
+    return f"plan={payload.get('plan')}  premium={premium}%  chat={chat}%"
+
+
+def _summary_gemini(payload):
+    pro = (payload.get("pro") or {}).get("pct")
+    flash = (payload.get("flash") or {}).get("pct")
+    return f"plan={payload.get('plan')}  pro={pro}%  flash={flash}%"
+
+
+def _summary_windsurf(payload):
+    session = (payload.get("session") or {}).get("pct")
+    week = (payload.get("week") or {}).get("pct")
+    return f"plan={payload.get('plan')}  day={session}%  week={week}%"
+
+
+def _summary_jetbrains(payload):
+    month = (payload.get("month") or {}).get("pct")
+    return f"plan={payload.get('plan')}  month={month}%"
+
+
+def _summary_zed(payload):
+    preds = (payload.get("predictions") or {}).get("pct")
+    return f"plan={payload.get('plan')}  predictions={preds}%"
 
 
 def _summary_vercel(payload):
@@ -183,6 +266,12 @@ def _summary_supabase(payload):
             f"alerts={payload.get('alert_count')}")
 
 
+def _summary_plausible(payload):
+    return (f"sites={payload.get('site_count')} "
+            f"live={payload.get('realtime')} "
+            f"today={payload.get('visitors_today')}")
+
+
 # ---------------- blank payloads (shape before the first fetch) ----------------
 
 def _blank_quota():
@@ -191,6 +280,22 @@ def _blank_quota():
 
 def _blank_cursor():
     return {"ok": False, "plan": None, "auto": None, "api": None}
+
+
+def _blank_copilot():
+    return {"ok": False, "plan": None, "premium": None, "chat": None}
+
+
+def _blank_gemini():
+    return {"ok": False, "plan": None, "pro": None, "flash": None}
+
+
+def _blank_jetbrains():
+    return {"ok": False, "plan": None, "month": None}
+
+
+def _blank_zed():
+    return {"ok": False, "plan": None, "predictions": None}
 
 
 def _blank_vercel():
@@ -215,7 +320,14 @@ def _blank_supabase():
             "project_count": 0, "healthy_count": 0, "alert_count": 0}
 
 
-# Order matters — Mac Settings rows and the ESP32 footer dots follow it.
+def _blank_plausible():
+    return {"ok": False, "configured": False, "sites": [],
+            "site_count": 0, "visitors_today": 0, "realtime": 0,
+            "range": "24h", "range_label": "24h"}
+
+
+# Order matters — Mac Settings rows and the ESP32 footer dots follow it, and
+# clients render groups in GROUP_IDS order, so keep AI rows first.
 # Quota accents match firmware COL_CLAUDE / COL_OPENAI / COL_CURSOR.
 _CLAUDE_POOLS = (
     PoolSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
@@ -230,21 +342,60 @@ _CURSOR_POOLS = (
     PoolSpec("auto", "auto", "Auto", ring=False),
     PoolSpec("api", "api", "API"),
 )
+_COPILOT_POOLS = (
+    PoolSpec("premium", "premium", "Premium", jetbrains_usage.MONTH_WINDOW_S),
+    PoolSpec("chat", "chat", "Chat", jetbrains_usage.MONTH_WINDOW_S),
+)
+_GEMINI_POOLS = (
+    PoolSpec("pro", "pro", "Pro", gemini_usage.DAY_WINDOW_S),
+    PoolSpec("flash", "flash", "Flash", gemini_usage.DAY_WINDOW_S),
+)
+_WINDSURF_POOLS = (
+    PoolSpec("session", "session", "Daily", windsurf_usage.DAY_WINDOW_S),
+    PoolSpec("week", "week", "Weekly", windsurf_usage.WEEK_WINDOW_S),
+)
+_JETBRAINS_POOLS = (
+    PoolSpec("month", "month", "Monthly", jetbrains_usage.MONTH_WINDOW_S),
+)
+_ZED_POOLS = (
+    PoolSpec("predictions", "predictions", "Predictions",
+             zed_usage.MONTH_WINDOW_S),
+)
 
 SOURCES = (
     Source("claude", "Claude", "Keychain / ~/.claude credentials", 60,
            oauth_usage.fetch_quota, _detail_claude, _summary_claude,
-           _blank_quota, kind="quota", pools=_CLAUDE_POOLS,
+           _blank_quota, kind="quota", group=GROUP_AI, pools=_CLAUDE_POOLS,
            headline=("week", "session"), accent="#D97757"),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
            codex_usage.fetch_quota, _detail_codex, _summary_codex,
-           _blank_quota, kind="quota", pools=_CODEX_POOLS,
+           _blank_quota, kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
            headline=("week", "session"), accent="#10A37F"),
     Source("cursor", "Cursor", "Cursor IDE signed-in JWT", 60,
            cursor_usage.fetch_quota, _detail_cursor, _summary_cursor,
-           _blank_cursor, kind="quota", pools=_CURSOR_POOLS,
+           _blank_cursor, kind="quota", group=GROUP_AI, pools=_CURSOR_POOLS,
            headline=("total",), headline_fallback_max=("auto", "api"),
            accent="#789BC8"),
+    Source("copilot", "Copilot", "GitHub token / `gh auth`", 60,
+           copilot_usage.fetch_quota, _detail_copilot, _summary_copilot,
+           _blank_copilot, kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
+           headline=("premium", "chat"), accent="#A371F7"),
+    Source("gemini", "Gemini", "~/.gemini OAuth (Gemini CLI)", 60,
+           gemini_usage.fetch_quota, _detail_gemini, _summary_gemini,
+           _blank_gemini, kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
+           headline=("pro", "flash"), accent="#4285F4"),
+    Source("windsurf", "Windsurf", "Windsurf IDE plan cache", 60,
+           windsurf_usage.fetch_quota, _detail_windsurf, _summary_windsurf,
+           _blank_quota, kind="quota", group=GROUP_AI, pools=_WINDSURF_POOLS,
+           headline=("week", "session"), accent="#00C2A8"),
+    Source("jetbrains", "JetBrains AI", "Local AI Assistant quota XML", 60,
+           jetbrains_usage.fetch_quota, _detail_jetbrains, _summary_jetbrains,
+           _blank_jetbrains, kind="quota", group=GROUP_AI,
+           pools=_JETBRAINS_POOLS, headline=("month",), accent="#FE315D"),
+    Source("zed", "Zed", "Zed Keychain session", 60,
+           zed_usage.fetch_quota, _detail_zed, _summary_zed,
+           _blank_zed, kind="quota", group=GROUP_AI, pools=_ZED_POOLS,
+           headline=("predictions",), accent="#084CCF"),
     Source("vercel", "Vercel", "Vercel CLI login", 60,
            vercel_builds.fetch_deployments, _detail_vercel, _summary_vercel,
            _blank_vercel),
@@ -260,6 +411,10 @@ SOURCES = (
     Source("supabase", "Supabase", "PAT in Headroom Keychain", 5 * 60,
            supabase_usage.fetch_projects, _detail_supabase, _summary_supabase,
            _blank_supabase),
+    Source("plausible", "Plausible", "Stats/Sites API key in Keychain",
+           plausible_usage.CACHE_TTL_S,
+           plausible_usage.fetch_stats, _detail_plausible, _summary_plausible,
+           _blank_plausible),
 )
 
 BY_ID = {source.id: source for source in SOURCES}
@@ -270,8 +425,18 @@ QUOTA_SOURCES = tuple(s for s in SOURCES if s.kind == "quota")
 BURN_SOURCE_IDS = tuple(s.id for s in QUOTA_SOURCES)
 
 
+
 def get(source_id):
     return BY_ID.get(source_id)
+
+
+def group_of(source_id):
+    source = BY_ID.get(source_id)
+    return source.group if source else GROUP_DEVTOOLS
+
+
+def sources_in_group(group):
+    return tuple(s for s in SOURCES if s.group == group)
 
 
 def is_quota(source_id):
@@ -345,7 +510,8 @@ _state = None
 
 def _default_enabled():
     """First-run defaults: only sources that look signed-in locally."""
-    return detect_sources.suggested_enabled(SOURCE_IDS)
+    return detect_sources.suggested_enabled(
+        SOURCE_IDS, quota_ids=BURN_SOURCE_IDS)
 
 
 def _load():
@@ -430,11 +596,14 @@ def detection_payload():
     return {
         "detected": detected,
         "enabled": enabled,
+        "groups": list(GROUP_IDS),
         "sources": [
             {
                 "id": source.id,
                 "title": source.title,
+                "hint": source.hint,
                 "kind": source.kind,
+                "group": source.group,
                 "detected": bool(detected.get(source.id, False)),
                 "enabled": bool(enabled.get(source.id, False)),
             }

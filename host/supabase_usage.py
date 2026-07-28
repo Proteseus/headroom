@@ -21,7 +21,7 @@ import cache_util
 API = "https://api.supabase.com"
 CACHE_TTL_S = 5 * 60
 FAIL_TTL_S = 45
-KEYCHAIN_SERVICE = "com.mz.headroom.supabase"
+KEYCHAIN_SERVICE = "com.centaur-labs.headroom.supabase"
 KEYCHAIN_ACCOUNT = "access-token"
 CLI_TOKEN_PATH = os.path.expanduser("~/.supabase/access-token")
 HEALTH_SERVICES = ("auth", "db", "rest", "realtime", "storage")

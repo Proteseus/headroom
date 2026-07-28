@@ -52,44 +52,97 @@ class ExtractTests(unittest.TestCase):
         self.assertIsNone(quota_samples.extract("claude", "nope", {"ok": True}))
 
 
-class WindowStartTests(unittest.TestCase):
-    def test_derived_from_elapsed(self):
-        start = quota_samples.window_start_for(NOW, WEEK_S, 3 * 24 * 3600)
+def row_at(t, pct, resets_in_s, window_s=WEEK_S, **extra):
+    """A stored sample, as `window_for` receives it."""
+    start, end = quota_samples.window_for(
+        t, window_s, resets_in_s, pct=pct, previous=extra.pop("previous", None))
+    row = {"t": t, "pct": pct, "resets_in_s": resets_in_s,
+           "window_s": window_s, "window_start": start, "window_end": end}
+    row.update(extra)
+    return row
+
+
+class WindowTests(unittest.TestCase):
+    """The window is anchored on its reset, and the reset is held against
+    jitter until something proves the window actually rolled."""
+
+    def test_derived_from_resets_in(self):
+        start, end = quota_samples.window_for(NOW, WEEK_S, 3 * 24 * 3600)
+        self.assertEqual(end, int(NOW + 3 * 24 * 3600))
         self.assertEqual(start, int(NOW - 4 * 24 * 3600))
 
+    def test_start_and_end_always_span_one_window(self):
+        start, end = quota_samples.window_for(NOW, WEEK_S, 3 * 24 * 3600)
+        self.assertEqual(end - start, WEEK_S)
+
     def test_snaps_to_previous_within_tolerance(self):
-        first = quota_samples.window_start_for(NOW, WEEK_S, 3 * 24 * 3600)
+        first = row_at(NOW, 40.0, 3 * 24 * 3600)
         # API jitter of a couple of minutes must not look like a new window.
-        jittered = quota_samples.window_start_for(
-            NOW + 120, WEEK_S, 3 * 24 * 3600, previous=first)
-        self.assertEqual(jittered, first)
+        _, end = quota_samples.window_for(
+            NOW + 120, WEEK_S, 3 * 24 * 3600, pct=40.0, previous=first)
+        self.assertEqual(end, first["window_end"])
 
     def test_real_reset_starts_a_new_window(self):
-        first = quota_samples.window_start_for(NOW, WEEK_S, 60)
-        after = quota_samples.window_start_for(
-            NOW + 120, WEEK_S, WEEK_S, previous=first)
-        self.assertNotEqual(after, first)
+        first = row_at(NOW, 99.0, 60)
+        _, end = quota_samples.window_for(
+            NOW + 120, WEEK_S, WEEK_S, pct=0.0, previous=first)
+        self.assertNotEqual(end, first["window_end"])
 
     def test_stale_resets_do_not_fork_a_window(self):
         # A cached response after a wake repeats `resets_in_s` while the clock
-        # moves on, walking the derived start forward. That is not a reset.
-        first = quota_samples.window_start_for(NOW, WEEK_S, 3 * 24 * 3600)
-        stale = quota_samples.window_start_for(
-            NOW + 3600, WEEK_S, 3 * 24 * 3600, previous=first)
-        self.assertEqual(stale, first)
+        # moves on, walking the derived window forward. That is not a reset.
+        first = row_at(NOW, 40.0, 3 * 24 * 3600)
+        _, end = quota_samples.window_for(
+            NOW + 3600, WEEK_S, 3 * 24 * 3600, pct=40.0, previous=first)
+        self.assertEqual(end, first["window_end"])
 
     def test_large_jitter_short_of_a_window_holds(self):
-        first = quota_samples.window_start_for(NOW, WEEK_S, 3 * 24 * 3600)
-        # A single reading 16h out — seen in the wild — must not fork either.
-        glitched = quota_samples.window_start_for(
-            NOW, WEEK_S, 3 * 24 * 3600 + 16 * 3600, previous=first)
-        self.assertEqual(glitched, first)
+        first = row_at(NOW, 40.0, 3 * 24 * 3600)
+        # A single reading 16h out — seen in the wild after a sleep — must not
+        # fork either. Usage did not move, so nothing rolled.
+        _, end = quota_samples.window_for(
+            NOW, WEEK_S, 3 * 24 * 3600 + 16 * 3600, pct=40.0, previous=first)
+        self.assertEqual(end, first["window_end"])
 
     def test_reset_observed_slightly_early_still_rolls(self):
-        first = quota_samples.window_start_for(NOW, WEEK_S, 60)
-        after = quota_samples.window_start_for(
-            NOW, WEEK_S, WEEK_S - 300, previous=first)
-        self.assertNotEqual(after, first)
+        first = row_at(NOW, 99.0, 60)
+        _, end = quota_samples.window_for(
+            NOW, WEEK_S, WEEK_S - 300, pct=0.0, previous=first)
+        self.assertNotEqual(end, first["window_end"])
+
+    def test_granted_reset_mid_window_rolls(self):
+        # Codex handing everyone a fresh week 1.5 days in. No elapsed-time rule
+        # can see this: the new reset lands nowhere near a full window past the
+        # held one. Usage dropping while resets_in jumps is the only evidence.
+        first = row_at(NOW, 18.0, WEEK_S - 36 * 3600)
+        start, end = quota_samples.window_for(
+            NOW + 36 * 3600, WEEK_S, WEEK_S, pct=0.0, previous=first)
+        self.assertEqual(start, int(NOW + 36 * 3600))
+        self.assertEqual(end - start, WEEK_S)
+
+    def test_a_grant_that_only_lowers_usage_does_not_roll(self):
+        # Extra credits raise the denominator, so pct falls without the window
+        # moving. resets_in keeps decaying, so this must stay one window.
+        first = row_at(NOW, 40.0, 3 * 24 * 3600)
+        _, end = quota_samples.window_for(
+            NOW + 300, WEEK_S, 3 * 24 * 3600 - 300, pct=10.0, previous=first)
+        self.assertEqual(end, first["window_end"])
+
+    def test_a_wake_gap_alone_does_not_roll(self):
+        # 11h of frozen resets_in across a sleep, seen in the live log. Usage
+        # is unchanged, so it is jitter however large the gap looks.
+        first = row_at(NOW, 18.0, 5 * 24 * 3600)
+        _, end = quota_samples.window_for(
+            NOW + 11 * 3600, WEEK_S, 5 * 24 * 3600, pct=18.0, previous=first)
+        self.assertEqual(end, first["window_end"])
+
+    def test_rows_without_window_end_still_carry_a_window(self):
+        # Rows written before window_end was stored on each sample.
+        legacy = {"t": NOW, "pct": 40.0, "resets_in_s": 3 * 24 * 3600,
+                  "window_start": int(NOW - 4 * 24 * 3600)}
+        _, end = quota_samples.window_for(
+            NOW + 120, WEEK_S, 3 * 24 * 3600, pct=40.0, previous=legacy)
+        self.assertEqual(end, int(NOW + 3 * 24 * 3600))
 
 
 class RecordTests(unittest.TestCase):
@@ -190,6 +243,56 @@ class RecordTests(unittest.TestCase):
         current = quota_samples.current_window(
             "codex", "week", window_start=real_start, window_s=WEEK_S)
         self.assertEqual([row["pct"] for row in current], [0.0, 18.0, 18.0])
+
+    def test_a_store_written_by_the_old_rule_is_relabelled(self):
+        # Rows carrying a window_start that predates reset detection, with a
+        # granted reset buried in the middle: usage falls and resets_in jumps
+        # back to a full week, but the old labels never moved.
+        stale_start = int(NOW - 2 * 24 * 3600)
+        reset_at = int(NOW - 3600)
+        rows = [
+            {"t": stale_start + i * 300, "provider": "codex", "pool": "week",
+             "pct": 18.0, "window_s": WEEK_S,
+             "resets_in_s": WEEK_S - 2 * 24 * 3600,
+             "window_start": stale_start}
+            for i in range(4)
+        ] + [
+            {"t": reset_at + i * 300, "provider": "codex", "pool": "week",
+             "pct": float(i), "window_s": WEEK_S,
+             "resets_in_s": WEEK_S - i * 300,
+             "window_start": stale_start}   # the label the old rule held
+            for i in range(4)
+        ]
+        with open(self.path, "w") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+
+        quota_samples.record({"claude": claude_payload()}, now=NOW)  # seeds
+
+        current = quota_samples.current_window(
+            "codex", "week", window_start=reset_at, window_s=WEEK_S)
+        self.assertEqual([row["pct"] for row in current], [0.0, 1.0, 2.0, 3.0])
+        stored = quota_samples.read(provider="codex", pool="week")
+        self.assertEqual(stored[-1]["window_start"], reset_at)
+        self.assertEqual(stored[-1]["window_end"], reset_at + WEEK_S)
+        # The pre-reset rows land on the window the grant cut short, derived
+        # from their own reading rather than the label the old rule left.
+        self.assertNotEqual(stored[0]["window_start"],
+                            stored[-1]["window_start"])
+        self.assertEqual(stored[0]["window_end"] - stored[0]["window_start"],
+                         WEEK_S)
+
+    def test_relabelling_runs_once_and_leaves_readings_alone(self):
+        quota_samples.record({"claude": claude_payload()}, now=NOW)
+        before = quota_samples.read(provider="claude")
+        quota_samples.reset_for_tests()
+        quota_samples.record({"claude": claude_payload()},
+                             now=NOW + quota_samples.BUCKET_S)
+        after = quota_samples.read(provider="claude")
+        self.assertEqual([row["pct"] for row in after[:len(before)]],
+                         [row["pct"] for row in before])
+        self.assertEqual([row["window_start"] for row in after[:len(before)]],
+                         [row["window_start"] for row in before])
 
     def test_compact_drops_rows_past_retention(self):
         quota_samples.record({"claude": claude_payload()}, now=NOW)

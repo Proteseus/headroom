@@ -56,6 +56,38 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(called, [1])
         self.assertEqual(reply, b"HR 202 0\n\n")
 
+    def test_a_query_string_still_routes(self):
+        # The board hangs its build id off the path. Matching the whole path
+        # would 404 every versioned board.
+        reply = usb_bridge.handle_request(
+            "GET", "/usage?fw=12.3db3cff",
+            get_usage=lambda: b'{"plan":"Max"}',
+            on_sync_refresh=lambda: None,
+        )
+        self.assertEqual(reply, b'HR 200 14\n{"plan":"Max"}\n')
+
+    def test_the_query_reaches_the_device_hook(self):
+        seen = []
+        usb_bridge.handle_request(
+            "GET", "/usage?fw=12.3db3cff-dirty",
+            get_usage=lambda: b"x",
+            on_sync_refresh=lambda: None,
+            on_device=seen.append,
+        )
+        self.assertEqual(seen, ["fw=12.3db3cff-dirty"])
+
+    def test_a_broken_device_hook_still_serves_the_document(self):
+        def boom(_):
+            raise ValueError("bad report")
+
+        reply = usb_bridge.handle_request(
+            "GET", "/usage?fw=junk",
+            get_usage=lambda: b"x",
+            on_sync_refresh=lambda: None,
+            on_device=boom,
+        )
+        self.assertEqual(reply, b"HR 200 1\nx\n")
+
     def test_handle_unknown(self):
         reply = usb_bridge.handle_request(
             "GET", "/nope",

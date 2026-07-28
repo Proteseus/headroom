@@ -68,7 +68,7 @@ CURSOR_FIELDS = (
 # because this rides CDC. Secondary series (Cursor API) use *2 suffixes.
 MAX_BURNDOWN_POINTS = 24
 BURNDOWN_FIELDS = (
-    "pool", "status", "t0", "t1", "pts", "proj", "warn", "est",
+    "pool", "status", "t0", "t1", "pts", "proj", "warn", "est", "verdict",
     "pool2", "status2", "pts2", "proj2", "warn2", "est2",
 )
 # Longest window wins — a weekly shape is worth a chart, a 5h session is noise
@@ -164,6 +164,9 @@ def _trim_burndown(pool):
         # Projection rests on the token-history estimate rather than measured
         # samples, so the board draws it more faintly.
         "est": pool.get("rate_source") == "estimated",
+        # ~25 bytes for the phrase the Mac shows, so the desk and the menu bar
+        # answer "do I make it" with the same words.
+        "verdict": pool.get("verdict"),
     }
 
 

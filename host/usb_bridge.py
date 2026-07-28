@@ -162,20 +162,33 @@ def _pop_line(buf: bytearray):
         return None
 
 
-def handle_request(method, path, get_usage, on_sync_refresh) -> bytes:
-    """Dispatch one HR request to host callbacks; return framed reply bytes."""
-    if method == "GET" and path == "/usage":
+def handle_request(method, path, get_usage, on_sync_refresh,
+                   on_device=None) -> bytes:
+    """Dispatch one HR request to host callbacks; return framed reply bytes.
+
+    The board hangs its build identity off the query string, so routing is on
+    the path alone. `on_device` receives the raw query rather than parsed
+    params: this module stays a transport and leaves meaning to the caller.
+    """
+    route, _, query = path.partition("?")
+    if on_device is not None and query:
+        try:
+            on_device(query)
+        except Exception as exc:   # a bad report must not cost a reply
+            print(f"usb_bridge device note error: {exc}", flush=True)
+    if method == "GET" and route == "/usage":
         body = get_usage()
         if not isinstance(body, (bytes, bytearray)):
             body = b""
         return format_reply(200, bytes(body))
-    if method == "POST" and path == "/sync/refresh":
+    if method == "POST" and route == "/sync/refresh":
         on_sync_refresh()
         return format_reply(202, b"")
     return format_reply(404, b"")
 
 
-def _serve_fd(fd, get_usage, on_sync_refresh, stop_event: threading.Event):
+def _serve_fd(fd, get_usage, on_sync_refresh, stop_event: threading.Event,
+              on_device=None):
     buf = bytearray()
     while not stop_event.is_set():
         if not _read_available(fd, buf, time.monotonic() + READ_IDLE_S):
@@ -190,7 +203,7 @@ def _serve_fd(fd, get_usage, on_sync_refresh, stop_event: threading.Event):
             method, path = req
             try:
                 reply = handle_request(
-                    method, path, get_usage, on_sync_refresh)
+                    method, path, get_usage, on_sync_refresh, on_device)
             except Exception as exc:
                 print(f"usb_bridge handler error: {exc}", flush=True)
                 reply = format_reply(500, b"")
@@ -203,11 +216,13 @@ def _serve_fd(fd, get_usage, on_sync_refresh, stop_event: threading.Event):
                 del buf[:-4096]
 
 
-def run(get_usage, on_sync_refresh, port=None, stop_event=None):
+def run(get_usage, on_sync_refresh, port=None, stop_event=None,
+        on_device=None):
     """Daemon loop: find a board, serve HR requests, retry forever.
 
     get_usage() -> bytes   compact JSON body for /usage
     on_sync_refresh()      kick the same force-refresh as HTTP POST
+    on_device(query)       raw query string off a board request, for build id
     """
     if stop_event is None:
         stop_event = threading.Event()
@@ -226,7 +241,8 @@ def run(get_usage, on_sync_refresh, port=None, stop_event=None):
                 print(f"usb_bridge listening on {path}", flush=True)
                 announced = path
             try:
-                _serve_fd(fd, get_usage, on_sync_refresh, stop_event)
+                _serve_fd(fd, get_usage, on_sync_refresh, stop_event,
+                          on_device)
             finally:
                 try:
                     os.close(fd)

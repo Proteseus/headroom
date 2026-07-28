@@ -26,13 +26,18 @@ Run:  python3 headroom_server.py [--port 8737] [--interval 15]
 
 import argparse
 import concurrent.futures
+import errno
 import ipaddress
 import json
 import os
+import signal
+import socket
+import subprocess
 import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from glob import glob
@@ -45,8 +50,10 @@ import claude_history
 import daily_burn
 import device_view
 import github_actions
+import host_version
 import local_servers
 import oauth_usage
+import plausible_usage
 import quota_samples
 import sources_config
 import usb_bridge
@@ -55,6 +62,28 @@ LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
 BOOT_T0 = time.time()
 LOG_ROTATE_S = 15 * 60
+
+
+def _advertise_bonjour(port):
+    """Advertise the host to native clients without adding a Python package."""
+    binary = "/usr/bin/dns-sd"
+    if not os.path.exists(binary):
+        return None
+    machine = socket.gethostname().split(".", 1)[0] or "Headroom"
+    try:
+        process = subprocess.Popen(
+            [
+                binary, "-R", machine, "_headroom._tcp", "local.",
+                str(port), "path=/usage",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"Bonjour: {machine}._headroom._tcp.local.", flush=True)
+        return process
+    except OSError as exc:
+        print(f"Bonjour unavailable: {exc}", flush=True)
+        return None
 
 
 def _local_tz():
@@ -356,15 +385,35 @@ def _accumulate(target, bucket):
     target["cost_usd"] += cost
 
 
-def _flatten_codex(codex):
+def _held_resets(burndowns, provider, pool, raw):
+    """Seconds to reset for one pool, preferring the burndown's held window.
+
+    Sources report `resets_in_s` loosely enough that it drifts against the
+    clock, so the burndown pins a window's reset to the moment it was observed
+    and holds it there. Printing the raw reading next to a chart drawn on the
+    held one is how the same question gets two answers in the same window, and
+    on Codex the two are hours apart. Every countdown in this document comes
+    through here so there is only ever one.
+
+    Falls back to the raw value for a pool with no burndown yet: a source that
+    is off, unconfigured, or still collecting its first sample.
+    """
+    pools = (burndowns or {}).get(provider) or {}
+    held = (pools.get(pool) or {}).get("resets_in_s")
+    return raw if held is None else held
+
+
+def _flatten_codex(codex, burndowns=None):
     """CodexBar-style flat fields for the ESP32 Codex page."""
     session_q = codex.get("session") or {}
     week_q = codex.get("week") or {}
     pace = codex.get("pace") or {}
     credits = codex.get("reset_credits") or {}
     spend = codex.get("spend") or {}
-    session_resets = session_q.get("resets_in_s")
-    week_resets = week_q.get("resets_in_s")
+    session_resets = _held_resets(burndowns, "codex", "session",
+                                  session_q.get("resets_in_s"))
+    week_resets = _held_resets(burndowns, "codex", "week",
+                               week_q.get("resets_in_s"))
     session_window = session_q.get("window_s") or oauth_usage.SESSION_WINDOW_S
     week_window = week_q.get("window_s") or oauth_usage.WEEK_WINDOW_S
     return {
@@ -394,7 +443,7 @@ def _flatten_codex(codex):
     }
 
 
-def _flatten_cursor(cursor):
+def _flatten_cursor(cursor, burndowns=None):
     """Flat Total/Auto/API fields for the ESP32 and menu-bar Cursor views."""
     total_q = cursor.get("total") or {}
     auto_q = cursor.get("auto") or {}
@@ -402,12 +451,20 @@ def _flatten_cursor(cursor):
     pace = cursor.get("pace") or {}
     spend = cursor.get("spend") or {}
     on_demand = cursor.get("on_demand") or {}
-    auto_resets = auto_q.get("resets_in_s")
-    api_resets = api_q.get("resets_in_s")
-    # Both pools share the billing cycle; fall back to top-level.
+    # Cursor reports one billing cycle at the top level for every pool, so a
+    # bucket without its own reading inherits it before the burndown is asked.
+    def pool_resets(pool, bucket):
+        raw = bucket.get("resets_in_s")
+        if raw is None:
+            raw = cursor.get("resets_in_s")
+        return _held_resets(burndowns, "cursor", pool, raw)
+
+    total_resets = pool_resets("total", total_q)
+    auto_resets = pool_resets("auto", auto_q)
+    api_resets = pool_resets("api", api_q)
     resets = (
-        cursor.get("resets_in_s")
-        if cursor.get("resets_in_s") is not None
+        total_resets
+        if total_resets is not None
         else (auto_resets if auto_resets is not None else api_resets)
     )
     auto_window = auto_q.get("window_s") or 0
@@ -418,7 +475,7 @@ def _flatten_cursor(cursor):
         "error": cursor.get("error"),
         "total_pct": total_q.get("pct"),
         "total_pace_pct": oauth_usage.pace_pct(
-            total_q.get("resets_in_s"), total_q.get("window_s"))
+            total_resets, total_q.get("window_s"))
         if total_q.get("window_s") else None,
         "auto_pct": auto_q.get("pct"),
         "auto_pace_pct": oauth_usage.pace_pct(auto_resets, auto_window)
@@ -542,6 +599,7 @@ def _compute_doc():
     github = state["github"]
     local = state["local"]
     supabase = state["supabase"]
+    plausible = state["plausible"]
 
     local_tz = _local_tz()
     history = claude_history.summary(days=30)
@@ -552,8 +610,10 @@ def _compute_doc():
     # Flatten Claude fields at the top level (back-compat with older firmware).
     session_q = quota.get("session") or {}
     week_q = quota.get("week") or {}
-    session_resets = session_q.get("resets_in_s")
-    week_resets = week_q.get("resets_in_s")
+    session_resets = _held_resets(burndowns, "claude", "session",
+                                  session_q.get("resets_in_s"))
+    week_resets = _held_resets(burndowns, "claude", "week",
+                               week_q.get("resets_in_s"))
     doc = {
         "updated": datetime.now(local_tz).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "plan": quota.get("plan"),
@@ -584,11 +644,11 @@ def _compute_doc():
         # history, not quota-percent history — see claude_history.
         "history": history,
         "quota": quota,
-        "codex": _flatten_codex(state["codex"]),
-        "cursor": _flatten_cursor(state["cursor"]),
+        "codex": _flatten_codex(state["codex"], burndowns),
+        "cursor": _flatten_cursor(state["cursor"], burndowns),
         # Dynamic provider list (enabled flags + pool schema). Prefer this over
         # the legacy Claude-top-level / codex / cursor objects when adding UI.
-        "providers": _providers_payload(state),
+        "providers": _providers_payload(state, burndowns),
         "vercel": {
             "ok": bool(vercel.get("ok")),
             "team": vercel.get("team"),
@@ -604,6 +664,7 @@ def _compute_doc():
         },
         "activity": _build_activity(vercel, git, supabase, github),
         "supabase": supabase,
+        "plausible": plausible,
         "github": {
             "ok": bool(github.get("ok")),
             "configured": bool(github.get("configured")),
@@ -728,6 +789,23 @@ def _build_attention(doc):
         {"level": r["level"], "kind": r["kind"], "summary": r["summary"]}
         for r in sorted(reasons, key=lambda r: -r["weight"])
     ]
+    fingerprint = "\n".join(sorted(
+        "|".join(str(reason.get(key) or "") for key in ("level", "kind", "summary"))
+        for reason in public_reasons
+    )) or "ok"
+    acknowledged = (
+        bool(public_reasons)
+        and fingerprint == app_config.attention_ack_fingerprint()
+    )
+    if acknowledged:
+        return {
+            "level": "ok",
+            "score": 0,
+            "summary": "All clear",
+            "reasons": [],
+            "fingerprint": fingerprint,
+            "acknowledged": True,
+        }
     return {
         "level": level,
         "score": score,
@@ -736,6 +814,8 @@ def _build_attention(doc):
             else "All clear"
         ),
         "reasons": public_reasons,
+        "fingerprint": fingerprint,
+        "acknowledged": False,
     }
 
 
@@ -753,6 +833,7 @@ def _sources_payload(state):
             "title": source.title,
             "hint": source.hint,
             "kind": source.kind,
+            "group": source.group,
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
@@ -764,7 +845,7 @@ def _sources_payload(state):
     return rows
 
 
-def _providers_payload(state):
+def _providers_payload(state, burndowns=None):
     """Normalized quota providers for dynamic Mac clients.
 
     Additive next to the legacy flat Claude + nested codex/cursor fields so
@@ -778,7 +859,10 @@ def _providers_payload(state):
         pools = {}
         for spec in source.pools:
             bucket = payload.get(spec.key) or {}
-            resets = bucket.get("resets_in_s")
+            raw = bucket.get("resets_in_s")
+            if raw is None:
+                raw = payload.get("resets_in_s")
+            resets = _held_resets(burndowns, source.id, spec.id, raw)
             window = bucket.get("window_s") or spec.default_window_s
             pools[spec.id] = {
                 "title": spec.title,
@@ -805,6 +889,43 @@ def _providers_payload(state):
     return rows
 
 
+# What the board last told us about itself. One record for both transports:
+# the question "is the ROM on my desk the build I flashed" should not have a
+# Wi-Fi answer and a cable answer.
+_device_lock = threading.Lock()
+_device = {"firmware": None, "seen": 0.0, "via": None}
+
+
+def _note_device(query, via):
+    """Record a board's reported build from a request's query string.
+
+    Best-effort and never raises: a board sending nonsense must still get its
+    document. An unversioned board simply never calls this, which is itself
+    the signal that it predates build stamping.
+    """
+    try:
+        firmware = urllib.parse.parse_qs(query or "").get("fw", [""])[0].strip()
+    except Exception:
+        return
+    if not firmware:
+        return
+    with _device_lock:
+        if _device["firmware"] != firmware:
+            print(f"device firmware {firmware} (via {via})", flush=True)
+        _device.update(firmware=firmware[:64], seen=time.time(), via=via)
+
+
+def _device_payload(now):
+    with _device_lock:
+        if not _device["firmware"]:
+            return None
+        return {
+            "firmware": _device["firmware"],
+            "via": _device["via"],
+            "age_s": int(max(0, now - _device["seen"])),
+        }
+
+
 def _health_payload():
     doc = rollup()
     with _cache_lock:
@@ -812,9 +933,18 @@ def _health_payload():
     by_id = {row["id"]: row for row in (doc.get("sources") or [])}
     return {
         "ok": True,
+        # Which host is answering. The menu bar compares these against the copy
+        # bundled in the .app and offers to reinstall when they diverge, so a
+        # launchd job left over from an older build stops masquerading as
+        # current. See host_version.py.
+        **host_version.payload(),
         "uptime_s": int(max(0, time.time() - BOOT_T0)),
         "updated": doc.get("updated"),
         "built_age_s": int(max(0, time.time() - built)),
+        # The board's own account of what it is running, absent until one
+        # reports in. A board that never populates this is either offline or
+        # predates build stamping.
+        "device": _device_payload(time.time()),
         "sources": {
             sid: {
                 "ok": by_id.get(sid, {}).get("ok"),
@@ -854,25 +984,65 @@ class Handler(BaseHTTPRequestHandler):
         return bool(address and address.is_loopback)
 
     def _is_private(self):
-        """Loopback or RFC1918 — desk gadgets on the LAN may force a sync."""
+        """Loopback, private LAN, or Tailscale CGNAT space."""
         address = self._client_ip()
-        return bool(address and (address.is_loopback or address.is_private))
+        tailscale = ipaddress.ip_network("100.64.0.0/10")
+        return bool(
+            address
+            and (
+                address.is_loopback
+                or address.is_private
+                or (address.version == 4 and address in tailscale)
+            )
+        )
 
     def _allowed(self):
-        """Loopback is trusted; everything off-box needs the shared token."""
+        """Loopback is trusted; remote clients use their scoped credential."""
         if self._is_loopback():
             return True
+        if self.headers.get("X-Headroom-Client", "").lower() == "ios":
+            return auth.authorized_mobile(self.headers)
         return auth.authorized(self.headers)
+
+    def _is_mobile_client(self):
+        return (
+            self.headers.get("X-Headroom-Client", "").lower() == "ios"
+            and auth.authorized_mobile(self.headers)
+        )
+
+    def _mobile_permission_allowed(self, permission):
+        """A paired iOS client gets only explicitly configured capabilities."""
+        return (
+            self._is_private()
+            and self._is_mobile_client()
+            and permission in app_config.mobile_permissions()
+        )
 
     def do_GET(self):
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
-        if path not in ("", "/usage", "/health", "/setup"):
+        if path not in ("", "/usage", "/health", "/setup",
+                        "/mobile/permissions"):
             self.send_error(404)
             return
         if not self._allowed():
             self._send_json(401, {"ok": False, "error": "token required"})
             return
+        if path == "/mobile/permissions":
+            granted = app_config.mobile_permissions()
+            self._send_json(200, {
+                "ok": True,
+                "permissions": {
+                    permission: permission in granted
+                    for permission in app_config.MOBILE_PERMISSION_ORDER
+                },
+            })
+            return
+        if path in ("", "/usage") and self._is_mobile_client():
+            if not self._mobile_permission_allowed("read"):
+                self._send_json(
+                    403, {"ok": False, "error": "mobile dashboard access disabled"})
+                return
         if path == "/health":
             self._send_json(200, _health_payload())
             return
@@ -882,6 +1052,7 @@ class Handler(BaseHTTPRequestHandler):
                 **sources_config.detection_payload(),
             })
             return
+        _note_device(split.query, "wifi")
         view = urllib.parse.parse_qs(split.query).get("view", [""])[0]
         usage, device = _bodies()
         self._send_bytes(200, device if view == "device" else usage)
@@ -891,19 +1062,45 @@ class Handler(BaseHTTPRequestHandler):
         if path not in (
             "/local/stop",
             "/supabase/refresh",
+            "/plausible/refresh",
             "/sync/refresh",
             "/sources",
+            "/mobile/permissions",
+            "/attention/ack",
         ):
             self.send_error(404)
             return
         if not self._allowed():
             self._send_json(401, {"ok": False, "error": "token required"})
             return
-        # Config + process control stay Mac-only; sync refresh is LAN-ok so
-        # the ESP32 long-press can poke the same Sources pipeline.
+        # Sync refresh is LAN-ok so the ESP32 long-press can poke the same
+        # pipeline. Paired iOS clients get only the configured private-network
+        # control scopes; secrets and provider-specific configuration remain
+        # Mac-local.
         if path == "/sync/refresh":
             if not self._is_private():
                 self._send_json(403, {"ok": False, "error": "private network only"})
+                return
+            if (self._is_mobile_client()
+                    and not self._mobile_permission_allowed("refresh")):
+                self._send_json(
+                    403, {"ok": False, "error": "mobile refresh disabled"})
+                return
+        elif path == "/sources":
+            if (not self._is_loopback()
+                    and not self._mobile_permission_allowed("sources")):
+                self._send_json(403, {"ok": False, "error": "mobile source control disabled"})
+                return
+        elif path == "/local/stop":
+            if (not self._is_loopback()
+                    and not self._mobile_permission_allowed("servers")):
+                self._send_json(403, {"ok": False, "error": "mobile server control disabled"})
+                return
+        elif path == "/attention/ack":
+            if (not self._is_loopback()
+                    and not self._mobile_permission_allowed("read")):
+                self._send_json(
+                    403, {"ok": False, "error": "mobile dashboard access disabled"})
                 return
         elif not self._is_loopback():
             self._send_json(403, {"ok": False, "error": "localhost only"})
@@ -921,6 +1118,42 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": "invalid request"})
             return
 
+        if path == "/attention/ack":
+            fingerprint = payload.get("fingerprint")
+            current = (rollup().get("attention") or {}).get("fingerprint")
+            if (not isinstance(fingerprint, str)
+                    or not fingerprint.strip()
+                    or fingerprint.strip() != current):
+                self._send_json(
+                    409, {"ok": False, "error": "attention changed; refresh first"})
+                return
+            app_config.set_attention_ack_fingerprint(fingerprint)
+            publish()
+            self._send_json(200, {"ok": True, "fingerprint": fingerprint})
+            return
+
+        if path == "/mobile/permissions":
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            values = payload.get("permissions")
+            if not isinstance(values, dict):
+                self._send_json(
+                    400, {"ok": False, "error": "permissions map required"})
+                return
+            granted = app_config.set_mobile_permissions(
+                permission for permission, enabled in values.items()
+                if enabled is True
+            )
+            self._send_json(200, {
+                "ok": True,
+                "permissions": {
+                    permission: permission in granted
+                    for permission in app_config.MOBILE_PERMISSION_ORDER
+                },
+            })
+            return
+
         if path == "/sources":
             enabled = payload.get("enabled")
             if not isinstance(enabled, dict):
@@ -932,10 +1165,31 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "enabled": result})
             return
 
-        if path in ("/supabase/refresh", "/sync/refresh"):
+        if path in ("/supabase/refresh", "/plausible/refresh", "/sync/refresh"):
             wanted = payload.get("sources")
             if path == "/supabase/refresh":
                 wanted = ["supabase"]
+            elif path == "/plausible/refresh":
+                wanted = ["plausible"]
+                if "range" in payload:
+                    try:
+                        range_id = app_config.set_plausible_range(
+                            payload.get("range"))
+                    except ValueError as error:
+                        self._send_json(400, {
+                            "ok": False, "error": str(error),
+                        })
+                        return
+                    # Drop the in-memory TTL so the new window is fetched now.
+                    plausible_usage._cache.update(t=0.0, data=None)
+                    self._send_json(202, {
+                        "ok": True,
+                        "sources": wanted,
+                        "range": range_id,
+                        "range_label": app_config.plausible_range_label(range_id),
+                    })
+                    _refresh_async(wanted)
+                    return
             elif not isinstance(wanted, list) or not wanted:
                 wanted = list(sources_config.SOURCE_IDS)
             wanted = [
@@ -1064,6 +1318,16 @@ def _rotate_logs():
             pass
 
 
+def _local_health_ok(port, timeout=0.4):
+    """True when something on this Mac already answers GET /health."""
+    url = f"http://127.0.0.1:{port}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return 200 <= getattr(resp, "status", 200) < 300
+    except Exception:
+        return False
+
+
 def _poller(interval):
     """One loop, driven by each source's own poll_s from the registry."""
     # Warmup already forced a full pass, so start the clocks now rather than
@@ -1158,6 +1422,26 @@ def main():
             print("history backfill error:", exc, flush=True)
 
     publish()
+
+    # Bind before any daemon threads. A failed bind with threads already
+    # printing to stdout aborts inside Py_FinalizeEx (LaunchAgent crash loop).
+    ThreadingHTTPServer.allow_reuse_address = True
+    try:
+        srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+    except OSError as exc:
+        if getattr(exc, "errno", None) == errno.EADDRINUSE:
+            # Another healthy host already owns the port — exit 0 so KeepAlive
+            # does not thrash. Otherwise leave a non-zero for retry.
+            if _local_health_ok(args.port):
+                print(
+                    f"port {args.port} already serving /health — nothing to do",
+                    flush=True,
+                )
+                sys.exit(0)
+            print(f"port {args.port} in use and not healthy: {exc}", flush=True)
+            sys.exit(1)
+        raise
+
     threading.Thread(target=_backfill_history, daemon=True).start()
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
@@ -1174,11 +1458,21 @@ def main():
         kwargs={
             "get_usage": _usb_get_usage,
             "on_sync_refresh": _usb_sync_refresh,
+            "on_device": lambda query: _note_device(query, "usb"),
         },
         daemon=True,
     ).start()
 
-    srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+    bonjour = _advertise_bonjour(args.port)
+    # Materialize the dedicated iOS credential without printing it to logs.
+    auth.mobile_token()
+
+    def _shutdown(_signum, _frame):
+        if bonjour is not None:
+            bonjour.terminate()
+        raise SystemExit
+
+    signal.signal(signal.SIGTERM, _shutdown)
     print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage", flush=True)
     print(f"  device view:  http://0.0.0.0:{args.port}/usage?view=device",
           flush=True)
@@ -1197,6 +1491,9 @@ def main():
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nbye", flush=True)
+    finally:
+        if bonjour is not None and bonjour.poll() is None:
+            bonjour.terminate()
 
 
 if __name__ == "__main__":

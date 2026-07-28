@@ -2,7 +2,7 @@
 
 Auth (never returned via /usage), in order:
   GITHUB_TOKEN / HEADROOM_GITHUB_TOKEN
-  Keychain item com.mz.headroom.github / access-token
+  Keychain item com.centaur-labs.headroom.github / access-token
   `gh auth token` (if available)
 
 Repos: always includes configured always-repos, plus org remotes discovered
@@ -28,7 +28,7 @@ import cache_util
 API = "https://api.github.com"
 CACHE_TTL_S = 90
 FAIL_TTL_S = 30
-KEYCHAIN_SERVICE = "com.mz.headroom.github"
+KEYCHAIN_SERVICE = "com.centaur-labs.headroom.github"
 KEYCHAIN_ACCOUNT = "access-token"
 CONFIG_PATH = os.path.expanduser("~/.headroom/github.json")
 KEEP_RUNS = 8

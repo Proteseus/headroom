@@ -5,5 +5,9 @@
   "vercel_team_slugs": [],
   "github_org_prefix": "",
   "github_always_repos": [],
-  "github_max_discovered": 6
+  "github_max_discovered": 6,
+  "plausible_sites": [],
+  "plausible_host": "https://plausible.io",
+  "plausible_range": "24h",
+  "mobile_permissions": ["read", "refresh", "sources", "servers"]
 }

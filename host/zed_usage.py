@@ -1,0 +1,189 @@
+"""Zed editor plan + edit-prediction quota.
+
+Reads the Zed internet-password Keychain item for https://zed.dev, then
+`GET https://cloud.zed.dev/client/users/me`. CodexBar-equivalent; stdlib only.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import time
+import urllib.error
+import urllib.request
+
+import cache_util
+import quota_util
+
+CACHE_TTL_S = 60
+FAIL_TTL_S = 20
+DISK = "zed_quota"
+ME_URL = "https://cloud.zed.dev/client/users/me"
+KEYCHAIN_SERVER = "zed.dev"
+UA = "Headroom/1"
+MONTH_WINDOW_S = 30 * 86400
+
+_cache = {"t": 0.0, "data": None, "err": None}
+_EMPTY = {"ok": False, "plan": None, "predictions": None}
+
+
+def _settings_server():
+    path = os.path.expanduser("~/.config/zed/settings.json")
+    try:
+        with open(path) as handle:
+            blob = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return KEYCHAIN_SERVER
+    raw = blob.get("credentials_url") or blob.get("server_url") or ""
+    text = str(raw).strip()
+    if not text:
+        return KEYCHAIN_SERVER
+    text = text.replace("https://", "").replace("http://", "").rstrip("/")
+    # Only trust Zed's known hosts — never forward Keychain tokens elsewhere.
+    if text in ("zed.dev", "staging.zed.dev"):
+        return text
+    return KEYCHAIN_SERVER
+
+
+def _keychain_creds():
+    server = _settings_server()
+    user_id = None
+    token = None
+    try:
+        dump = subprocess.check_output(
+            [
+                "/usr/bin/security", "find-internet-password",
+                "-s", server, "-g",
+            ],
+            stderr=subprocess.STDOUT,
+            timeout=4,
+            text=True,
+        )
+        for line in dump.splitlines():
+            line = line.strip()
+            if '"acct"' in line:
+                i = line.find('="')
+                if i >= 0:
+                    user_id = line[i + 2:].rstrip('"')
+            if line.startswith("password:"):
+                i = line.find('"')
+                if i >= 0:
+                    token = line[i + 1:].rstrip('"')
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            FileNotFoundError, OSError):
+        pass
+
+    if not token:
+        try:
+            token = subprocess.check_output(
+                [
+                    "/usr/bin/security", "find-internet-password",
+                    "-s", server, "-w",
+                ],
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+                text=True,
+            ).strip() or None
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                FileNotFoundError, OSError):
+            token = None
+
+    if not token:
+        try:
+            token = subprocess.check_output(
+                [
+                    "/usr/bin/security", "find-generic-password",
+                    "-s", f"https://{server}", "-w",
+                ],
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+                text=True,
+            ).strip() or None
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                FileNotFoundError, OSError):
+            token = None
+
+    return user_id, token
+
+
+def signed_in():
+    _, token = _keychain_creds()
+    return bool(token)
+
+
+def _fetch_me(user_id, token):
+    auth = f"{user_id} {token}" if user_id else token
+    req = urllib.request.Request(
+        ME_URL,
+        headers={
+            "Authorization": auth,
+            "Accept": "application/json",
+            "User-Agent": UA,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        return json.load(resp)
+
+
+def _map(blob):
+    plan = blob.get("plan") if isinstance(blob, dict) else None
+    if not isinstance(plan, dict):
+        plan = {}
+    label = plan.get("plan_v3") or plan.get("name") or plan.get("plan")
+    if isinstance(label, str):
+        label = label.replace("_", " ").strip().title()
+    usage = plan.get("usage") if isinstance(plan.get("usage"), dict) else {}
+    preds = usage.get("edit_predictions")
+    pct = None
+    if isinstance(preds, dict):
+        if preds.get("unlimited"):
+            pct = 0.0
+        else:
+            pct = quota_util.used_pct(preds.get("used"), preds.get("limit"))
+    period = plan.get("subscription_period")
+    resets_in = None
+    if isinstance(period, dict):
+        resets_in = quota_util.resets_from_iso(period.get("ended_at"))
+    overdue = bool(plan.get("has_overdue_invoices"))
+    ok = pct is not None or label is not None
+    return {
+        "ok": ok,
+        "plan": label,
+        "error": "overdue invoice" if overdue and ok else (
+            None if ok else "no Zed plan data"),
+        "predictions": quota_util.pool(pct, resets_in, MONTH_WINDOW_S),
+        "stale": False,
+    }
+
+
+def fetch_quota(force=False):
+    now = time.time()
+    if (
+        not force
+        and _cache["data"] is not None
+        and now - _cache["t"] < (FAIL_TTL_S if _cache.get("err") else CACHE_TTL_S)
+    ):
+        return _cache["data"]
+
+    user_id, token = _keychain_creds()
+    if not token:
+        return cache_util.keep_stale(
+            _cache, now, "not signed in to Zed", _EMPTY, disk_name=DISK)
+
+    try:
+        blob = _fetch_me(user_id, token)
+        out = _map(blob)
+        if out.get("ok"):
+            cache_util.save_disk(DISK, out)
+            _cache.update(t=now, data=out, err=None)
+            return out
+        return cache_util.keep_stale(
+            _cache, now, out.get("error") or "Zed quota unavailable",
+            _EMPTY, disk_name=DISK)
+    except urllib.error.HTTPError as exc:
+        return cache_util.keep_stale(
+            _cache, now, f"Zed HTTP {exc.code}", _EMPTY, disk_name=DISK)
+    except Exception as exc:  # noqa: BLE001
+        return cache_util.keep_stale(
+            _cache, now, str(exc), _EMPTY, disk_name=DISK)

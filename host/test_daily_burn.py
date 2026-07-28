@@ -7,6 +7,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import daily_burn
+import sources_config
 
 
 TZ = ZoneInfo("Europe/Berlin")
@@ -33,7 +34,8 @@ class DailyBurnTests(unittest.TestCase):
             tz=TZ,
             persist=True,
         )
-        self.assertEqual(row, {"claude": 0.0, "codex": 0.0, "cursor": 0.0})
+        self.assertEqual(
+            row, {sid: 0.0 for sid in sources_config.BURN_SOURCE_IDS})
 
     def test_positive_deltas_accumulate(self):
         daily_burn.observe(
