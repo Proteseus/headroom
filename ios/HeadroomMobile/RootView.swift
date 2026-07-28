@@ -1,32 +1,49 @@
 import SwiftUI
 
+enum MobileTab: String, CaseIterable, Hashable {
+    case overview
+    case quotas
+    case activity
+    case services
+    case settings
+}
+
 struct RootView: View {
     @ObservedObject var store: MobileUsageStore
+    /// When set, cycle tabs and drop `.ios-shot-ready-<tab>` markers for the
+    /// screenshot script (see `scripts/generate_screenshots.sh`).
+    var exportDirectory: String? = nil
+
     @State private var showsConnection = false
+    @State private var selectedTab: MobileTab = .overview
 
     var body: some View {
         Group {
             if store.isConfigured {
-                TabView {
+                TabView(selection: $selectedTab) {
                     NavigationStack {
                         OverviewScreen(store: store)
                     }
                     .tabItem { Label(HeadroomCopy.overview, systemImage: "circle.grid.2x2") }
+                    .tag(MobileTab.overview)
 
                     NavigationStack {
                         QuotasScreen(store: store)
                     }
                     .tabItem { Label(HeadroomCopy.quotas, systemImage: "chart.pie.fill") }
+                    .tag(MobileTab.quotas)
 
                     NavigationStack {
                         ActivityScreen(store: store)
                     }
                     .tabItem { Label(HeadroomCopy.activity, systemImage: "bolt.horizontal.circle") }
+                    .tag(MobileTab.activity)
 
                     NavigationStack {
                         ServicesScreen(store: store)
                     }
                     .tabItem { Label(HeadroomCopy.services, systemImage: "server.rack") }
+                    .tag(MobileTab.services)
 
                     NavigationStack {
                         MobileSettingsScreen(
@@ -35,6 +52,7 @@ struct RootView: View {
                         )
                     }
                     .tabItem { Label(HeadroomCopy.settings, systemImage: "gearshape") }
+                    .tag(MobileTab.settings)
                 }
             } else {
                 NavigationStack {
@@ -47,6 +65,32 @@ struct RootView: View {
                 PairingView(store: store, isEditing: true)
             }
         }
+        .task(id: exportDirectory) {
+            guard let exportDirectory else { return }
+            await runScreenshotExport(to: exportDirectory)
+        }
+    }
+
+    /// Signal each tab after Charts settle so `simctl io screenshot` can grab it.
+    @MainActor
+    private func runScreenshotExport(to directory: String) async {
+        let root = URL(fileURLWithPath: directory)
+        for tab in MobileTab.allCases where tab != .settings {
+            selectedTab = tab
+            // Layout + chart settle.
+            try? await Task.sleep(for: .milliseconds(1100))
+            let ready = root.appendingPathComponent(".ios-shot-ready-\(tab.rawValue)")
+            try? Data().write(to: ready)
+            fputs("ios fixture ready \(tab.rawValue)\n", stderr)
+            // Wait until the script removes the marker (or timeout).
+            for _ in 0..<80 {
+                if !FileManager.default.fileExists(atPath: ready.path) { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        // Legacy marker so older scripts still unblock on overview alone.
+        let legacy = root.appendingPathComponent(".ios-shot-ready")
+        try? Data().write(to: legacy)
     }
 }
 

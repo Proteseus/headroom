@@ -25,17 +25,12 @@ struct HeadroomMobileApp: App {
     var body: some Scene {
         WindowGroup {
             if let exportDirectory {
-                RootView(store: store)
+                RootView(store: store, exportDirectory: exportDirectory)
                     .task {
                         await Self.prepareExportFixture(
                             fixture: Self.argValue("--fixture"),
                             store: store
                         )
-                        // Marker for generate_screenshots.sh → simctl io screenshot.
-                        let ready = URL(fileURLWithPath: exportDirectory)
-                            .appendingPathComponent(".ios-shot-ready")
-                        try? Data().write(to: ready)
-                        fputs("ios fixture ready\n", stderr)
                     }
             } else {
                 RootView(store: store)
@@ -45,8 +40,6 @@ struct HeadroomMobileApp: App {
             guard exportDirectory == nil else { return }
             switch phase {
             case .active:
-                // Stale recovery force-syncs inside refresh(); a live link
-                // stays a cheap GET.
                 Task { await store.refresh() }
             case .background:
                 MobileBackgroundRefresh.schedule()
@@ -88,7 +81,6 @@ struct HeadroomMobileApp: App {
             await store.refresh()
         }
 
-        // Let SwiftUI / Charts settle before the script grabs a screenshot.
         try? await Task.sleep(for: .milliseconds(900))
     }
 }

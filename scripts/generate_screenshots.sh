@@ -97,32 +97,41 @@ IOS_APP="$(find "$IOS_DERIVED" -type d -name 'HeadroomMobile.app' | head -1)"
   exit 1
 }
 
-echo "→ export iOS overview"
+echo "→ export iOS tabs (overview / quotas / activity / services)"
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl uninstall "$UDID" com.centaur-labs.headroom 2>/dev/null || true
 xcrun simctl install "$UDID" "$IOS_APP"
-rm -f "$OUT/.ios-shot-ready" "$OUT/ios-overview.png"
+rm -f "$OUT"/.ios-shot-ready* "$OUT"/ios-*.png
 xcrun simctl launch "$UDID" com.centaur-labs.headroom \
   --export-screenshots "$OUT" \
   --fixture "$FIXTURE" >/dev/null
 
-# App writes .ios-shot-ready after the fixture UI has settled.
-for _ in $(seq 1 40); do
-  [[ -f "$OUT/.ios-shot-ready" ]] && break
-  sleep 0.25
+for tab in overview quotas activity services; do
+  marker="$OUT/.ios-shot-ready-$tab"
+  for _ in $(seq 1 50); do
+    [[ -f "$marker" ]] && break
+    sleep 0.2
+  done
+  if [[ ! -f "$marker" ]]; then
+    echo "error: iOS export never signaled ready for $tab" >&2
+    xcrun simctl terminate "$UDID" com.centaur-labs.headroom 2>/dev/null || true
+    exit 1
+  fi
+  sleep 0.35
+  xcrun simctl io "$UDID" screenshot "$OUT/ios-$tab.png"
+  rm -f "$marker"
+  echo "  wrote $OUT/ios-$tab.png"
 done
-[[ -f "$OUT/.ios-shot-ready" ]] || {
-  echo "error: iOS export never signaled ready" >&2
-  xcrun simctl terminate "$UDID" com.centaur-labs.headroom 2>/dev/null || true
-  exit 1
-}
-# Extra beat so Charts finish their first layout pass.
-sleep 0.6
-xcrun simctl io "$UDID" screenshot "$OUT/ios-overview.png"
-xcrun simctl terminate "$UDID" com.centaur-labs.headroom 2>/dev/null || true
-rm -f "$OUT/.ios-shot-ready"
-echo "wrote $OUT/ios-overview.png"
 
-echo "done → $OUT"
-ls -la "$OUT"
+xcrun simctl terminate "$UDID" com.centaur-labs.headroom 2>/dev/null || true
+rm -f "$OUT"/.ios-shot-ready*
+echo "wrote iOS tab screenshots"
+
+echo "→ frame App Store iPhone slides (6.7\")"
+"$VENV/bin/python" "$ROOT/scripts/frame_appstore_screenshots.py" \
+  --shots-dir "$OUT" \
+  --out-dir "$ROOT/docs/appstore/screenshots"
+
+echo "done → $OUT + docs/appstore/screenshots"
+ls -la "$OUT" "$ROOT/docs/appstore/screenshots"

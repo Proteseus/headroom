@@ -116,15 +116,15 @@ Recommended set:
 
 Source fixtures today:
 
-- `docs/screenshots/ios-overview.png`
-- `docs/screenshots/macos-menubar.png` (Mac companion context; optional slide)
-- `docs/screenshots/esp32-glance.png` (desk hardware; optional “also on the desk”)
+- Device captures: `docs/screenshots/ios-{overview,quotas,activity,services}.png`
+- Framed 6.7″ slides (1290×2796): `docs/appstore/screenshots/01-*.png` …
+- Regenerate: `./scripts/generate_screenshots.sh`
 
 ## App Icon
 
 - 1024×1024 PNG, no transparency, no rounded corners
-- Source: `ios/HeadroomMobile/Assets.xcassets/AppIcon.appiconset/HeadroomIcon.png`
-- Export a clean 1024 master into `docs/appstore/icon-1024.png` before submit
+- Ready to upload: [`docs/appstore/icon-1024.png`](appstore/icon-1024.png)
+- Source asset: `ios/HeadroomMobile/Assets.xcassets/AppIcon.appiconset/HeadroomIcon.png`
 
 ## Pricing
 
