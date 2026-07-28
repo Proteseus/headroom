@@ -795,7 +795,7 @@ static bool usageFilterReady(JsonDocument **out) {
 // caller's default rather than painting black, which on this panel is
 // indistinguishable from a ring that failed to draw.
 static uint16_t accentToRgb565(const char *hex, uint16_t fallback) {
-  if (!hex) return fallback;
+  if (!hex || !*hex) return fallback;
   if (*hex == '#') hex++;
   uint32_t value = 0;
   for (uint8_t i = 0; i < 6; i++) {
@@ -897,8 +897,10 @@ static bool applyUsageDoc(JsonDocument &doc) {
       if (!slot.id.length()) continue;
       slot.title = boardAscii((const char *)(p["title"] | ""));
       if (!slot.title.length()) slot.title = slot.id;
-      slot.accent = accentToRgb565((const char *)(p["accent"] | nullptr),
-                                   COL_DIM);
+      // `| ""` like every other string read here: with a nullptr default
+      // ArduinoJson hands back null whether or not the key is there, which
+      // painted every ring COL_DIM.
+      slot.accent = accentToRgb565((const char *)(p["accent"] | ""), COL_DIM);
       slot.q.ok = p["ok"] | false;
       slot.q.plan = boardAscii((const char *)(p["plan"] | ""));
       slot.q.note = boardAscii((const char *)(p["note"] | ""));
@@ -1537,36 +1539,52 @@ static uint16_t dimToward(uint16_t color, uint16_t bg, float factor) {
   return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-// Fixed-width radial "now" line. Unlike an angular arc, its apparent width
-// does not grow with radius, so inner and outer quota bands match.
-static void drawRadialIndicator(int16_t cx, int16_t cy, int16_t inner,
-                                int16_t outer, float angle,
-                                uint16_t color) {
+// Fixed-size "now" dot, riding inside the band. Sizing it off the band rather
+// than the radius keeps inner and outer quota rings matched.
+static void drawPaceDot(int16_t cx, int16_t cy, int16_t r, int16_t thick,
+                        float angle, uint16_t color) {
   const float radians = angle * DEG_TO_RAD;
-  const float ux = cosf(radians);
-  const float uy = sinf(radians);
-  const float tx = -uy;
-  const float ty = ux;
-  for (int8_t offset = -1; offset <= 1; offset++) {
-    gfx->drawLine(
-        (int16_t)lroundf(cx + ux * inner + tx * offset),
-        (int16_t)lroundf(cy + uy * inner + ty * offset),
-        (int16_t)lroundf(cx + ux * outer + tx * offset),
-        (int16_t)lroundf(cy + uy * outer + ty * offset),
-        color);
+  const float mid = (float)r - thick / 2.0f;
+  const int16_t dot = (int16_t)lroundf(thick * 5.0f / 14.0f);
+  gfx->fillCircle((int16_t)lroundf(cx + cosf(radians) * mid),
+                  (int16_t)lroundf(cy + sinf(radians) * mid), dot, color);
+}
+
+// Usage arc with half-round ends, mirroring the round line cap on the Swift
+// surfaces. fillArc only cuts square ends, so the arc is pulled in by the cap
+// radius and a disc is dropped on each end: the painted sweep still matches the
+// real one, which is what keeps the distance to the pace tick honest.
+static void fillRoundArc(int16_t cx, int16_t cy, int16_t r, int16_t thick,
+                         float startDeg, float sweepDeg, uint16_t color) {
+  const int16_t inner = (int16_t)(r - thick);
+  const float mid = (float)r - thick / 2.0f;
+  const int16_t cap = (int16_t)(thick / 2);
+  const float capDeg = (cap / mid) * RAD_TO_DEG;
+  float s = startDeg + capDeg;
+  float e = startDeg + sweepDeg - capDeg;
+  if (e > s) {
+    gfx->fillArc(cx, cy, r, inner, s, e, color);
+  } else {
+    // Shorter than its own two caps: one disc is the whole arc.
+    s = e = startDeg + sweepDeg / 2.0f;
+  }
+  for (uint8_t i = 0; i < 2; i++) {
+    const float a = (i == 0 ? s : e) * DEG_TO_RAD;
+    gfx->fillCircle((int16_t)lroundf(cx + cosf(a) * mid),
+                    (int16_t)lroundf(cy + sinf(a) * mid), cap, color);
   }
 }
 
-// One ring band: track + filled arc from 12 o'clock + radial pace line.
-// The gap between where the arc stops and where the tick sits is the deficit.
+// One ring band: track + filled arc from 12 o'clock + pace dot.
+// The gap between where the arc stops and where the dot sits is the deficit.
 static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
                          float pct, float pacePct, uint16_t accent) {
   const int16_t inner = (int16_t)(r - thick);
   // A neutral track is indistinguishable from background at this size, so two
   // near-empty rings merge into one dark blob. Tinting keeps each ring legible
   // as a ring before any of it fills.
-  // Shared Headroom ring contract: 20% tinted track, square usage arc, and a
-  // high-contrast radial pace line. Swift surfaces mirror these semantics.
+  // Shared Headroom ring contract: 20% tinted track, round-ended usage arc, and
+  // a high-contrast pace dot. Swift surfaces mirror these semantics.
   gfx->fillArc(cx, cy, r, inner, 0, 360, dimToward(accent, COL_BG, 0.20f));
   if (pct >= 0) {
     float p = pct > 100 ? 100 : pct;
@@ -1575,14 +1593,13 @@ static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
     if (p >= 100 || sweep >= 359.0f) {
       gfx->fillArc(cx, cy, r, inner, 0, 360, accent);
     } else {
-      gfx->fillArc(cx, cy, r, inner, -90.0f, -90.0f + sweep, accent);
+      fillRoundArc(cx, cy, r, thick, -90.0f, sweep, accent);
     }
   }
   if (pacePct >= 0) {
     float pp = pacePct > 100 ? 100 : pacePct;
     float a = -90.0f + pp * 3.6f;
-    drawRadialIndicator(cx, cy, (int16_t)(inner - 2),
-                        (int16_t)(r + 2), a, COL_WHITE);
+    drawPaceDot(cx, cy, r, thick, a, COL_WHITE);
   }
 }
 

@@ -121,6 +121,23 @@ def draw_arc(draw, cx, cy, r, thick, start_deg, end_deg, fill, steps=64):
     draw.polygon(poly, fill=fill)
 
 
+def draw_round_arc(draw, cx, cy, r, thick, start_deg, sweep_deg, fill, steps=64):
+    """Usage arc with half-round ends. Mirror of fillRoundArc() in main.cpp."""
+    mid = r - thick / 2
+    cap = thick / 2
+    cap_deg = math.degrees(cap / mid)
+    s = start_deg + cap_deg
+    e = start_deg + sweep_deg - cap_deg
+    if e > s:
+        draw_arc(draw, cx, cy, r, thick, s, e, fill, steps=steps)
+    else:
+        s = e = start_deg + sweep_deg / 2
+    for a in (math.radians(s), math.radians(e)):
+        px = cx + mid * math.cos(a)
+        py = cy + mid * math.sin(a)
+        draw.ellipse([px - cap, py - cap, px + cap, py + cap], fill=fill)
+
+
 def dim(color, factor):
     """Blend toward the background. Mirror of dimToward() in main.cpp."""
     return tuple(
@@ -142,15 +159,16 @@ def draw_pace_ring(draw, cx, cy, r, thick, pct, pace_pct, accent):
         if p >= 100 or sweep >= 359:
             draw_arc(draw, cx, cy, r, thick, -90, 270, accent, steps=90)
         else:
-            draw_arc(draw, cx, cy, r, thick, -90, -90 + sweep, accent,
-                     steps=max(8, int(sweep)))
+            draw_round_arc(draw, cx, cy, r, thick, -90, sweep, accent,
+                           steps=max(8, int(sweep)))
     if pace_pct is not None and pace_pct >= 0:
         pp = min(100.0, float(pace_pct))
-        a = -90 + pp * 3.6
-        draw_arc(draw, cx, cy, r + 1, thick + 2, a - 2.8, a + 2.8, COL_WHITE,
-                 steps=6)
-    draw_arc(draw, cx, cy, r + 1, thick + 2, -90 - 2.6, -90 + 2.6, COL_BLACK,
-             steps=4)
+        a = math.radians(-90 + pp * 3.6)
+        mid = r - thick / 2
+        dot = round(thick * 5 / 14)
+        px = cx + mid * math.cos(a)
+        py = cy + mid * math.sin(a)
+        draw.ellipse([px - dot, py - dot, px + dot, py + dot], fill=COL_WHITE)
 
 
 def draw_quota_ring(draw, cx, cy, r, layers, accent, label):
