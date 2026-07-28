@@ -62,6 +62,12 @@ enum MobileWidgetCache {
     private static let key = "widgetSnapshot"
 
     static func save(_ snapshot: UsageSnapshot) {
+        // Clip the series here rather than in the extension: the widget gets a
+        // week of chart and nothing else, and it redraws from a cache it can
+        // hold in memory. It clips again on its own clock, which has moved on
+        // by up to a refresh interval by the time it draws.
+        let domain = OverallBurndownChartMath.domain(now: .now)
+
         // Same three the menu bar draws — the host picked them.
         let providers = snapshot.focusProviders()
             .map { provider in
@@ -80,7 +86,10 @@ enum MobileWidgetCache {
                             percent: $0.percent,
                             pacePercent: $0.pacePercent
                         )
-                    }
+                    },
+                    burndown: series(
+                        for: provider.id, in: snapshot, domain: domain
+                    )
                 )
             }
         let value = HeadroomWidgetSnapshot(
@@ -92,5 +101,30 @@ enum MobileWidgetCache {
         guard let data = try? JSONEncoder().encode(value) else { return }
         UserDefaults(suiteName: suite)?.set(data, forKey: key)
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// One provider's line on the wide widget's combined burndown, from the
+    /// same pool the Mac card and the phone's own overview chart draw.
+    private static func series(
+        for providerID: String,
+        in snapshot: UsageSnapshot,
+        domain: OverallBurndownChartMath.Domain
+    ) -> HeadroomWidgetSnapshot.Provider.Series? {
+        guard let pool = snapshot.overviewBurndown(forProviderID: providerID)
+        else { return nil }
+        let actual = OverallBurndownChartMath.preparedActual(
+            pool.actual, domain: domain
+        )
+        // A single point is a dot, not a line. Leave it out and let the widget
+        // fall back to rings until there is history worth charting.
+        guard actual.count >= 2 else { return nil }
+        return HeadroomWidgetSnapshot.Provider.Series(
+            actual: actual,
+            projected: OverallBurndownChartMath.preparedProjection(
+                pool.projected, windowEnd: pool.windowEnd, domain: domain
+            ),
+            windowEnd: pool.windowEnd,
+            exhausted: pool.kind == .exhausted
+        )
     }
 }

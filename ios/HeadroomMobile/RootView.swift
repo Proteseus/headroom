@@ -107,7 +107,7 @@ private struct OverviewScreen: View {
                 )
                 OverallBurndownChart(
                     providers: store.visibleProviders,
-                    burndown: store.snapshot.burndown ?? [:]
+                    snapshot: store.snapshot
                 )
                 MobileAttentionCard(store: store)
                 DailyBurnChart(

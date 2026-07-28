@@ -384,25 +384,14 @@ private struct OverallBurndownSeries: Identifiable {
 
 struct OverallBurndownChart: View {
     let providers: [QuotaProviderInfo]
-    let burndown: [String: [String: Burndown]]
+    let snapshot: UsageSnapshot
 
     /// Raw series before domain clip — carries windowEnd for domain math.
     private var series: [OverallBurndownSeries] {
         providers.compactMap { provider in
-            // Same pool set the provider's bars and charts draw, so the
-            // overview line can never come from a pool the host hid.
-            let pools = provider.orderedBurndown(from: burndown[provider.id])
-            let pool: Burndown?
-            if provider.id == "cursor" {
-                pool = pools.first(where: { $0.pool == "total" })
-                    ?? pools.max {
-                        ($0.windowS ?? 0) < ($1.windowS ?? 0)
-                    }
-            } else {
-                pool = pools.max {
-                    ($0.windowS ?? 0) < ($1.windowS ?? 0)
-                }
-            }
+            // Same pool the Mac card and the widget draw, from the same pool
+            // set the provider's own bars use.
+            let pool = snapshot.overviewBurndown(forProviderID: provider.id)
             guard let pool else { return nil }
 
             func points(

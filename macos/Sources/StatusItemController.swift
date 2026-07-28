@@ -140,8 +140,8 @@ enum MeterIconRenderer {
         let image = NSImage(size: size, flipped: false) { _ in
             // Settings subset only — never invent Claude/Codex/Cursor when
             // every quota source is off. The host picks which 3 (pinned
-            // order, enabled only); icon geometry and the ESP32 glance share
-            // that same hard limit.
+            // order, enabled only); icon geometry is sized for that same
+            // hard limit.
             let visibleProviders = snapshot.focusProviders()
             let barWidthPixels = 6
             let barHeightPixels = 30

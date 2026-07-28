@@ -18,19 +18,27 @@ enum HeadroomRingStyle {
     static let spacingRatio = 4.0 / 72.0
     static let minimumSweepDegrees = 2.0
 
-    static func paceLineWidth(for side: CGFloat) -> CGFloat {
-        max(1, side * 2 / 72)
+    /// The pace dot rides inside the band, leaving a sliver of it on each side
+    /// so the dot never overhangs into the gap between two rings.
+    static func paceDotDiameter(for lineWidth: CGFloat) -> CGFloat {
+        max(2, lineWidth * 5 / 7)
     }
 
-    static func paceOvershoot(for side: CGFloat) -> CGFloat {
-        max(0.75, side * 1.5 / 72)
+    /// How far a round cap bulges past the end of an arc, in degrees.
+    ///
+    /// The cap adds half a stroke at each end. Pulling the drawn arc in by
+    /// that much keeps the painted sweep equal to the real one, so the gap to
+    /// the pace dot still reads as the deficit.
+    static func capInsetDegrees(lineWidth: CGFloat, radius: CGFloat) -> Double {
+        guard radius > 0 else { return 0 }
+        return Double(lineWidth / 2 / radius) * 180 / .pi
     }
 }
 
 /// Headroom's canonical quota indicator.
 ///
-/// The accent arc is usage. The contrasting line is where an even burn would
-/// be now, making the gap between the two the useful signal.
+/// The accent arc is usage. The contrasting dot is where an even burn would be
+/// now, making the gap between the two the useful signal.
 struct HeadroomRings: View {
     let layers: [HeadroomRingLayer]
     let tint: Color
@@ -57,7 +65,6 @@ struct HeadroomRings: View {
                     layer,
                     radius: radius,
                     lineWidth: lineWidth,
-                    side: side,
                     center: center,
                     context: &context
                 )
@@ -72,7 +79,6 @@ struct HeadroomRings: View {
         _ layer: HeadroomRingLayer,
         radius: CGFloat,
         lineWidth: CGFloat,
-        side: CGFloat,
         center: CGPoint,
         context: inout GraphicsContext
     ) {
@@ -96,47 +102,64 @@ struct HeadroomRings: View {
             if clamped > 0 {
                 sweep = max(sweep, HeadroomRingStyle.minimumSweepDegrees)
             }
-            var usage = Path()
-            usage.addArc(
-                center: center,
-                radius: radius,
-                startAngle: .degrees(-90),
-                endAngle: .degrees(-90 + sweep),
-                clockwise: false
+            let cap = HeadroomRingStyle.capInsetDegrees(
+                lineWidth: lineWidth,
+                radius: radius
             )
-            context.stroke(
-                usage,
-                with: .color(tint),
-                style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
-            )
+            if cap * 2 < sweep {
+                var usage = Path()
+                usage.addArc(
+                    center: center,
+                    radius: radius,
+                    startAngle: .degrees(-90 + cap),
+                    endAngle: .degrees(-90 + sweep - cap),
+                    clockwise: false
+                )
+                context.stroke(
+                    usage,
+                    with: .color(tint),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+            } else if sweep > 0 {
+                // Shorter than its own two caps: a zero-length stroked arc is
+                // not reliably drawn, so paint the cap itself.
+                context.fill(dot(at: -90 + sweep / 2, radius: radius, center: center,
+                                 diameter: lineWidth), with: .color(tint))
+            }
         }
 
         if let pacePercent = layer.pacePercent {
             let angle = -90 + max(0, min(pacePercent, 100)) * 3.6
-            let radians = angle * .pi / 180
-            let overshoot = HeadroomRingStyle.paceOvershoot(for: side)
-            let innerRadius = radius - lineWidth / 2 - overshoot
-            let outerRadius = radius + lineWidth / 2 + overshoot
-            let unitX = CGFloat(cos(radians))
-            let unitY = CGFloat(sin(radians))
-            var indicator = Path()
-            indicator.move(to: CGPoint(
-                x: center.x + unitX * innerRadius,
-                y: center.y + unitY * innerRadius
-            ))
-            indicator.addLine(to: CGPoint(
-                x: center.x + unitX * outerRadius,
-                y: center.y + unitY * outerRadius
-            ))
-            context.stroke(
-                indicator,
-                with: .color(indicatorColor),
-                style: StrokeStyle(
-                    lineWidth: HeadroomRingStyle.paceLineWidth(for: side),
-                    lineCap: .butt
-                )
+            context.fill(
+                dot(
+                    at: angle,
+                    radius: radius,
+                    center: center,
+                    diameter: HeadroomRingStyle.paceDotDiameter(for: lineWidth)
+                ),
+                with: .color(indicatorColor)
             )
         }
+    }
+
+    /// A dot centred on the band at `angle`.
+    private func dot(
+        at angle: Double,
+        radius: CGFloat,
+        center: CGPoint,
+        diameter: CGFloat
+    ) -> Path {
+        let radians = angle * .pi / 180
+        let point = CGPoint(
+            x: center.x + CGFloat(cos(radians)) * radius,
+            y: center.y + CGFloat(sin(radians)) * radius
+        )
+        return Path(ellipseIn: CGRect(
+            x: point.x - diameter / 2,
+            y: point.y - diameter / 2,
+            width: diameter,
+            height: diameter
+        ))
     }
 
     private var accessibilitySummary: String {
