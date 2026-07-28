@@ -26,6 +26,9 @@ struct UsageSnapshot: Decodable, Sendable {
     var plausible: PlausibleUsage?
     var sources: [SyncSource]?
     var attention: Attention?
+    /// Provider ids the compact surfaces show, picked host-side so the menu
+    /// bar, the widget, and the board never disagree about which three.
+    var focus: [String]?
     /// Per-provider, per-pool burndown keyed as ["claude": ["week": …]].
     var burndown: [String: [String: Burndown]]?
     var burndownPrimary: Burndown?
@@ -90,7 +93,7 @@ struct UsageSnapshot: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, providers, vercel, git, github, activity, local
-        case supabase, plausible, sources, attention, burndown
+        case supabase, plausible, sources, attention, focus, burndown
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
         case quotaOK = "quota_ok"
@@ -149,6 +152,26 @@ struct UsageSnapshot: Decodable, Sendable {
         }
     }
 
+    /// The providers a compact surface shows: menu-bar tanks, the iOS widget,
+    /// the ESP32 glance slots.
+    ///
+    /// The host picks them (pinned order, enabled only) and ships the ids in
+    /// `focus`, so every surface shows the same providers even when one of
+    /// them is a poll behind. Falls back to the first `limit` visible
+    /// providers when talking to a host that predates the field.
+    func focusProviders(limit: Int = 3) -> [QuotaProviderInfo] {
+        let visible = visibleQuotaProviders
+        guard let focus, !focus.isEmpty else {
+            return Array(visible.prefix(limit))
+        }
+        let byID = Dictionary(visible.map { ($0.id, $0) }) { first, _ in first }
+        let picked = focus.compactMap { byID[$0] }
+        // A focus id the client can't resolve (disabled between polls, or a
+        // provider this build doesn't know) must not shrink the row.
+        return picked.isEmpty ? Array(visible.prefix(limit))
+                              : Array(picked.prefix(limit))
+    }
+
     /// Known-enum view of `visibleQuotaProviders` for Mac chrome still typed
     /// on `UsageProvider`. Unknown registry ids are skipped until those
     /// surfaces take string ids.
@@ -169,32 +192,28 @@ struct UsageSnapshot: Decodable, Sendable {
         burndownRings(forProviderID: provider.rawValue)
     }
 
-    /// Pools for one provider ordered fastest-window-first, so the shortest
-    /// window becomes the outermost ring. Prefer host `ring` flags when the
-    /// provider advertised pools; otherwise fall back to known Cursor filters.
+    /// Pools for one provider in the app-wide pool order: the same selection
+    /// and sequence as the progress bars, so rings, bars and burndown charts
+    /// can never disagree. Prefer host `ring` flags when the provider
+    /// advertised pools; otherwise fall back to known Cursor filters.
     func burndownRings(forProviderID providerID: String) -> [Burndown] {
-        let precedence = ["session", "total", "api", "auto", "week"]
-        let pools = burndown?[providerID]?.values ?? [:].values
-        let ringIDs: Set<String>? = {
-            guard let info = providers?.first(where: { $0.id == providerID }),
-                  let declared = info.pools, !declared.isEmpty
-            else { return nil }
-            return Set(declared.filter { $0.value.ring != false }.map(\.key))
-        }()
-        let visible: [Burndown]
-        if let ringIDs {
-            visible = pools.filter { ringIDs.contains($0.pool ?? "") }
-        } else if providerID == UsageProvider.cursor.rawValue {
-            visible = pools.filter { $0.pool == "total" || $0.pool == "api" }
-        } else {
-            visible = Array(pools)
+        let pools = burndown?[providerID] ?? [:]
+        if let info = providers?.first(where: { $0.id == providerID }),
+           !(info.pools ?? [:]).isEmpty {
+            return info.orderedBurndown(from: pools)
         }
+        let all = Array(pools.values)
+        let visible = providerID == UsageProvider.cursor.rawValue
+            ? all.filter { $0.pool == "total" || $0.pool == "api" }
+            : all
         return visible.sorted { lhs, rhs in
             let lw = lhs.windowS ?? .greatestFiniteMagnitude
             let rw = rhs.windowS ?? .greatestFiniteMagnitude
             if lw != rw { return lw < rw }
-            let li = precedence.firstIndex(of: lhs.pool ?? "") ?? precedence.count
-            let ri = precedence.firstIndex(of: rhs.pool ?? "") ?? precedence.count
+            let li = QuotaProviderInfo.poolPrecedence.firstIndex(
+                of: lhs.pool ?? "") ?? QuotaProviderInfo.poolPrecedence.count
+            let ri = QuotaProviderInfo.poolPrecedence.firstIndex(
+                of: rhs.pool ?? "") ?? QuotaProviderInfo.poolPrecedence.count
             return li < ri
         }
     }
@@ -458,6 +477,62 @@ struct Burndown: Decodable, Sendable, Identifiable {
         }
     }
 
+    /// Projected [[t, remaining], …] stopped at the held reset and at empty.
+    ///
+    /// The host already crops this way; clients re-apply so a stale or demo
+    /// payload cannot draw a forecast through a renewal (or under the floor).
+    var croppedProjected: [[Double]] {
+        Self.cropProjection(projected, windowEnd: windowEnd)
+    }
+
+    static func cropProjection(
+        _ pairs: [[Double]]?,
+        windowEnd: Double?
+    ) -> [[Double]] {
+        var points: [(t: Double, r: Double)] = (pairs ?? []).compactMap { pair in
+            guard pair.count >= 2 else { return nil }
+            return (pair[0], min(100, max(0, pair[1])))
+        }
+        guard !points.isEmpty else { return [] }
+
+        if let end = windowEnd {
+            var cropped: [(t: Double, r: Double)] = []
+            for point in points {
+                if point.t <= end {
+                    cropped.append(point)
+                    continue
+                }
+                if let prev = cropped.last, prev.t < end {
+                    let span = point.t - prev.t
+                    if span > 0 {
+                        let ratio = (end - prev.t) / span
+                        let remaining = prev.r + ratio * (point.r - prev.r)
+                        cropped.append((end, min(100, max(0, remaining))))
+                    }
+                }
+                break
+            }
+            points = cropped
+        }
+
+        var out: [(t: Double, r: Double)] = []
+        for point in points {
+            if let prev = out.last, prev.r > 0, point.r <= 0 {
+                let span = point.t - prev.t
+                let drop = prev.r - point.r
+                if span > 0, drop > 0 {
+                    out.append((prev.t + span * (prev.r / drop), 0))
+                } else {
+                    out.append((point.t, 0))
+                }
+                break
+            }
+            out.append(point)
+            if point.r <= 0 { break }
+        }
+        return out.map { [$0.t, $0.r] }
+    }
+
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
         case exhausted, verdict
@@ -485,6 +560,117 @@ enum BurndownStatus: String, Sendable {
     case ahead
     case critical
     case exhausted
+}
+
+/// Shared overall-burndown domain and polyline clip.
+///
+/// Three layers, applied in order:
+/// 1. **Crop** the forecast at the held reset and at 0% (`Burndown.cropProjection`).
+/// 2. **Domain** is a fixed local calendar week: today−3 … today+4. Upcoming
+///    resets that fall inside still paint (dotted rule); farther ones stay
+///    off-canvas so the axis never stretches and compresses history.
+/// 3. **Clip** strokes to that domain with edge interpolation — `chartXScale`
+///    alone still paints past the plot into the gutter.
+enum OverallBurndownChartMath {
+    static let lookbackDays = 3
+    static let spanDays = 7
+
+    struct Domain: Equatable, Sendable {
+        var start: Date
+        var end: Date
+        var now: Date
+
+        var startEpoch: Double { start.timeIntervalSince1970 }
+        var endEpoch: Double { end.timeIntervalSince1970 }
+        var nowEpoch: Double { now.timeIntervalSince1970 }
+    }
+
+    /// Fixed calendar week for the overview chart (today−3 … today+4).
+    static func domain(
+        now: Date,
+        calendar: Calendar = .current
+    ) -> Domain {
+        let today = calendar.startOfDay(for: now)
+        let start = calendar.date(
+            byAdding: .day, value: -lookbackDays, to: today
+        ) ?? today
+        let end = calendar.date(
+            byAdding: .day, value: spanDays, to: start
+        ) ?? start.addingTimeInterval(
+            TimeInterval(spanDays) * 24 * 60 * 60
+        )
+        // Degenerate guard: never invert, never zero-width.
+        let safeEnd = end > start
+            ? end
+            : start.addingTimeInterval(24 * 60 * 60)
+        return Domain(start: start, end: safeEnd, now: now)
+    }
+
+    /// Clip [[t, remaining], …] to `[start, end]`, interpolating at the edges.
+    static func clipPolyline(
+        _ pairs: [[Double]],
+        start: Double,
+        end: Double
+    ) -> [[Double]] {
+        guard end > start else { return [] }
+        let points: [(t: Double, r: Double)] = pairs.compactMap { pair in
+            guard pair.count >= 2 else { return nil }
+            return (pair[0], min(100, max(0, pair[1])))
+        }
+        guard points.count >= 2 else {
+            return points
+                .filter { $0.t >= start && $0.t <= end }
+                .map { [$0.t, $0.r] }
+        }
+
+        func between(
+            _ a: (t: Double, r: Double),
+            _ b: (t: Double, r: Double),
+            at t: Double
+        ) -> (t: Double, r: Double) {
+            let span = b.t - a.t
+            guard span > 0 else { return (t, b.r) }
+            let ratio = (t - a.t) / span
+            return (t, min(100, max(0, a.r + ratio * (b.r - a.r))))
+        }
+
+        var out: [(t: Double, r: Double)] = []
+        for (a, b) in zip(points, points.dropFirst()) {
+            let from = max(a.t, start)
+            let to = min(b.t, end)
+            guard from <= to else { continue }
+            for edge in [from, to] where out.last?.t != edge {
+                out.append(between(a, b, at: edge))
+            }
+        }
+        return out.map { [$0.t, $0.r] }
+    }
+
+    /// Crop at reset/empty, then clip to the chart domain — the full pipeline
+    /// for an overview forecast stroke.
+    static func preparedProjection(
+        _ pairs: [[Double]]?,
+        windowEnd: Double?,
+        domain: Domain
+    ) -> [[Double]] {
+        clipPolyline(
+            Burndown.cropProjection(pairs, windowEnd: windowEnd),
+            start: domain.startEpoch,
+            end: domain.endEpoch
+        )
+    }
+
+    /// Clip actual samples to the chart domain.
+    static func preparedActual(
+        _ pairs: [[Double]]?,
+        domain: Domain
+    ) -> [[Double]] {
+        clipPolyline(
+            pairs ?? [],
+            start: domain.startEpoch,
+            end: domain.endEpoch
+        )
+    }
 }
 
 enum UsageProvider: String, CaseIterable, Sendable {
@@ -690,6 +876,9 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var id: String
     var title: String?
     var kind: String?
+    /// Position in the user's pinned order. The host already sorted
+    /// `providers[]`; this is here so a client that re-sorts can't drift.
+    var rank: Int?
     var enabled: Bool?
     var ok: Bool?
     var plan: String?
@@ -702,6 +891,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         id: String,
         title: String? = nil,
         kind: String? = nil,
+        rank: Int? = nil,
         enabled: Bool? = nil,
         ok: Bool? = nil,
         plan: String? = nil,
@@ -713,6 +903,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.id = id
         self.title = title
         self.kind = kind
+        self.rank = rank
         self.enabled = enabled
         self.ok = ok
         self.plan = plan
@@ -724,22 +915,62 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
 
     var displayTitle: String { title ?? id.capitalized }
 
-    /// Ring pools in host-friendly order (fastest / primary windows first).
+    /// Fallback pool order for hosts that predate `pools[].rank`. It only
+    /// names the pools those hosts could serve — Copilot, Gemini, JetBrains
+    /// and Zed all arrived with the rank field, so they never land here.
+    static let poolPrecedence = ["session", "total", "api", "auto", "week"]
+
+    /// Rank a pool for sorting: the host's declared order when it sent one,
+    /// otherwise the legacy precedence list, otherwise last.
+    static func poolRank(id: String, pool: QuotaPoolInfo) -> Int {
+        if let rank = pool.rank { return rank }
+        return poolPrecedence.firstIndex(of: id) ?? poolPrecedence.count
+    }
+
+    /// Ring pools in the host's declared order — the single sequence rings,
+    /// progress bars and burndown charts all draw in.
     var visiblePools: [(id: String, pool: QuotaPoolInfo)] {
-        let precedence = ["session", "total", "api", "auto", "week"]
-        return (pools ?? [:])
+        (pools ?? [:])
             .filter { $0.value.ring != false }
             .sorted {
-                let lhs = precedence.firstIndex(of: $0.key) ?? precedence.count
-                let rhs = precedence.firstIndex(of: $1.key) ?? precedence.count
-                return lhs < rhs
+                let lhs = Self.poolRank(id: $0.key, pool: $0.value)
+                let rhs = Self.poolRank(id: $1.key, pool: $1.value)
+                // Ids break ties so an unranked pair can't shuffle between
+                // refreshes — Swift's sort is not stable.
+                if lhs != rhs { return lhs < rhs }
+                return $0.key < $1.key
             }
             .map { (id: $0.key, pool: $0.value) }
+    }
+
+    /// This provider's burndown pools in exactly the selection and order of
+    /// `visiblePools`, so a provider's charts line up one-for-one with the
+    /// progress bars above them. Pools the host hid from the rings get no
+    /// chart, and a pool with no history yet simply drops out.
+    ///
+    /// - Parameter burndown: the provider's slice of `snapshot.burndown`,
+    ///   keyed by pool id.
+    func orderedBurndown(from burndown: [String: Burndown]?) -> [Burndown] {
+        let byPool = burndown ?? [:]
+        guard !(pools ?? [:]).isEmpty else {
+            return byPool.values.sorted {
+                let lhs = Self.poolPrecedence.firstIndex(of: $0.pool ?? "")
+                    ?? Self.poolPrecedence.count
+                let rhs = Self.poolPrecedence.firstIndex(of: $1.pool ?? "")
+                    ?? Self.poolPrecedence.count
+                if lhs != rhs { return lhs < rhs }
+                return ($0.pool ?? "") < ($1.pool ?? "")
+            }
+        }
+        return visiblePools.compactMap { byPool[$0.id] }
     }
 }
 
 struct QuotaPoolInfo: Decodable, Sendable {
     var title: String?
+    /// Position in the host's declared pool order. Nil from hosts older than
+    /// the field, which is why `poolPrecedence` survives as the fallback.
+    var rank: Int?
     var pct: Double?
     var pacePct: Double?
     var windowS: Double?
@@ -748,7 +979,7 @@ struct QuotaPoolInfo: Decodable, Sendable {
     var ring: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case title, pct, ring
+        case title, rank, pct, ring
         case pacePct = "pace_pct"
         case windowS = "window_s"
         case resetsInS = "resets_in_s"
@@ -1065,6 +1296,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var kind: String?
     /// "ai" or "devtools" — which Settings section this row belongs to.
     var group: String?
+    /// Brand accent `#RRGGBB` from the registry. Nil for rows with no brand.
+    var accent: String?
     var enabled: Bool?
     var ok: Bool?
     var stale: Bool?
@@ -1074,8 +1307,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var ageS: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, hint, kind, group, enabled, ok, stale, configured
-        case error, detail
+        case id, title, hint, kind, group, accent, enabled, ok, stale
+        case configured, error, detail
         case ageS = "age_s"
     }
 

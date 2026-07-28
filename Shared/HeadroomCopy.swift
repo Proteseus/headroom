@@ -27,6 +27,11 @@ enum HeadroomCopy {
     static let dailyBurn = "Daily burn"
     static let dailyBurnUnit = "pts / day"
 
+    /// "Resets 3d" — same wording as pool detail captions.
+    static func resets(_ label: String) -> String {
+        "Resets \(label)"
+    }
+
     static func poolBurndown(_ poolTitle: String) -> String {
         "\(poolTitle) burndown"
     }
