@@ -18,7 +18,7 @@ macOS ships via GitHub Releases (Developer ID), not the Mac App Store — yet.
 - **Content Rights**: Does not contain third-party content
 - **Age Rating**: 4+
 
-## Version 1.0.0
+## Version 1.0.1
 
 ### Description (4000 chars max)
 
@@ -56,10 +56,11 @@ app share the same local host — this iOS app is the pocket companion.
 
 quotas,claude,codex,cursor,developer,ci,vercel,supabase,menubar,local,burn
 
-### What's New (Version 1.0.0)
+### What's New (Version 1.0.1)
 
-First TestFlight release. Pair with the Mac host for live quotas, burndown,
-activity, services, widgets, and attention notifications.
+First public GitHub Release for the macOS app (notarized zip). Same iOS
+TestFlight companion: pair with the Mac host for quotas, burndown, activity,
+services, widgets, and attention notifications.
 
 ### Promotional Text (170 chars max, can be updated without review)
 
