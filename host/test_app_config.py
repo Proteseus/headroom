@@ -77,6 +77,39 @@ class AppConfigTests(unittest.TestCase):
         app_config.reload()
         self.assertEqual(app_config.github_org_prefixes(), ("acme/",))
 
+    def test_persists_github_watch_without_losing_other_config(self):
+        with open(self.path, "w") as handle:
+            json.dump({"timezone": "Europe/Amsterdam"}, handle)
+        result = app_config.set_github_watch(
+            prefixes=["Acme/", " ", "acme/"],
+            always_repos=["acme/api", "acme/api", "ada/site"],
+            max_discovered=999,
+        )
+        self.assertEqual(result["owners"], ["acme/"])
+        self.assertEqual(result["always_repos"], ["acme/api", "ada/site"])
+        self.assertEqual(
+            result["max_discovered"], app_config.GITHUB_MAX_DISCOVERED_LIMIT)
+        self.assertEqual(app_config.github_org_prefixes(), ("acme/",))
+        self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
+
+    def test_a_repo_that_is_not_owner_slash_name_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            app_config.set_github_watch(always_repos=["acme"])
+        self.assertIn("acme", str(caught.exception))
+        # Nothing written: the whole save fails rather than half-applying.
+        self.assertEqual(app_config.github_always_repos(), ())
+
+    def test_omitted_keys_are_left_alone(self):
+        app_config.set_github_watch(prefixes=["acme/"], max_discovered=3)
+        app_config.set_github_watch(always_repos=["acme/api"])
+        self.assertEqual(app_config.github_org_prefixes(), ("acme/",))
+        self.assertEqual(app_config.github_max_discovered(), 3)
+
+    def test_clearing_a_list_is_not_the_same_as_omitting_it(self):
+        app_config.set_github_watch(prefixes=["acme/"])
+        app_config.set_github_watch(prefixes=[])
+        self.assertEqual(app_config.github_org_prefixes(), ())
+
     def test_persists_mobile_permissions_without_losing_other_config(self):
         with open(self.path, "w") as handle:
             json.dump({"timezone": "Europe/Amsterdam"}, handle)

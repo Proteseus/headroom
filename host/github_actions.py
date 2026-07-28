@@ -215,6 +215,16 @@ def _repos():
     return ordered
 
 
+def watched_repos():
+    """The resolved watch list, for Settings to show before anything is polled."""
+    return _repos()
+
+
+def invalidate():
+    """Config changed: drop the cached runs so the next poll re-reads the list."""
+    _cache.update(t=0.0)
+
+
 def _get(path, token, query=None, timeout=12):
     return http_util.request_json(
         API + path,

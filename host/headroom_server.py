@@ -234,6 +234,44 @@ def _build_activity(vercel, git, supabase=None, github=None):
             "inspector_url": project.get("dashboard_url"),
         })
 
+    # One row per project rather than per lint: a schema with twenty findings
+    # would otherwise bury the feed. The Supabase section carries the detail.
+    lint_alerts = [
+        project for project in (supabase.get("projects") or [])
+        if (project.get("lint_error_count") or 0) > 0
+    ][:3]
+    for project in lint_alerts:
+        errors = int(project["lint_error_count"])
+        top = next(
+            (lint for lint in (project.get("lints") or [])
+             if lint.get("level") == "ERROR"),
+            None,
+        )
+        ref = project.get("ref")
+        items.append({
+            "id": f"supabase-security:{ref or project.get('name')}",
+            "kind": "supabase",
+            "status": "error",
+            "subject": (
+                f"{project.get('name') or 'Supabase'} · {errors} security "
+                + ("issue" if errors == 1 else "issues")
+            ),
+            "repo": "Supabase",
+            "project": project.get("name"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": supabase.get("updated_at") or time.time(),
+            "ago": "now",
+            "error_message": (top or {}).get("title") or "security advisor",
+            "url": (
+                f"https://supabase.com/dashboard/project/{ref}/advisors/security"
+                if ref else project.get("dashboard_url")
+            ),
+            "inspector_url": project.get("dashboard_url"),
+        })
+
     items.sort(
         key=lambda item: (
             0 if (
@@ -754,6 +792,19 @@ def _build_attention(doc):
             25 + min(25, alerts * 8),
         )
 
+    # ERROR-level lints only. WARN and INFO are still listed in the app, but a
+    # schema finding sits there until someone changes the schema — pipping on
+    # all three would leave the light amber forever and teach you to ignore it.
+    lint_errors = int(supabase.get("lint_error_count") or 0)
+    if supabase.get("configured") and lint_errors:
+        add(
+            "warn",
+            "supabase-security",
+            f"{lint_errors} Supabase security issue"
+            + ("" if lint_errors == 1 else "s"),
+            18 + min(18, lint_errors * 3),
+        )
+
     deploys = ((doc.get("vercel") or {}).get("deployments")) or []
     deploy_errors = sum(
         1 for d in deploys
@@ -940,6 +991,23 @@ def _device_payload(now):
         }
 
 
+def _github_watch_payload():
+    """Watch list as configured, plus the repos it actually resolves to.
+
+    Settings shows both: owners and always-repos are what you type, `watching`
+    is what the scan under dev_root made of them, which is the part that used
+    to need a shell and a JSON file to find out.
+    """
+    return {
+        "ok": True,
+        "owners": list(app_config.github_org_prefixes()),
+        "always_repos": list(app_config.github_always_repos()),
+        "max_discovered": app_config.github_max_discovered(),
+        "dev_root": app_config.dev_root(),
+        "watching": github_actions.watched_repos(),
+    }
+
+
 def _health_payload():
     doc = rollup()
     with _cache_lock:
@@ -1036,11 +1104,18 @@ class Handler(BaseHTTPRequestHandler):
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
         if path not in ("", "/usage", "/health", "/setup",
-                        "/mobile/permissions"):
+                        "/mobile/permissions", "/github/watch"):
             self.send_error(404)
             return
         if not self._allowed():
             self._send_json(401, {"ok": False, "error": "token required"})
+            return
+        if path == "/github/watch":
+            # Mac-local configuration, like the token it goes with.
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            self._send_json(200, _github_watch_payload())
             return
         if path == "/mobile/permissions":
             granted = app_config.mobile_permissions()
@@ -1081,6 +1156,7 @@ class Handler(BaseHTTPRequestHandler):
             "/sources",
             "/mobile/permissions",
             "/attention/ack",
+            "/github/watch",
         ):
             self.send_error(404)
             return
@@ -1144,6 +1220,21 @@ class Handler(BaseHTTPRequestHandler):
             app_config.set_attention_ack_fingerprint(fingerprint)
             publish()
             self._send_json(200, {"ok": True, "fingerprint": fingerprint})
+            return
+
+        if path == "/github/watch":
+            try:
+                app_config.set_github_watch(
+                    prefixes=payload.get("owners"),
+                    always_repos=payload.get("always_repos"),
+                    max_discovered=payload.get("max_discovered"),
+                )
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            # The cached run list was fetched for the old repos.
+            github_actions.invalidate()
+            self._send_json(200, _github_watch_payload())
             return
 
         if path == "/mobile/permissions":

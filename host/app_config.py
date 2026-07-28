@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 
 STORE_PATH = os.path.expanduser("~/.headroom/config.json")
@@ -48,6 +49,32 @@ def reload():
     global _cache
     with _lock:
         _cache = None
+
+
+def _persist(**updates):
+    """Write keys into config.json, leaving every other key as the user left it.
+
+    Read-modify-write through a temp file, 0600: this file holds an optional
+    host token, and a half-written config would strand the app on defaults.
+    """
+    data = _load()
+    data.update(updates)
+    folder = os.path.dirname(STORE_PATH)
+    os.makedirs(folder, exist_ok=True)
+    tmp = STORE_PATH + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump(data, handle, indent=2)
+            handle.write("\n")
+        os.replace(tmp, STORE_PATH)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    reload()
 
 
 def raw():
@@ -126,6 +153,63 @@ def github_max_discovered():
         return int(DEFAULTS["github_max_discovered"])
 
 
+GITHUB_MAX_DISCOVERED_LIMIT = 50
+GITHUB_LIST_LIMIT = 50
+# owner/name, the only shape the Actions API takes.
+_REPO_SLUG = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+
+def _clean_list(values, label):
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, (list, tuple)):
+        raise ValueError(f"{label} must be a list")
+    out = []
+    for item in values:
+        text = str(item).strip()
+        if not text:
+            continue
+        if text not in out:
+            out.append(text)
+    if len(out) > GITHUB_LIST_LIMIT:
+        raise ValueError(f"{label}: at most {GITHUB_LIST_LIMIT} entries")
+    return out
+
+
+def set_github_watch(prefixes=None, always_repos=None, max_discovered=None):
+    """Persist which Actions repos to watch. A None argument leaves that key.
+
+    Raises ValueError with something worth showing a person: this is reached
+    from Settings, where a typo like "acme" instead of "acme/api" is the most
+    likely input and silently dropping it would read as the save failing.
+    """
+    updates = {}
+    if prefixes is not None:
+        updates["github_org_prefix"] = [
+            item.lower() for item in _clean_list(prefixes, "owners")
+        ]
+    if always_repos is not None:
+        repos = _clean_list(always_repos, "always_repos")
+        for repo in repos:
+            if not _REPO_SLUG.match(repo):
+                raise ValueError(f"{repo!r} is not owner/name")
+        updates["github_always_repos"] = repos
+    if max_discovered is not None:
+        try:
+            count = int(max_discovered)
+        except (TypeError, ValueError):
+            raise ValueError("max_discovered must be a number") from None
+        updates["github_max_discovered"] = max(
+            0, min(GITHUB_MAX_DISCOVERED_LIMIT, count))
+    if updates:
+        _persist(**updates)
+    return {
+        "owners": list(github_org_prefixes()),
+        "always_repos": list(github_always_repos()),
+        "max_discovered": github_max_discovered(),
+    }
+
+
 def plausible_sites():
     value = get("plausible_sites")
     if isinstance(value, list) and value:
@@ -163,24 +247,7 @@ def set_plausible_range(value):
     if rid not in PLAUSIBLE_RANGES:
         raise ValueError(
             f"plausible_range must be one of {', '.join(PLAUSIBLE_RANGES)}")
-    data = _load()
-    data["plausible_range"] = rid
-    folder = os.path.dirname(STORE_PATH)
-    os.makedirs(folder, exist_ok=True)
-    tmp = STORE_PATH + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            json.dump(data, handle, indent=2)
-            handle.write("\n")
-        os.replace(tmp, STORE_PATH)
-    except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    reload()
+    _persist(plausible_range=rid)
     return rid
 
 
@@ -202,24 +269,7 @@ def set_mobile_permissions(values):
         if str(item) in MOBILE_PERMISSION_ORDER
     }
     ordered = [item for item in MOBILE_PERMISSION_ORDER if item in selected]
-    data = _load()
-    data["mobile_permissions"] = ordered
-    folder = os.path.dirname(STORE_PATH)
-    os.makedirs(folder, exist_ok=True)
-    tmp = STORE_PATH + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            json.dump(data, handle, indent=2)
-            handle.write("\n")
-        os.replace(tmp, STORE_PATH)
-    except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    reload()
+    _persist(mobile_permissions=ordered)
     return frozenset(ordered)
 
 
@@ -236,22 +286,5 @@ def set_attention_ack_fingerprint(value):
     fingerprint = str(value or "").strip()
     if not fingerprint or len(fingerprint) > 4096:
         raise ValueError("invalid attention fingerprint")
-    data = _load()
-    data["attention_ack_fingerprint"] = fingerprint
-    folder = os.path.dirname(STORE_PATH)
-    os.makedirs(folder, exist_ok=True)
-    tmp = STORE_PATH + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            json.dump(data, handle, indent=2)
-            handle.write("\n")
-        os.replace(tmp, STORE_PATH)
-    except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    reload()
+    _persist(attention_ack_fingerprint=fingerprint)
     return fingerprint
