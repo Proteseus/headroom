@@ -180,11 +180,15 @@ def _detail_local(payload):
 def _detail_supabase(payload):
     if not payload.get("configured"):
         return payload.get("error") or "not connected"
-    alerts = payload.get("alert_count") or 0
     count = payload.get("project_count") or 0
+    bits = [f"{count} projects"]
+    alerts = payload.get("alert_count") or 0
     if alerts:
-        return f"{count} projects · {alerts} alerts"
-    return f"{count} projects"
+        bits.append(f"{alerts} alerts")
+    errors = payload.get("lint_error_count") or 0
+    if errors:
+        bits.append(f"{errors} security")
+    return " · ".join(bits)
 
 
 def _detail_plausible(payload):
@@ -243,7 +247,8 @@ def _summary_local(payload):
 
 def _summary_supabase(payload):
     return (f"projects={payload.get('project_count')} "
-            f"alerts={payload.get('alert_count')}")
+            f"alerts={payload.get('alert_count')} "
+            f"lint_errors={payload.get('lint_error_count')}")
 
 
 def _summary_plausible(payload):
@@ -275,7 +280,8 @@ def _blank_local():
 
 def _blank_supabase():
     return {"ok": False, "configured": False, "projects": [],
-            "project_count": 0, "healthy_count": 0, "alert_count": 0}
+            "project_count": 0, "healthy_count": 0, "alert_count": 0,
+            "lint_error_count": 0, "lint_warn_count": 0, "lint_total": 0}
 
 
 def _blank_plausible():

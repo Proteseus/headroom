@@ -338,15 +338,57 @@
         "ref": "abcd1234",
         "name": "prod",
         "status": "ACTIVE_HEALTHY",
-        "region": "eu-central-1"
+        "region": "eu-central-1",
+        "lints": [
+          {
+            "name": "rls_disabled_in_public",
+            "title": "RLS Disabled in Public",
+            "level": "ERROR",
+            "categories": [
+              "SECURITY"
+            ],
+            "description": "Row-Level Security is not enabled on a public table.",
+            "detail": "Table `public.signals` is public, but RLS has not been enabled.",
+            "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public",
+            "entity": "public.signals"
+          },
+          {
+            "name": "function_search_path_mutable",
+            "title": "Function Search Path Mutable",
+            "level": "WARN",
+            "categories": [
+              "SECURITY"
+            ],
+            "description": null,
+            "detail": "Function `public.touch_updated_at` has a role mutable search_path.",
+            "remediation": null,
+            "entity": "public.touch_updated_at"
+          }
+        ],
+        "lint_truncated": false,
+        "lint_error_count": 1,
+        "lint_warn_count": 1,
+        "lint_info_count": 0,
+        "lint_total": 2,
+        "advisor_error": null
       },
       {
         "ref": "efgh5678",
         "name": "staging",
         "status": "ACTIVE_HEALTHY",
-        "region": "eu-central-1"
+        "region": "eu-central-1",
+        "lints": [],
+        "lint_truncated": false,
+        "lint_error_count": 0,
+        "lint_warn_count": 0,
+        "lint_info_count": 0,
+        "lint_total": 0,
+        "advisor_error": null
       }
-    ]
+    ],
+    "lint_error_count": 1,
+    "lint_warn_count": 1,
+    "lint_total": 2
   },
   "plausible": {
     "ok": true,
