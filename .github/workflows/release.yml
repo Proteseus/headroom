@@ -4,31 +4,261 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      notarize:
+        description: "Notarize macOS zip (requires signing secrets)"
+        type: boolean
+        default: true
+      upload_testflight:
+        description: "Upload iOS IPA to TestFlight (requires ASC app + secrets)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   macos-app:
-    name: Build HeadroomBar.app
+    name: Build Headroom.app
     runs-on: macos-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      build: ${{ steps.ver.outputs.build }}
+      notarized: ${{ steps.meta.outputs.notarized }}
+      testflight_url: ${{ steps.links.outputs.testflight_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so git rev-list --count matches every machine.
+          fetch-depth: 0
+
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build .app + zip
-        run: ./scripts/build-app.sh
+
+      - name: Resolve version
+        id: ver
+        run: |
+          source ./scripts/version-env.sh
+          echo "version=$HEADROOM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$HEADROOM_BUILD" >> "$GITHUB_OUTPUT"
+          echo "Headroom $HEADROOM_VERSION+$HEADROOM_BUILD"
+
+      - name: Check tag matches host/VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          source ./scripts/version-env.sh
+          if [[ "$TAG" != "$HEADROOM_VERSION" ]]; then
+            echo "error: tag v$TAG does not match host/VERSION ($HEADROOM_VERSION)" >&2
+            exit 1
+          fi
+
+      - name: Read install links
+        id: links
+        run: |
+          TF="$(./scripts/testflight-url.sh || true)"
+          echo "testflight_url=$TF" >> "$GITHUB_OUTPUT"
+          if [[ -n "$TF" ]]; then
+            echo "TestFlight URL: $TF"
+          else
+            echo "No TestFlight URL in docs/install-links.md yet."
+          fi
+
+      - name: Import Developer ID certificate
+        id: cert
+        # Always attempt on tags; on manual runs only when notarize is checked.
+        # Secrets are read in the step (not in `if:`) so missing secrets soft-fall back.
+        if: github.event_name == 'push' || inputs.notarize
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [[ -z "${MACOS_CERTIFICATE_P12:-}" || -z "${MACOS_CERTIFICATE_PASSWORD:-}" ]]; then
+            echo "imported=false" >> "$GITHUB_OUTPUT"
+            echo "No MACOS_CERTIFICATE_P12 / PASSWORD — ad-hoc build."
+            exit 0
+          fi
+          CERTIFICATE_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/headroom.keychain-db"
+          echo -n "$MACOS_CERTIFICATE_P12" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' \
+            | head -1)
+          if [[ -z "$IDENTITY" ]]; then
+            echo "error: no Developer ID Application identity in imported keychain" >&2
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2
+            exit 1
+          fi
+          echo "HEADROOM_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "imported=true" >> "$GITHUB_OUTPUT"
+          echo "Using identity: $IDENTITY"
+
+      - name: Build + notarize
+        id: notarize
+        if: steps.cert.outputs.imported == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          if [[ -z "${APPLE_API_KEY:-}" || -z "${APPLE_API_KEY_ID:-}" || -z "${APPLE_API_ISSUER_ID:-}" ]]; then
+            echo "error: cert imported but APPLE_API_KEY / KEY_ID / ISSUER_ID missing (see docs/releasing.md)" >&2
+            exit 1
+          fi
+          ./scripts/build-app.sh --release --notarize
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build (ad-hoc fallback)
+        id: adhoc
+        if: steps.cert.outputs.imported != 'true'
+        run: |
+          echo "::warning::Signing secrets missing — shipping ad-hoc signed zip (Gatekeeper will warn)."
+          ./scripts/build-app.sh --release
+          echo "notarized=false" >> "$GITHUB_OUTPUT"
+
+      - name: Record signing meta
+        id: meta
+        run: |
+          if [[ "${{ steps.notarize.outputs.notarized }}" == "true" ]]; then
+            echo "notarized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HeadroomBar-macos
+          name: Headroom-macOS
           path: |
-            dist/HeadroomBar.app
-            dist/HeadroomBar-macos.zip
+            dist/Headroom.app
+            dist/Headroom-macOS.zip
+            dist/version.txt
+
+      - name: Compose release notes
+        id: notes
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          BUILD: ${{ steps.ver.outputs.build }}
+          NOTARIZED: ${{ steps.meta.outputs.notarized }}
+          TESTFLIGHT_URL: ${{ steps.links.outputs.testflight_url }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "Headroom **${VERSION}** (build ${BUILD})."
+            echo
+            echo "## macOS"
+            echo
+            echo "Download [\`Headroom-macOS.zip\`](https://github.com/${REPO}/releases/download/${TAG}/Headroom-macOS.zip), unzip, open \`Headroom.app\`."
+            echo
+            if [[ "$NOTARIZED" == "true" ]]; then
+              echo "Notarized — Gatekeeper should accept it on first open."
+            else
+              echo "Ad-hoc signed — right-click → Open the first time (signing secrets not configured; see \`docs/releasing.md\`)."
+            fi
+            echo
+            echo "On first launch the Welcome sheet **starts the bundled host** automatically. Confirm Claude / Codex / Cursor, then Continue."
+            echo
+            echo "## iPhone"
+            echo
+            if [[ -n "${TESTFLIGHT_URL:-}" ]]; then
+              echo "Install via [TestFlight](${TESTFLIGHT_URL})."
+            else
+              echo "No public TestFlight link in \`docs/install-links.md\` yet — build from source ([docs/ios-companion.md](https://github.com/${REPO}/blob/${TAG}/docs/ios-companion.md)) or wait for an invite."
+            fi
+            echo
+            echo "Pairing uses the **mobile token** (Mac Settings → **Copy mobile token**), not the host token used by the ESP32."
+          } > "$RUNNER_TEMP/release-body.md"
+          echo "path=$RUNNER_TEMP/release-body.md" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/HeadroomBar-macos.zip
+          files: |
+            dist/Headroom-macOS.zip
+            dist/version.txt
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          body_path: ${{ steps.notes.outputs.path }}
+
+  ios-testflight:
+    name: iOS → TestFlight
+    runs-on: macos-latest
+    needs: macos-app
+    # On tags: soft-attempt when ASC secrets exist. Manual: only when checked.
+    if: |
+      always() &&
+      needs.macos-app.result == 'success' &&
+      (
+        startsWith(github.ref, 'refs/tags/') ||
+        (github.event_name == 'workflow_dispatch' && inputs.upload_testflight)
+      )
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check App Store Connect secrets
+        id: asc
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          if [[ -z "${APPLE_API_KEY:-}" || -z "${APPLE_API_KEY_ID:-}" || -z "${APPLE_API_ISSUER_ID:-}" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              echo "Add ASC API secrets (see docs/releasing.md), create com.centaur-labs.headroom in App Store Connect, then re-run." >&2
+              exit 1
+            fi
+            echo "::warning::ASC secrets missing — skipping TestFlight upload on this tag."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install XcodeGen
+        if: steps.asc.outputs.ready == 'true'
+        run: brew install xcodegen
+
+      - name: Resolve version
+        if: steps.asc.outputs.ready == 'true'
+        run: |
+          source ./scripts/version-env.sh
+          echo "Headroom iOS $HEADROOM_VERSION+$HEADROOM_BUILD"
+
+      - name: Build IPA + upload
+        if: steps.asc.outputs.ready == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: ./scripts/build-ios.sh --upload
+
+      - name: Upload IPA artifact
+        if: steps.asc.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Headroom-iOS
+          path: |
+            dist/Headroom-iOS.ipa
+            dist/ios-version.txt
+
+      - name: Attach IPA to GitHub Release
+        if: steps.asc.outputs.ready == 'true' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Headroom-iOS.ipa
           fail_on_unmatched_files: true

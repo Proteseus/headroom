@@ -26,6 +26,12 @@ jobs:
       - name: Unit + contract tests
         working-directory: host
         run: python -m unittest discover -p "test_*.py" -v
+      - name: Glossary copy guard
+        run: ./scripts/check-glossary-copy.sh
+      - name: Version stamp
+        run: |
+          ./scripts/version-env.sh
+          test -n "$(./scripts/version-env.sh --print)"
 
   firmware:
     name: Firmware (ESP32-S3)
@@ -57,6 +63,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Embed host + generate project
@@ -67,10 +75,13 @@ jobs:
       - name: Build and test
         working-directory: macos
         run: |
+          source ../scripts/version-env.sh
           xcodebuild test \
-            -project HeadroomBar.xcodeproj \
-            -scheme HeadroomBar \
+            -project Headroom.xcodeproj \
+            -scheme Headroom \
             -configuration Debug \
             -derivedDataPath .build \
             CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="$HEADROOM_VERSION" \
+            CURRENT_PROJECT_VERSION="$HEADROOM_BUILD" \
             -quiet
