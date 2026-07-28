@@ -269,6 +269,9 @@ private struct SettingsView: View {
     @State private var githubWatching: [String] = []
     @State private var githubDevRoot = "~/Dev"
     @State private var savingGitHubWatch = false
+    /// False when the host predates /github/watch, so the fields don't sit
+    /// there taking edits that can never be saved.
+    @State private var githubWatchEditable = true
 
     @State private var hostToken = ""
     @State private var hostTokenStored = false
@@ -547,6 +550,11 @@ private struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Divider()
+                if !githubWatchEditable {
+                    Text("Repo settings need a running, up to date host.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 TextField(
                     "Owners",
                     text: $githubOwners,
@@ -566,7 +574,7 @@ private struct SettingsView: View {
                     Button("Save repos") {
                         Task { await saveGitHubWatch() }
                     }
-                    .disabled(savingGitHubWatch)
+                    .disabled(savingGitHubWatch || !githubWatchEditable)
                     if savingGitHubWatch {
                         ProgressView().controlSize(.small)
                     }
@@ -852,8 +860,12 @@ private struct SettingsView: View {
     }
 
     private func reloadGitHubWatch() async {
-        guard let watch = try? await client.fetchGitHubWatch() else { return }
-        applyGitHubWatch(watch)
+        do {
+            applyGitHubWatch(try await client.fetchGitHubWatch())
+            githubWatchEditable = true
+        } catch {
+            githubWatchEditable = false
+        }
     }
 
     private func applyGitHubWatch(_ watch: GitHubWatch) {

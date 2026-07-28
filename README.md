@@ -150,6 +150,10 @@ questions and take different setup:
 | **Vercel** | Already signed into the Vercel CLI |
 | **Git / local servers** | `dev_root` + `git_authors` in `~/.headroom/config.json` |
 
+Which repos Actions watches is editable in **Settings → GitHub Actions**: owner
+filters, an always-watch list, and the discovery cap. Settings also shows the
+repos those settings resolve to on this machine.
+
 Both lists toggle under Settings, each in its own section (the same flags
 drive the menu bar, overview rings, iPhone, and ESP32 pages).
 
@@ -244,9 +248,9 @@ one entry + a fetcher module.
 | `dev_root` | Where git / GitHub repo discovery walks |
 | `git_authors` | `git log --author` patterns (empty = all authors) |
 | `vercel_team_slugs` | Preferred Vercel team(s); empty → CLI current team |
-| `github_org_prefix` | Owner filter for discovered Actions repos — one `"owner/"` or a list of them; empty = every repo found |
-| `github_always_repos` | Always-watched `owner/name` list |
-| `github_max_discovered` | Cap on auto-discovered org repos |
+| `github_org_prefix` | Owner filter for discovered Actions repos — one `"owner/"` or a list of them; empty = every repo found (Settings → GitHub Actions) |
+| `github_always_repos` | Always-watched `owner/name` list (Settings → GitHub Actions) |
+| `github_max_discovered` | Cap on auto-discovered repos (Settings → GitHub Actions) |
 | `plausible_sites` | Optional domain filter / fallback when the key cannot list sites |
 | `plausible_host` | Cloud or self-hosted base URL (default `https://plausible.io`) |
 | `plausible_range` | Primary window: `day`, `24h` (default), `7d`, or `30d` |
