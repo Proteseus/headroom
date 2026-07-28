@@ -152,6 +152,14 @@ questions and take different setup:
 Both lists toggle under Settings, each in its own section (the same flags
 drive the menu bar, overview rings, iPhone, and ESP32 pages).
 
+**Order picks the top 3.** The AI list is drag-ordered with the ▲▼ controls in
+Settings, and that order is pinned in `~/.headroom/sources.json`. Compact
+surfaces — the menu-bar tanks and the iOS widget — show the first three
+*enabled* providers. The host does the picking and ships the ids as `focus` in
+`/usage`, so the Mac, the phone, and its widget never disagree about which
+three even when one of them is a poll behind. A provider added in a later
+release lands at the end of your order instead of jumping the queue.
+
 ### ESP32 desk display (optional)
 
 1. `cp firmware/src/config_example.h firmware/src/config.h` — Wi‑Fi SSIDs +
@@ -257,7 +265,7 @@ Everything below is loopback-open and token-gated off-box.
 | `GET /setup` | Detected credentials + enabled map (first-run sheet) |
 | `GET /mobile/permissions` | Four effective permissions for the paired iOS app |
 | `POST /sync/refresh` | Force-refresh (LAN OK — ESP32 long-press) |
-| `POST /sources` | Toggle sources (loopback or paired iOS with `sources` scope) |
+| `POST /sources` | Toggle sources (`enabled` map) and/or pin provider order (`order` list). Loopback or paired iOS with `sources` scope |
 | `POST /supabase/refresh` | Force Supabase poll (loopback) |
 | `POST /plausible/refresh` | Force Plausible poll (loopback) |
 | `POST /local/stop` | Stop server (loopback or paired iOS with `servers` scope) |
@@ -307,6 +315,8 @@ the port.
 | Doc | For |
 |---|---|
 | [docs/ios-companion.md](docs/ios-companion.md) | iPhone build, pairing, widgets |
+| [docs/appstore.md](docs/appstore.md) | App Store listing copy + screenshot plan |
+| [docs/privacy.md](docs/privacy.md) | Privacy policy (ASC URL) |
 | [docs/install-links.md](docs/install-links.md) | Release + TestFlight URLs |
 | [docs/releasing.md](docs/releasing.md) | Notarize, TestFlight, `cut-release` |
 | [docs/glossary.md](docs/glossary.md) | Shared chrome names |

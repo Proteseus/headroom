@@ -115,6 +115,21 @@ Helper (needs a `gh` token that can write Actions secrets):
 
 Missing ASC setup never blocks the macOS zip on a tag — the iOS job soft-skips.
 
+## App Store listing
+
+Canonical copy lives in [`appstore.md`](appstore.md) (name, subtitle, description,
+keywords, promo, what’s new, review notes, screenshot plan). Privacy policy:
+[`privacy.md`](privacy.md).
+
+Push metadata (same parser as TinySuite):
+
+```bash
+python3 ../tiny/scripts/push-metadata.py \
+  --bundle-id com.centaur-labs.headroom \
+  --metadata-file docs/appstore.md \
+  --dry-run
+```
+
 ## Version map
 
 | Surface | Marketing | Build |
