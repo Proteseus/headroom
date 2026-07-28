@@ -6,11 +6,10 @@ Uses the same GitHub token sources as Actions (`gh auth`, env, Keychain), then
 
 from __future__ import annotations
 
-import json
 import time
 import urllib.error
-import urllib.request
 
+import http_util
 import cache_util
 import github_actions
 import quota_util
@@ -31,19 +30,17 @@ def signed_in():
 
 
 def _fetch(token):
-    req = urllib.request.Request(
+    return http_util.request_json(
         USAGE_URL,
+        auth=f"token {token}",
+        user_agent=UA,
+        timeout=12,
         headers={
-            "Authorization": f"token {token}",
-            "Accept": "application/json",
             "Editor-Version": "vscode/1.96.2",
             "Editor-Plugin-Version": "copilot-chat/0.26.7",
-            "User-Agent": UA,
             "X-Github-Api-Version": "2025-04-01",
         },
     )
-    with urllib.request.urlopen(req, timeout=12) as resp:
-        return json.load(resp)
 
 
 def _snapshot_used_pct(snapshots, key):
@@ -80,11 +77,7 @@ def _map(blob):
 
 def fetch_quota(force=False):
     now = time.time()
-    if (
-        not force
-        and _cache["data"] is not None
-        and now - _cache["t"] < (FAIL_TTL_S if _cache.get("err") else CACHE_TTL_S)
-    ):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     token = github_actions._token()
@@ -98,9 +91,7 @@ def fetch_quota(force=False):
         blob = _fetch(token)
         out = _map(blob)
         if out.get("ok"):
-            cache_util.save_disk(DISK, out)
-            _cache.update(t=now, data=out, err=None)
-            return out
+            return cache_util.store(_cache, now, out, disk_name=DISK)
         return cache_util.keep_stale(
             _cache, now, out.get("error") or "Copilot quota unavailable",
             _EMPTY, disk_name=DISK)

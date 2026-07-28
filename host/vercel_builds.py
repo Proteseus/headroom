@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 
 import app_config
+import http_util
 import cache_util
 
 CACHE_TTL_S = 60
@@ -77,20 +78,16 @@ def _refresh(auth):
     refresh = (auth or {}).get("refreshToken")
     if not refresh:
         raise RuntimeError("no Vercel refreshToken — run `vercel login`")
-    body = urllib.parse.urlencode({
-        "client_id": CLI_CLIENT_ID,
-        "grant_type": "refresh_token",
-        "refresh_token": refresh,
-    }).encode()
-    req = urllib.request.Request(
-        TOKEN_URL, data=body, method="POST",
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
+    data = http_util.request_json(
+        TOKEN_URL,
+        form_body={
+            "client_id": CLI_CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh,
         },
+        method="POST",
+        timeout=20,
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        data = json.loads(resp.read().decode())
     access = data.get("access_token")
     if not access:
         raise RuntimeError("Vercel refresh missing access_token")
@@ -106,17 +103,10 @@ def _refresh(auth):
 
 
 def _list_teams(token):
-    req = urllib.request.Request(
-        "https://api.vercel.com/v2/teams",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-        return data.get("teams") or []
+        data = http_util.request_json(
+            "https://api.vercel.com/v2/teams", auth=f"Bearer {token}")
+        return (data or {}).get("teams") or []
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
         return []
 
@@ -235,16 +225,8 @@ def _http_get(url, token, team_id):
     q = {"limit": str(DEPLOY_LIMIT)}
     if team_id:
         q["teamId"] = team_id
-    full = url + "?" + urllib.parse.urlencode(q)
-    req = urllib.request.Request(
-        full,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode())
+    return http_util.request_json(
+        url, auth=f"Bearer {token}", query=q, timeout=20)
 
 
 def _team_slug(token, team_id):
@@ -252,17 +234,10 @@ def _team_slug(token, team_id):
     if not team_id:
         return None
     url = f"https://api.vercel.com/v2/teams/{urllib.parse.quote(team_id)}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-        return data.get("slug") or data.get("name")
+        data = http_util.request_json(
+            url, auth=f"Bearer {token}", timeout=10)
+        return (data or {}).get("slug") or (data or {}).get("name")
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
         return None
 
@@ -270,10 +245,8 @@ def _team_slug(token, team_id):
 def fetch_deployments(force=False):
     """Return flattened team deployments for /usage."""
     now = time.time()
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     try:
         creds = _auth()

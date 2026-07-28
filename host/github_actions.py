@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 
 import app_config
+import http_util
 import cache_util
 
 API = "https://api.github.com"
@@ -206,20 +207,15 @@ def _repos():
 
 
 def _get(path, token, query=None, timeout=12):
-    url = API + path
-    if query:
-        url += "?" + urllib.parse.urlencode(query, doseq=True)
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": UA,
-        },
+    return http_util.request_json(
+        API + path,
+        auth=f"Bearer {token}",
+        query=query,
+        accept="application/vnd.github+json",
+        user_agent=UA,
+        timeout=timeout,
+        headers={"X-GitHub-Api-Version": "2022-11-28"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode())
 
 
 def _parse_ts(value):
@@ -353,10 +349,8 @@ def _fetch_repo_runs(token, repo):
 
 def fetch_actions(force=False):
     now = time.time()
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     token = _token()
     if not token:

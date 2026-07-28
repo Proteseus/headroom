@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import http_util
 import cache_util
 import quota_util
 
@@ -109,21 +110,17 @@ def _refresh(blob):
         raise RuntimeError(
             "Gemini OAuth client not found — install gemini-cli or set "
             "GEMINI_OAUTH_CLIENT_ID/SECRET")
-    body = urllib.parse.urlencode({
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "refresh_token": refresh,
-        "grant_type": "refresh_token",
-    }).encode()
-    req = urllib.request.Request(
-        TOKEN_URL, data=body,
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": UA,
+    token = http_util.request_json(
+        TOKEN_URL,
+        form_body={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh,
+            "grant_type": "refresh_token",
         },
+        user_agent=UA,
+        timeout=12,
     )
-    with urllib.request.urlopen(req, timeout=12) as resp:
-        token = json.load(resp)
     blob = dict(blob)
     if token.get("access_token"):
         blob["access_token"] = token["access_token"]
@@ -148,17 +145,9 @@ def _access_token(blob):
 
 
 def _post_json(url, token, body):
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        url, data=data, method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": UA,
-        },
-    )
-    with urllib.request.urlopen(req, timeout=12) as resp:
-        return json.load(resp)
+    return http_util.request_json(
+        url, auth=f"Bearer {token}", json_body=body,
+        method="POST", user_agent=UA, timeout=12)
 
 
 def _tier_label(blob):
@@ -237,11 +226,7 @@ def _buckets(quota_blob):
 
 def fetch_quota(force=False):
     now = time.time()
-    if (
-        not force
-        and _cache["data"] is not None
-        and now - _cache["t"] < (FAIL_TTL_S if _cache.get("err") else CACHE_TTL_S)
-    ):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     auth = _auth_type()
@@ -273,9 +258,7 @@ def fetch_quota(force=False):
             "stale": False,
         }
         if out["ok"]:
-            cache_util.save_disk(DISK, out)
-            _cache.update(t=now, data=out, err=None)
-            return out
+            return cache_util.store(_cache, now, out, disk_name=DISK)
         return cache_util.keep_stale(
             _cache, now, out["error"], _EMPTY, disk_name=DISK)
     except urllib.error.HTTPError as exc:

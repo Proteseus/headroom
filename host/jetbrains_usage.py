@@ -110,11 +110,7 @@ def _parse_file(path: Path):
 
 def fetch_quota(force=False):
     now = time.time()
-    if (
-        not force
-        and _cache["data"] is not None
-        and now - _cache["t"] < (FAIL_TTL_S if _cache.get("err") else CACHE_TTL_S)
-    ):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     files = _quota_files()
@@ -130,9 +126,7 @@ def fetch_quota(force=False):
             last_err = str(exc)
             continue
         if parsed and parsed.get("ok"):
-            cache_util.save_disk(DISK, parsed)
-            _cache.update(t=now, data=parsed, err=None)
-            return parsed
+            return cache_util.store(_cache, now, parsed, disk_name=DISK)
         if parsed and parsed.get("error"):
             last_err = parsed["error"]
 

@@ -22,6 +22,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+import http_util
 import cache_util
 import keychain
 
@@ -118,23 +119,19 @@ def _refresh(oauth, store, blob):
     refresh = oauth.get("refreshToken")
     if not refresh:
         raise RuntimeError("no refreshToken")
-    body = json.dumps({
-        "grant_type": "refresh_token",
-        "refresh_token": refresh,
-        "client_id": CLIENT_ID,
-    }).encode()
     last_err = None
     for url in TOKEN_URLS:
-        req = urllib.request.Request(
-            url, data=body, method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": UA,
-            },
-        )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
+            data = http_util.request_json(
+                url,
+                json_body={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh,
+                    "client_id": CLIENT_ID,
+                },
+                method="POST",
+                user_agent=UA,
+            )
         except urllib.error.HTTPError as e:
             last_err = f"HTTP {e.code} from {url}"
             continue
@@ -163,19 +160,16 @@ def _refresh(oauth, store, blob):
 
 
 def _http_get_usage(token):
-    req = urllib.request.Request(
+    return http_util.request(
         USAGE_URL,
+        auth=f"Bearer {token}",
+        user_agent=UA,
         headers={
-            "Authorization": f"Bearer {token}",
-            "User-Agent": UA,
-            "Accept": "application/json",
             "anthropic-beta": OAUTH_BETA,
             "anthropic-version": "2023-06-01",
             "x-app": "cli",
         },
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.getcode(), json.loads(resp.read().decode())
 
 
 def _iso_to_unix(s):
@@ -269,10 +263,8 @@ def fetch_quota(force=False):
         disk = cache_util.load_disk("claude")
         if disk:
             _cache.update(t=0.0, data=disk, err=None)
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     empty = {"ok": False, "plan": None, "session": None, "week": None, "error": None}
 
@@ -312,9 +304,7 @@ def fetch_quota(force=False):
         data = parse_usage(body, oauth)
         data["stale"] = False
         data["error"] = None
-        _cache.update(t=now, data=data, err=None)
-        cache_util.save_disk("claude", data)
-        return data
+        return cache_util.store(_cache, now, data, disk_name="claude")
     except Exception as e:
         return _keep_stale(str(e))
 

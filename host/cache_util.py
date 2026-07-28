@@ -42,6 +42,30 @@ def save_disk(name: str, data: dict) -> None:
         pass
 
 
+def fresh(cache, now, ttl_s, fail_ttl_s, force=False):
+    """True when the in-memory copy is young enough to serve as-is.
+
+    A cache holding an error retries on the shorter `fail_ttl_s`, so a 429 or
+    a dropped VPN clears in seconds rather than making the meter sit wrong for
+    a full TTL.
+    """
+    if force or cache.get("data") is None:
+        return False
+    return now - cache.get("t", 0.0) < (
+        fail_ttl_s if cache.get("err") else ttl_s
+    )
+
+
+def store(cache, now, data, disk_name=None):
+    """Record a good fetch in memory and, when named, as the last-good disk
+    snapshot `keep_stale` falls back to. Returns `data` so callers can
+    `return cache_util.store(...)`."""
+    if disk_name:
+        save_disk(disk_name, data)
+    cache.update(t=now, data=data, err=None)
+    return data
+
+
 def keep_stale(cache, now, err, empty, disk_name=None):
     """Prefer last-good snapshot on transient failure instead of wiping UI.
 

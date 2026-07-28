@@ -256,10 +256,8 @@ def stop_server(pid, port):
 def fetch_servers(force=False):
     """Return {ok, host, servers:[{name, port, cmd, cwd, bind}], error}."""
     now = time.time()
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     host = _hostname()
     empty = {"ok": False, "host": host, "servers": [], "error": None}

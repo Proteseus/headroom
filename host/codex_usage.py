@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import http_util
 import cache_util
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
@@ -73,22 +74,18 @@ def _refresh(blob):
     refresh = tokens.get("refresh_token")
     if not refresh:
         raise RuntimeError("no refresh_token in ~/.codex/auth.json")
-    body = urllib.parse.urlencode({
-        "client_id": CLIENT_ID,
-        "grant_type": "refresh_token",
-        "refresh_token": refresh,
-        "scope": "openid profile email",
-    }).encode()
-    req = urllib.request.Request(
-        TOKEN_URL, data=body, method="POST",
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
-            "User-Agent": UA,
+    data = http_util.request_json(
+        TOKEN_URL,
+        form_body={
+            "client_id": CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh,
+            "scope": "openid profile email",
         },
+        method="POST",
+        user_agent=UA,
+        timeout=20,
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        data = json.loads(resp.read().decode())
     access = data.get("access_token")
     if not access:
         raise RuntimeError("refresh response missing access_token")
@@ -104,16 +101,13 @@ def _refresh(blob):
 
 
 def _http_get(url, access_token, account_id):
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-        "User-Agent": UA,
-    }
-    if account_id:
-        headers["ChatGPT-Account-Id"] = account_id
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return resp.getcode(), json.loads(resp.read().decode())
+    return http_util.request(
+        url,
+        auth=f"Bearer {access_token}",
+        user_agent=UA,
+        timeout=20,
+        headers={"ChatGPT-Account-Id": account_id} if account_id else None,
+    )
 
 
 def _http_get_authed(url, blob):
@@ -398,10 +392,8 @@ def fetch_quota(force=False):
         disk = cache_util.load_disk("codex")
         if disk:
             _cache.update(t=0.0, data=disk, err=None)
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     empty = {
         "ok": False, "plan": None, "session": None, "week": None,
@@ -435,8 +427,6 @@ def fetch_quota(force=False):
         data = parse_usage(body, credits_body)
         data["stale"] = False
         data["error"] = None
-        _cache.update(t=now, data=data, err=None)
-        cache_util.save_disk("codex", data)
-        return data
+        return cache_util.store(_cache, now, data, disk_name="codex")
     except Exception as e:
         return _keep_stale(str(e))

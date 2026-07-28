@@ -8,14 +8,13 @@ fallback file. Tokens are never returned in payloads or logs.
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import os
 import subprocess
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 
+import http_util
 import cache_util
 
 API = "https://api.supabase.com"
@@ -74,19 +73,8 @@ def _token():
 
 
 def _get(path, token, query=None, timeout=15):
-    url = API + path
-    if query:
-        url += "?" + urllib.parse.urlencode(query, doseq=True)
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "User-Agent": "Headroom/1",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode())
+    return http_util.request_json(
+        API + path, auth=f"Bearer {token}", query=query, timeout=timeout)
 
 
 def _status_healthy(status):
@@ -185,10 +173,8 @@ def _flatten_project(project, services, health_error):
 
 def fetch_projects(force=False):
     now = time.time()
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     token = _token()
     if not token:

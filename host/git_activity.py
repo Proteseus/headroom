@@ -157,10 +157,8 @@ def _log_repo(path):
 def fetch_commits(force=False):
     """Return newest commits across ~/Dev authored by the owner."""
     now = time.time()
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     root = app_config.dev_root()
     if not os.path.isdir(root):

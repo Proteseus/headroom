@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
+import http_util
 import cache_util
 import quota_util
 
@@ -114,16 +115,8 @@ def signed_in():
 
 def _fetch_me(user_id, token):
     auth = f"{user_id} {token}" if user_id else token
-    req = urllib.request.Request(
-        ME_URL,
-        headers={
-            "Authorization": auth,
-            "Accept": "application/json",
-            "User-Agent": UA,
-        },
-    )
-    with urllib.request.urlopen(req, timeout=12) as resp:
-        return json.load(resp)
+    return http_util.request_json(
+        ME_URL, auth=auth, user_agent=UA, timeout=12)
 
 
 def _map(blob):
@@ -159,11 +152,7 @@ def _map(blob):
 
 def fetch_quota(force=False):
     now = time.time()
-    if (
-        not force
-        and _cache["data"] is not None
-        and now - _cache["t"] < (FAIL_TTL_S if _cache.get("err") else CACHE_TTL_S)
-    ):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     user_id, token = _keychain_creds()
@@ -175,9 +164,7 @@ def fetch_quota(force=False):
         blob = _fetch_me(user_id, token)
         out = _map(blob)
         if out.get("ok"):
-            cache_util.save_disk(DISK, out)
-            _cache.update(t=now, data=out, err=None)
-            return out
+            return cache_util.store(_cache, now, out, disk_name=DISK)
         return cache_util.keep_stale(
             _cache, now, out.get("error") or "Zed quota unavailable",
             _EMPTY, disk_name=DISK)

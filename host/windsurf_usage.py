@@ -130,11 +130,7 @@ def _map(blob):
 
 def fetch_quota(force=False):
     now = time.time()
-    if (
-        not force
-        and _cache["data"] is not None
-        and now - _cache["t"] < (FAIL_TTL_S if _cache.get("err") else CACHE_TTL_S)
-    ):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     if not os.path.isfile(STATE_DB):
@@ -151,9 +147,7 @@ def fetch_quota(force=False):
     try:
         out = _map(blob)
         if out and out.get("ok"):
-            cache_util.save_disk(DISK, out)
-            _cache.update(t=now, data=out, err=None)
-            return out
+            return cache_util.store(_cache, now, out, disk_name=DISK)
         err = (out or {}).get("error") or "Windsurf quota unavailable"
         return cache_util.keep_stale(
             _cache, now, err, _EMPTY, disk_name=DISK)

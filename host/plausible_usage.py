@@ -12,16 +12,15 @@ Tokens are never returned in payloads or logs. Stdlib only.
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import os
 import subprocess
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 
 import app_config
 import cache_util
+import http_util
 
 DEFAULT_HOST = "https://plausible.io"
 CACHE_TTL_S = 2 * 60
@@ -88,25 +87,14 @@ def _configured_sites():
 
 
 def _request(method, path, token, body=None, query=None, timeout=15):
-    url = _api_host() + path
-    if query:
-        url += "?" + urllib.parse.urlencode(query, doseq=True)
-    data = None
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "User-Agent": "Headroom/1",
-    }
-    if body is not None:
-        data = json.dumps(body).encode()
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(
-        url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        raw = response.read().decode()
-        if not raw:
-            return None
-        return json.loads(raw)
+    return http_util.request_json(
+        _api_host() + path,
+        auth=f"Bearer {token}",
+        query=query,
+        json_body=body,
+        method=method,
+        timeout=timeout,
+    )
 
 
 def _metric_map(payload, metrics):
@@ -317,12 +305,13 @@ def fetch_stats(force=False):
         return result
 
     range_id = app_config.plausible_range()
-    if not force and _cache["data"] is not None:
-        cached = _cache["data"]
-        same_range = cached.get("range") == range_id
-        ttl = CACHE_TTL_S if cached.get("ok") else FAIL_TTL_S
-        if same_range and now - _cache["t"] < ttl:
-            return cached
+    # A range change invalidates regardless of age — the cached numbers answer
+    # a different question than the one now being asked.
+    if (
+        cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force)
+        and _cache["data"].get("range") == range_id
+    ):
+        return _cache["data"]
 
     sites, source = _resolve_sites(token)
     if not sites:

@@ -11,13 +11,11 @@ Stdlib only. Failures degrade to an empty quota dict.
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import time
-import urllib.error
-import urllib.request
 
+import http_util
 import cache_util
 import oauth_usage
 
@@ -233,21 +231,15 @@ def _plan_spend(plan_usage):
 
 
 def _http_usage(token):
-    body = b"{}"
-    req = urllib.request.Request(
+    return http_util.request(
         USAGE_URL,
-        data=body,
+        auth=f"Bearer {token}",
+        json_body={},
         method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Connect-Protocol-Version": "1",
-            "User-Agent": UA,
-        },
+        user_agent=UA,
+        timeout=20,
+        headers={"Connect-Protocol-Version": "1"},
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return resp.getcode(), json.loads(resp.read().decode())
 
 
 def parse_usage(body, plan=None):
@@ -295,10 +287,8 @@ def fetch_quota(force=False):
         disk = cache_util.load_disk("cursor")
         if disk:
             _cache.update(t=0.0, data=disk, err=None)
-    if not force and _cache["data"] is not None:
-        ttl = CACHE_TTL_S if _cache["data"].get("ok") else FAIL_TTL_S
-        if now - _cache["t"] < ttl:
-            return _cache["data"]
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return _cache["data"]
 
     empty = {
         "ok": False,
@@ -332,8 +322,6 @@ def fetch_quota(force=False):
         data = parse_usage(body, plan=plan)
         data["stale"] = False
         data["error"] = None
-        _cache.update(t=now, data=data, err=None)
-        cache_util.save_disk("cursor", data)
-        return data
+        return cache_util.store(_cache, now, data, disk_name="cursor")
     except Exception as e:
         return _keep_stale(str(e))
