@@ -49,8 +49,9 @@ tap a slot for detail, long-press to force-refresh.
 - **Quota anxiety is real.** Session / weekly windows, pace, and spend are
   scattered across products. Headroom puts hottest pool % + pace on one
   ring (and a menu-bar tick per enabled provider).
-- **Ship status is ambient.** Failed Actions, Vercel builds, Supabase alerts,
-  and listening local servers surface as an attention pip — not another tab.
+- **Ship status is ambient.** Failed Actions, Vercel builds, Supabase alerts
+  and RLS holes, and listening local servers surface as an attention pip — not
+  another tab.
 - **Local-first.** The host talks to credentials and CLIs you already have.
   The board can fall back to USB CDC when hotel Wi‑Fi blocks mDNS.
 
@@ -223,7 +224,7 @@ LAN with `"require_auth": false`, in `~/.headroom/config.json`.
 | Vercel | CLI auth → recent team deployments |
 | Git | Commits under `dev_root` matching `git_authors` |
 | GitHub Actions | Failed / running runs (Settings token / Keychain / `gh`) |
-| Supabase | Project health via Settings PAT |
+| Supabase | Project health + security advisor lints via Settings PAT |
 | Plausible | Site visitors / realtime via Settings Stats API key |
 | Local servers | `lsof` TCP LISTEN → labeled ports (stop from the menu bar) |
 
