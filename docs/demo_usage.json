@@ -17,47 +17,159 @@
     "cost_usd": 4.25
   },
   "by_day": [
-    {"date": "2026-07-20", "claude": 8.2, "codex": 4.1, "cursor": 1.2, "total": 13.5,
-     "burns": {"claude": 8.2, "codex": 4.1, "cursor": 1.2}},
-    {"date": "2026-07-21", "claude": 6.0, "codex": 5.5, "cursor": 0.8, "total": 12.3,
-     "burns": {"claude": 6.0, "codex": 5.5, "cursor": 0.8}},
-    {"date": "2026-07-22", "claude": 9.4, "codex": 3.2, "cursor": 2.1, "total": 14.7,
-     "burns": {"claude": 9.4, "codex": 3.2, "cursor": 2.1}},
-    {"date": "2026-07-23", "claude": 4.1, "codex": 7.8, "cursor": 1.5, "total": 13.4,
-     "burns": {"claude": 4.1, "codex": 7.8, "cursor": 1.5}},
-    {"date": "2026-07-24", "claude": 7.2, "codex": 6.0, "cursor": 2.4, "total": 15.6,
-     "burns": {"claude": 7.2, "codex": 6.0, "cursor": 2.4}},
-    {"date": "2026-07-25", "claude": 3.5, "codex": 2.1, "cursor": 0.6, "total": 6.2,
-     "burns": {"claude": 3.5, "codex": 2.1, "cursor": 0.6}}
+    {
+      "date": "2026-07-20",
+      "claude": 8.2,
+      "codex": 4.1,
+      "cursor": 1.2,
+      "total": 13.5,
+      "burns": {
+        "claude": 8.2,
+        "codex": 4.1,
+        "cursor": 1.2
+      }
+    },
+    {
+      "date": "2026-07-21",
+      "claude": 6.0,
+      "codex": 5.5,
+      "cursor": 0.8,
+      "total": 12.3,
+      "burns": {
+        "claude": 6.0,
+        "codex": 5.5,
+        "cursor": 0.8
+      }
+    },
+    {
+      "date": "2026-07-22",
+      "claude": 9.4,
+      "codex": 3.2,
+      "cursor": 2.1,
+      "total": 14.7,
+      "burns": {
+        "claude": 9.4,
+        "codex": 3.2,
+        "cursor": 2.1
+      }
+    },
+    {
+      "date": "2026-07-23",
+      "claude": 4.1,
+      "codex": 7.8,
+      "cursor": 1.5,
+      "total": 13.4,
+      "burns": {
+        "claude": 4.1,
+        "codex": 7.8,
+        "cursor": 1.5
+      }
+    },
+    {
+      "date": "2026-07-24",
+      "claude": 7.2,
+      "codex": 6.0,
+      "cursor": 2.4,
+      "total": 15.6,
+      "burns": {
+        "claude": 7.2,
+        "codex": 6.0,
+        "cursor": 2.4
+      }
+    },
+    {
+      "date": "2026-07-25",
+      "claude": 3.5,
+      "codex": 2.1,
+      "cursor": 0.6,
+      "total": 6.2,
+      "burns": {
+        "claude": 3.5,
+        "codex": 2.1,
+        "cursor": 0.6
+      }
+    }
   ],
   "providers": [
     {
-      "id": "claude", "title": "Claude", "kind": "quota", "enabled": true,
-      "ok": true, "plan": "Max 5x", "accent": "#D97757", "headline": "week",
+      "id": "claude",
+      "title": "Claude",
+      "kind": "quota",
+      "enabled": true,
+      "ok": true,
+      "plan": "Max 5x",
+      "accent": "#D97757",
+      "headline": "week",
       "pools": {
-        "session": {"title": "Session", "pct": 42.0, "pace_pct": 38.0,
-                    "resets_in": "2h 14m", "ring": true},
-        "week": {"title": "Weekly", "pct": 63.0, "pace_pct": 55.0,
-                 "resets_in": "3d 6h", "ring": true}
+        "session": {
+          "title": "Session",
+          "pct": 42.0,
+          "pace_pct": 38.0,
+          "resets_in": "2h 14m",
+          "ring": true
+        },
+        "week": {
+          "title": "Weekly",
+          "pct": 63.0,
+          "pace_pct": 55.0,
+          "resets_in": "3d 6h",
+          "ring": true
+        }
       }
     },
     {
-      "id": "codex", "title": "Codex", "kind": "quota", "enabled": true,
-      "ok": true, "plan": "Team", "accent": "#10A37F", "headline": "week",
+      "id": "codex",
+      "title": "Codex",
+      "kind": "quota",
+      "enabled": true,
+      "ok": true,
+      "plan": "Team",
+      "accent": "#10A37F",
+      "headline": "week",
       "pools": {
-        "session": {"title": "Session", "pct": null, "ring": true},
-        "week": {"title": "Weekly", "pct": 72.0, "pace_pct": 58.0,
-                 "resets_in": "3d 17h", "ring": true}
+        "session": {
+          "title": "Session",
+          "pct": null,
+          "ring": true
+        },
+        "week": {
+          "title": "Weekly",
+          "pct": 72.0,
+          "pace_pct": 58.0,
+          "resets_in": "3d 17h",
+          "ring": true
+        }
       }
     },
     {
-      "id": "cursor", "title": "Cursor", "kind": "quota", "enabled": true,
-      "ok": true, "plan": "Pro", "accent": "#789BC8", "headline": "total",
+      "id": "cursor",
+      "title": "Cursor",
+      "kind": "quota",
+      "enabled": true,
+      "ok": true,
+      "plan": "Pro",
+      "accent": "#789BC8",
+      "headline": "total",
       "pools": {
-        "total": {"title": "Total", "pct": 34.0, "pace_pct": 48.0,
-                  "resets_in": "4d 19h", "ring": true},
-        "auto": {"title": "Auto", "pct": 12.0, "pace_pct": 48.0, "ring": false},
-        "api": {"title": "API", "pct": 41.0, "pace_pct": 48.0, "ring": true}
+        "total": {
+          "title": "Total",
+          "pct": 34.0,
+          "pace_pct": 48.0,
+          "resets_in": "4d 19h",
+          "ring": true
+        },
+        "auto": {
+          "title": "Auto",
+          "pct": 12.0,
+          "pace_pct": 48.0,
+          "ring": false
+        },
+        "api": {
+          "title": "API",
+          "pct": 41.0,
+          "pace_pct": 48.0,
+          "ring": true
+        }
       }
     }
   ],
@@ -76,7 +188,10 @@
     "pace_in_deficit": true,
     "runs_out_in": "2d 4h",
     "reset_credits_available": 2,
-    "reset_credits_expiries": ["6d 5h", "18d 3h"],
+    "reset_credits_expiries": [
+      "6d 5h",
+      "18d 3h"
+    ],
     "cost_usd": 120.5,
     "cost_limit_usd": 500.0,
     "cost_remaining_usd": 379.5,
@@ -116,7 +231,8 @@
         "kind": "github",
         "summary": "1 Actions failure"
       }
-    ]
+    ],
+    "fingerprint": "demo-actions-failure"
   },
   "vercel": {
     "ok": true,
@@ -222,6 +338,47 @@
       }
     ]
   },
+  "plausible": {
+    "ok": true,
+    "configured": true,
+    "error": null,
+    "stale": false,
+    "range": "24h",
+    "range_label": "24h",
+    "site_count": 2,
+    "visitors_today": 142,
+    "realtime": 4,
+    "sites": [
+      {
+        "domain": "acme.dev",
+        "range": "24h",
+        "range_label": "24h",
+        "visitors_today": 98,
+        "pageviews_today": 210,
+        "visitors_7d": 1200,
+        "pageviews_7d": 3400,
+        "bounce_rate_7d": 41.5,
+        "visit_duration_7d": 142,
+        "realtime": 3,
+        "dashboard_url": "https://plausible.io/acme.dev",
+        "error": null
+      },
+      {
+        "domain": "docs.acme.dev",
+        "range": "24h",
+        "range_label": "24h",
+        "visitors_today": 44,
+        "pageviews_today": 90,
+        "visitors_7d": 520,
+        "pageviews_7d": 980,
+        "bounce_rate_7d": 52.0,
+        "visit_duration_7d": 88,
+        "realtime": 1,
+        "dashboard_url": "https://plausible.io/docs.acme.dev",
+        "error": null
+      }
+    ]
+  },
   "activity": [
     {
       "id": "act_1",
@@ -255,19 +412,688 @@
     "error": null,
     "stale": false,
     "servers": [
-      {"name": "next", "port": 3000, "pid": 4242, "cmd": "node"},
-      {"name": "vite", "port": 5173, "pid": 4243, "cmd": "node"},
-      {"name": "headroom", "port": 8737, "pid": 4244, "cmd": "python3"}
+      {
+        "name": "next",
+        "port": 3000,
+        "pid": 4242,
+        "cmd": "node"
+      },
+      {
+        "name": "vite",
+        "port": 5173,
+        "pid": 4243,
+        "cmd": "node"
+      },
+      {
+        "name": "headroom",
+        "port": 8737,
+        "pid": 4244,
+        "cmd": "python3"
+      }
     ]
   },
   "sources": [
-    {"id": "claude", "title": "Claude", "kind": "quota", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "codex", "title": "Codex", "kind": "quota", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "cursor", "title": "Cursor", "kind": "quota", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "vercel", "title": "Vercel", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "git", "title": "Git", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "github", "title": "GitHub", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "supabase", "title": "Supabase", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false},
-    {"id": "local", "title": "Local", "kind": "activity", "enabled": true, "ok": true, "configured": true, "stale": false}
-  ]
+    {
+      "id": "claude",
+      "title": "Claude",
+      "kind": "quota",
+      "group": "ai",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "codex",
+      "title": "Codex",
+      "kind": "quota",
+      "group": "ai",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "cursor",
+      "title": "Cursor",
+      "kind": "quota",
+      "group": "ai",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "vercel",
+      "title": "Vercel",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "git",
+      "title": "Git",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "github",
+      "title": "GitHub Actions",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "supabase",
+      "title": "Supabase",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "plausible",
+      "title": "Plausible",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "local",
+      "title": "Local",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    }
+  ],
+  "burndown": {
+    "claude": {
+      "session": {
+        "provider": "claude",
+        "pool": "session",
+        "status": "ok",
+        "window_start": 1784964720.0,
+        "window_end": 1784990760.0,
+        "window_s": 26040.0,
+        "remaining_pct": 58.0,
+        "used_pct": 42.0,
+        "ideal_remaining_pct": 62.0,
+        "delta_pct": 4.0,
+        "in_deficit": true,
+        "exhausted": false,
+        "resets_in": "2h 14m",
+        "ideal": [
+          [
+            1784964720.0,
+            100.0
+          ],
+          [
+            1784990760.0,
+            0.0
+          ]
+        ],
+        "actual": [
+          [
+            1784964720,
+            100.0
+          ],
+          [
+            1784967291,
+            94.0
+          ],
+          [
+            1784969863,
+            88.0
+          ],
+          [
+            1784972434,
+            82.0
+          ],
+          [
+            1784975006,
+            76.0
+          ],
+          [
+            1784977577,
+            70.0
+          ],
+          [
+            1784980149,
+            64.0
+          ],
+          [
+            1784982720,
+            58.0
+          ]
+        ],
+        "projected": [
+          [
+            1784982720,
+            58.0
+          ],
+          [
+            1784985400,
+            52.0
+          ],
+          [
+            1784988080,
+            46.0
+          ],
+          [
+            1784990760,
+            40.0
+          ]
+        ],
+        "rate_unit": "pct/day",
+        "rate_source": "measured",
+        "burn_rate_pct": 10.5,
+        "allowance_pct": 14.3,
+        "samples": 64,
+        "headline": "4% behind pace",
+        "verdict": "behind"
+      },
+      "week": {
+        "provider": "claude",
+        "pool": "week",
+        "status": "ok",
+        "window_start": 1784377920.0,
+        "window_end": 1784982720.0,
+        "window_s": 604800,
+        "remaining_pct": 37.0,
+        "used_pct": 63.0,
+        "ideal_remaining_pct": 45.0,
+        "delta_pct": 8.0,
+        "in_deficit": true,
+        "exhausted": false,
+        "resets_in": "3d 6h",
+        "ideal": [
+          [
+            1784377920.0,
+            100.0
+          ],
+          [
+            1784982720.0,
+            0.0
+          ]
+        ],
+        "actual": [
+          [
+            1784637120,
+            100.0
+          ],
+          [
+            1784675520,
+            93.0
+          ],
+          [
+            1784713920,
+            86.0
+          ],
+          [
+            1784752320,
+            79.0
+          ],
+          [
+            1784790720,
+            72.0
+          ],
+          [
+            1784829120,
+            65.0
+          ],
+          [
+            1784867520,
+            58.0
+          ],
+          [
+            1784905920,
+            51.0
+          ],
+          [
+            1784944320,
+            44.0
+          ],
+          [
+            1784982720,
+            37.0
+          ]
+        ],
+        "projected": [
+          [
+            1784982720,
+            37.0
+          ],
+          [
+            1784982720,
+            27.8
+          ],
+          [
+            1784982720,
+            18.5
+          ],
+          [
+            1784982720,
+            9.2
+          ],
+          [
+            1784982720,
+            0.0
+          ]
+        ],
+        "rate_unit": "pct/day",
+        "rate_source": "measured",
+        "burn_rate_pct": 15.8,
+        "allowance_pct": 14.3,
+        "samples": 64,
+        "headline": "8% behind pace",
+        "verdict": "behind"
+      }
+    },
+    "codex": {
+      "week": {
+        "provider": "codex",
+        "pool": "week",
+        "status": "ok",
+        "window_start": 1784377920.0,
+        "window_end": 1784982720.0,
+        "window_s": 604800,
+        "remaining_pct": 28.0,
+        "used_pct": 72.0,
+        "ideal_remaining_pct": 42.0,
+        "delta_pct": 14.0,
+        "in_deficit": true,
+        "exhausted": false,
+        "resets_in": "3d 17h",
+        "ideal": [
+          [
+            1784377920.0,
+            100.0
+          ],
+          [
+            1784982720.0,
+            0.0
+          ]
+        ],
+        "actual": [
+          [
+            1784637120,
+            100.0
+          ],
+          [
+            1784675520,
+            92.0
+          ],
+          [
+            1784713920,
+            84.0
+          ],
+          [
+            1784752320,
+            76.0
+          ],
+          [
+            1784790720,
+            68.0
+          ],
+          [
+            1784829120,
+            60.0
+          ],
+          [
+            1784867520,
+            52.0
+          ],
+          [
+            1784905920,
+            44.0
+          ],
+          [
+            1784944320,
+            36.0
+          ],
+          [
+            1784982720,
+            28.0
+          ]
+        ],
+        "projected": [
+          [
+            1784982720,
+            28.0
+          ],
+          [
+            1784982720,
+            21.0
+          ],
+          [
+            1784982720,
+            14.0
+          ],
+          [
+            1784982720,
+            7.0
+          ],
+          [
+            1784982720,
+            0.0
+          ]
+        ],
+        "rate_unit": "pct/day",
+        "rate_source": "measured",
+        "burn_rate_pct": 18.0,
+        "allowance_pct": 14.3,
+        "samples": 64,
+        "headline": "14% behind pace",
+        "verdict": "behind"
+      }
+    },
+    "cursor": {
+      "total": {
+        "provider": "cursor",
+        "pool": "total",
+        "status": "ok",
+        "window_start": 1784377920.0,
+        "window_end": 1784982720.0,
+        "window_s": 604800,
+        "remaining_pct": 66.0,
+        "used_pct": 34.0,
+        "ideal_remaining_pct": 52.0,
+        "delta_pct": 14.0,
+        "in_deficit": false,
+        "exhausted": false,
+        "resets_in": "4d 19h",
+        "ideal": [
+          [
+            1784377920.0,
+            100.0
+          ],
+          [
+            1784982720.0,
+            0.0
+          ]
+        ],
+        "actual": [
+          [
+            1784637120,
+            100.0
+          ],
+          [
+            1784675520,
+            96.2
+          ],
+          [
+            1784713920,
+            92.4
+          ],
+          [
+            1784752320,
+            88.7
+          ],
+          [
+            1784790720,
+            84.9
+          ],
+          [
+            1784829120,
+            81.1
+          ],
+          [
+            1784867520,
+            77.3
+          ],
+          [
+            1784905920,
+            73.6
+          ],
+          [
+            1784944320,
+            69.8
+          ],
+          [
+            1784982720,
+            66.0
+          ]
+        ],
+        "projected": [
+          [
+            1784982720,
+            66.0
+          ],
+          [
+            1784982720,
+            59.6
+          ],
+          [
+            1784982720,
+            53.2
+          ],
+          [
+            1784982720,
+            46.9
+          ],
+          [
+            1784982720,
+            40.5
+          ]
+        ],
+        "rate_unit": "pct/day",
+        "rate_source": "measured",
+        "burn_rate_pct": 8.5,
+        "allowance_pct": 14.3,
+        "samples": 64,
+        "headline": "14% ahead of pace",
+        "verdict": "ahead"
+      },
+      "api": {
+        "provider": "cursor",
+        "pool": "api",
+        "status": "ok",
+        "window_start": 1784377920.0,
+        "window_end": 1784982720.0,
+        "window_s": 604800,
+        "remaining_pct": 59.0,
+        "used_pct": 41.0,
+        "ideal_remaining_pct": 52.0,
+        "delta_pct": 7.0,
+        "in_deficit": false,
+        "exhausted": false,
+        "resets_in": "4d 19h",
+        "ideal": [
+          [
+            1784377920.0,
+            100.0
+          ],
+          [
+            1784982720.0,
+            0.0
+          ]
+        ],
+        "actual": [
+          [
+            1784637120,
+            100.0
+          ],
+          [
+            1784675520,
+            95.4
+          ],
+          [
+            1784713920,
+            90.9
+          ],
+          [
+            1784752320,
+            86.3
+          ],
+          [
+            1784790720,
+            81.8
+          ],
+          [
+            1784829120,
+            77.2
+          ],
+          [
+            1784867520,
+            72.7
+          ],
+          [
+            1784905920,
+            68.1
+          ],
+          [
+            1784944320,
+            63.6
+          ],
+          [
+            1784982720,
+            59.0
+          ]
+        ],
+        "projected": [
+          [
+            1784982720,
+            59.0
+          ],
+          [
+            1784982720,
+            51.3
+          ],
+          [
+            1784982720,
+            43.6
+          ],
+          [
+            1784982720,
+            35.9
+          ],
+          [
+            1784982720,
+            28.2
+          ]
+        ],
+        "rate_unit": "pct/day",
+        "rate_source": "measured",
+        "burn_rate_pct": 10.2,
+        "allowance_pct": 14.3,
+        "samples": 64,
+        "headline": "7% ahead of pace",
+        "verdict": "ahead"
+      }
+    }
+  },
+  "burndown_primary": {
+    "provider": "claude",
+    "pool": "week",
+    "status": "ok",
+    "window_start": 1784377920.0,
+    "window_end": 1784982720.0,
+    "window_s": 604800,
+    "remaining_pct": 37.0,
+    "used_pct": 63.0,
+    "ideal_remaining_pct": 45.0,
+    "delta_pct": 8.0,
+    "in_deficit": true,
+    "exhausted": false,
+    "resets_in": "3d 6h",
+    "ideal": [
+      [
+        1784377920.0,
+        100.0
+      ],
+      [
+        1784982720.0,
+        0.0
+      ]
+    ],
+    "actual": [
+      [
+        1784637120,
+        100.0
+      ],
+      [
+        1784675520,
+        93.0
+      ],
+      [
+        1784713920,
+        86.0
+      ],
+      [
+        1784752320,
+        79.0
+      ],
+      [
+        1784790720,
+        72.0
+      ],
+      [
+        1784829120,
+        65.0
+      ],
+      [
+        1784867520,
+        58.0
+      ],
+      [
+        1784905920,
+        51.0
+      ],
+      [
+        1784944320,
+        44.0
+      ],
+      [
+        1784982720,
+        37.0
+      ]
+    ],
+    "projected": [
+      [
+        1784982720,
+        37.0
+      ],
+      [
+        1784982720,
+        27.8
+      ],
+      [
+        1784982720,
+        18.5
+      ],
+      [
+        1784982720,
+        9.2
+      ],
+      [
+        1784982720,
+        0.0
+      ]
+    ],
+    "rate_unit": "pct/day",
+    "rate_source": "measured",
+    "burn_rate_pct": 15.8,
+    "allowance_pct": 14.3,
+    "samples": 64,
+    "headline": "8% behind pace",
+    "verdict": "behind"
+  }
 }
