@@ -63,7 +63,7 @@ struct SupabaseSection: View {
 
     private var notConnected: some View {
         HStack {
-            Text(data?.error ?? "Connect Supabase to monitor projects.")
+            Text(data?.error ?? "Connect Supabase")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()

@@ -18,7 +18,7 @@ struct ServersSection: View {
         let rows = Array((store.snapshot.local?.servers ?? [])
             .prefix(max(1, min(serverRowLimit, 8))))
         if !rows.isEmpty {
-            DataSection(title: "Local servers") {
+            DataSection(title: HeadroomCopy.localServers) {
                 ForEach(rows) { server in
                     row(server)
                 }

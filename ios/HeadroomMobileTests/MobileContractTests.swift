@@ -28,10 +28,10 @@ final class MobileContractTests: XCTestCase {
             """.utf8
         )
 
-        let snapshot = try JSONDecoder().decode(MobileUsageSnapshot.self, from: data)
+        let snapshot = try JSONDecoder().decode(UsageSnapshot.self, from: data)
         XCTAssertEqual(snapshot.providers?.first?.id, "codex")
-        XCTAssertEqual(snapshot.providers?.first?.visiblePools.first?.pct, 42)
-        XCTAssertEqual(snapshot.attention?.needsAttention, false)
+        XCTAssertEqual(snapshot.providers?.first?.visiblePools.first?.pool.pct, 42)
+        XCTAssertEqual(snapshot.attention?.isWarning, false)
     }
 
     func testNormalizesBareMacHost() {
@@ -39,5 +39,18 @@ final class MobileContractTests: XCTestCase {
             MobileConnection.normalize("studio-mac.local"),
             "http://studio-mac.local:8737/usage"
         )
+    }
+
+    func testHeadroomCopyMatchesGlossaryTerms() {
+        XCTAssertEqual(HeadroomCopy.dailyBurn, "Daily burn")
+        XCTAssertEqual(HeadroomCopy.overallBurndown, "Overall burndown")
+        XCTAssertEqual(HeadroomCopy.activity, "Activity")
+        XCTAssertEqual(HeadroomCopy.services, "Services")
+        XCTAssertEqual(HeadroomCopy.allClear, "All clear")
+        XCTAssertEqual(HeadroomCopy.connected, "Connected")
+        XCTAssertEqual(HeadroomCopy.macUnavailable, "Mac unavailable")
+        XCTAssertEqual(HeadroomCopy.noHistoryYet, "No history yet")
+        XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")
+        XCTAssertEqual(HeadroomCopy.githubActions, "GitHub Actions")
     }
 }

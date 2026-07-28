@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
-@testable import HeadroomBar
+@testable import Headroom
 
 final class ModelsTests: XCTestCase {
     func testDecodesBackendShape() throws {
@@ -101,6 +101,28 @@ final class ModelsTests: XCTestCase {
               "dashboard_url": "https://supabase.com/dashboard/project/project-ref"
             }]
           },
+          "plausible": {
+            "ok": true,
+            "configured": true,
+            "range": "24h",
+            "range_label": "24h",
+            "site_count": 1,
+            "visitors_today": 98,
+            "realtime": 3,
+            "sites": [{
+              "domain": "acme.dev",
+              "range": "24h",
+              "range_label": "24h",
+              "visitors_today": 98,
+              "pageviews_today": 210,
+              "visitors_7d": 1200,
+              "pageviews_7d": 3400,
+              "bounce_rate_7d": 41.5,
+              "visit_duration_7d": 142,
+              "realtime": 3,
+              "dashboard_url": "https://plausible.io/acme.dev"
+            }]
+          },
           "local": {
             "ok": true,
             "host": "mac",
@@ -147,6 +169,11 @@ final class ModelsTests: XCTestCase {
             value.supabase?.projects?.first?.unhealthyServices,
             ["storage"]
         )
+        XCTAssertEqual(value.plausible?.realtime, 3)
+        XCTAssertEqual(value.plausible?.range, "24h")
+        XCTAssertEqual(value.plausible?.windowLabel, "24h")
+        XCTAssertEqual(value.plausible?.sites?.first?.domain, "acme.dev")
+        XCTAssertEqual(value.plausible?.sites?.first?.visitorsToday, 98)
         XCTAssertEqual(value.today?.costUSD, 4.25)
         XCTAssertEqual(value.byDay?.count, 2)
         XCTAssertEqual(value.byDay?.last?.total, 5.75)
@@ -225,5 +252,54 @@ final class ModelsTests: XCTestCase {
             from: Data(customJSON.utf8)
         )
         assertClose(custom.tint(for: .claude), HeadroomPalette.color(hex: "#112233")!)
+    }
+
+    func testMeterPrefersRegistryPoolsOverLegacyFields() throws {
+        let json = """
+        {
+          "session_pct": 99.0,
+          "week_pct": 98.0,
+          "quota_ok": true,
+          "plan": "legacy-ignored",
+          "providers": [{
+            "id": "claude",
+            "ok": true,
+            "plan": "Max 5x",
+            "headline": "week",
+            "pools": {
+              "session": {"title": "Session", "pct": 12.0, "pace_pct": 10.0,
+                          "resets_in": "1h", "ring": true},
+              "week": {"title": "Weekly", "pct": 45.0, "pace_pct": 40.0,
+                       "resets_in": "4d", "ring": true}
+            }
+          }]
+        }
+        """
+        let value = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let meter = value.meter(for: .claude)
+        XCTAssertEqual(meter.plan, "Max 5x")
+        XCTAssertEqual(meter.primary.percent, 12)
+        XCTAssertEqual(meter.secondary.percent, 45)
+        XCTAssertEqual(meter.headline.percent, 45)
+        XCTAssertEqual(meter.menuBarWindow.percent, 45)
+        XCTAssertEqual(meter.primary.id, "session")
+        XCTAssertEqual(meter.secondary.id, "week")
+    }
+
+    func testMeterFallsBackWhenProvidersOmitPools() throws {
+        let json = """
+        {
+          "session_pct": 22.0,
+          "week_pct": 31.0,
+          "quota_ok": true,
+          "providers": [{"id": "claude", "ok": true, "plan": "Max"}]
+        }
+        """
+        let value = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let meter = value.meter(for: .claude)
+        XCTAssertEqual(meter.primary.percent, 22)
+        XCTAssertEqual(meter.secondary.percent, 31)
     }
 }

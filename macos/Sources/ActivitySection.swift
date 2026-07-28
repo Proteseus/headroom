@@ -11,7 +11,7 @@ struct ActivitySection: View {
     var body: some View {
         let rows = Array(items.prefix(max(3, min(activityRowLimit, 14))))
         if !rows.isEmpty {
-            DataSection(title: "GitHub") {
+            DataSection(title: HeadroomCopy.activity) {
                 ForEach(rows) { item in
                     row(item)
                 }

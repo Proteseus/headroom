@@ -3,25 +3,25 @@ import SwiftUI
 
 struct DailyBurnCard: View {
     let days: [DailyBurnDay]
-    var providers: [UsageProvider] = UsageProvider.allCases
-    var tintFor: (UsageProvider) -> Color = { $0.tint }
+    var providerIDs: [String] = []
+    var tintFor: (String) -> Color = { _ in HeadroomPalette.dim }
 
     private var visibleDays: [DailyBurnDay] {
         Array(days.suffix(7))
     }
 
     private var maxTotal: Double {
-        max(visibleDays.map { $0.total(for: providers) }.max() ?? 0, 1)
+        max(visibleDays.map { $0.total(forProviderIDs: providerIDs) }.max() ?? 0, 1)
     }
 
     private var todayTotal: Double {
-        visibleDays.last.map { $0.total(for: providers) } ?? 0
+        visibleDays.last.map { $0.total(forProviderIDs: providerIDs) } ?? 0
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Daily burn")
+                Text(HeadroomCopy.dailyBurn)
                     .font(.headline)
                 Spacer()
                 Text(subtitle)
@@ -29,10 +29,10 @@ struct DailyBurnCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            if visibleDays.isEmpty || providers.isEmpty {
-                Text(providers.isEmpty
-                       ? "Enable a coding provider in Settings → Sources."
-                       : "Burn history starts after the next quota refresh.")
+            if visibleDays.isEmpty || providerIDs.isEmpty {
+                Text(providerIDs.isEmpty
+                       ? HeadroomCopy.noCodingSources
+                       : HeadroomCopy.noBurnHistoryYet)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -43,7 +43,7 @@ struct DailyBurnCard: View {
                         DailyBurnBar(
                             day: day,
                             maxTotal: maxTotal,
-                            providers: providers,
+                            providerIDs: providerIDs,
                             tintFor: tintFor
                         )
                             .frame(maxWidth: .infinity)
@@ -71,15 +71,15 @@ struct DailyBurnCard: View {
             }
             return "Today \(rounded)%"
         }
-        return "Quota points / day"
+        return HeadroomCopy.dailyBurnUnit
     }
 }
 
 private struct DailyBurnBar: View {
     let day: DailyBurnDay
     let maxTotal: Double
-    let providers: [UsageProvider]
-    let tintFor: (UsageProvider) -> Color
+    let providerIDs: [String]
+    let tintFor: (String) -> Color
 
     var body: some View {
         VStack(spacing: 5) {
@@ -88,11 +88,11 @@ private struct DailyBurnBar: View {
                 let scale = maxTotal > 0 ? height / maxTotal : 0
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    ForEach(providers.reversed(), id: \.rawValue) { provider in
-                        let value = day.burn(for: provider)
+                    ForEach(providerIDs.reversed(), id: \.self) { providerID in
+                        let value = day.burn(forProviderID: providerID)
                         if value > 0 {
                             Rectangle()
-                                .fill(tintFor(provider))
+                                .fill(tintFor(providerID))
                                 .frame(height: max(1, value * scale))
                         }
                     }

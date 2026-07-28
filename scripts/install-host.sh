@@ -24,10 +24,10 @@ Install the Headroom host as a login item and start it.
 
   ./scripts/install-host.sh                 # from a git clone
   ./scripts/install-host.sh --foreground    # run once in this terminal
-  ./scripts/install-host.sh --app=HeadroomBar.app
+  ./scripts/install-host.sh --app=Headroom.app
   ./scripts/install-host.sh --port=8737
 
-Prefer opening a Release HeadroomBar.app and tapping “Start host” — that
+Prefer opening a Release Headroom.app and tapping “Start host” — that
 installs the same LaunchAgent using the host bundled inside the app.
 
 Safe to re-run. Keeps an existing ~/.headroom/config.json.
@@ -65,9 +65,9 @@ HEADROOM_DIR="$HOME_DIR/.headroom"
 LOG_DIR="$HEADROOM_DIR/logs"
 CONFIG="$HEADROOM_DIR/config.json"
 EXAMPLE="$HOST_DIR/config.example.json"
-LABEL="com.mz.headroom"
-PLIST_SRC="$ROOT/host/com.mz.headroom.plist"
-[[ -f "$PLIST_SRC" ]] || PLIST_SRC="$HOST_DIR/com.mz.headroom.plist"
+LABEL="com.centaur-labs.headroom"
+PLIST_SRC="$ROOT/host/com.centaur-labs.headroom.plist"
+[[ -f "$PLIST_SRC" ]] || PLIST_SRC="$HOST_DIR/com.centaur-labs.headroom.plist"
 PLIST_DST="$HOME_DIR/Library/LaunchAgents/${LABEL}.plist"
 UID_NUM="$(id -u)"
 DOMAIN="gui/${UID_NUM}"
@@ -144,7 +144,14 @@ mv "$tmp" "$PLIST_DST"
 chmod 644 "$PLIST_DST"
 echo "Installed $PLIST_DST (host=$HOST_DIR)"
 
-# Replace any previous job.
+# Replace any previous job. Also retire the pre-rename label so two KeepAlive
+# agents cannot fight over :8737 (crash-loop / Address already in use).
+LEGACY_LABEL="com.mz.headroom"
+LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/${LEGACY_LABEL}.plist"
+if launchctl print "$DOMAIN/$LEGACY_LABEL" >/dev/null 2>&1; then
+  launchctl bootout "$DOMAIN/$LEGACY_LABEL" >/dev/null 2>&1 || true
+fi
+rm -f "$LEGACY_PLIST"
 if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
   launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
 fi
@@ -178,9 +185,9 @@ cat <<EOF
 Next:
   1. Build the menu bar app (once):
        cd $ROOT/macos && xcodegen generate
-       xcodebuild -project HeadroomBar.xcodeproj -scheme HeadroomBar \\
+       xcodebuild -project Headroom.xcodeproj -scheme Headroom \\
          -configuration Debug -derivedDataPath .build build
-       open .build/Build/Products/Debug/HeadroomBar.app
+       open .build/Build/Products/Debug/Headroom.app
 
   2. Open the popover → gear → Sources — enable only the providers you use
      (Claude / Codex / Cursor). Sign-in stays in those apps; Headroom just reads

@@ -7,7 +7,35 @@ struct RootView: View {
     var body: some View {
         Group {
             if store.isConfigured {
-                DashboardView(store: store, showsConnection: $showsConnection)
+                TabView {
+                    NavigationStack {
+                        OverviewScreen(store: store)
+                    }
+                    .tabItem { Label(HeadroomCopy.overview, systemImage: "circle.grid.2x2") }
+
+                    NavigationStack {
+                        QuotasScreen(store: store)
+                    }
+                    .tabItem { Label(HeadroomCopy.quotas, systemImage: "chart.pie.fill") }
+
+                    NavigationStack {
+                        ActivityScreen(store: store)
+                    }
+                    .tabItem { Label(HeadroomCopy.activity, systemImage: "bolt.horizontal.circle") }
+
+                    NavigationStack {
+                        ServicesScreen(store: store)
+                    }
+                    .tabItem { Label(HeadroomCopy.services, systemImage: "server.rack") }
+
+                    NavigationStack {
+                        MobileSettingsScreen(
+                            store: store,
+                            showsConnection: $showsConnection
+                        )
+                    }
+                    .tabItem { Label(HeadroomCopy.settings, systemImage: "gearshape") }
+                }
             } else {
                 NavigationStack {
                     PairingView(store: store)
@@ -22,42 +50,43 @@ struct RootView: View {
     }
 }
 
-private struct DashboardView: View {
+private struct OverviewScreen: View {
     @ObservedObject var store: MobileUsageStore
-    @Binding var showsConnection: Bool
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    StatusCard(store: store)
-                    QuotaGrid(providers: store.visibleProviders)
-                    AttentionCard(attention: store.snapshot.attention)
-                }
-                .padding()
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                MobileStatusCard(store: store)
+                QuotaOverviewCard(
+                    providers: store.visibleProviders,
+                    burndown: store.snapshot.burndown ?? [:]
+                )
+                OverallBurndownChart(
+                    providers: store.visibleProviders,
+                    burndown: store.snapshot.burndown ?? [:]
+                )
+                MobileAttentionCard(store: store)
+                DailyBurnChart(
+                    days: store.snapshot.byDay ?? [],
+                    providers: store.visibleProviders
+                )
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Headroom")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Connection", systemImage: "gearshape") {
-                        showsConnection = true
-                    }
-                }
-            }
-            .refreshable {
-                await store.refresh(forceServerSync: true)
-            }
-            .task {
-                if store.lastRefresh == nil {
-                    await store.refresh()
-                }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(HeadroomCopy.product)
+        .refreshable {
+            await store.refresh(forceServerSync: true)
+        }
+        .task {
+            if store.lastRefresh == nil {
+                await store.refresh()
             }
         }
     }
 }
 
-private struct StatusCard: View {
+struct MobileStatusCard: View {
     @ObservedObject var store: MobileUsageStore
 
     var body: some View {
@@ -86,11 +115,11 @@ private struct StatusCard: View {
     }
 
     private var statusTitle: String {
-        if store.errorMessage != nil { return "Mac unavailable" }
-        if store.snapshot.attention?.needsAttention == true {
-            return store.snapshot.attention?.summary ?? "Needs attention"
+        if store.errorMessage != nil { return HeadroomCopy.macUnavailable }
+        if store.snapshot.attention?.isWarning == true {
+            return HeadroomCopy.needsAttention
         }
-        return "All systems clear"
+        return HeadroomCopy.connected
     }
 
     private var statusSubtitle: String {
@@ -111,121 +140,26 @@ private struct StatusCard: View {
     }
 }
 
-private struct QuotaGrid: View {
-    let providers: [MobileProvider]
+private struct MobileAttentionCard: View {
+    @ObservedObject var store: MobileUsageStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Coding quotas")
-                .font(.headline)
-            if providers.isEmpty {
-                ContentUnavailableView(
-                    "No quota data",
-                    systemImage: "chart.donut",
-                    description: Text("Refresh after the Mac host finishes its first sync.")
-                )
-                .frame(maxWidth: .infinity)
-            } else {
-                ForEach(providers) { provider in
-                    ProviderRow(provider: provider)
-                    if provider.id != providers.last?.id {
-                        Divider()
-                    }
-                }
-            }
-        }
-        .headroomCard()
-    }
-}
-
-private struct ProviderRow: View {
-    let provider: MobileProvider
-
-    var body: some View {
-        HStack(spacing: 16) {
-            QuotaRings(
-                pools: Array(provider.visiblePools.prefix(3)),
-                tint: Color(hex: provider.accent) ?? .cyan
-            )
-            .frame(width: 82, height: 82)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(provider.displayTitle)
-                        .font(.headline)
-                    if let plan = provider.plan {
-                        Text(plan)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                ForEach(Array(provider.visiblePools.prefix(3).enumerated()), id: \.offset) {
-                    item in
-                    let pool = item.element
-                    HStack {
-                        Text(pool.title ?? "Quota")
-                        Spacer()
-                        Text(pool.pct.map { "\(Int($0.rounded()))%" } ?? "—")
-                            .monospacedDigit()
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                if let headline = provider.headline {
-                    Text(headline)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                } else if provider.ok == false, let error = provider.error {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                        .lineLimit(2)
-                }
-            }
-        }
-    }
-}
-
-private struct QuotaRings: View {
-    let pools: [MobilePool]
-    let tint: Color
-
-    var body: some View {
-        ZStack {
-            ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
-                let inset = CGFloat(index * 9)
-                Circle()
-                    .stroke(tint.opacity(0.12), lineWidth: 6)
-                    .padding(inset)
-                Circle()
-                    .trim(from: 0, to: min(max((pool.pct ?? 0) / 100, 0), 1))
-                    .stroke(
-                        tint.opacity(1 - Double(index) * 0.2),
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .padding(inset)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            pools.map { "\($0.title ?? "Quota") \(Int(($0.pct ?? 0).rounded())) percent" }
-                .joined(separator: ", ")
-        )
-    }
-}
-
-private struct AttentionCard: View {
-    let attention: MobileAttention?
-
-    var body: some View {
+        let attention = store.snapshot.attention
         VStack(alignment: .leading, spacing: 10) {
-            Text("Attention")
-                .font(.headline)
+            HStack {
+                Text(HeadroomCopy.attention)
+                    .font(.headline)
+                Spacer()
+                if attention?.isWarning == true {
+                    Button(HeadroomCopy.clearAttention, systemImage: "xmark.circle") {
+                        Task { await store.acknowledgeAttention() }
+                    }
+                    .labelStyle(.titleAndIcon)
+                }
+            }
             let reasons = attention?.reasons ?? []
             if reasons.isEmpty {
-                Label("Nothing needs attention", systemImage: "checkmark.circle.fill")
+                Label(HeadroomCopy.allClear, systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             } else {
                 ForEach(reasons.prefix(5)) { reason in
@@ -234,7 +168,7 @@ private struct AttentionCard: View {
                             .fill(reason.level == "critical" ? .red : .orange)
                             .frame(width: 7, height: 7)
                             .padding(.top, 5)
-                        Text(reason.summary ?? "Needs attention")
+                        Text(reason.summary ?? HeadroomCopy.needsAttention)
                             .font(.subheadline)
                     }
                 }
@@ -245,25 +179,11 @@ private struct AttentionCard: View {
     }
 }
 
-private extension View {
+extension View {
     func headroomCard() -> some View {
         self
             .padding(16)
             .background(Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-}
-
-private extension Color {
-    init?(hex: String?) {
-        guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else { return nil }
-        value.removeAll(where: { $0 == "#" })
-        guard value.count == 6, let rgb = Int(value, radix: 16) else { return nil }
-        self.init(
-            red: Double((rgb >> 16) & 0xff) / 255,
-            green: Double((rgb >> 8) & 0xff) / 255,
-            blue: Double(rgb & 0xff) / 255
-        )
     }
 }

@@ -1,6 +1,6 @@
-name: HeadroomBar
+name: Headroom
 options:
-  bundleIdPrefix: com.mz
+  bundleIdPrefix: com.centaur-labs
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
@@ -8,30 +8,49 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEVELOPMENT_TEAM: 992N457T8D
+    # MARKETING_VERSION / CURRENT_PROJECT_VERSION live only in Version.xcconfig.
+    # Setting them here would override the xcconfig and freeze builds at 1.
+configFiles:
+  Debug: Version.xcconfig
+  Release: Version.xcconfig
 targets:
-  HeadroomBar:
+  Headroom:
     type: application
     platform: macOS
+    configFiles:
+      Debug: Version.xcconfig
+      Release: Version.xcconfig
     sources:
       - path: Sources
+      - path: ../Shared
       # Bundled Python host → Contents/Resources/host/
       - path: host
         type: folder
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom-bar
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.macos
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Headroom
         INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026"
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Headroom.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_STRICT_CONCURRENCY: complete
+    preBuildScripts:
+      - name: Refresh Version.xcconfig
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/../scripts/version-env.sh" --write-xcconfig'
+    postCompileScripts:
+      - name: Stamp Apple version
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/../scripts/version-env.sh" --stamp-product'
     scheme:
       testTargets:
-        - HeadroomBarTests
-  HeadroomBarTests:
+        - HeadroomTests
+  HeadroomTests:
     type: bundle.unit-test
     platform: macOS
     sources:
@@ -41,20 +60,25 @@ targets:
         # Without this the test bundle can't code sign, so `xcodebuild test`
         # fails before running anything.
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom-bar.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.macos.tests
         SWIFT_STRICT_CONCURRENCY: complete
     dependencies:
-      - target: HeadroomBar
+      - target: Headroom
   HeadroomMobile:
     type: application
     platform: iOS
+    configFiles:
+      Debug: Version.xcconfig
+      Release: Version.xcconfig
     sources:
       - path: ../ios/HeadroomMobile
         excludes:
           - Info.plist
+          - HeadroomMobile.entitlements
+      - path: ../Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ../ios/HeadroomMobile/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -62,9 +86,47 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         SWIFT_STRICT_CONCURRENCY: complete
+        CODE_SIGN_ENTITLEMENTS: ../ios/HeadroomMobile/HeadroomMobile.entitlements
+    preBuildScripts:
+      - name: Refresh Version.xcconfig
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/../scripts/version-env.sh" --write-xcconfig'
+    # Do not stamp the widget target alone — that made appex=37 while app=1.
+    # Versions come from Version.xcconfig for both; parent can re-stamp the
+    # whole .app tree if needed after compile.
+    postCompileScripts:
+      - name: Stamp Apple version
+        basedOnDependencyAnalysis: false
+        script: '"${SRCROOT}/../scripts/version-env.sh" --stamp-product'
+    dependencies:
+      - target: HeadroomWidget
+        embed: true
     scheme:
       testTargets:
         - HeadroomMobileTests
+  HeadroomWidget:
+    type: app-extension
+    platform: iOS
+    configFiles:
+      Debug: Version.xcconfig
+      Release: Version.xcconfig
+    sources:
+      - path: ../ios/HeadroomWidget
+        excludes:
+          - Info.plist
+          - HeadroomWidget.entitlements
+      - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/HeadroomRings.swift
+      - path: ../Shared/HeadroomCopy.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.widget
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ../ios/HeadroomWidget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ../ios/HeadroomWidget/HeadroomWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
   HeadroomMobileTests:
     type: bundle.unit-test
     platform: iOS
@@ -73,7 +135,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.tests
         SWIFT_STRICT_CONCURRENCY: complete
     dependencies:
       - target: HeadroomMobile

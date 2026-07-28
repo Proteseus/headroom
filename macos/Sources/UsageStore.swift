@@ -7,6 +7,11 @@ final class UsageStore: ObservableObject {
     @Published private(set) var stoppingServerID: String?
     @Published private(set) var errorMessage: String?
     @Published private(set) var lastRefresh: Date?
+    /// Set when launchd is serving a host older than the one in this .app.
+    @Published private(set) var hostSkew: HostSkew?
+    /// What the running host calls itself, for the Setup card.
+    @Published private(set) var hostVersionLabel: String?
+    @Published private(set) var isUpdatingHost = false
 
     var onSnapshotChange: ((UsageSnapshot, Bool) -> Void)?
 
@@ -75,6 +80,50 @@ final class UsageStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             onSnapshotChange?(snapshot, false)
+        }
+    }
+
+    func acknowledgeAttention() async {
+        guard let attention = snapshot.attention, attention.isWarning else {
+            return
+        }
+        do {
+            try await client.acknowledgeAttention(attention.fingerprint)
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Ask /health which host is actually answering. Deliberately not on the
+    /// refresh path: the version only changes when something reinstalls the
+    /// LaunchAgent, so launch and post-install are the moments worth spending a
+    /// request on.
+    func checkHostVersion() async {
+        guard let report = try? await client.health() else { return }
+        hostSkew = HostController.skew(against: report)
+        if let version = report.version {
+            hostVersionLabel = report.build.map { "Host \(version) (\($0))" }
+                ?? "Host \(version)"
+        } else {
+            hostVersionLabel = "Host predates version reporting"
+        }
+    }
+
+    /// Point the LaunchAgent back at the host bundled in this .app and restart
+    /// it. Same call as first-run setup — launchctl bootout/bootstrap replaces
+    /// whatever job was there, including one installed from a clone.
+    func updateHost() async {
+        guard !isUpdatingHost else { return }
+        isUpdatingHost = true
+        defer { isUpdatingHost = false }
+        do {
+            _ = try HostController.installAndStart()
+            _ = await HostController.waitUntilReady()
+            await checkHostVersion()
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

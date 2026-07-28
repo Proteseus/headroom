@@ -134,6 +134,33 @@ struct HeadroomClient: Sendable {
             timeout: 8))
     }
 
+    func acknowledgeAttention(_ fingerprint: String) async throws {
+        let url = try base()
+            .appendingPathComponent("attention")
+            .appendingPathComponent("ack")
+        _ = try await send(request(
+            url,
+            method: "POST",
+            body: try JSONSerialization.data(
+                withJSONObject: ["fingerprint": fingerprint]),
+            timeout: 8
+        ))
+    }
+
+    /// Persist the Plausible primary window and force a fresh poll.
+    @discardableResult
+    func setPlausibleRange(_ range: String) async throws -> String {
+        let url = try base()
+            .appendingPathComponent("plausible")
+            .appendingPathComponent("refresh")
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(withJSONObject: ["range": range]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["range"] as? String) ?? range
+    }
+
     /// The host answers a refresh with 202 and does the work in the background,
     /// so poll /health until the requested sources report a fresh age instead
     /// of sleeping a guessed interval and hoping.
@@ -167,6 +194,31 @@ struct HeadroomClient: Sendable {
         return (object?["enabled"] as? [String: Bool]) ?? enabled
     }
 
+    func fetchMobilePermissions() async throws -> MobilePermissions {
+        let url = try base()
+            .appendingPathComponent("mobile")
+            .appendingPathComponent("permissions")
+        let data = try await send(request(url, timeout: 5))
+        return try JSONDecoder()
+            .decode(MobilePermissionsResponse.self, from: data)
+            .permissions
+    }
+
+    func setMobilePermissions(
+        _ permissions: MobilePermissions
+    ) async throws -> MobilePermissions {
+        let url = try base()
+            .appendingPathComponent("mobile")
+            .appendingPathComponent("permissions")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["permissions": permissions.dictionary])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 5))
+        return try JSONDecoder()
+            .decode(MobilePermissionsResponse.self, from: data)
+            .permissions
+    }
+
     func stopServer(pid: Int, port: Int) async throws {
         let url = try base()
             .appendingPathComponent("local")
@@ -196,9 +248,12 @@ struct HealthReport: Decodable, Sendable {
     var uptimeS: Int?
     var updated: String?
     var sources: [String: SourceHealth]
+    /// Absent on hosts older than the version handshake — see HostVersion.
+    var version: String?
+    var build: String?
 
     enum CodingKeys: String, CodingKey {
-        case ok, updated, sources
+        case ok, updated, sources, version, build
         case uptimeS = "uptime_s"
     }
 }

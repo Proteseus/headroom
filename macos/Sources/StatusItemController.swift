@@ -56,9 +56,7 @@ final class StatusItemController: NSObject {
 
     private func update(snapshot: UsageSnapshot, healthy: Bool) {
         let attention = snapshot.attention
-        // Keep a dismissed fingerprint across brief ok blips — wiping on ok
-        // resurrects the same day-old Actions warning on the next poll.
-        let showPip = AttentionAck.shouldShowPip(for: attention)
+        let showPip = attention?.isWarning == true
         statusItem.button?.image = MeterIconRenderer.render(
             snapshot: snapshot,
             healthy: healthy,
@@ -68,12 +66,16 @@ final class StatusItemController: NSObject {
             statusItem.button?.toolTip = "Headroom — backend unavailable"
         } else if showPip, let attention {
             statusItem.button?.toolTip =
-                "Headroom — \(attention.summary ?? "Needs attention")"
+                "\(HeadroomCopy.product) — \(attention.summary ?? HeadroomCopy.needsAttention)"
         } else {
-            let parts = snapshot.activeQuotaProviders.map { provider in
+            let parts = snapshot.visibleQuotaProviders.map { provider in
                 let meter = snapshot.meter(for: provider)
-                let pct = Int((meter.headline.percent ?? 0).rounded())
-                return "\(provider.title) \(pct)%"
+                guard let used = meter.menuBarWindow.percent else {
+                    return "\(provider.displayTitle) —"
+                }
+                let remaining = 100 - used
+                let pct = Int(max(0, min(remaining, 100)).rounded())
+                return "\(provider.displayTitle) \(pct)% left"
             }
             statusItem.button?.toolTip = parts.isEmpty
                 ? "Headroom"
@@ -136,36 +138,35 @@ enum MeterIconRenderer {
         let size = NSSize(width: 18, height: 18)
         let warning = attentionLevel == "warn" || attentionLevel == "critical"
         let image = NSImage(size: size, flipped: false) { _ in
-            let providers = snapshot.activeQuotaProviders.isEmpty
-                ? UsageProvider.allCases
-                : snapshot.activeQuotaProviders
-            let barWidthPixels = 30
-            let barHeightPixels = 6
-            let gapPixels = 4
-            let barX = (canvasPixels - barWidthPixels) / 2
-            let stackHeight =
-                max(1, providers.count) * barHeightPixels
-                + max(0, providers.count - 1) * gapPixels
-            let stackY = (canvasPixels - stackHeight) / 2
+            // Settings subset only — never invent Claude/Codex/Cursor when
+            // every quota source is off. Cap at 3 bars for icon geometry;
+            // ESP32 has the same hard page limit.
+            let visibleProviders = Array(
+                snapshot.visibleQuotaProviders.prefix(3))
+            let barWidthPixels = 6
+            let barHeightPixels = 30
+            let gapPixels = 5
+            let groupWidth =
+                max(1, visibleProviders.count) * barWidthPixels
+                + max(0, visibleProviders.count - 1) * gapPixels
+            let groupX = (canvasPixels - groupWidth) / 2
+            let barY = (canvasPixels - barHeightPixels) / 2
 
-            // Top → bottom matches overview left → right.
-            for (index, provider) in providers.enumerated() {
-                let fromTop = index
-                let y =
-                    stackY
-                    + (providers.count - 1 - fromTop)
-                    * (barHeightPixels + gapPixels)
+            // One vertical tank per provider. It shows the long quota window:
+            // Weekly for Claude/Codex and Total for Cursor, which has no
+            // weekly pool. The tank drains as consumption rises.
+            for (index, provider) in visibleProviders.enumerated() {
                 let meter = snapshot.meter(for: provider)
-                drawBar(
+                drawVerticalBar(
                     rect: PixelRect(
-                        x: barX,
-                        y: y,
+                        x: groupX + index * (barWidthPixels + gapPixels),
+                        y: barY,
                         width: barWidthPixels,
                         height: barHeightPixels
                     ),
-                    used: meter.headline.percent,
+                    used: meter.menuBarWindow.percent,
                     healthy: healthy,
-                    unavailable: meter.headline.percent == nil
+                    unavailable: meter.menuBarWindow.percent == nil
                 )
             }
 
@@ -173,23 +174,23 @@ enum MeterIconRenderer {
                 let pip = PixelRect(x: 26, y: 26, width: 8, height: 8)
                 let color = HeadroomPalette.nsAttention(attentionLevel)
                 color.setFill()
-                NSBezierPath(
-                    ovalIn: pip.rect
-                ).fill()
+                NSBezierPath(ovalIn: pip.rect).fill()
             }
             return true
         }
         // Template icons can't show the colored warning pip.
         image.isTemplate = !warning
-        let active = snapshot.activeQuotaProviders.isEmpty
-            ? UsageProvider.allCases
-            : snapshot.activeQuotaProviders
-        let labels = active.map(\.title).joined(separator: ", ")
-        image.accessibilityDescription = "\(labels) quota used"
+        let active = snapshot.visibleQuotaProviders
+        if active.isEmpty {
+            image.accessibilityDescription = "Headroom — no coding providers enabled"
+        } else {
+            let labels = active.map(\.displayTitle).joined(separator: ", ")
+            image.accessibilityDescription = "\(labels) long-window quota remaining"
+        }
         return image
     }
 
-    private static func drawBar(
+    private static func drawVerticalBar(
         rect pixelRect: PixelRect,
         used: Double?,
         healthy: Bool,
@@ -230,9 +231,9 @@ enum MeterIconRenderer {
         stroke.stroke()
 
         guard let used else { return }
-        let clamped = max(0, min(used / 100, 1))
+        let remaining = 1 - max(0, min(used / 100, 1))
         let fillPixels = Int(
-            (CGFloat(pixelRect.width) * CGFloat(clamped)).rounded()
+            (CGFloat(pixelRect.height) * CGFloat(remaining)).rounded()
         )
         guard fillPixels > 0 else { return }
 
@@ -243,8 +244,8 @@ enum MeterIconRenderer {
             rect: PixelRect(
                 x: pixelRect.x,
                 y: pixelRect.y,
-                width: min(pixelRect.width, fillPixels),
-                height: pixelRect.height
+                width: pixelRect.width,
+                height: min(pixelRect.height, fillPixels)
             ).rect
         ).fill()
         NSGraphicsContext.current?.cgContext.restoreGState()

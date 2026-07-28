@@ -6,31 +6,31 @@ import SwiftUI
 struct QuotaOverviewCard: View {
     let snapshot: UsageSnapshot
     /// Tapping a ring jumps to that provider's detail tab.
-    let onSelect: (UsageProvider) -> Void
+    let onSelect: (String) -> Void
 
-    private var providers: [UsageProvider] { snapshot.activeQuotaProviders }
+    private var providers: [QuotaProviderInfo] { snapshot.visibleQuotaProviders }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Coding quotas")
+            Text(HeadroomCopy.codingQuotas)
                 .font(.headline)
             if providers.isEmpty {
-                Text("Enable a coding provider in Settings → Sources.")
+                Text(HeadroomCopy.noCodingSources)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 12)
             } else {
                 HStack(spacing: 10) {
-                    ForEach(providers, id: \.rawValue) { provider in
+                    ForEach(providers) { provider in
                         ProviderQuotaRing(
                             meter: snapshot.meter(for: provider),
-                            rings: snapshot.burndownRings(for: provider),
-                            tint: snapshot.tint(for: provider)
+                            rings: snapshot.burndownRings(forProviderID: provider.id),
+                            tint: snapshot.tint(forProviderID: provider.id)
                         )
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
-                        .onTapGesture { onSelect(provider) }
+                        .onTapGesture { onSelect(provider.id) }
                     }
                 }
             }
@@ -46,16 +46,19 @@ struct QuotaOverviewCard: View {
 }
 
 struct ProviderQuotaCard: View {
-    let provider: UsageProvider
     let meter: ProviderMeter
     var tint: Color? = nil
 
-    private var brand: Color { tint ?? provider.tint }
+    private var brand: Color {
+        tint
+            ?? UsageProvider(rawValue: meter.id)?.tint
+            ?? HeadroomPalette.dim
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
-                Text(provider.title)
+                Text(meter.title)
                     .font(.headline)
                 Spacer()
                 Text(meter.plan ?? "—")
@@ -109,32 +112,26 @@ struct ProviderQuotaCard: View {
 }
 
 struct AttentionCard: View {
-    let snapshot: UsageSnapshot
-    @AppStorage(AttentionAck.defaultsKey)
-    private var dismissedFingerprint = ""
+    @ObservedObject var store: UsageStore
 
     var body: some View {
-        let attention = snapshot.attention
+        let attention = store.snapshot.attention
         let reasons = attention?.reasons ?? []
-        let showPip = AttentionAck.shouldShowPip(
-            for: attention,
-            dismissedFingerprint: dismissedFingerprint.isEmpty
-                ? nil
-                : dismissedFingerprint
-        )
+        let showPip = attention?.isWarning == true
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Attention")
+                Text(HeadroomCopy.attention)
                     .font(.headline)
                 Spacer()
-                if showPip, let attention {
+                if showPip {
                     Button {
-                        dismissedFingerprint = attention.fingerprint
+                        Task { await store.acknowledgeAttention() }
                     } label: {
-                        Image(systemName: "xmark.circle")
+                        Label(HeadroomCopy.clearAttention, systemImage: "xmark.circle")
                     }
                     .buttonStyle(.borderless)
-                    .help("Clear attention")
+                    .controlSize(.small)
+                    .help("Clear this warning on every Headroom surface")
                     .accessibilityLabel("Clear attention")
                 } else if attention?.isWarning == true {
                     Image(systemName: "checkmark.circle")
@@ -142,7 +139,7 @@ struct AttentionCard: View {
                         .help("Cleared until something new")
                         .accessibilityLabel("Attention cleared")
                 } else {
-                    Text(attention?.summary ?? "All clear")
+                    Text(attention?.summary ?? HeadroomCopy.allClear)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(attentionTint(attention?.level))
                         .lineLimit(1)
@@ -155,31 +152,11 @@ struct AttentionCard: View {
                             .fill(attentionTint(reason.level))
                             .frame(width: 7, height: 7)
                             .padding(.top, 4)
-                        Text(reason.summary ?? "Needs attention")
+                        Text(reason.summary ?? HeadroomCopy.needsAttention)
                             .font(.subheadline)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-            }
-            HStack(spacing: 10) {
-                GlanceStat(
-                    value: String(snapshot.local?.servers?.count ?? 0),
-                    label: "servers"
-                )
-                GlanceStat(
-                    value: snapshot.today?.costUSD.map(\.dollarLabel) ?? "—",
-                    label: "Claude today"
-                )
-                GlanceStat(
-                    value: snapshot.codex?.costLabel
-                        ?? snapshot.codex?.costUSD.map(\.dollarLabel)
-                        ?? "—",
-                    label: "Codex"
-                )
-                GlanceStat(
-                    value: snapshot.cursor?.costLabel ?? "—",
-                    label: "Cursor"
-                )
             }
         }
         .cardStyle()
@@ -228,6 +205,25 @@ struct ProviderQuotaRing: View {
     /// Three rings at 72pt would be mush; two is the readable ceiling.
     private var layers: [Burndown] { Array(rings.prefix(2)) }
 
+    private var ringLayers: [HeadroomRingLayer] {
+        if layers.isEmpty {
+            return [
+                HeadroomRingLayer(
+                    id: headline.title,
+                    percent: headline.percent,
+                    pacePercent: headline.pacePercent
+                ),
+            ]
+        }
+        return layers.map {
+            HeadroomRingLayer(
+                id: $0.poolTitle,
+                percent: $0.usedPct,
+                pacePercent: $0.pacePercent
+            )
+        }
+    }
+
     private var windowCaption: String {
         if let reset = headline.reset, !reset.isEmpty {
             return "\(headline.title) · \(reset)"
@@ -237,19 +233,9 @@ struct ProviderQuotaRing: View {
 
     var body: some View {
         VStack(spacing: 7) {
-            Group {
-                if layers.isEmpty {
-                    QuotaRingCanvas(
-                        percent: headline.percent,
-                        pacePercent: headline.pacePercent,
-                        tint: tint
-                    )
-                } else {
-                    PaceRingsCanvas(rings: layers, tint: tint)
-                }
-            }
+            HeadroomRings(layers: ringLayers, tint: tint)
             .frame(width: 72, height: 72)
-            Text(meter.provider.title)
+            Text(meter.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
             Text(windowCaption)
@@ -265,139 +251,5 @@ struct ProviderQuotaRing: View {
         .accessibilityValue(
             headline.percent.map { "\(Int($0.rounded())) percent used" } ?? "unknown"
         )
-    }
-}
-
-/// Concentric "pace layers": one ring per quota pool, fastest window outermost.
-///
-/// Each ring carries its own pace tick, so the gap between where the arc ends
-/// and where the tick sits *is* the deficit. That is the whole point of the
-/// glyph: two time horizons and their drift, readable without reading a number.
-struct PaceRingsCanvas: View {
-    let rings: [Burndown]
-    let tint: Color
-    /// Outermost stroke width; inner rings step down to stay legible.
-    var lineWidth: CGFloat = 7
-    var spacing: CGFloat = 4
-
-    var body: some View {
-        Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            var radius = min(size.width, size.height) / 2 - lineWidth / 2 - 1
-            let width = lineWidth
-
-            for ring in rings {
-                guard radius > width else { break }
-                let rect = CGRect(
-                    x: center.x - radius, y: center.y - radius,
-                    width: radius * 2, height: radius * 2
-                )
-
-                var track = Path()
-                track.addEllipse(in: rect)
-                // Tinted rather than neutral: two near-empty neutral tracks
-                // merge into one thick border instead of reading as two rings.
-                context.stroke(
-                    track,
-                    with: .color(tint.opacity(0.20)),
-                    lineWidth: width
-                )
-
-                if let used = ring.usedPct {
-                    var arc = Path()
-                    arc.addArc(
-                        center: center,
-                        radius: radius,
-                        startAngle: .degrees(-90),
-                        endAngle: .degrees(-90 + max(0, min(used, 100)) * 3.6),
-                        clockwise: false
-                    )
-                    // Brand tint only — pace/exhaustion live in the caption,
-                    // not a color shift that fights the provider palette.
-                    context.stroke(
-                        arc,
-                        with: .color(tint),
-                        style: StrokeStyle(lineWidth: width, lineCap: .butt)
-                    )
-                }
-
-                if let pace = ring.pacePercent {
-                    let angle = -90 + max(0, min(pace, 100)) * 3.6
-                    var tick = Path()
-                    tick.addArc(
-                        center: center,
-                        radius: radius,
-                        startAngle: .degrees(angle - 2.4),
-                        endAngle: .degrees(angle + 2.4),
-                        clockwise: false
-                    )
-                    context.stroke(
-                        tick,
-                        with: .color(.primary),
-                        style: StrokeStyle(lineWidth: width + 3, lineCap: .butt)
-                    )
-                }
-
-                radius -= width + spacing
-            }
-        }
-    }
-}
-
-struct QuotaRingCanvas: View {
-    let percent: Double?
-    let pacePercent: Double?
-    let tint: Color
-
-    var body: some View {
-        Canvas { context, size in
-            let lineWidth: CGFloat = 7
-            let inset = lineWidth / 2 + 1
-            let rect = CGRect(origin: .zero, size: size)
-                .insetBy(dx: inset, dy: inset)
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = rect.width / 2
-
-            var track = Path()
-            track.addEllipse(in: rect)
-            context.stroke(
-                track,
-                with: .color(Color(nsColor: .tertiaryLabelColor).opacity(0.22)),
-                lineWidth: lineWidth
-            )
-
-            if let percent {
-                var usage = Path()
-                usage.addArc(
-                    center: center,
-                    radius: radius,
-                    startAngle: .degrees(-90),
-                    endAngle: .degrees(-90 + max(0, min(percent, 100)) * 3.6),
-                    clockwise: false
-                )
-                context.stroke(
-                    usage,
-                    with: .color(tint),
-                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
-                )
-            }
-
-            if let pacePercent {
-                let angle = -90 + max(0, min(pacePercent, 100)) * 3.6
-                var tick = Path()
-                tick.addArc(
-                    center: center,
-                    radius: radius,
-                    startAngle: .degrees(angle - 2.8),
-                    endAngle: .degrees(angle + 2.8),
-                    clockwise: false
-                )
-                context.stroke(
-                    tick,
-                    with: .color(.primary),
-                    style: StrokeStyle(lineWidth: lineWidth + 3, lineCap: .butt)
-                )
-            }
-        }
     }
 }

@@ -5,28 +5,21 @@ import SwiftUI
 /// Kept in one place so a section file doesn't have to redefine padding,
 /// corner radius, or the provider palette.
 
-enum DashboardSelection: String, CaseIterable {
-    case overview
-    case claude
-    case codex
-    case cursor
+/// Tab ids: `overview` or a quota provider id from the host registry.
+enum DashboardSelection {
+    static let overview = "overview"
 
-    var title: String {
-        switch self {
-        case .overview: "Overview"
-        case .claude: "Claude"
-        case .codex: "Codex"
-        case .cursor: "Cursor"
+    static func title(for id: String, providers: [QuotaProviderInfo]) -> String {
+        if id == overview { return HeadroomCopy.overview }
+        if let match = providers.first(where: { $0.id == id }) {
+            return match.displayTitle
         }
-    }
-
-    var provider: UsageProvider? {
-        UsageProvider(rawValue: rawValue)
+        return UsageProvider(rawValue: id)?.title ?? id.capitalized
     }
 
     /// Overview plus whatever quota providers are currently enabled.
-    static func tabs(for providers: [UsageProvider]) -> [DashboardSelection] {
-        [.overview] + providers.compactMap { DashboardSelection(rawValue: $0.rawValue) }
+    static func tabs(for providers: [QuotaProviderInfo]) -> [String] {
+        [overview] + providers.map(\.id)
     }
 }
 
@@ -105,11 +98,15 @@ extension UsageProvider {
 extension UsageSnapshot {
     /// Prefer the host registry accent; fall back to the firmware palette.
     func tint(for provider: UsageProvider) -> Color {
-        if let hex = providers?.first(where: { $0.id == provider.rawValue })?.accent,
+        tint(forProviderID: provider.rawValue)
+    }
+
+    func tint(forProviderID providerID: String) -> Color {
+        if let hex = providers?.first(where: { $0.id == providerID })?.accent,
            let color = HeadroomPalette.color(hex: hex) {
             return color
         }
-        return provider.tint
+        return UsageProvider(rawValue: providerID)?.tint ?? HeadroomPalette.dim
     }
 }
 
@@ -140,29 +137,6 @@ struct DataSection<Content: View>: View {
             }
         }
         .cardStyle()
-    }
-}
-
-struct GlanceStat: View {
-    let value: String
-    let label: String
-    var tint: Color = .primary
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Text(value)
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-                .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

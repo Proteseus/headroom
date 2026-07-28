@@ -18,23 +18,29 @@ for arg in "$@"; do
   esac
 done
 
-LABEL="com.mz.headroom"
+LABEL="com.centaur-labs.headroom"
+LEGACY_LABEL="com.mz.headroom"
 HOME_DIR="${HOME:?}"
 PLIST_DST="$HOME_DIR/Library/LaunchAgents/${LABEL}.plist"
+LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/${LEGACY_LABEL}.plist"
 UID_NUM="$(id -u)"
 DOMAIN="gui/${UID_NUM}"
 
-if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
-  launchctl bootout "$DOMAIN/$LABEL" || true
-  echo "Stopped $DOMAIN/$LABEL"
-else
-  echo "LaunchAgent not loaded ($DOMAIN/$LABEL)"
-fi
+for name in "$LABEL" "$LEGACY_LABEL"; do
+  if launchctl print "$DOMAIN/$name" >/dev/null 2>&1; then
+    launchctl bootout "$DOMAIN/$name" || true
+    echo "Stopped $DOMAIN/$name"
+  else
+    echo "LaunchAgent not loaded ($DOMAIN/$name)"
+  fi
+done
 
-if [[ -f "$PLIST_DST" ]]; then
-  rm -f "$PLIST_DST"
-  echo "Removed $PLIST_DST"
-fi
+for path in "$PLIST_DST" "$LEGACY_PLIST"; do
+  if [[ -f "$path" ]]; then
+    rm -f "$path"
+    echo "Removed $path"
+  fi
+done
 
 if [[ "$PURGE" -eq 1 ]]; then
   rm -rf "$HOME_DIR/.headroom"

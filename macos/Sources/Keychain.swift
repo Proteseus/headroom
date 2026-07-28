@@ -77,17 +77,21 @@ struct TokenStore: Sendable {
     }
 
     static let supabase = TokenStore(
-        service: "com.mz.headroom.supabase",
+        service: "com.centaur-labs.headroom.supabase",
         failureMessage: "Could not save Supabase token."
     )
+    static let plausible = TokenStore(
+        service: "com.centaur-labs.headroom.plausible",
+        failureMessage: "Could not save Plausible token."
+    )
     static let github = TokenStore(
-        service: "com.mz.headroom.github",
+        service: "com.centaur-labs.headroom.github",
         failureMessage: "Could not save GitHub token."
     )
     /// Only needed when the endpoint is not loopback — the host lets local
     /// callers through without one.
     static let host = TokenStore(
-        service: "com.mz.headroom.host",
+        service: "com.centaur-labs.headroom.host",
         failureMessage: "Could not save host token."
     )
 }

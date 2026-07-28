@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened Runtime entitlements for Developer ID + notarization.
+	     No App Sandbox: the menu bar talks to localhost host, LAN ESP32,
+	     and launches the bundled Python host via /usr/bin/python3. -->
+</dict>
+</plist>

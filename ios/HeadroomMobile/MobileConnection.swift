@@ -33,7 +33,7 @@ enum MobileConnection {
 }
 
 enum MobileTokenStore {
-    private static let service = "com.mz.headroom.mobile"
+    private static let service = "com.centaur-labs.headroom.mobile"
     private static let account = "host-token"
 
     static func read() -> String? {
@@ -65,7 +65,7 @@ enum MobileTokenStore {
             throw NSError(
                 domain: NSOSStatusErrorDomain,
                 code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey: "Could not save the host token."]
+                userInfo: [NSLocalizedDescriptionKey: "Could not save the mobile token."]
             )
         }
     }
@@ -90,7 +90,7 @@ struct MobileHeadroomClient: Sendable {
             case .invalidEndpoint:
                 "The Mac address is invalid."
             case .unauthorized:
-                "The Mac rejected the token."
+                "The Mac rejected the mobile token."
             case let .response(code):
                 "The Headroom server returned HTTP \(code)."
             }
@@ -100,9 +100,9 @@ struct MobileHeadroomClient: Sendable {
     let endpoint: String
     let token: String
 
-    func fetchUsage() async throws -> MobileUsageSnapshot {
+    func fetchUsage() async throws -> UsageSnapshot {
         let data = try await send(url: try usageURL)
-        return try JSONDecoder().decode(MobileUsageSnapshot.self, from: data)
+        return try JSONDecoder().decode(UsageSnapshot.self, from: data)
     }
 
     func requestRefresh() async throws {
@@ -113,6 +113,44 @@ struct MobileHeadroomClient: Sendable {
             method: "POST",
             body: Data(#"{}"#.utf8)
         )
+    }
+
+    func acknowledgeAttention(_ fingerprint: String) async throws {
+        let url = try usageURL.deletingLastPathComponent()
+            .appending(path: "attention")
+            .appending(path: "ack")
+        let body = try JSONEncoder().encode(
+            AttentionAcknowledgementRequest(fingerprint: fingerprint)
+        )
+        _ = try await send(url: url, method: "POST", body: body)
+    }
+
+    func fetchMobilePermissions() async throws -> MobilePermissions {
+        let url = try usageURL.deletingLastPathComponent()
+            .appending(path: "mobile")
+            .appending(path: "permissions")
+        let data = try await send(url: url)
+        return try JSONDecoder()
+            .decode(MobilePermissionsResponse.self, from: data)
+            .permissions
+    }
+
+    func setSources(_ enabled: [String: Bool]) async throws -> [String: Bool] {
+        let url = try usageURL.deletingLastPathComponent()
+            .appending(path: "sources")
+        let body = try JSONEncoder().encode(SourceControlRequest(enabled: enabled))
+        let data = try await send(url: url, method: "POST", body: body)
+        return try JSONDecoder().decode(SourceControlResponse.self, from: data).enabled
+    }
+
+    func stopServer(pid: Int, port: Int) async throws {
+        let url = try usageURL.deletingLastPathComponent()
+            .appending(path: "local")
+            .appending(path: "stop")
+        let body = try JSONEncoder().encode(
+            StopServerControlRequest(pid: pid, port: port)
+        )
+        _ = try await send(url: url, method: "POST", body: body)
     }
 
     private var usageURL: URL {
@@ -134,6 +172,7 @@ struct MobileHeadroomClient: Sendable {
         request.timeoutInterval = 10
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue(token, forHTTPHeaderField: "X-Headroom-Token")
+        request.setValue("ios", forHTTPHeaderField: "X-Headroom-Client")
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -148,4 +187,21 @@ struct MobileHeadroomClient: Sendable {
         }
         return data
     }
+}
+
+private struct SourceControlRequest: Encodable {
+    let enabled: [String: Bool]
+}
+
+private struct SourceControlResponse: Decodable {
+    let enabled: [String: Bool]
+}
+
+private struct StopServerControlRequest: Encodable {
+    let pid: Int
+    let port: Int
+}
+
+private struct AttentionAcknowledgementRequest: Encodable {
+    let fingerprint: String
 }

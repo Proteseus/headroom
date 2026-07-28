@@ -9,17 +9,17 @@ struct DashboardView: View {
     @AppStorage("selectedProvider")
     private var selectedProviderRaw = UsageProvider.codex.rawValue
     @AppStorage("selectedDashboard")
-    private var selectedDashboardRaw = DashboardSelection.overview.rawValue
+    private var selectedDashboardRaw = DashboardSelection.overview
     @AppStorage("setupCompleted")
     private var setupCompleted = false
     @State private var serverToStop: LocalServer?
 
-    private var selectedProvider: UsageProvider {
-        UsageProvider(rawValue: selectedProviderRaw) ?? .codex
+    private var visibleProviders: [QuotaProviderInfo] {
+        store.snapshot.visibleQuotaProviders
     }
 
-    private var selectedDashboard: DashboardSelection {
-        DashboardSelection(rawValue: selectedDashboardRaw) ?? .overview
+    private var isOverview: Bool {
+        selectedDashboardRaw == DashboardSelection.overview
     }
 
     private var needsSetup: Bool {
@@ -41,6 +41,9 @@ struct DashboardView: View {
                             Task { await store.refresh() }
                         }
                     } else {
+                        if let skew = store.hostSkew {
+                            HostSkewBanner(skew: skew, store: store)
+                        }
                         providerSwitcher
                         // Warnings first: failed deploys / Actions / etc. stay
                         // visible without scrolling past quota charts. On
@@ -48,34 +51,39 @@ struct DashboardView: View {
                         // needs attention.
                         let hasAttentionWarning =
                             store.snapshot.attention?.isWarning == true
-                        if selectedDashboard == .overview || hasAttentionWarning {
-                            AttentionCard(snapshot: store.snapshot)
+                        if isOverview || hasAttentionWarning {
+                            AttentionCard(store: store)
                         }
-                        if selectedDashboard == .overview {
-                            QuotaOverviewCard(snapshot: store.snapshot) { provider in
-                                selectedProviderRaw = provider.rawValue
-                                selectedDashboardRaw = provider.rawValue
+                        if isOverview {
+                            QuotaOverviewCard(snapshot: store.snapshot) { providerID in
+                                selectedProviderRaw = providerID
+                                selectedDashboardRaw = providerID
                             }
                             OverviewBurndownCard(snapshot: store.snapshot)
                             DailyBurnCard(
                                 days: store.snapshot.byDay ?? [],
-                                providers: store.snapshot.activeQuotaProviders,
-                                tintFor: store.snapshot.tint(for:)
+                                providerIDs: visibleProviders.map(\.id),
+                                tintFor: store.snapshot.tint(forProviderID:)
                             )
                         } else {
+                            let meter = store.snapshot.meter(
+                                forProviderID: selectedDashboardRaw)
                             ProviderQuotaCard(
-                                provider: selectedProvider,
-                                meter: store.snapshot.meter(for: selectedProvider),
-                                tint: store.snapshot.tint(for: selectedProvider)
+                                meter: meter,
+                                tint: store.snapshot.tint(
+                                    forProviderID: selectedDashboardRaw)
                             )
                             BurndownCard(
-                                provider: selectedProvider,
-                                rings: store.snapshot.burndownRings(for: selectedProvider),
-                                tint: store.snapshot.tint(for: selectedProvider)
+                                providerID: selectedDashboardRaw,
+                                rings: store.snapshot.burndownRings(
+                                    forProviderID: selectedDashboardRaw),
+                                tint: store.snapshot.tint(
+                                    forProviderID: selectedDashboardRaw)
                             )
                         }
                         ActivitySection(items: store.snapshot.activity ?? [])
                         SupabaseSection(data: store.snapshot.supabase)
+                        PlausibleSection(data: store.snapshot.plausible)
                         ServersSection(store: store, pendingStop: $serverToStop)
                     }
                 }
@@ -123,7 +131,7 @@ struct DashboardView: View {
 
     private var headerDotColor: Color {
         if store.errorMessage != nil { return HeadroomPalette.amber }
-        if AttentionAck.shouldShowPip(for: store.snapshot.attention) {
+        if store.snapshot.attention?.isWarning == true {
             if store.snapshot.attention?.isCritical == true {
                 return HeadroomPalette.red
             }
@@ -133,17 +141,18 @@ struct DashboardView: View {
     }
 
     private var providerSwitcher: some View {
-        let tabs = DashboardSelection.tabs(for: store.snapshot.activeQuotaProviders)
+        let tabs = DashboardSelection.tabs(for: visibleProviders)
         return HStack(spacing: 2) {
-            ForEach(tabs, id: \.rawValue) { selection in
-                let isSelected = selectedDashboardRaw == selection.rawValue
+            ForEach(tabs, id: \.self) { tabID in
+                let isSelected = selectedDashboardRaw == tabID
                 Button {
-                    selectedDashboardRaw = selection.rawValue
-                    if let provider = selection.provider {
-                        selectedProviderRaw = provider.rawValue
+                    selectedDashboardRaw = tabID
+                    if tabID != DashboardSelection.overview {
+                        selectedProviderRaw = tabID
                     }
                 } label: {
-                    Text(selection.title)
+                    Text(DashboardSelection.title(
+                        for: tabID, providers: visibleProviders))
                         .font(.caption.weight(isSelected ? .semibold : .medium))
                         .foregroundStyle(isSelected ? .primary : .secondary)
                         .frame(maxWidth: .infinity)
@@ -168,11 +177,10 @@ struct DashboardView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dashboard")
-        .onChange(of: store.snapshot.activeQuotaProviders.map(\.rawValue)) { _, ids in
+        .onChange(of: visibleProviders.map(\.id)) { _, ids in
             // Drop onto Overview if the selected provider was disabled.
-            if selectedDashboard != .overview,
-               !ids.contains(selectedDashboardRaw) {
-                selectedDashboardRaw = DashboardSelection.overview.rawValue
+            if !isOverview, !ids.contains(selectedDashboardRaw) {
+                selectedDashboardRaw = DashboardSelection.overview
             }
         }
     }
@@ -193,8 +201,8 @@ struct DashboardView: View {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
-            .help("Settings")
-            .accessibilityLabel("Settings")
+            .help(HeadroomCopy.settings)
+            .accessibilityLabel(HeadroomCopy.settings)
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
@@ -214,9 +222,8 @@ struct DashboardView: View {
         if let error = store.errorMessage {
             return error
         }
-        if let attention = store.snapshot.attention,
-           AttentionAck.shouldShowPip(for: attention) {
-            return attention.summary ?? "Needs attention"
+        if let attention = store.snapshot.attention, attention.isWarning {
+            return attention.summary ?? HeadroomCopy.needsAttention
         }
         if let stale = worstStaleSource {
             let age = stale.ageS ?? 0

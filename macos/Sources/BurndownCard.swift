@@ -9,11 +9,15 @@ import SwiftUI
 /// tail is where that pace ends up if nothing changes.
 
 struct BurndownCard: View {
-    let provider: UsageProvider
+    let providerID: String
     let rings: [Burndown]
     var tint: Color? = nil
 
-    private var brand: Color { tint ?? provider.tint }
+    private var brand: Color {
+        tint
+            ?? UsageProvider(rawValue: providerID)?.tint
+            ?? HeadroomPalette.dim
+    }
 
     /// Longest window first here: the weekly shape is the one worth a chart,
     /// while a 5h session is mostly noise at this size.
@@ -26,7 +30,9 @@ struct BurndownCard: View {
     /// Cursor's Total and API share one billing cycle. Overlay them on a single
     /// axis so a drained API pool can't hide behind a healthy Total.
     private var overlayPools: [Burndown]? {
-        guard provider == .cursor, charted.count >= 2 else { return nil }
+        guard providerID == UsageProvider.cursor.rawValue,
+              charted.count >= 2
+        else { return nil }
         return charted
     }
 
@@ -35,7 +41,7 @@ struct BurndownCard: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Burndown")
+                Text(HeadroomCopy.burndown)
                     .font(.headline)
                 if let overlayPools {
                     MultiBurndownPlot(pools: overlayPools, tint: brand)
@@ -65,7 +71,8 @@ struct OverviewBurndownCard: View {
 
     private struct Series: Identifiable {
         let id: String
-        let provider: UsageProvider
+        let providerID: String
+        let title: String
         let pool: Burndown
         let actual: [Point]
         let projected: [Point]
@@ -85,13 +92,10 @@ struct OverviewBurndownCard: View {
             }
         }
 
-        return UsageProvider.allCases.compactMap { provider in
-            guard snapshot.activeQuotaProviders.contains(provider) else {
-                return nil
-            }
-            let pools = snapshot.burndownRings(for: provider)
+        return snapshot.visibleQuotaProviders.compactMap { provider in
+            let pools = snapshot.burndownRings(forProviderID: provider.id)
             let pool: Burndown?
-            if provider == .cursor {
+            if provider.id == UsageProvider.cursor.rawValue {
                 pool = pools.first(where: { $0.pool == "total" })
                     ?? pools.max(by: {
                         ($0.windowS ?? 0) < ($1.windowS ?? 0)
@@ -105,8 +109,9 @@ struct OverviewBurndownCard: View {
             let actual = points(pool.actual)
             guard !actual.isEmpty else { return nil }
             return Series(
-                id: provider.rawValue,
-                provider: provider,
+                id: provider.id,
+                providerID: provider.id,
+                title: provider.displayTitle,
                 pool: pool,
                 actual: actual,
                 projected: points(pool.projected)
@@ -176,15 +181,23 @@ struct OverviewBurndownCard: View {
     var body: some View {
         let all = series
         if all.isEmpty {
-            EmptyView()
+            VStack(alignment: .leading, spacing: 10) {
+                Text(HeadroomCopy.overallBurndown)
+                    .font(.headline)
+                Text(HeadroomCopy.noHistoryYet)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 14)
+            }
+            .cardStyle()
         } else {
             let range = calendarRange(for: all)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("Burndown")
+                    Text(HeadroomCopy.overallBurndown)
                         .font(.headline)
                     Spacer()
-                    Text("7-day calendar")
+                    Text(HeadroomCopy.overallBurndownSubtitle)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -220,8 +233,8 @@ struct OverviewBurndownCard: View {
 
                     for entry in all {
                         let tint = entry.pool.kind == .exhausted
-                            ? snapshot.tint(for: entry.provider).drained()
-                            : snapshot.tint(for: entry.provider)
+                            ? snapshot.tint(forProviderID: entry.providerID).drained()
+                            : snapshot.tint(forProviderID: entry.providerID)
                         let actual = clipped(
                             entry.actual, from: range.start, to: range.end
                         ).map { CGPoint(x: x($0.time), y: y($0.remaining)) }
@@ -274,24 +287,23 @@ struct OverviewBurndownCard: View {
                             HStack(spacing: 5) {
                                 Circle()
                                     .fill(entry.pool.kind == .exhausted
-                                          ? snapshot.tint(for: entry.provider).drained()
-                                          : snapshot.tint(for: entry.provider))
+                                          ? snapshot.tint(forProviderID: entry.providerID).drained()
+                                          : snapshot.tint(forProviderID: entry.providerID))
                                     .frame(width: 7, height: 7)
-                                Text(entry.provider.title)
+                                Text(entry.title)
                                     .font(.caption2.weight(.medium))
                             }
-                            if let delta = entry.pool.deltaPct {
-                                // Ahead and behind are both just readings, so
-                                // neither gets a colour that argues about it.
-                                Text(paceLabel(delta))
-                                    .font(.caption2)
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("pace pending")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
+                            // Same vocabulary as the provider cards: the
+                            // overview should not invent a second way of
+                            // saying whether a pool survives its window.
+                            Text(entry.pool.verdict ?? HeadroomCopy.collectingHistory)
+                                .font(.caption2)
+                                .monospacedDigit()
+                                .lineLimit(2)
+                                .foregroundStyle(
+                                    entry.pool.kind == .critical
+                                        ? AnyShapeStyle(Color.red)
+                                        : AnyShapeStyle(.secondary))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -301,10 +313,102 @@ struct OverviewBurndownCard: View {
         }
     }
 
-    private func paceLabel(_ delta: Double) -> String {
-        let points = abs(Int(delta.rounded()))
-        if points == 0 { return "on budget" }
-        return "\(points)% \(delta > 0 ? "ahead" : "behind")"
+}
+
+/// The card's answer line: do I make it to the reset, and if not, when.
+///
+/// It carries no numbers. The stat row underneath already shows what is left
+/// and how fast it is going, and a verdict that repeated them is how this card
+/// grew into a paragraph with the actionable half buried at the end.
+struct BurndownVerdict: View {
+    let pool: Burndown
+    let tint: Color
+
+    /// Colour only where colour is information. Running out and being spent
+    /// change the tint; burning ahead of budget does not, because the gap
+    /// between the curve and the budget line already shows it.
+    private var textTint: Color {
+        switch pool.kind {
+        case .critical: .red
+        case .exhausted: .secondary
+        default: pool.hasForecast ? .primary : .secondary
+        }
+    }
+
+    private var dotTint: Color {
+        switch pool.kind {
+        case .critical: .red
+        case .exhausted: .secondary
+        default: pool.hasForecast ? tint : .secondary
+        }
+    }
+
+    var body: some View {
+        if let verdict = pool.verdict {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(dotTint)
+                    .frame(width: 6, height: 6)
+                Text(verdict)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(textTint)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+/// Left / Burning / Budget, as three labelled cells.
+///
+/// The whole question this card answers is whether burning exceeds budget.
+/// Side by side in the same unit that is one glance; split across a sentence
+/// and a footnote, as it used to be, it is two readings and a subtraction.
+struct BurndownStats: View {
+    let pool: Burndown
+
+    private var unit: String { pool.rateUnit ?? "day" }
+
+    private func rate(_ value: Double?) -> String? {
+        value.map { "\($0.rateLabel)%/\(unit)" }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            cell("Left", pool.remainingPct.map {
+                "\(Int($0.rounded()))%"
+            }, dimmed: pool.kind == .exhausted)
+            // An estimate off token history is worth marking; a measured rate
+            // should not be hedged.
+            cell(pool.isEstimated ? "Burning · est" : "Burning",
+                 rate(pool.burnRatePct),
+                 hot: pool.kind == .critical)
+            cell("Budget", rate(pool.allowancePct),
+                 dimmed: pool.kind == .exhausted)
+        }
+        .padding(.top, 7)
+        .overlay(alignment: .top) {
+            Divider().opacity(0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func cell(_ label: String, _ value: String?,
+                      hot: Bool = false, dimmed: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .kerning(0.5)
+                .foregroundStyle(.tertiary)
+            // An absent number reads as "not yet", never as zero.
+            Text(value ?? "—")
+                .font(.callout)
+                .monospacedDigit()
+                .foregroundStyle(value == nil || dimmed ? AnyShapeStyle(.secondary)
+                                 : hot ? AnyShapeStyle(Color.red)
+                                 : AnyShapeStyle(.primary))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -313,20 +417,24 @@ struct MultiBurndownPlot: View {
     let pools: [Burndown]
     let tint: Color
 
-    private var window: (start: Double, end: Double, reset: String?)? {
-        guard let start = pools.compactMap(\.windowStart).min(),
-              let end = pools.compactMap(\.windowEnd).max(),
-              end > start
-        else { return nil }
-        let reset = pools.first(where: { $0.pool == "total" })?.resetsIn
-            ?? pools.first?.resetsIn
-        return (start, end, reset)
+    /// The pool the shared axis belongs to. Cursor's pools are one billing
+    /// cycle, but each holds its own reset, so spanning min-start to max-end
+    /// would draw the budget diagonal across a window none of them has and
+    /// leave the caption describing a different one.
+    private var anchor: Burndown? {
+        pools.first(where: { $0.pool == "total" }) ?? pools.first
     }
 
-    private var headline: String? {
-        pools.first(where: { $0.pool == "total" })?.headline
-            ?? pools.first?.headline
+    private var window: (start: Double, end: Double, reset: String?)? {
+        guard let anchor,
+              let start = anchor.windowStart,
+              let end = anchor.windowEnd,
+              end > start
+        else { return nil }
+        return (start, end, anchor.resetsIn)
     }
+
+    private var headline: String? { anchor?.headline }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -358,13 +466,13 @@ struct MultiBurndownPlot: View {
                     .frame(height: 100)
             }
 
-            if let headline {
-                Text(headline)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let anchor {
+                BurndownVerdict(pool: anchor, tint: tint)
+                BurndownStats(pool: anchor)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(headline ?? HeadroomCopy.burndown)
     }
 
     private func seriesTint(_ pool: Burndown) -> Color {
@@ -385,23 +493,14 @@ struct BurndownPlot: View {
         pool.kind == .exhausted ? tint.drained() : tint
     }
 
-    private var footnote: String {
-        var parts: [String] = []
-        if let rate = pool.burnRatePct, let unit = pool.rateUnit {
-            parts.append("burning \(rate.rateLabel)%/\(unit)")
-        }
-        if let allowance = pool.allowancePct, let unit = pool.rateUnit {
-            parts.append("budget \(allowance.rateLabel)%/\(unit)")
-        }
-        if let samples = pool.samples, parts.isEmpty {
-            parts.append("\(samples) sample\(samples == 1 ? "" : "s") so far")
-        }
-        if pool.isEstimated {
-            parts.append("estimated from recent usage")
-        } else if let samples = pool.samples, !parts.isEmpty {
-            parts.append("\(samples) samples")
-        }
-        return parts.joined(separator: " · ")
+    /// Sample count is a confidence signal, not a user fact, so it lives in
+    /// the tooltip rather than taking a line under the chart.
+    private var help: String {
+        guard let samples = pool.samples else { return pool.headline ?? "" }
+        let counted = "\(samples) sample\(samples == 1 ? "" : "s") this window"
+        return pool.isEstimated
+            ? "\(counted). Rate estimated from recent token usage."
+            : counted
     }
 
     var body: some View {
@@ -421,19 +520,12 @@ struct BurndownPlot: View {
             BurndownCanvas(pool: pool, tint: statusTint)
                 .frame(height: 100)
 
-            if let headline = pool.headline {
-                Text(headline)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !footnote.isEmpty {
-                Text(footnote)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-            }
+            BurndownVerdict(pool: pool, tint: statusTint)
+            BurndownStats(pool: pool)
         }
+        .help(help)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(pool.headline ?? HeadroomCopy.burndown)
     }
 }
 
@@ -448,7 +540,7 @@ struct BurndownCanvas: View {
             start: pool.windowStart ?? 0,
             end: pool.windowEnd ?? 0
         )
-        .accessibilityLabel(pool.headline ?? "Burndown")
+        .accessibilityLabel(pool.headline ?? HeadroomCopy.burndown)
     }
 }
 
@@ -560,8 +652,8 @@ struct MultiBurndownCanvas: View {
                         forecast,
                         with: .color(seriesTint),
                         style: StrokeStyle(
-                            lineWidth: pool.isEstimated ? 1 : 1.5,
-                            dash: pool.isEstimated ? [3, 2] : [6, 2]
+                            lineWidth: 1.5,
+                            dash: [6, 2]
                         )
                     )
                     if pool.exhaustsBeforeReset == true, let hit = projected.last {

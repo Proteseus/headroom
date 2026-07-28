@@ -30,8 +30,8 @@ struct SetupView: View {
             Text(isFirstRun ? "Welcome to Headroom" : "Start the host")
                 .font(.title3.weight(.semibold))
             Text(isFirstRun
-                 ? "A small local Python host reads Claude / Codex / Cursor credentials you already have. We’ll start it and enable only what’s signed in."
-                 : "The menu bar needs the local host on port 8737. Start it once — it stays running at login.")
+                 ? "A Release app starts the local host automatically and tracks signed-in coding tools."
+                 : "Needs the local host on :8737. Starts at login.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -60,7 +60,7 @@ struct SetupView: View {
                     if hostBusy {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text(hostReady ? "Restart host" : "Start host & keep at login")
+                        Text(hostReady ? "Restart host" : "Start host")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -76,8 +76,21 @@ struct SetupView: View {
 
                 Spacer()
             }
+            if let skew = store.hostSkew {
+                Text("Out of date — \(skew.summary). Restart to install.")
+                    .font(.caption2)
+                    .foregroundStyle(HeadroomPalette.amber)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if hostReady, let version = store.hostVersionLabel {
+                Text(version)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(appVersionLabel)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             if !HostController.isBundled {
-                Text("This debug build has no bundled host. From a clone run ./scripts/install-host.sh, or use a Release .app.")
+                Text("No bundled host. Run ./scripts/install-host.sh or use a Release .app.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -89,7 +102,7 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("What to track")
                 .font(.headline)
-            Text("Detected from local sign-in. You can change this later in Settings → Sources.")
+            Text("From local sign-in. Change either list later in Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let loadError {
@@ -98,25 +111,54 @@ struct SetupView: View {
                     .foregroundStyle(HeadroomPalette.amber)
             }
             if setupRows.isEmpty {
-                Text(hostReady ? "Loading…" : "Start the host to detect Claude / Codex / Cursor.")
+                Text(hostReady ? "Loading…" : "Start the host to detect sources.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(setupRows) { row in
-                    Toggle(isOn: binding(for: row.id)) {
-                        HStack {
-                            Text(row.title)
-                            Spacer()
-                            Text(row.detected ? "Detected" : "Not found")
-                                .font(.caption2)
-                                .foregroundStyle(row.detected ? HeadroomPalette.green : .secondary)
-                        }
-                    }
-                    .disabled(!hostReady || hostBusy)
+                ForEach(groupedRows, id: \.group) { section in
+                    groupBlock(section.group, rows: section.rows)
                 }
             }
         }
         .cardStyle()
+    }
+
+    /// Quota meters and dev-tool watchers do different jobs — asking about
+    /// them in one flat list makes the user sort it out row by row.
+    private var groupedRows: [(group: SourceGroup, rows: [SetupSourceRow])] {
+        SourceGroup.allCases.compactMap { group in
+            let rows = setupRows.filter { $0.sourceGroup == group }
+            return rows.isEmpty ? nil : (group, rows)
+        }
+    }
+
+    private func groupBlock(
+        _ group: SourceGroup,
+        rows: [SetupSourceRow]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(group.title)
+                    .font(.subheadline.weight(.semibold))
+                Text(group.subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+
+            ForEach(rows) { row in
+                Toggle(isOn: binding(for: row.id)) {
+                    HStack {
+                        Text(row.title)
+                        Spacer()
+                        Text(row.detected ? "Detected" : "Not found")
+                            .font(.caption2)
+                            .foregroundStyle(row.detected ? HeadroomPalette.green : .secondary)
+                    }
+                }
+                .disabled(!hostReady || hostBusy)
+            }
+        }
     }
 
     private var footer: some View {
@@ -133,6 +175,12 @@ struct SetupView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!hostReady && isFirstRun == false)
         }
+    }
+
+    private var appVersionLabel: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return "App \(short) (\(build))"
     }
 
     private func binding(for id: String) -> Binding<Bool> {
@@ -159,6 +207,7 @@ struct SetupView: View {
         hostReady = await HostController.isReachable()
         if hostReady {
             hostMessage = "http://127.0.0.1:8737"
+            await store.checkHostVersion()
             await loadSetup()
         } else if hostMessage == nil {
             hostMessage = store.errorMessage
@@ -175,6 +224,7 @@ struct SetupView: View {
             hostReady = ok
             if ok {
                 hostMessage = "Host is up on http://127.0.0.1:8737"
+                await store.checkHostVersion()
                 await loadSetup()
                 await store.refresh()
             } else {
@@ -214,9 +264,14 @@ struct SetupView: View {
 struct SetupSourceRow: Identifiable, Decodable, Sendable {
     var id: String
     var title: String
+    var hint: String?
     var kind: String?
+    /// "ai" or "devtools" — from the host registry.
+    var group: String?
     var detected: Bool
     var enabled: Bool
+
+    var sourceGroup: SourceGroup { SourceGroup(group: group, kind: kind) }
 }
 
 struct SetupPayload: Decodable, Sendable {

@@ -92,7 +92,7 @@ struct CodexBarProgressBar: View {
                 context.blendMode = .normal
                 context.fill(
                     stripes.center.applying(shift),
-                    // Match the neutral pace tick used by quota rings.
+                    // Match the neutral pace line used by quota rings.
                     with: .color(.primary)
                 )
             }

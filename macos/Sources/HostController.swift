@@ -4,7 +4,9 @@ import Foundation
 /// Locates the bundled Python host and installs/starts it as a LaunchAgent so
 /// the menu bar (and optional ESP32) keep working after the app quits.
 enum HostController {
-    static let label = "com.mz.headroom"
+    static let label = "com.centaur-labs.headroom"
+    /// Pre-rename label — retire on install so two agents don't fight over :8737.
+    static let legacyLabel = "com.mz.headroom"
     static let defaultPort = 8737
 
     private static var domain: String { "gui/\(getuid())" }
@@ -48,6 +50,30 @@ enum HostController {
     }
 
     static var isBundled: Bool { bundledServer != nil }
+
+    /// Fingerprint of the host this .app ships. Computed once — the bundle is
+    /// read-only for the life of the process, and it's ~45 file reads.
+    static let bundledBuild: String? = bundledHostDirectory
+        .flatMap { HostVersion.build(in: $0) }
+
+    static let bundledVersion: String? = bundledHostDirectory
+        .flatMap { HostVersion.version(in: $0) }
+
+    /// What's running vs. what this .app ships, or nil when they agree.
+    ///
+    /// Nil when there's nothing to compare against either: a debug build with no
+    /// bundled host is a developer running the host from a clone, and nagging
+    /// them about their own checkout would be noise.
+    static func skew(against report: HealthReport) -> HostSkew? {
+        guard let bundledBuild, let bundledVersion else { return nil }
+        guard report.build != bundledBuild else { return nil }
+        return HostSkew(
+            runningVersion: report.version,
+            runningBuild: report.build,
+            bundledVersion: bundledVersion,
+            bundledBuild: bundledBuild
+        )
+    }
 
     static func healthURL(port: Int = defaultPort) -> URL {
         URL(string: "http://127.0.0.1:\(port)/health")!
@@ -118,6 +144,7 @@ enum HostController {
             atPath: agents, withIntermediateDirectories: true)
         try plist.write(to: launchAgentURL, atomically: true, encoding: .utf8)
 
+        retireLegacyAgent()
         _ = runLaunchctl(["bootout", "\(domain)/\(label)"])
         let bootstrap = runLaunchctl(["bootstrap", domain, launchAgentURL.path])
         if bootstrap.status != 0 && bootstrap.status != 36 {
@@ -144,8 +171,17 @@ enum HostController {
     }
 
     static func uninstall() {
+        retireLegacyAgent()
         _ = runLaunchctl(["bootout", "\(domain)/\(label)"])
         try? FileManager.default.removeItem(at: launchAgentURL)
+    }
+
+    /// Drop the pre-rename LaunchAgent so KeepAlive can't bind-fight :8737.
+    private static func retireLegacyAgent() {
+        _ = runLaunchctl(["bootout", "\(domain)/\(legacyLabel)"])
+        let legacy = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(legacyLabel).plist")
+        try? FileManager.default.removeItem(at: legacy)
     }
 
     private static func seedConfigIfNeeded() {

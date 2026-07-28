@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "2653E17D158BB2066F201577"
-               BuildableName = "HeadroomBar.app"
-               BlueprintName = "HeadroomBar"
-               ReferencedContainer = "container:HeadroomBar.xcodeproj">
+               BlueprintIdentifier = "1EA8D13EC4BFBE872107C72F"
+               BuildableName = "HeadroomMobile.app"
+               BlueprintName = "HeadroomMobile"
+               ReferencedContainer = "container:Headroom.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,10 +32,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "2653E17D158BB2066F201577"
-            BuildableName = "HeadroomBar.app"
-            BlueprintName = "HeadroomBar"
-            ReferencedContainer = "container:HeadroomBar.xcodeproj">
+            BlueprintIdentifier = "1EA8D13EC4BFBE872107C72F"
+            BuildableName = "HeadroomMobile.app"
+            BlueprintName = "HeadroomMobile"
+            ReferencedContainer = "container:Headroom.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -44,10 +44,10 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "862665C2E2DFC3C50A12C322"
-               BuildableName = "HeadroomBarTests.xctest"
-               BlueprintName = "HeadroomBarTests"
-               ReferencedContainer = "container:HeadroomBar.xcodeproj">
+               BlueprintIdentifier = "C5A4EB02DD012FEA14051CC8"
+               BuildableName = "HeadroomMobileTests.xctest"
+               BlueprintName = "HeadroomMobileTests"
+               ReferencedContainer = "container:Headroom.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -68,10 +68,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "2653E17D158BB2066F201577"
-            BuildableName = "HeadroomBar.app"
-            BlueprintName = "HeadroomBar"
-            ReferencedContainer = "container:HeadroomBar.xcodeproj">
+            BlueprintIdentifier = "1EA8D13EC4BFBE872107C72F"
+            BuildableName = "HeadroomMobile.app"
+            BlueprintName = "HeadroomMobile"
+            ReferencedContainer = "container:Headroom.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -87,10 +87,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "2653E17D158BB2066F201577"
-            BuildableName = "HeadroomBar.app"
-            BlueprintName = "HeadroomBar"
-            ReferencedContainer = "container:HeadroomBar.xcodeproj">
+            BlueprintIdentifier = "1EA8D13EC4BFBE872107C72F"
+            BuildableName = "HeadroomMobile.app"
+            BlueprintName = "HeadroomMobile"
+            ReferencedContainer = "container:Headroom.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>

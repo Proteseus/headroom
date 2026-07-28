@@ -5,7 +5,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/docs/screenshots"
 FIXTURE="$ROOT/docs/demo_usage.json"
 VENV="$ROOT/.venv-shots"
-APP_BUILD="$ROOT/macos/.build/Build/Products/Debug/HeadroomBar.app"
+APP_BUILD="$ROOT/macos/.build/Build/Products/Debug/Headroom.app"
+IOS_DERIVED="$ROOT/macos/.build-ios-shots"
+IOS_SIM_NAME="${HEADROOM_IOS_SIM:-iPhone 17}"
 
 mkdir -p "$OUT"
 
@@ -19,14 +21,14 @@ echo "→ ESP32 glance preview"
   --input "$FIXTURE" \
   --out "$OUT/esp32-glance.png"
 
-echo "→ build HeadroomBar (Debug)"
+echo "→ build Headroom (Debug)"
 cd "$ROOT/macos"
 if command -v xcodegen >/dev/null 2>&1; then
   xcodegen generate >/dev/null
 fi
 xcodebuild \
-  -project HeadroomBar.xcodeproj \
-  -scheme HeadroomBar \
+  -project Headroom.xcodeproj \
+  -scheme Headroom \
   -configuration Debug \
   -derivedDataPath .build \
   build \
@@ -34,9 +36,9 @@ xcodebuild \
 
 echo "→ export macOS popover + icon"
 # Quit any running copy so we can launch the export binary cleanly.
-pkill -x HeadroomBar 2>/dev/null || true
+pkill -x Headroom 2>/dev/null || true
 sleep 0.4
-"$APP_BUILD/Contents/MacOS/HeadroomBar" \
+"$APP_BUILD/Contents/MacOS/Headroom" \
   --export-screenshots "$OUT" \
   --fixture "$FIXTURE"
 
@@ -46,6 +48,81 @@ echo "→ compose menubar hero"
   --popover "$OUT/macos-popover.png" \
   --icon-out "$OUT/macos-menubar-icon.png" \
   --out "$OUT/macos-menubar.png"
+
+echo "→ pick iOS Simulator ($IOS_SIM_NAME)"
+# Prefer an exact name match on the newest available runtime. Falling back to
+# any iPhone avoids xcodebuild's OS=latest mismatch when a model only exists
+# on an older simulator runtime.
+UDID="$(
+  IOS_SIM_NAME="$IOS_SIM_NAME" "$VENV/bin/python" - <<'PY'
+import json, os, subprocess, sys
+want = os.environ["IOS_SIM_NAME"]
+data = json.loads(subprocess.check_output(
+    ["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+preferred, fallback = [], []
+for runtime, devices in data.get("devices", {}).items():
+    if "iOS" not in runtime:
+        continue
+    for d in devices:
+        if not d.get("isAvailable", True):
+            continue
+        entry = (runtime, d["name"], d["udid"])
+        if d["name"] == want:
+            preferred.append(entry)
+        elif d["name"].startswith("iPhone"):
+            fallback.append(entry)
+pool = preferred or fallback
+if not pool:
+    raise SystemExit(f"no iPhone simulator available (wanted {want!r})")
+pool.sort(key=lambda x: x[0], reverse=True)
+print(pool[0][2])
+PY
+)"
+SIM_DESC="$(xcrun simctl list devices | grep "$UDID" | head -1 | sed 's/^ *//')"
+echo "  using $SIM_DESC"
+
+echo "→ build HeadroomMobile (Simulator)"
+xcodebuild \
+  -project Headroom.xcodeproj \
+  -scheme HeadroomMobile \
+  -configuration Debug \
+  -destination "platform=iOS Simulator,id=$UDID" \
+  -derivedDataPath "$IOS_DERIVED" \
+  build \
+  >/tmp/headroom-ios-shot-build.log
+
+IOS_APP="$(find "$IOS_DERIVED" -type d -name 'HeadroomMobile.app' | head -1)"
+[[ -n "$IOS_APP" && -d "$IOS_APP" ]] || {
+  echo "error: HeadroomMobile.app not found under $IOS_DERIVED" >&2
+  exit 1
+}
+
+echo "→ export iOS overview"
+xcrun simctl boot "$UDID" 2>/dev/null || true
+xcrun simctl bootstatus "$UDID" -b >/dev/null
+xcrun simctl uninstall "$UDID" com.centaur-labs.headroom 2>/dev/null || true
+xcrun simctl install "$UDID" "$IOS_APP"
+rm -f "$OUT/.ios-shot-ready" "$OUT/ios-overview.png"
+xcrun simctl launch "$UDID" com.centaur-labs.headroom \
+  --export-screenshots "$OUT" \
+  --fixture "$FIXTURE" >/dev/null
+
+# App writes .ios-shot-ready after the fixture UI has settled.
+for _ in $(seq 1 40); do
+  [[ -f "$OUT/.ios-shot-ready" ]] && break
+  sleep 0.25
+done
+[[ -f "$OUT/.ios-shot-ready" ]] || {
+  echo "error: iOS export never signaled ready" >&2
+  xcrun simctl terminate "$UDID" com.centaur-labs.headroom 2>/dev/null || true
+  exit 1
+}
+# Extra beat so Charts finish their first layout pass.
+sleep 0.6
+xcrun simctl io "$UDID" screenshot "$OUT/ios-overview.png"
+xcrun simctl terminate "$UDID" com.centaur-labs.headroom 2>/dev/null || true
+rm -f "$OUT/.ios-shot-ready"
+echo "wrote $OUT/ios-overview.png"
 
 echo "done → $OUT"
 ls -la "$OUT"

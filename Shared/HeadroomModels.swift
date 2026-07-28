@@ -23,6 +23,7 @@ struct UsageSnapshot: Decodable, Sendable {
     var activity: [ActivityItem]?
     var local: LocalUsage?
     var supabase: SupabaseUsage?
+    var plausible: PlausibleUsage?
     var sources: [SyncSource]?
     var attention: Attention?
     /// Per-provider, per-pool burndown keyed as ["claude": ["week": …]].
@@ -53,6 +54,7 @@ struct UsageSnapshot: Decodable, Sendable {
         activity: [ActivityItem]? = nil,
         local: LocalUsage? = nil,
         supabase: SupabaseUsage? = nil,
+        plausible: PlausibleUsage? = nil,
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
         burndown: [String: [String: Burndown]]? = nil,
@@ -79,6 +81,7 @@ struct UsageSnapshot: Decodable, Sendable {
         self.activity = activity
         self.local = local
         self.supabase = supabase
+        self.plausible = plausible
         self.sources = sources
         self.attention = attention
         self.burndown = burndown
@@ -87,7 +90,7 @@ struct UsageSnapshot: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, providers, vercel, git, github, activity, local
-        case supabase, sources, attention, burndown
+        case supabase, plausible, sources, attention, burndown
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
         case quotaOK = "quota_ok"
@@ -100,46 +103,92 @@ struct UsageSnapshot: Decodable, Sendable {
         case weekResetsIn = "week_resets_in"
     }
 
-    /// Enabled coding-quota providers in host registry order.
+    /// Enabled coding-quota providers from the host registry (string ids).
     ///
-    /// CodexBar-style: only what the user turned on in Settings → Sources.
-    /// Falls back to every known provider when the host omitted sources
-    /// (offline / empty snapshot).
-    var activeQuotaProviders: [UsageProvider] {
-        guard let sources, !sources.isEmpty else {
-            return UsageProvider.allCases
-        }
-        let known = Dictionary(uniqueKeysWithValues:
-            UsageProvider.allCases.map { ($0.rawValue, $0) })
-        let hasKind = sources.contains { $0.kind != nil }
-        let quotaRows = sources.filter { row in
+    /// CodexBar-style: Settings → Sources is the subset. Prefer `providers[]`
+    /// intersected with enabled quota `sources[]`. Empty when the host has not
+    /// advertised any — never invent Claude/Codex/Cursor.
+    var visibleQuotaProviders: [QuotaProviderInfo] {
+        let sourcesList = sources ?? []
+        let hasKind = sourcesList.contains { $0.kind != nil }
+        let known = Set(UsageProvider.allCases.map(\.rawValue))
+
+        let quotaSourceRows = sourcesList.filter { row in
             if hasKind { return row.kind == "quota" }
-            return known[row.id] != nil
+            return known.contains(row.id)
         }
+        let enabledQuotaIDs = Set(
+            quotaSourceRows.filter { $0.enabled != false }.map(\.id)
+        )
+        // Sources listed quota rows but the user turned them all off.
+        if !quotaSourceRows.isEmpty && enabledQuotaIDs.isEmpty {
+            return []
+        }
+
+        let rows = providers ?? []
+        if !rows.isEmpty {
+            return rows.filter {
+                $0.enabled != false
+                    && (enabledQuotaIDs.isEmpty || enabledQuotaIDs.contains($0.id))
+            }
+        }
+
+        // Older payloads without providers[]: synthesize from enabled sources.
+        guard !enabledQuotaIDs.isEmpty else { return [] }
+        var seen = Set<String>()
+        return quotaSourceRows.compactMap { row in
+            guard enabledQuotaIDs.contains(row.id),
+                  seen.insert(row.id).inserted
+            else { return nil }
+            return QuotaProviderInfo(
+                id: row.id,
+                title: row.title,
+                kind: row.kind ?? "quota",
+                enabled: true
+            )
+        }
+    }
+
+    /// Known-enum view of `visibleQuotaProviders` for Mac chrome still typed
+    /// on `UsageProvider`. Unknown registry ids are skipped until those
+    /// surfaces take string ids.
+    var activeQuotaProviders: [UsageProvider] {
         var seen = Set<String>()
         var out: [UsageProvider] = []
-        for row in quotaRows where row.enabled != false {
-            guard let provider = known[row.id], seen.insert(row.id).inserted else {
-                continue
-            }
+        for row in visibleQuotaProviders {
+            guard let provider = UsageProvider(rawValue: row.id),
+                  seen.insert(row.id).inserted
+            else { continue }
             out.append(provider)
         }
-        // Host listed quota sources but none enabled — respect that.
-        if !quotaRows.isEmpty { return out }
-        return UsageProvider.allCases
+        return out
     }
 
 
-    /// Pools for one provider ordered fastest-window-first, so the shortest
-    /// window becomes the outermost ring. Cursor's pools share a billing cycle
-    /// and tie on length, so a fixed precedence breaks it — Total then API;
-    /// Auto is sampled but not charted (always empty for most plans).
     func burndownRings(for provider: UsageProvider) -> [Burndown] {
+        burndownRings(forProviderID: provider.rawValue)
+    }
+
+    /// Pools for one provider ordered fastest-window-first, so the shortest
+    /// window becomes the outermost ring. Prefer host `ring` flags when the
+    /// provider advertised pools; otherwise fall back to known Cursor filters.
+    func burndownRings(forProviderID providerID: String) -> [Burndown] {
         let precedence = ["session", "total", "api", "auto", "week"]
-        let pools = burndown?[provider.rawValue]?.values ?? [:].values
-        let visible = provider == .cursor
-            ? pools.filter { $0.pool == "total" || $0.pool == "api" }
-            : Array(pools)
+        let pools = burndown?[providerID]?.values ?? [:].values
+        let ringIDs: Set<String>? = {
+            guard let info = providers?.first(where: { $0.id == providerID }),
+                  let declared = info.pools, !declared.isEmpty
+            else { return nil }
+            return Set(declared.filter { $0.value.ring != false }.map(\.key))
+        }()
+        let visible: [Burndown]
+        if let ringIDs {
+            visible = pools.filter { ringIDs.contains($0.pool ?? "") }
+        } else if providerID == UsageProvider.cursor.rawValue {
+            visible = pools.filter { $0.pool == "total" || $0.pool == "api" }
+        } else {
+            visible = Array(pools)
+        }
         return visible.sorted { lhs, rhs in
             let lw = lhs.windowS ?? .greatestFiniteMagnitude
             let rw = rhs.windowS ?? .greatestFiniteMagnitude
@@ -151,6 +200,103 @@ struct UsageSnapshot: Decodable, Sendable {
     }
 
     func meter(for provider: UsageProvider) -> ProviderMeter {
+        meter(forProviderID: provider.rawValue)
+    }
+
+    func meter(for info: QuotaProviderInfo) -> ProviderMeter {
+        if !(info.pools ?? [:]).isEmpty {
+            return meter(fromRegistry: info)
+        }
+        if let known = UsageProvider(rawValue: info.id) {
+            return legacyMeter(for: known)
+        }
+        return ProviderMeter(
+            id: info.id,
+            title: info.displayTitle,
+            ok: info.ok ?? false,
+            plan: info.plan,
+            error: info.error,
+            primary: MeterWindow(title: "—", percent: nil),
+            secondary: MeterWindow(title: "—", percent: nil),
+            headlinePoolID: info.headline
+        )
+    }
+
+    func meter(forProviderID providerID: String) -> ProviderMeter {
+        if let info = providers?.first(where: { $0.id == providerID }) {
+            return meter(for: info)
+        }
+        if let known = UsageProvider(rawValue: providerID) {
+            return legacyMeter(for: known)
+        }
+        return ProviderMeter(
+            id: providerID,
+            title: providerID.capitalized,
+            ok: false,
+            primary: MeterWindow(title: "—", percent: nil),
+            secondary: MeterWindow(title: "—", percent: nil)
+        )
+    }
+
+    /// Schema-driven meter from `/usage` → `providers[]`. Cost / reset-credit
+    /// extras still come from the legacy nested objects until the host folds
+    /// them into the registry payload.
+    private func meter(fromRegistry info: QuotaProviderInfo) -> ProviderMeter {
+        let windows = info.visiblePools.map { entry in
+            MeterWindow(
+                id: entry.id,
+                title: entry.pool.title ?? entry.id.capitalized,
+                percent: entry.pool.pct,
+                pacePercent: entry.pool.pacePct,
+                reset: entry.pool.resetsIn
+            )
+        }
+        let primary = windows.first ?? MeterWindow(title: "—", percent: nil)
+        let secondary = windows.count > 1
+            ? windows[1]
+            : MeterWindow(title: "—", percent: nil)
+        let tertiary = windows.count > 2 ? windows[2] : nil
+
+        var paceLabel: String?
+        var runsOutIn: String?
+        var resetCreditsLabel: String?
+        var resetCreditsExpiryLabel: String?
+        var costLabel: String?
+        switch info.id {
+        case UsageProvider.claude.rawValue:
+            costLabel = today?.costUSD.map { $0.dollarLabel + " today" }
+        case UsageProvider.codex.rawValue:
+            paceLabel = codex?.paceLabel
+            runsOutIn = codex?.runsOutIn
+            resetCreditsLabel = codex?.resetCreditsLabel
+            resetCreditsExpiryLabel = codex?.resetCreditsExpiryLabel
+            costLabel = codex?.costLabel
+        case UsageProvider.cursor.rawValue:
+            paceLabel = cursor?.paceLabel
+            costLabel = cursorCostLabel
+        default:
+            break
+        }
+
+        return ProviderMeter(
+            id: info.id,
+            title: info.displayTitle,
+            ok: info.ok ?? false,
+            plan: info.plan,
+            error: info.error,
+            primary: primary,
+            secondary: secondary,
+            tertiary: tertiary,
+            paceLabel: paceLabel,
+            runsOutIn: runsOutIn,
+            resetCreditsLabel: resetCreditsLabel,
+            resetCreditsExpiryLabel: resetCreditsExpiryLabel,
+            costLabel: costLabel,
+            headlinePoolID: info.headline
+        )
+    }
+
+    private func legacyMeter(for provider: UsageProvider) -> ProviderMeter {
         switch provider {
         case .claude:
             ProviderMeter(
@@ -159,12 +305,14 @@ struct UsageSnapshot: Decodable, Sendable {
                 plan: plan,
                 error: quotaError,
                 primary: MeterWindow(
+                    id: "session",
                     title: "Session",
                     percent: sessionPct,
                     pacePercent: sessionPacePct,
                     reset: sessionResetsIn
                 ),
                 secondary: MeterWindow(
+                    id: "week",
                     title: "Weekly",
                     percent: weekPct,
                     pacePercent: weekPacePct,
@@ -172,7 +320,8 @@ struct UsageSnapshot: Decodable, Sendable {
                 ),
                 costLabel: today?.costUSD.map {
                     $0.dollarLabel + " today"
-                }
+                },
+                headlinePoolID: "week"
             )
         case .codex:
             ProviderMeter(
@@ -181,12 +330,14 @@ struct UsageSnapshot: Decodable, Sendable {
                 plan: codex?.plan,
                 error: codex?.error,
                 primary: MeterWindow(
+                    id: "session",
                     title: "Session",
                     percent: codex?.sessionPct,
                     pacePercent: codex?.sessionPacePct,
                     reset: codex?.sessionResetsIn
                 ),
                 secondary: MeterWindow(
+                    id: "week",
                     title: "Weekly",
                     percent: codex?.weekPct,
                     pacePercent: codex?.weekPacePct,
@@ -196,7 +347,8 @@ struct UsageSnapshot: Decodable, Sendable {
                 runsOutIn: codex?.runsOutIn,
                 resetCreditsLabel: codex?.resetCreditsLabel,
                 resetCreditsExpiryLabel: codex?.resetCreditsExpiryLabel,
-                costLabel: codex?.costLabel
+                costLabel: codex?.costLabel,
+                headlinePoolID: "week"
             )
         case .cursor:
             // Total (included) and API (on-demand) are independent pools that
@@ -207,19 +359,22 @@ struct UsageSnapshot: Decodable, Sendable {
                 ok: cursor?.ok ?? false,
                 plan: cursor?.plan,
                 primary: MeterWindow(
+                    id: "total",
                     title: "Total",
                     percent: cursor?.totalPct,
                     pacePercent: cursor?.totalPacePct,
                     reset: cursor?.resetsIn
                 ),
                 secondary: MeterWindow(
+                    id: "api",
                     title: "API",
                     percent: cursor?.apiPct,
                     pacePercent: cursor?.apiPacePct,
                     reset: cursor?.resetsIn
                 ),
                 paceLabel: cursor?.paceLabel,
-                costLabel: cursorCostLabel
+                costLabel: cursorCostLabel,
+                headlinePoolID: "total"
             )
         }
     }
@@ -270,7 +425,11 @@ struct Burndown: Decodable, Sendable, Identifiable {
     var exhaustsIn: String?
     var exhaustsBeforeReset: Bool?
     var samples: Int?
+    /// Prose, for VoiceOver and for surfaces with room for only one line.
     var headline: String?
+    /// The same situation as a short phrase, for a card that shows the numbers
+    /// in a stat row beside it rather than inside the sentence.
+    var verdict: String?
 
     var id: String { "\(provider ?? "?").\(pool ?? "?")" }
 
@@ -301,7 +460,7 @@ struct Burndown: Decodable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
-        case exhausted
+        case exhausted, verdict
         case windowStart = "window_start"
         case windowEnd = "window_end"
         case windowS = "window_s"
@@ -343,7 +502,8 @@ enum UsageProvider: String, CaseIterable, Sendable {
 }
 
 struct ProviderMeter: Sendable {
-    var provider: UsageProvider
+    var id: String
+    var title: String
     var ok: Bool
     var plan: String?
     var error: String?
@@ -357,7 +517,44 @@ struct ProviderMeter: Sendable {
     /// Joined expiry countdowns for those credits, e.g. "6d 5h · 18d 3h".
     var resetCreditsExpiryLabel: String?
     var costLabel: String?
+    /// Host registry headline pool id (`week`, `total`, …) for menu-bar tanks.
+    var headlinePoolID: String?
 
+    var knownProvider: UsageProvider? { UsageProvider(rawValue: id) }
+
+    init(
+        id: String,
+        title: String,
+        ok: Bool,
+        plan: String? = nil,
+        error: String? = nil,
+        primary: MeterWindow,
+        secondary: MeterWindow,
+        tertiary: MeterWindow? = nil,
+        paceLabel: String? = nil,
+        runsOutIn: String? = nil,
+        resetCreditsLabel: String? = nil,
+        resetCreditsExpiryLabel: String? = nil,
+        costLabel: String? = nil,
+        headlinePoolID: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.ok = ok
+        self.plan = plan
+        self.error = error
+        self.primary = primary
+        self.secondary = secondary
+        self.tertiary = tertiary
+        self.paceLabel = paceLabel
+        self.runsOutIn = runsOutIn
+        self.resetCreditsLabel = resetCreditsLabel
+        self.resetCreditsExpiryLabel = resetCreditsExpiryLabel
+        self.costLabel = costLabel
+        self.headlinePoolID = headlinePoolID
+    }
+
+    /// Compatibility for call sites still typed on the known-provider enum.
     init(
         provider: UsageProvider,
         ok: Bool,
@@ -370,39 +567,74 @@ struct ProviderMeter: Sendable {
         runsOutIn: String? = nil,
         resetCreditsLabel: String? = nil,
         resetCreditsExpiryLabel: String? = nil,
-        costLabel: String? = nil
+        costLabel: String? = nil,
+        headlinePoolID: String? = nil
     ) {
-        self.provider = provider
-        self.ok = ok
-        self.plan = plan
-        self.error = error
-        self.primary = primary
-        self.secondary = secondary
-        self.tertiary = tertiary
-        self.paceLabel = paceLabel
-        self.runsOutIn = runsOutIn
-        self.resetCreditsLabel = resetCreditsLabel
-        self.resetCreditsExpiryLabel = resetCreditsExpiryLabel
-        self.costLabel = costLabel
+        self.init(
+            id: provider.rawValue,
+            title: provider.title,
+            ok: ok,
+            plan: plan,
+            error: error,
+            primary: primary,
+            secondary: secondary,
+            tertiary: tertiary,
+            paceLabel: paceLabel,
+            runsOutIn: runsOutIn,
+            resetCreditsLabel: resetCreditsLabel,
+            resetCreditsExpiryLabel: resetCreditsExpiryLabel,
+            costLabel: costLabel,
+            headlinePoolID: headlinePoolID
+        )
+    }
+
+    private var allWindows: [MeterWindow] {
+        [primary, secondary, tertiary].compactMap { $0 }
     }
 
     /// Window shown as the provider's headline signal (menu bar + overview rings).
     var headline: MeterWindow {
-        if provider == .cursor {
+        if let headlinePoolID,
+           let match = allWindows.first(where: { $0.id == headlinePoolID }) {
+            return match
+        }
+        if id == UsageProvider.cursor.rawValue {
             return primary
         }
-        return [primary, secondary, tertiary]
-            .compactMap { $0 }
-            .max { ($0.percent ?? -1) < ($1.percent ?? -1) }
+        return allWindows.max { ($0.percent ?? -1) < ($1.percent ?? -1) }
             ?? primary
+    }
+
+    /// Long-window tank for the menu-bar icon (Weekly / Total / host headline).
+    var menuBarWindow: MeterWindow {
+        if let headlinePoolID,
+           let match = allWindows.first(where: { $0.id == headlinePoolID }) {
+            return match
+        }
+        return id == UsageProvider.cursor.rawValue ? primary : secondary
     }
 }
 
 struct MeterWindow: Sendable {
+    var id: String?
     var title: String
     var percent: Double?
     var pacePercent: Double?
     var reset: String?
+
+    init(
+        id: String? = nil,
+        title: String,
+        percent: Double?,
+        pacePercent: Double? = nil,
+        reset: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.percent = percent
+        self.pacePercent = pacePercent
+        self.reset = reset
+    }
 }
 
 struct TokenBucket: Decodable, Sendable {
@@ -427,20 +659,29 @@ struct DailyBurnDay: Decodable, Sendable, Identifiable {
     var id: String { date }
 
     func burn(for provider: UsageProvider) -> Double {
-        if let burns, let value = burns[provider.rawValue] {
+        burn(forProviderID: provider.rawValue)
+    }
+
+    func burn(forProviderID providerID: String) -> Double {
+        if let burns, let value = burns[providerID] {
             return value
         }
-        switch provider {
-        case .claude: return claude ?? 0
-        case .codex: return codex ?? 0
-        case .cursor: return cursor ?? 0
+        switch providerID {
+        case UsageProvider.claude.rawValue: return claude ?? 0
+        case UsageProvider.codex.rawValue: return codex ?? 0
+        case UsageProvider.cursor.rawValue: return cursor ?? 0
+        default: return 0
         }
     }
 
     /// Total across the given providers (enabled set), not every column.
     func total(for providers: [UsageProvider]) -> Double {
-        if providers.isEmpty { return total ?? 0 }
-        return providers.reduce(0) { $0 + burn(for: $1) }
+        total(forProviderIDs: providers.map(\.rawValue))
+    }
+
+    func total(forProviderIDs providerIDs: [String]) -> Double {
+        if providerIDs.isEmpty { return total ?? 0 }
+        return providerIDs.reduce(0) { $0 + burn(forProviderID: $1) }
     }
 }
 
@@ -456,6 +697,45 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var accent: String?
     var headline: String?
     var pools: [String: QuotaPoolInfo]?
+
+    init(
+        id: String,
+        title: String? = nil,
+        kind: String? = nil,
+        enabled: Bool? = nil,
+        ok: Bool? = nil,
+        plan: String? = nil,
+        error: String? = nil,
+        accent: String? = nil,
+        headline: String? = nil,
+        pools: [String: QuotaPoolInfo]? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.enabled = enabled
+        self.ok = ok
+        self.plan = plan
+        self.error = error
+        self.accent = accent
+        self.headline = headline
+        self.pools = pools
+    }
+
+    var displayTitle: String { title ?? id.capitalized }
+
+    /// Ring pools in host-friendly order (fastest / primary windows first).
+    var visiblePools: [(id: String, pool: QuotaPoolInfo)] {
+        let precedence = ["session", "total", "api", "auto", "week"]
+        return (pools ?? [:])
+            .filter { $0.value.ring != false }
+            .sorted {
+                let lhs = precedence.firstIndex(of: $0.key) ?? precedence.count
+                let rhs = precedence.firstIndex(of: $1.key) ?? precedence.count
+                return lhs < rhs
+            }
+            .map { (id: $0.key, pool: $0.value) }
+    }
 }
 
 struct QuotaPoolInfo: Decodable, Sendable {
@@ -571,6 +851,7 @@ struct Attention: Decodable, Sendable {
     var score: Int?
     var summary: String?
     var reasons: [AttentionReason]?
+    var acknowledged: Bool?
 
     var isWarning: Bool {
         switch level {
@@ -782,6 +1063,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var hint: String?
     /// "quota" or "activity" — from the host registry.
     var kind: String?
+    /// "ai" or "devtools" — which Settings section this row belongs to.
+    var group: String?
     var enabled: Bool?
     var ok: Bool?
     var stale: Bool?
@@ -791,8 +1074,55 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var ageS: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, hint, kind, enabled, ok, stale, configured, error, detail
+        case id, title, hint, kind, group, enabled, ok, stale, configured
+        case error, detail
         case ageS = "age_s"
+    }
+
+    var sourceGroup: SourceGroup { SourceGroup(group: group, kind: kind) }
+}
+
+/// AI coding tools vs. dev tools: two different jobs, so onboarding and
+/// Settings list them apart instead of one undifferentiated pile of toggles.
+///
+/// Membership comes from the host registry (`sources[].group`); titles are
+/// chrome and live in `HeadroomCopy`.
+enum SourceGroup: String, CaseIterable, Sendable {
+    case ai
+    case devtools
+
+    /// Hosts predating `group` only sent `kind`, where quota == a coding tool.
+    init(group: String?, kind: String?) {
+        if let group, let known = SourceGroup(rawValue: group) {
+            self = known
+        } else {
+            self = kind == "quota" ? .ai : .devtools
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .ai: return HeadroomCopy.aiTools
+        case .devtools: return HeadroomCopy.devTools
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .ai: return HeadroomCopy.aiToolsHint
+        case .devtools: return HeadroomCopy.devToolsHint
+        }
+    }
+}
+
+extension Array where Element == SyncSource {
+    /// Rows split into `SourceGroup` order, dropping groups with no rows.
+    /// Registry order is preserved inside each group.
+    func groupedBySourceGroup() -> [(group: SourceGroup, sources: [SyncSource])] {
+        SourceGroup.allCases.compactMap { group in
+            let rows = filter { $0.sourceGroup == group }
+            return rows.isEmpty ? nil : (group, rows)
+        }
     }
 }
 
@@ -827,6 +1157,64 @@ struct SupabaseService: Decodable, Identifiable, Sendable {
     var id: String { name }
 }
 
+struct PlausibleUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var sites: [PlausibleSite]?
+    var siteCount: Int?
+    var visitorsToday: Int?
+    var realtime: Int?
+    /// Primary window id from the host (`day`, `24h`, `7d`, `30d`).
+    var range: String?
+    var rangeLabel: String?
+
+    var windowLabel: String {
+        rangeLabel ?? range ?? "today"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, sites, stale, realtime, range
+        case siteCount = "site_count"
+        case visitorsToday = "visitors_today"
+        case rangeLabel = "range_label"
+    }
+}
+
+struct PlausibleSite: Decodable, Identifiable, Sendable {
+    var domain: String
+    var visitorsToday: Int?
+    var pageviewsToday: Int?
+    var visitors7d: Int?
+    var pageviews7d: Int?
+    var bounceRate7d: Double?
+    var visitDuration7d: Int?
+    var realtime: Int?
+    var dashboardURL: String?
+    var error: String?
+    var range: String?
+    var rangeLabel: String?
+
+    var id: String { domain }
+
+    var windowLabel: String {
+        rangeLabel ?? range ?? "today"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case domain, realtime, error, range
+        case visitorsToday = "visitors_today"
+        case pageviewsToday = "pageviews_today"
+        case visitors7d = "visitors_7d"
+        case pageviews7d = "pageviews_7d"
+        case bounceRate7d = "bounce_rate_7d"
+        case visitDuration7d = "visit_duration_7d"
+        case dashboardURL = "dashboard_url"
+        case rangeLabel = "range_label"
+    }
+}
+
 struct LocalUsage: Decodable, Sendable {
     var ok: Bool?
     var host: String?
@@ -858,4 +1246,61 @@ extension Double {
     var dollarLabel: String {
         String(format: "$%.0f", rounded())
     }
+}
+
+enum MobilePermission: String, CaseIterable, Codable, Sendable {
+    case read
+    case refresh
+    case sources
+    case servers
+
+    var title: String {
+        switch self {
+        case .read: "Read dashboard"
+        case .refresh: "Refresh data"
+        case .sources: "Manage sources"
+        case .servers: "Stop local servers"
+        }
+    }
+}
+
+struct MobilePermissions: Codable, Sendable, Equatable {
+    var read = false
+    var refresh = false
+    var sources = false
+    var servers = false
+
+    static let allEnabled = MobilePermissions(
+        read: true, refresh: true, sources: true, servers: true)
+    static let allDisabled = MobilePermissions()
+
+    subscript(_ permission: MobilePermission) -> Bool {
+        get {
+            switch permission {
+            case .read: read
+            case .refresh: refresh
+            case .sources: sources
+            case .servers: servers
+            }
+        }
+        set {
+            switch permission {
+            case .read: read = newValue
+            case .refresh: refresh = newValue
+            case .sources: sources = newValue
+            case .servers: servers = newValue
+            }
+        }
+    }
+
+    var dictionary: [String: Bool] {
+        Dictionary(uniqueKeysWithValues: MobilePermission.allCases.map {
+            ($0.rawValue, self[$0])
+        })
+    }
+}
+
+struct MobilePermissionsResponse: Codable, Sendable {
+    var ok: Bool
+    var permissions: MobilePermissions
 }

@@ -51,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func ensureHostRunning(store: UsageStore) async {
         if await HostController.isReachable() {
             await store.refresh()
+            // launchd kept an older host alive across this app's update? Say so
+            // rather than rendering its stale document as if it were current.
+            await store.checkHostVersion()
             return
         }
         guard HostController.isBundled else { return }
@@ -58,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try HostController.installAndStart()
             if await HostController.waitUntilReady() {
                 await store.refresh()
+                await store.checkHostVersion()
             }
         } catch {
             // SetupView surfaces the error; don't crash launch.
@@ -87,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AttentionAck.dismissedFingerprint = nil
         UserDefaults.standard.set("overview", forKey: "selectedDashboard")
+        // Skip the first-run Welcome sheet so the overview is what we ship.
+        UserDefaults.standard.set(true, forKey: "setupCompleted")
 
         if let fixture {
             do {
@@ -114,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let attention = store.snapshot.attention
-        let showPip = AttentionAck.shouldShowPip(for: attention)
+        let showPip = attention?.isWarning == true
         let icon = MeterIconRenderer.render(
             snapshot: store.snapshot,
             healthy: store.errorMessage == nil,
@@ -215,6 +221,8 @@ private struct SettingsView: View {
     private var confirmServerStops = true
     @AppStorage("supabaseRowLimit")
     private var supabaseRowLimit = 6
+    @AppStorage("plausibleRowLimit")
+    private var plausibleRowLimit = 6
 
     @State private var sources: [SyncSource] = []
     @State private var sourcesMessage: String?
@@ -225,15 +233,27 @@ private struct SettingsView: View {
     @State private var tokenStored = false
     @State private var supabaseMessage: String?
 
+    @State private var plausibleToken = ""
+    @State private var plausibleTokenStored = false
+    @State private var plausibleMessage: String?
+    @State private var plausibleRange = "24h"
+
     @State private var githubToken = ""
     @State private var githubTokenStored = false
     @State private var githubMessage: String?
 
     @State private var hostToken = ""
     @State private var hostTokenStored = false
+    @State private var mobileTokenMessage: String?
+    @State private var mobilePermissions = MobilePermissions.allEnabled
+    @State private var changingMobilePermission: MobilePermission?
 
     private var tokenDraft: String {
         supabaseToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var plausibleTokenDraft: String {
+        plausibleToken.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var githubTokenDraft: String {
@@ -291,53 +311,68 @@ private struct SettingsView: View {
                 Text("Backend")
             } footer: {
                 Text(endpointIsRemote
-                     ? "Remote hosts require the token from ~/.headroom/token."
-                     : "Mac and ESP32 both read this host. If the popover says the host isn’t running, from the Headroom clone run ./scripts/install-host.sh. Source toggles also hide ESP32 pages.")
+                     ? "Remote hosts need the host token (~/.headroom/token) — not the mobile token used by iPhone."
+                     : "Mac, iPhone, and ESP32 all read this host. If it’s down, tap Start host or run ./scripts/install-host.sh from a clone. Source toggles also hide ESP32 pages.")
             }
 
             Section {
-                if sources.isEmpty {
-                    Text(sourcesMessage ?? "Waiting for host…")
+                LabeledContent("Discovery") {
+                    Text("Automatic on local Wi‑Fi")
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(sources) { source in
-                        SourceRow(
-                            source: source,
-                            isBusy: togglingSourceID == source.id || isSyncing,
-                            onToggle: { enabled in
-                                Task { await setSource(source.id, enabled: enabled) }
-                            },
-                            onRefresh: {
-                                Task { await refreshSources([source.id]) }
-                            }
-                        )
+                }
+                HStack {
+                    Button("Copy mobile token") {
+                        copyMobileToken()
+                    }
+                    Spacer()
+                    if let mobileTokenMessage {
+                        Text(mobileTokenMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-
-                Button {
-                    Task { await refreshSources(nil) }
-                } label: {
+                ForEach(MobilePermission.allCases, id: \.rawValue) { permission in
                     HStack {
-                        Text("Refresh all sources")
+                        Text(permission.title)
                         Spacer()
-                        if isSyncing {
+                        if changingMobilePermission == permission {
                             ProgressView()
                                 .controlSize(.small)
+                        } else {
+                            Toggle(
+                                permission.title,
+                                isOn: Binding(
+                                    get: { mobilePermissions[permission] },
+                                    set: { enabled in
+                                        Task {
+                                            await setMobilePermission(
+                                                permission,
+                                                enabled: enabled
+                                            )
+                                        }
+                                    }
+                                )
+                            )
+                            .labelsHidden()
                         }
                     }
                 }
-                .disabled(isSyncing || sources.isEmpty)
-
-                if let sourcesMessage {
-                    Text(sourcesMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
             } header: {
-                Text("Sources")
+                Text("iPhone pairing")
             } footer: {
-                Text("ESP32 footer dots mirror this list. Long-press Home on glance forces a sync.")
+                Text("Copy mobile token (~/.headroom/mobile-token), open Headroom on iPhone, tap this Mac, paste once. Do not use the host token (that’s for the ESP32). Tailscale names remain available as a fallback.")
+            }
+
+            if sources.isEmpty {
+                Section {
+                    Text(sourcesMessage ?? "Waiting for host…")
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Sources")
+                }
+            } else {
+                sourceGroupSection(.ai)
+                sourceGroupSection(.devtools)
             }
 
             Section {
@@ -382,7 +417,67 @@ private struct SettingsView: View {
             } header: {
                 Text("Supabase")
             } footer: {
-                Text("PAT stays in Keychain and never appears in /usage.")
+                Text("PAT stays in Keychain.")
+            }
+
+            Section {
+                LabeledContent("Status") {
+                    Text(plausibleTokenStored ? "Keychain" : "Not connected")
+                        .foregroundStyle(plausibleTokenStored
+                                         ? AnyShapeStyle(.secondary)
+                                         : AnyShapeStyle(HeadroomPalette.amber))
+                }
+                SecureField("Stats API key", text: $plausibleToken)
+                    .onSubmit {
+                        if !plausibleTokenDraft.isEmpty { savePlausibleToken() }
+                    }
+                Picker("Window", selection: Binding(
+                    get: { plausibleRange },
+                    set: { newValue in
+                        guard newValue != plausibleRange else { return }
+                        plausibleRange = newValue
+                        Task { await applyPlausibleRange(newValue) }
+                    }
+                )) {
+                    Text("Today").tag("day")
+                    Text("Last 24 hours").tag("24h")
+                    Text("Last 7 days").tag("7d")
+                    Text("Last 30 days").tag("30d")
+                }
+                .disabled(isSyncing)
+                HStack {
+                    if plausibleTokenDraft.isEmpty {
+                        Button("Refresh") {
+                            Task { await refreshSources(["plausible"]) }
+                        }
+                        .disabled(!plausibleTokenStored || isSyncing)
+                    } else {
+                        Button(plausibleTokenStored ? "Replace" : "Connect") {
+                            savePlausibleToken()
+                        }
+                        .disabled(isSyncing)
+                    }
+                    if plausibleTokenStored {
+                        Button("Disconnect", role: .destructive) {
+                            disconnectPlausible()
+                        }
+                        .disabled(isSyncing)
+                    }
+                    Spacer()
+                    Button("Create key…") {
+                        openURL("https://plausible.io/settings#api-keys")
+                    }
+                    .buttonStyle(.link)
+                }
+                if let plausibleMessage {
+                    Text(plausibleMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Plausible")
+            } footer: {
+                Text("API key stays in Keychain.")
             }
 
             Section {
@@ -424,19 +519,46 @@ private struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("GitHub Actions")
+                Text(HeadroomCopy.githubActions)
             } footer: {
-                Text("Watches repos matching github_org_prefix / github_always_repos in ~/.headroom/config.json. Failed and running workflows show under GitHub.")
+                Text("Repos from config.json. Failures show under \(HeadroomCopy.activity).")
+            }
+
+            Section {
+                Button {
+                    Task { await refreshSources(nil) }
+                } label: {
+                    HStack {
+                        Text(HeadroomCopy.refreshAll)
+                        Spacer()
+                        if isSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                .disabled(isSyncing || sources.isEmpty)
+
+                if let sourcesMessage {
+                    Text(sourcesMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            } header: {
+                Text("Sync")
+            } footer: {
+                Text("Refreshes both lists at once.")
             }
 
             Section("Dashboard") {
                 Stepper(
-                    "GitHub rows: \(activityRowLimit)",
+                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
                     value: $activityRowLimit,
                     in: 3...14
                 )
                 Stepper(
-                    "Local servers: \(serverRowLimit)",
+                    "\(HeadroomCopy.localServers): \(serverRowLimit)",
                     value: $serverRowLimit,
                     in: 1...8
                 )
@@ -445,16 +567,51 @@ private struct SettingsView: View {
                     value: $supabaseRowLimit,
                     in: 1...20
                 )
+                Stepper(
+                    "Plausible sites: \(plausibleRowLimit)",
+                    value: $plausibleRowLimit,
+                    in: 1...20
+                )
                 Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 640)
+        .frame(width: 480, height: 720)
+        .background(SettingsWindowConfigurator())
         .task {
             tokenStored = TokenStore.supabase.exists()
+            plausibleTokenStored = TokenStore.plausible.exists()
             githubTokenStored = TokenStore.github.exists()
             hostTokenStored = TokenStore.host.exists()
             await reloadSources()
+            await reloadMobilePermissions()
+        }
+    }
+
+    /// One toggle list per `SourceGroup`. AI tools meter plans you're signed
+    /// into; dev tools watch projects and want the keys in the sections below.
+    @ViewBuilder
+    private func sourceGroupSection(_ group: SourceGroup) -> some View {
+        let rows = sources.filter { $0.sourceGroup == group }
+        if !rows.isEmpty {
+            Section {
+                ForEach(rows) { source in
+                    SourceRow(
+                        source: source,
+                        isBusy: togglingSourceID == source.id || isSyncing,
+                        onToggle: { enabled in
+                            Task { await setSource(source.id, enabled: enabled) }
+                        },
+                        onRefresh: {
+                            Task { await refreshSources([source.id]) }
+                        }
+                    )
+                }
+            } header: {
+                Text(group.title)
+            } footer: {
+                Text(group.subtitle + " ESP32 dots mirror this list.")
+            }
         }
     }
 
@@ -468,6 +625,28 @@ private struct SettingsView: View {
             Task { await reloadSources() }
         } catch {
             sourcesMessage = error.localizedDescription
+        }
+    }
+
+    private func reloadMobilePermissions() async {
+        if let permissions = try? await client.fetchMobilePermissions() {
+            mobilePermissions = permissions
+        }
+    }
+
+    private func setMobilePermission(
+        _ permission: MobilePermission,
+        enabled: Bool
+    ) async {
+        guard changingMobilePermission == nil else { return }
+        changingMobilePermission = permission
+        defer { changingMobilePermission = nil }
+        var updated = mobilePermissions
+        updated[permission] = enabled
+        do {
+            mobilePermissions = try await client.setMobilePermissions(updated)
+        } catch {
+            mobileTokenMessage = error.localizedDescription
         }
     }
 
@@ -491,6 +670,44 @@ private struct SettingsView: View {
         supabaseToken = ""
         supabaseMessage = "Disconnected"
         Task { await refreshSources(["supabase"]) }
+    }
+
+    private func savePlausibleToken() {
+        let token = plausibleTokenDraft
+        guard !token.isEmpty else { return }
+        do {
+            try TokenStore.plausible.save(token)
+            plausibleToken = ""
+            plausibleTokenStored = true
+            plausibleMessage = "Saved — refreshing…"
+            Task { await refreshSources(["plausible"]) }
+        } catch {
+            plausibleMessage = error.localizedDescription
+        }
+    }
+
+    private func disconnectPlausible() {
+        TokenStore.plausible.delete()
+        plausibleTokenStored = false
+        plausibleToken = ""
+        plausibleMessage = "Disconnected"
+        Task { await refreshSources(["plausible"]) }
+    }
+
+    private func applyPlausibleRange(_ range: String) async {
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            let saved = try await client.setPlausibleRange(range)
+            plausibleRange = saved
+            await client.waitForRefresh(sources: ["plausible"])
+            await reloadSources()
+            plausibleMessage = sources
+                .first(where: { $0.id == "plausible" })?
+                .detail ?? "Window updated"
+        } catch {
+            plausibleMessage = error.localizedDescription
+        }
     }
 
     private func saveGitHubToken() {
@@ -550,11 +767,17 @@ private struct SettingsView: View {
                     .first(where: { $0.id == "supabase" })?
                     .detail ?? "Supabase refreshed"
             }
+            if ids == ["plausible"] {
+                plausibleMessage = sources
+                    .first(where: { $0.id == "plausible" })?
+                    .detail ?? "Plausible refreshed"
+            }
             sourcesMessage = "Synced."
         } catch {
             sourcesMessage = error.localizedDescription
         }
         tokenStored = TokenStore.supabase.exists()
+        plausibleTokenStored = TokenStore.plausible.exists()
         githubTokenStored = TokenStore.github.exists()
     }
 
@@ -562,8 +785,11 @@ private struct SettingsView: View {
         do {
             let snapshot = try await client.fetchUsage()
             sources = snapshot.sources ?? []
+            if let range = snapshot.plausible?.range {
+                plausibleRange = range
+            }
             if sources.isEmpty {
-                sourcesMessage = "Host has no sources payload — restart com.mz.headroom."
+                sourcesMessage = "Host has no sources payload — restart com.centaur-labs.headroom."
             }
         } catch {
             sourcesMessage = error.localizedDescription
@@ -573,6 +799,46 @@ private struct SettingsView: View {
     private func openURL(_ string: String) {
         guard let url = URL(string: string) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    private func copyMobileToken() {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".headroom/mobile-token")
+        guard let value = try? String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            mobileTokenMessage = "Start the host first"
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        mobileTokenMessage = "Copied"
+    }
+}
+
+/// SwiftUI's Settings scene is panel-like in a menu-bar app. Promote it to a
+/// regular, floating window and activate the app when the window is shown.
+private struct SettingsWindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        SettingsWindowObserverView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class SettingsWindowObserverView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.title = "Headroom Settings"
+        window.level = .floating
+        window.hidesOnDeactivate = false
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        window.styleMask.insert([
+            .titled, .closable, .miniaturizable, .resizable,
+        ])
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -660,4 +926,3 @@ private struct SourceRow: View {
         return stale ? "\(minutes)m stale" : "\(minutes)m ago"
     }
 }
-
