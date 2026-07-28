@@ -194,6 +194,19 @@ struct HeadroomClient: Sendable {
         return (object?["enabled"] as? [String: Bool]) ?? enabled
     }
 
+    /// Pin the provider order. The host normalizes (unknown ids dropped, new
+    /// providers appended) and answers with the list it actually stored.
+    @discardableResult
+    func setSourceOrder(_ order: [String]) async throws -> [String] {
+        let url = try base().appendingPathComponent("sources")
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(withJSONObject: ["order": order]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["order"] as? [String]) ?? order
+    }
+
     func fetchMobilePermissions() async throws -> MobilePermissions {
         let url = try base()
             .appendingPathComponent("mobile")

@@ -139,10 +139,10 @@ enum MeterIconRenderer {
         let warning = attentionLevel == "warn" || attentionLevel == "critical"
         let image = NSImage(size: size, flipped: false) { _ in
             // Settings subset only — never invent Claude/Codex/Cursor when
-            // every quota source is off. Cap at 3 bars for icon geometry;
-            // ESP32 has the same hard page limit.
-            let visibleProviders = Array(
-                snapshot.visibleQuotaProviders.prefix(3))
+            // every quota source is off. The host picks which 3 (pinned
+            // order, enabled only); icon geometry and the ESP32 glance share
+            // that same hard limit.
+            let visibleProviders = snapshot.focusProviders()
             let barWidthPixels = 6
             let barHeightPixels = 30
             let gapPixels = 5

@@ -19,13 +19,10 @@ struct BurndownCard: View {
             ?? HeadroomPalette.dim
     }
 
-    /// Longest window first here: the weekly shape is the one worth a chart,
-    /// while a 5h session is mostly noise at this size.
-    private var charted: [Burndown] {
-        rings.sorted {
-            ($0.windowS ?? 0) > ($1.windowS ?? 0)
-        }
-    }
+    /// `rings` already arrives in the app-wide pool order, which is the order
+    /// the quota card's progress bars use. Keep it: a chart should sit in the
+    /// same position as the bar it belongs to.
+    private var charted: [Burndown] { rings }
 
     /// Cursor's Total and API share one billing cycle. Overlay them on a single
     /// axis so a drained API pool can't hide behind a healthy Total.
@@ -74,25 +71,14 @@ struct OverviewBurndownCard: View {
         let providerID: String
         let title: String
         let pool: Burndown
-        let actual: [Point]
-        let projected: [Point]
+        let renewsAt: Double?
     }
 
     /// One pool per provider: longest window for Claude/Codex, Total for Cursor.
     /// Cursor's API pool stays on the Cursor detail chart — four lines here is
     /// more than the overview can usefully carry.
     private var series: [Series] {
-        func points(_ pairs: [[Double]]?) -> [Point] {
-            (pairs ?? []).compactMap { pair in
-                guard pair.count >= 2 else { return nil }
-                return Point(
-                    time: pair[0],
-                    remaining: max(0, min(pair[1], 100))
-                )
-            }
-        }
-
-        return snapshot.visibleQuotaProviders.compactMap { provider in
+        snapshot.visibleQuotaProviders.compactMap { provider in
             let pools = snapshot.burndownRings(forProviderID: provider.id)
             let pool: Burndown?
             if provider.id == UsageProvider.cursor.rawValue {
@@ -105,77 +91,25 @@ struct OverviewBurndownCard: View {
                     ($0.windowS ?? 0) < ($1.windowS ?? 0)
                 })
             }
-            guard let pool else { return nil }
-            let actual = points(pool.actual)
-            guard !actual.isEmpty else { return nil }
+            guard let pool, !(pool.actual ?? []).isEmpty else { return nil }
             return Series(
                 id: provider.id,
                 providerID: provider.id,
                 title: provider.displayTitle,
                 pool: pool,
-                actual: actual,
-                projected: points(pool.projected)
+                renewsAt: pool.windowEnd
             )
         }
     }
 
-    /// A polyline cut to the charted range, interpolated where it crosses an
-    /// edge.
-    ///
-    /// Dropping the out-of-range points instead loses whole lines rather than
-    /// their tails: a weekly pool that resets after the chart's right edge has
-    /// its projection reduced to the single point at "now", which is not two
-    /// points, so nothing is drawn at all. The line running off the edge is
-    /// precisely the one worth seeing.
-    private func clipped(
-        _ points: [Point], from start: Double, to end: Double
-    ) -> [Point] {
-        guard points.count >= 2 else {
-            return points.filter { $0.time >= start && $0.time <= end }
-        }
-
-        func between(_ a: Point, _ b: Point, at time: Double) -> Point {
-            let span = b.time - a.time
-            guard span > 0 else { return Point(time: time, remaining: b.remaining) }
-            let ratio = (time - a.time) / span
+    private func points(_ pairs: [[Double]]) -> [Point] {
+        pairs.compactMap { pair in
+            guard pair.count >= 2 else { return nil }
             return Point(
-                time: time,
-                remaining: a.remaining + ratio * (b.remaining - a.remaining)
+                time: pair[0],
+                remaining: max(0, min(pair[1], 100))
             )
         }
-
-        var out: [Point] = []
-        for (a, b) in zip(points, points.dropFirst()) {
-            let from = max(a.time, start)
-            let to = min(b.time, end)
-            guard from <= to else { continue }
-            for edge in [from, to] where out.last?.time != edge {
-                out.append(between(a, b, at: edge))
-            }
-        }
-        return out
-    }
-
-    private func calendarRange(for series: [Series]) -> (
-        start: Double,
-        end: Double,
-        now: Double
-    ) {
-        let now = series.flatMap(\.actual).map(\.time).max()
-            ?? Date().timeIntervalSince1970
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(
-            for: Date(timeIntervalSince1970: now))
-        let start = calendar.date(
-            byAdding: .day, value: -3, to: today) ?? today
-        let end = calendar.date(
-            byAdding: .day, value: 7, to: start)
-            ?? start.addingTimeInterval(7 * 24 * 60 * 60)
-        return (
-            start.timeIntervalSince1970,
-            end.timeIntervalSince1970,
-            now
-        )
     }
 
     var body: some View {
@@ -191,7 +125,11 @@ struct OverviewBurndownCard: View {
             }
             .cardStyle()
         } else {
-            let range = calendarRange(for: all)
+            let now = all.compactMap { $0.pool.actual?.last?[0] }.max()
+                ?? Date().timeIntervalSince1970
+            let domain = OverallBurndownChartMath.domain(
+                now: Date(timeIntervalSince1970: now)
+            )
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(HeadroomCopy.overallBurndown)
@@ -204,10 +142,12 @@ struct OverviewBurndownCard: View {
 
                 Canvas { context, size in
                     let plot = burndownPlotRect(in: size, axis: true)
-                    let span = range.end - range.start
+                    let span = domain.endEpoch - domain.startEpoch
+                    guard span > 0 else { return }
                     func x(_ time: Double) -> CGFloat {
                         plot.minX
-                            + CGFloat((time - range.start) / span) * plot.width
+                            + CGFloat((time - domain.startEpoch) / span)
+                            * plot.width
                     }
                     func y(_ remaining: Double) -> CGFloat {
                         plot.maxY
@@ -217,14 +157,15 @@ struct OverviewBurndownCard: View {
                     drawBurndownScale(&context, plot: plot)
                     drawBurndownCalendar(
                         &context, plot: plot,
-                        start: range.start, end: range.end, now: range.now)
+                        start: domain.startEpoch,
+                        end: domain.endEpoch,
+                        now: domain.nowEpoch)
 
-                    // Darker than the day rules, which it would otherwise be
-                    // mistaken for.
                     var nowMarker = Path()
-                    nowMarker.move(to: CGPoint(x: x(range.now), y: plot.minY))
+                    nowMarker.move(to: CGPoint(
+                        x: x(domain.nowEpoch), y: plot.minY))
                     nowMarker.addLine(to: CGPoint(
-                        x: x(range.now), y: plot.maxY))
+                        x: x(domain.nowEpoch), y: plot.maxY))
                     context.stroke(
                         nowMarker,
                         with: .color(.secondary.opacity(0.4)),
@@ -233,11 +174,17 @@ struct OverviewBurndownCard: View {
 
                     for entry in all {
                         let tint = entry.pool.kind == .exhausted
-                            ? snapshot.tint(forProviderID: entry.providerID).drained()
+                            ? snapshot.tint(forProviderID: entry.providerID)
+                                .drained()
                             : snapshot.tint(forProviderID: entry.providerID)
-                        let actual = clipped(
-                            entry.actual, from: range.start, to: range.end
-                        ).map { CGPoint(x: x($0.time), y: y($0.remaining)) }
+
+                        let actual = points(
+                            OverallBurndownChartMath.preparedActual(
+                                entry.pool.actual, domain: domain
+                            )
+                        ).map {
+                            CGPoint(x: x($0.time), y: y($0.remaining))
+                        }
                         if actual.count >= 2 {
                             var line = Path()
                             line.move(to: actual[0])
@@ -258,9 +205,15 @@ struct OverviewBurndownCard: View {
                             context.fill(dot, with: .color(tint))
                         }
 
-                        let projected = clipped(
-                            entry.projected, from: range.start, to: range.end
-                        ).map { CGPoint(x: x($0.time), y: y($0.remaining)) }
+                        let projectedPairs =
+                            OverallBurndownChartMath.preparedProjection(
+                                entry.pool.projected,
+                                windowEnd: entry.pool.windowEnd,
+                                domain: domain
+                            )
+                        let projected = points(projectedPairs).map {
+                            CGPoint(x: x($0.time), y: y($0.remaining))
+                        }
                         if projected.count >= 2 {
                             var forecast = Path()
                             forecast.move(to: projected[0])
@@ -276,6 +229,35 @@ struct OverviewBurndownCard: View {
                                     dash: [6, 2]
                                 )
                             )
+                            if let hit = projected.last {
+                                let exhausted =
+                                    (projectedPairs.last?[1] ?? 1) <= 0
+                                let size: CGFloat = exhausted ? 6 : 4
+                                let dot = Path(ellipseIn: CGRect(
+                                    x: hit.x - size / 2,
+                                    y: hit.y - size / 2,
+                                    width: size, height: size))
+                                context.fill(
+                                    dot, with: .color(tint.opacity(0.85)))
+                            }
+                        }
+
+                        // Accent dotted reset on top of the strokes.
+                        if let renew = entry.renewsAt,
+                           renew > domain.nowEpoch,
+                           renew >= domain.startEpoch,
+                           renew <= domain.endEpoch {
+                            var renewMarker = Path()
+                            renewMarker.move(to: CGPoint(
+                                x: x(renew), y: plot.minY))
+                            renewMarker.addLine(to: CGPoint(
+                                x: x(renew), y: plot.maxY))
+                            context.stroke(
+                                renewMarker,
+                                with: .color(tint),
+                                style: StrokeStyle(
+                                    lineWidth: 1.5, dash: [1.5, 2.5])
+                            )
                         }
                     }
                 }
@@ -287,16 +269,24 @@ struct OverviewBurndownCard: View {
                             HStack(spacing: 5) {
                                 Circle()
                                     .fill(entry.pool.kind == .exhausted
-                                          ? snapshot.tint(forProviderID: entry.providerID).drained()
-                                          : snapshot.tint(forProviderID: entry.providerID))
+                                          ? snapshot.tint(
+                                              forProviderID: entry.providerID
+                                          ).drained()
+                                          : snapshot.tint(
+                                              forProviderID: entry.providerID
+                                          ))
                                     .frame(width: 7, height: 7)
                                 Text(entry.title)
                                     .font(.caption2.weight(.medium))
                             }
-                            // Same vocabulary as the provider cards: the
-                            // overview should not invent a second way of
-                            // saying whether a pool survives its window.
-                            Text(entry.pool.verdict ?? HeadroomCopy.collectingHistory)
+                            if let resets = entry.pool.resetsIn {
+                                Text(HeadroomCopy.resets(resets))
+                                    .font(.caption2)
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(entry.pool.verdict
+                                  ?? HeadroomCopy.collectingHistory)
                                 .font(.caption2)
                                 .monospacedDigit()
                                 .lineLimit(2)
@@ -640,7 +630,7 @@ struct MultiBurndownCanvas: View {
                 }
 
                 // --- where this pace lands
-                let projected = (pool.projected ?? []).compactMap { pair -> CGPoint? in
+                let projected = (pool.croppedProjected).compactMap { pair -> CGPoint? in
                     guard pair.count >= 2 else { return nil }
                     return CGPoint(x: x(pair[0]), y: y(pair[1]))
                 }

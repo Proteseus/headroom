@@ -247,6 +247,8 @@ private struct SettingsView: View {
     @State private var sourcesMessage: String?
     @State private var isSyncing = false
     @State private var togglingSourceID: String?
+    /// Row the pointer is dragging over, for the insertion line.
+    @State private var dropTargetID: String?
 
     @State private var supabaseToken = ""
     @State private var tokenStored = false
@@ -618,19 +620,83 @@ private struct SettingsView: View {
                     SourceRow(
                         source: source,
                         isBusy: togglingSourceID == source.id || isSyncing,
+                        // Position only means something where it picks the
+                        // top 3 — the metered providers.
+                        isDraggable: group == .ai,
+                        isDropTarget: dropTargetID == source.id,
                         onToggle: { enabled in
                             Task { await setSource(source.id, enabled: enabled) }
                         },
                         onRefresh: {
                             Task { await refreshSources([source.id]) }
+                        },
+                        onNudge: { offset in
+                            Task { await nudgeSource(source.id, by: offset) }
                         }
                     )
+                    .modifier(DragReorder(
+                        enabled: group == .ai,
+                        id: source.id,
+                        onTargeted: { targeted in
+                            dropTargetID = targeted ? source.id : nil
+                        },
+                        onDrop: { dragged in
+                            dropTargetID = nil
+                            Task { await moveSource(dragged, before: source.id) }
+                        }
+                    ))
                 }
             } header: {
                 Text(group.title)
             } footer: {
-                Text(group.subtitle + " ESP32 dots mirror this list.")
+                Text(group == .ai
+                     ? "\(group.subtitle) Drag to reorder — the top \(focusLimit) fill the menu bar, the widget, and the board."
+                     : "\(group.subtitle) ESP32 dots mirror this list.")
             }
+        }
+    }
+
+    /// Mirrors `sources_config.FOCUS_LIMIT`.
+    private var focusLimit: Int { 3 }
+
+    private var pinnedAIOrder: [String] {
+        sources.filter { $0.sourceGroup == .ai }.map(\.id)
+    }
+
+    /// Drop `dragged` into `target`'s slot. The list sent is the whole AI
+    /// group including disabled rows — a provider you turned off keeps its
+    /// place rather than sinking to the bottom.
+    private func moveSource(_ dragged: String, before target: String) async {
+        guard dragged != target else { return }
+        var order = pinnedAIOrder
+        guard let from = order.firstIndex(of: dragged) else { return }
+        order.remove(at: from)
+        guard let to = order.firstIndex(of: target) else { return }
+        order.insert(dragged, at: to)
+        await commitOrder(order, movedID: dragged)
+    }
+
+    /// Keyboard / VoiceOver path to the same reorder, so pinning isn't
+    /// drag-only.
+    private func nudgeSource(_ id: String, by offset: Int) async {
+        var order = pinnedAIOrder
+        guard let from = order.firstIndex(of: id) else { return }
+        let to = from + offset
+        guard order.indices.contains(to) else { return }
+        order.swapAt(from, to)
+        await commitOrder(order, movedID: id)
+    }
+
+    private func commitOrder(_ order: [String], movedID: String) async {
+        togglingSourceID = movedID
+        defer { togglingSourceID = nil }
+        // Reordering is local bookkeeping — nothing to refetch.
+        do {
+            _ = try await client.setSourceOrder(order)
+            await reloadSources()
+            sourcesMessage = "Reordered — top \(focusLimit) drive the menu bar."
+        } catch {
+            sourcesMessage = error.localizedDescription
         }
     }
 
@@ -861,19 +927,75 @@ private final class SettingsWindowObserverView: NSView {
     }
 }
 
+/// Row-to-row drag reordering.
+///
+/// A grouped `Form` section is not a `List`, so `.onMove` gives no drag
+/// handles here. `.draggable` + `.dropDestination` work in any container and
+/// keep the Form styling — the payload is just the source id.
+private struct DragReorder: ViewModifier {
+    let enabled: Bool
+    let id: String
+    let onTargeted: (Bool) -> Void
+    let onDrop: (String) -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .draggable(id) {
+                    // Dragging the row itself would drag the live toggle.
+                    Label(id.capitalized, systemImage: "line.3.horizontal")
+                        .padding(6)
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let dragged = items.first else { return false }
+                    onDrop(dragged)
+                    return true
+                } isTargeted: { targeted in
+                    onTargeted(targeted)
+                }
+        } else {
+            content
+        }
+    }
+}
+
 private struct SourceRow: View {
     let source: SyncSource
     let isBusy: Bool
+    var isDraggable = false
+    var isDropTarget = false
     let onToggle: (Bool) -> Void
     let onRefresh: () -> Void
+    /// -1 up, +1 down. Keyboard / VoiceOver equivalent of the drag.
+    var onNudge: ((Int) -> Void)?
 
     private var enabled: Bool { source.enabled ?? true }
 
     var body: some View {
         HStack(spacing: 10) {
+            if isDraggable {
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .help("Drag to reorder")
+                    .accessibilityHidden(true)
+            }
+
+            // Brand fill, health as the ring around it — one dot, both facts.
+            // Without a brand the fill *is* the health color, so nothing is
+            // lost on rows the registry gives no accent.
             Circle()
-                .fill(dotColor)
-                .frame(width: 8, height: 8)
+                .fill(brandColor ?? statusColor)
+                .frame(width: 9, height: 9)
+                .overlay {
+                    if brandColor != nil {
+                        Circle()
+                            .strokeBorder(statusColor, lineWidth: 1.5)
+                            .frame(width: 15, height: 15)
+                    }
+                }
+                .frame(width: 16, height: 16)
+                .accessibilityLabel(statusLabel)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.title ?? source.id)
@@ -912,6 +1034,18 @@ private struct SourceRow: View {
         }
         .opacity(enabled ? 1 : 0.55)
         .accessibilityElement(children: .combine)
+        // Drag is the affordance; these keep reordering reachable without a
+        // pointer, and give the drop target a visible insertion line.
+        .accessibilityAction(named: "Move up") { onNudge?(-1) }
+        .accessibilityAction(named: "Move down") { onNudge?(1) }
+        .overlay(alignment: .top) {
+            if isDropTarget {
+                Rectangle()
+                    .fill(HeadroomPalette.green)
+                    .frame(height: 2)
+                    .offset(y: -4)
+            }
+        }
     }
 
     private var secondaryLine: String {
@@ -925,12 +1059,28 @@ private struct SourceRow: View {
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }
 
-    private var dotColor: Color {
+    /// Color is not the only carrier of health — VoiceOver gets it in words.
+    private var statusLabel: String {
+        if !enabled { return "Off" }
+        if source.ok != true { return "Error" }
+        return source.stale == true ? "Stale" : "Healthy"
+    }
+
+    /// Health: green / amber / red, the same words the rest of the app uses.
+    private var statusColor: Color {
         if !enabled { return HeadroomPalette.dim }
         if source.ok == true {
             return source.stale == true ? HeadroomPalette.amber : HeadroomPalette.green
         }
         return HeadroomPalette.red
+    }
+
+    /// The registry's brand accent, so a row is identifiable at a glance in a
+    /// list eight providers long. Rows with no brand keep the status color —
+    /// health then reads off the fill exactly as it used to.
+    private var brandColor: Color? {
+        guard enabled else { return nil }
+        return HeadroomPalette.color(hex: source.accent)
     }
 
     private func ageLabel(_ age: Int) -> String {

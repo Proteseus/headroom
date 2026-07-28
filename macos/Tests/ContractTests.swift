@@ -84,6 +84,45 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(meter.resetCreditsExpiryLabel, "6d 5h · 18d 3h")
     }
 
+    func testSourceRowsCarryTheBrandAccentSettingsPaintsWith() throws {
+        let snapshot = try decodeDemo()
+        let sources = try XCTUnwrap(snapshot.sources)
+        let claude = try XCTUnwrap(sources.first { $0.id == "claude" })
+        XCTAssertEqual(claude.accent, "#D97757")
+        // Same hex the rings and the firmware palette use — one source.
+        XCTAssertEqual(
+            claude.accent,
+            snapshot.providers?.first { $0.id == "claude" }?.accent)
+        // Rows with no brand fall back to the status color, so nil is fine.
+        XCTAssertNil(sources.first { $0.id == "git" }?.accent)
+    }
+
+    func testFocusPicksTheProvidersTheHostChose() throws {
+        var snapshot = try decodeDemo()
+        XCTAssertEqual(snapshot.focus, ["claude", "codex", "cursor"])
+        XCTAssertEqual(
+            snapshot.focusProviders().map(\.id), ["claude", "codex", "cursor"])
+        XCTAssertEqual(snapshot.providers?.first?.rank, 0)
+
+        snapshot.focus = ["cursor", "claude"]
+        XCTAssertEqual(snapshot.focusProviders().map(\.id), ["cursor", "claude"])
+
+        // Never more than the compact surfaces can draw.
+        snapshot.focus = ["cursor", "claude", "codex", "claude"]
+        XCTAssertEqual(snapshot.focusProviders().count, 3)
+    }
+
+    func testFocusFallsBackWhenTheHostIsOlderOrTheIDsAreStale() throws {
+        var snapshot = try decodeDemo()
+        snapshot.focus = nil
+        XCTAssertEqual(
+            snapshot.focusProviders().map(\.id), ["claude", "codex", "cursor"])
+
+        // Every focus id unresolvable between polls — show something.
+        snapshot.focus = ["nope", "gone"]
+        XCTAssertFalse(snapshot.focusProviders().isEmpty)
+    }
+
     func testSourcesCarryTheFieldsSettingsRenders() throws {
         let snapshot = try decodeDemo()
         let sources = try XCTUnwrap(snapshot.sources)
@@ -138,6 +177,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")
         XCTAssertEqual(HeadroomCopy.githubActions, "GitHub Actions")
         XCTAssertEqual(HeadroomCopy.poolBurndown("Weekly"), "Weekly burndown")
+        XCTAssertEqual(HeadroomCopy.resets("3d"), "Resets 3d")
     }
 
     func testDisabledQuotaProviderIsHidden() throws {

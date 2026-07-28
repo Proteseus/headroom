@@ -302,4 +302,75 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(meter.primary.percent, 22)
         XCTAssertEqual(meter.secondary.percent, 31)
     }
+
+    func testCropProjectionStopsAtResetAndFloor() {
+        let pairs: [[Double]] = [
+            [100, 40],
+            [200, 20],
+            [400, -10],
+        ]
+        let cropped = Burndown.cropProjection(pairs, windowEnd: 300)
+        XCTAssertEqual(cropped.count, 3)
+        XCTAssertEqual(cropped[2][0], 300, accuracy: 0.01)
+        // -10 clamps to 0 before interpolate → remaining at reset is 10.
+        XCTAssertEqual(cropped[2][1], 10, accuracy: 0.01)
+
+        let exhaust: [[Double]] = [[10, 50], [20, 0], [30, 0]]
+        let stopped = Burndown.cropProjection(exhaust, windowEnd: 40)
+        XCTAssertEqual(stopped.count, 2)
+        XCTAssertEqual(stopped.last?[1], 0)
+    }
+
+    func testOverallDomainIsFixedSevenDays() {
+        // today−3 … today+4 always — upcoming resets must not stretch the axis.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_785_246_900) // 2026-07-28 13:55 UTC
+        let today = calendar.startOfDay(for: now)
+        let expectedStart = calendar.date(byAdding: .day, value: -3, to: today)!
+        let expectedEnd = calendar.date(byAdding: .day, value: 7, to: expectedStart)!
+        let farReset = now.addingTimeInterval(10 * 24 * 60 * 60)
+        let nearReset = now.addingTimeInterval(2 * 24 * 60 * 60)
+
+        let domain = OverallBurndownChartMath.domain(
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(domain.start, expectedStart)
+        XCTAssertEqual(domain.end, expectedEnd)
+        XCTAssertEqual(domain.now, now)
+        // Sanity: near resets fall inside; far ones stay off-canvas.
+        XCTAssertGreaterThan(nearReset, domain.start)
+        XCTAssertLessThan(nearReset, domain.end)
+        XCTAssertGreaterThan(farReset, domain.end)
+
+        let clipped = OverallBurndownChartMath.preparedProjection(
+            [
+                [now.timeIntervalSince1970, 72],
+                [farReset.timeIntervalSince1970, 10],
+            ],
+            windowEnd: farReset.timeIntervalSince1970,
+            domain: domain
+        )
+        XCTAssertGreaterThanOrEqual(clipped.count, 2)
+        XCTAssertEqual(
+            clipped.last?[0] ?? 0,
+            domain.endEpoch,
+            accuracy: 1,
+            "forecast clipped at the fixed week edge, not stretched to the reset"
+        )
+    }
+
+    func testClipPolylineInterpolatesAtDomainEdge() {
+        let clipped = OverallBurndownChartMath.clipPolyline(
+            [[0, 100], [100, 0]],
+            start: 25,
+            end: 75
+        )
+        XCTAssertEqual(clipped.count, 2)
+        XCTAssertEqual(clipped[0][0], 25, accuracy: 0.01)
+        XCTAssertEqual(clipped[0][1], 75, accuracy: 0.01)
+        XCTAssertEqual(clipped[1][0], 75, accuracy: 0.01)
+        XCTAssertEqual(clipped[1][1], 25, accuracy: 0.01)
+    }
 }

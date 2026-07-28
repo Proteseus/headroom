@@ -25,6 +25,7 @@ targets:
     sources:
       - path: Sources
       - path: ../Shared
+      - path: Assets.xcassets
       # Bundled Python host → Contents/Resources/host/
       - path: host
         type: folder
@@ -36,6 +37,7 @@ targets:
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Headroom
         INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Headroom.entitlements
         ENABLE_HARDENED_RUNTIME: YES
