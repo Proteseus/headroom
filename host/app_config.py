@@ -18,7 +18,8 @@ DEFAULTS = {
     "dev_root": "~/Dev",
     "git_authors": [],
     "vercel_team_slugs": [],
-    "github_org_prefix": "",
+    # String or list of strings; see github_org_prefixes().
+    "github_org_prefix": [],
     "github_always_repos": [],
     "github_max_discovered": 6,
     "plausible_sites": [],
@@ -91,11 +92,23 @@ def vercel_team_slugs():
     return tuple(DEFAULTS["vercel_team_slugs"])
 
 
-def github_org_prefix():
+def github_org_prefixes():
+    """Org filters for discovered repos: one string, or a list of them.
+
+    Personal work rarely lives under a single owner — a repo under your own
+    handle is as much yours as one under the org. Empty means no filter.
+    """
     value = get("github_org_prefix")
-    if value is None:
-        return DEFAULTS["github_org_prefix"]
-    return str(value)
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return tuple(DEFAULTS["github_org_prefix"])
+    out = []
+    for item in value:
+        text = str(item).strip().lower()
+        if text and text not in out:
+            out.append(text)
+    return tuple(out)
 
 
 def github_always_repos():

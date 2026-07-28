@@ -243,7 +243,7 @@ one entry + a fetcher module.
 | `dev_root` | Where git / GitHub repo discovery walks |
 | `git_authors` | `git log --author` patterns (empty = all authors) |
 | `vercel_team_slugs` | Preferred Vercel team(s); empty → CLI current team |
-| `github_org_prefix` | Org filter for discovered Actions repos |
+| `github_org_prefix` | Owner filter for discovered Actions repos — one `"owner/"` or a list of them; empty = every repo found |
 | `github_always_repos` | Always-watched `owner/name` list |
 | `github_max_discovered` | Cap on auto-discovered org repos |
 | `plausible_sites` | Optional domain filter / fallback when the key cannot list sites |

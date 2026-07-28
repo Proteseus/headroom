@@ -29,7 +29,7 @@ class AppConfigTests(unittest.TestCase):
         self.assertTrue(app_config.dev_root().endswith("/Dev"))
         self.assertEqual(app_config.git_authors(), [])
         self.assertEqual(app_config.vercel_team_slugs(), ())
-        self.assertEqual(app_config.github_org_prefix(), "")
+        self.assertEqual(app_config.github_org_prefixes(), ())
         self.assertEqual(app_config.github_always_repos(), ())
         self.assertEqual(app_config.github_max_discovered(), 6)
         self.assertEqual(app_config.plausible_sites(), ())
@@ -47,7 +47,7 @@ class AppConfigTests(unittest.TestCase):
                 "dev_root": "~/Projects",
                 "git_authors": ["Ada"],
                 "vercel_team_slugs": ["acme"],
-                "github_org_prefix": "acme/",
+                "github_org_prefix": ["acme/", "Ada/", " ", "acme/"],
                 "github_always_repos": ["acme/app"],
                 "github_max_discovered": 2,
                 "plausible_sites": ["acme.dev"],
@@ -60,7 +60,8 @@ class AppConfigTests(unittest.TestCase):
         self.assertTrue(app_config.dev_root().endswith("/Projects"))
         self.assertEqual(app_config.git_authors(), ["Ada"])
         self.assertEqual(app_config.vercel_team_slugs(), ("acme",))
-        self.assertEqual(app_config.github_org_prefix(), "acme/")
+        self.assertEqual(
+            app_config.github_org_prefixes(), ("acme/", "ada/"))
         self.assertEqual(app_config.github_always_repos(), ("acme/app",))
         self.assertEqual(app_config.github_max_discovered(), 2)
         self.assertEqual(app_config.plausible_sites(), ("acme.dev",))
@@ -68,6 +69,13 @@ class AppConfigTests(unittest.TestCase):
             app_config.plausible_host(), "https://analytics.example.com")
         self.assertEqual(app_config.plausible_range(), "7d")
         self.assertEqual(app_config.mobile_permissions(), {"read", "sources"})
+
+    def test_a_bare_org_prefix_string_still_works(self):
+        """Configs written before the key took a list must keep working."""
+        with open(self.path, "w") as handle:
+            json.dump({"github_org_prefix": "acme/"}, handle)
+        app_config.reload()
+        self.assertEqual(app_config.github_org_prefixes(), ("acme/",))
 
     def test_persists_mobile_permissions_without_losing_other_config(self):
         with open(self.path, "w") as handle:

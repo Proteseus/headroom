@@ -5,8 +5,9 @@ Auth (never returned via /usage), in order:
   Keychain item com.centaur-labs.headroom.github / access-token
   `gh auth token` (if available)
 
-Repos: always includes configured always-repos, plus org remotes discovered
-under configured `dev_root` (capped), plus optional
+Repos: always includes configured always-repos, plus remotes discovered under
+configured `dev_root` whose owner matches any configured prefix (capped), plus
+optional
 ~/.headroom/github.json → {"repos":["owner/name", ...]}.
 
 Stdlib only. Failures degrade to {ok:false} with keep-stale.
@@ -147,11 +148,19 @@ def _remote_slug(path):
     return raw.removesuffix(".git")
 
 
+def _matches_owner(slug, prefixes):
+    """No prefixes configured watches every discovered repo, as before."""
+    if not prefixes:
+        return True
+    lowered = slug.lower()
+    return any(lowered.startswith(prefix) for prefix in prefixes)
+
+
 def _discover_org_repos():
-    """Pick org-prefix remotes under configured dev_root (shallow scan)."""
+    """Pick owner-prefix remotes under configured dev_root (shallow scan)."""
     found = []
     root = app_config.dev_root()
-    prefix = app_config.github_org_prefix()
+    prefixes = app_config.github_org_prefixes()
     max_discovered = app_config.github_max_discovered()
     try:
         entries = sorted(os.listdir(root))
@@ -178,7 +187,7 @@ def _discover_org_repos():
                     paths.append(child_path)
         for repo_path in paths:
             slug = _remote_slug(repo_path)
-            if not slug or (prefix and not slug.startswith(prefix)):
+            if not slug or not _matches_owner(slug, prefixes):
                 continue
             try:
                 mtime = os.path.getmtime(repo_path)

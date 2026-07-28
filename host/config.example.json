@@ -3,7 +3,7 @@
   "dev_root": "~/Dev",
   "git_authors": [],
   "vercel_team_slugs": [],
-  "github_org_prefix": "",
+  "github_org_prefix": [],
   "github_always_repos": [],
   "github_max_discovered": 6,
   "plausible_sites": [],

@@ -4,6 +4,21 @@ import unittest
 import github_actions as ga
 
 
+class OwnerPrefixTests(unittest.TestCase):
+    def test_no_prefixes_watches_everything(self):
+        self.assertTrue(ga._matches_owner("acme/app", ()))
+
+    def test_any_configured_owner_matches(self):
+        prefixes = ("acme/", "ada/")
+        self.assertTrue(ga._matches_owner("acme/app", prefixes))
+        self.assertTrue(ga._matches_owner("ada/side-project", prefixes))
+        self.assertFalse(ga._matches_owner("someone-else/app", prefixes))
+
+    def test_owner_case_does_not_decide(self):
+        # Remotes keep whatever case was typed; GitHub owners don't care.
+        self.assertTrue(ga._matches_owner("Acme/App", ("acme/",)))
+
+
 class AttentionFreshnessTests(unittest.TestCase):
     def test_fresh_failure_counts(self):
         now = time.time()
