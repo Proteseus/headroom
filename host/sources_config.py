@@ -852,9 +852,9 @@ def ordered_sources():
 def focus_ids(limit=FOCUS_LIMIT):
     """The first `limit` *enabled* providers in pinned order.
 
-    Menu bar, widget, and ESP32 glance all render this list rather than each
-    slicing their own top-N — that is what keeps the three surfaces showing
-    the same providers between polls.
+    Menu bar, widget and the ESP32 glance all render this list rather than
+    each slicing their own top-N — that is what keeps the three surfaces
+    showing the same providers between polls.
     """
     enabled = enabled_map()
     picked = [sid for sid in order_ids() if enabled.get(sid, True)]

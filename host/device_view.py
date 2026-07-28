@@ -22,6 +22,20 @@ MAX_COMMITS = 6
 MAX_SERVERS = 6
 MAX_SOURCES = 8
 
+# The board's three slots. Mirrors sources_config.FOCUS_LIMIT and the
+# firmware's MAX_SLOTS: the host picks which providers those are (pinned
+# order, enabled only) and ships them in `focus`, so the desk, the menu bar
+# and the widget can't disagree about which three.
+MAX_PROVIDERS = 3
+# Mirror of firmware ProviderQuota::pools — meters drawn per provider.
+MAX_POOLS = 3
+# What a board flashed before `providers[]` draws, by name.
+LEGACY_PROVIDER_IDS = ("claude", "codex", "cursor")
+
+# Legacy Claude-at-top-level / codex / cursor blocks, kept for boards flashed
+# before the payload grew `providers[]`. New firmware reads `providers[]` and
+# ignores all of this; it costs ~300 bytes and keeps an un-reflashed board on
+# the desk working exactly as it did.
 CLAUDE_FIELDS = (
     "plan",
     "quota_ok",
@@ -208,7 +222,9 @@ def _burndown_for(provider, pools):
     if not ordered:
         return None
 
-    if provider == "cursor":
+    # By base provider, so a second Cursor login ("cursor:work") overlays its
+    # API pool the same way the default one does.
+    if str(provider).split(":", 1)[0] == "cursor":
         by_name = {p.get("pool"): p for p in ordered}
         primary = by_name.get("total") or next(
             (by_name[name] for name in CURSOR_BURNDOWN_POOLS if name in by_name),
@@ -232,6 +248,101 @@ def _burndown_for(provider, pools):
         return trimmed
 
     return _trim_burndown(ordered[0])
+
+
+def _pool_rows(info):
+    """Ring pools for one provider, in the host's declared order.
+
+    Short keys because this rides CDC: t(itle), p(ercent), (pa)c(e),
+    r(esets). A pool with no reading is dropped rather than sent as null —
+    the board would skip it anyway, and a Codex team plan with no session
+    window should not spend bytes saying so.
+    """
+    pools = info.get("pools")
+    if not isinstance(pools, dict):
+        return []
+    ranked = sorted(
+        (
+            (pid, pool) for pid, pool in pools.items()
+            if isinstance(pool, dict) and pool.get("ring") is not False
+        ),
+        key=lambda item: (
+            item[1]["rank"] if isinstance(item[1].get("rank"), int) else 99,
+            item[0],
+        ),
+    )
+    rows = []
+    for pid, pool in ranked[:MAX_POOLS]:
+        pct = pool.get("pct")
+        if pct is None:
+            continue
+        row = {
+            "t": _board_text(pool.get("title") or pid.capitalize()),
+            "p": round(float(pct), 1),
+        }
+        pace = pool.get("pace_pct")
+        if pace is not None:
+            row["c"] = round(float(pace), 1)
+        resets = pool.get("resets_in")
+        if resets:
+            row["r"] = _board_text(resets)
+        rows.append(row)
+    return rows
+
+
+def _provider_note(doc, provider_id):
+    """The one extra line the board draws under a provider's meters.
+
+    Today that is only Codex reset credits, which live in the flattened
+    `codex` block — built for the default login, so an extra Codex account
+    shows its meters without the credits line.
+    """
+    if provider_id != "codex":
+        return None, None
+    codex = doc.get("codex") or {}
+    available = codex.get("reset_credits_available")
+    if available is None:
+        return None, None
+    expiries = [str(item) for item in
+                (codex.get("reset_credits_expiries") or []) if item]
+    return (f"{int(available)} reset credits",
+            _board_text(" - ".join(expiries)) or None)
+
+
+def _device_providers(doc):
+    """The focus providers, in focus order, with the color to paint them.
+
+    The board used to hardcode Claude / Codex / Cursor and their brand
+    colors. Both now come down the wire: which three, in what order, and in
+    whose color — so pinning an order or recoloring a row in Mac Settings
+    moves the desk gadget too, and an extra account can hold a slot.
+    """
+    by_id = {
+        str(row.get("id")): row
+        for row in (doc.get("providers") or []) if isinstance(row, dict)
+    }
+    rows = []
+    for pid in [str(item) for item in (doc.get("focus") or [])]:
+        info = by_id.get(pid)
+        if info is None or len(rows) >= MAX_PROVIDERS:
+            continue
+        row = {
+            "id": pid,
+            "title": _board_text(info.get("title") or pid.capitalize()),
+            "ok": bool(info.get("ok")),
+            "pools": _pool_rows(info),
+        }
+        if info.get("accent"):
+            row["accent"] = info["accent"]
+        if info.get("plan"):
+            row["plan"] = _board_text(info["plan"])
+        note, note2 = _provider_note(doc, pid)
+        if note:
+            row["note"] = note
+        if note2:
+            row["note2"] = note2
+        rows.append(row)
+    return rows
 
 
 def build(doc):
@@ -267,8 +378,19 @@ def build(doc):
     device["sources"] = _rows(
         doc.get("sources"), SOURCE_FIELDS, MAX_SOURCES)
 
+    providers = _device_providers(doc)
+    if providers:
+        device["providers"] = providers
+
+    # Charts only for what the board can show: its three slots, plus the
+    # legacy trio an un-reflashed board still draws by name. In the default
+    # configuration those are the same three and this costs nothing.
+    charted = {row["id"] for row in providers}
+    charted.update(LEGACY_PROVIDER_IDS)
     burndown = {}
     for provider, pools in (doc.get("burndown") or {}).items():
+        if provider not in charted:
+            continue
         trimmed = _burndown_for(provider, pools)
         if trimmed is not None:
             burndown[provider] = trimmed

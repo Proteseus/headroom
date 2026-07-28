@@ -249,22 +249,27 @@ static void sh8601VendorInit() {
 }
 
 // ---------------- Data ----------------
+// One meter: whatever the host called it, how full it is, where an even burn
+// would have it, and when it resets. The board no longer knows that Claude
+// has a session and Cursor has an API pool — it draws the rows it is sent,
+// in the order it is sent them.
+static const uint8_t MAX_POOLS = 3;   // mirrors device_view.MAX_POOLS
+struct PoolRow {
+  String title;
+  float pct = -1;
+  float pace = -1;
+  String resets;
+};
+
 struct ProviderQuota {
   bool ok = false;
   String plan;
-  float sessionPct = -1;
-  float weekPct = -1;
-  float totalPct = -1;       // Cursor combined included-plan usage
-  float sessionPace = -1;
-  float weekPace = -1;
-  float totalPace = -1;
-  String sessionResets;
-  String weekResets;
-  String paceLabel;          // e.g. "50% in deficit"
-  String runsOutIn;          // e.g. "3h 14m"
-  int resetCredits = -1;     // -1 = unknown / N/A
-  String resetCreditExpiries; // "10d 7h - 22d 4h"
-  String onDemand;           // Cursor: "$30 / $30 on-demand"
+  uint8_t n = 0;
+  PoolRow pools[MAX_POOLS];
+  // One optional extra line under the meters — Codex reset credits today,
+  // composed host-side so the board owns no provider's vocabulary.
+  String note;
+  String note2;    // right-aligned on the same line (credit expiries)
 };
 
 // Burndown for one provider: the actual remaining-% curve plus where the
@@ -300,16 +305,29 @@ struct Burndown {
   bool estimated2 = false;
 };
 
+// Slots 0-2 keep the page numbers the fixed Claude / Codex / Cursor pages
+// had, so a saved page and every touch target survive the change to
+// host-driven providers.
 enum Page : uint8_t {
   PAGE_GLANCE = 0,
-  PAGE_CLAUDE = 1,
-  PAGE_CODEX  = 2,
-  PAGE_CURSOR = 3,
+  PAGE_SLOT0  = 1,
+  PAGE_SLOT1  = 2,
+  PAGE_SLOT2  = 3,
   PAGE_VERCEL = 4,
   PAGE_GIT    = 5,
   PAGE_LOCAL  = 6,
   PAGE_COUNT  = 7
 };
+
+static const uint8_t MAX_SLOTS = 3;   // mirrors device_view.MAX_PROVIDERS
+
+static inline bool isSlotPage(Page p) {
+  return p >= PAGE_SLOT0 && p <= PAGE_SLOT2;
+}
+
+static inline uint8_t slotOf(Page p) { return (uint8_t)(p - PAGE_SLOT0); }
+
+static inline Page slotPage(uint8_t i) { return (Page)(PAGE_SLOT0 + i); }
 
 static const uint8_t MAX_DEPLOYS = 6;
 static const uint8_t MAX_COMMITS = 6;
@@ -356,8 +374,22 @@ static const String &fwVersion() {
 static String updatedZ = "";
 static bool haveData = false;
 static bool hostOk = false;   // last /usage fetch succeeded
-static ProviderQuota claudeQ, codexQ, cursorQ;
-static Burndown claudeBurn, codexBurn, cursorBurn;
+// The three providers on the glance, as the host picked them: pinned order,
+// enabled only, in whatever color Mac Settings says. `slotN` can be 0-3 —
+// turn every coding provider off and the rings go with them.
+struct ProviderSlot {
+  String id;
+  String title;
+  uint16_t accent = COL_DIM;
+  ProviderQuota q;
+  Burndown burn;
+};
+static ProviderSlot slots[MAX_SLOTS];
+static uint8_t slotN = 0;
+// False when the payload carried no `providers` key at all — a host too old
+// to send them. Distinct from "you turned every provider off", because the
+// fix is different and the board is the only place either shows.
+static bool providersSeen = false;
 static bool vercelOk = false;
 static String vercelTeam = "";
 static uint8_t vercelN = 0;
@@ -708,9 +740,9 @@ static String boardAscii(const char *s);
 // allocation makes `filter[key] = true` a silent no-op that only sets
 // overflowed(). A filter that lost keys still parses clean: the deserializer
 // skips members the filter doesn't name and returns Ok. Since keys go in in
-// source order, a short filter keeps the prefix — Claude's scalars — and drops
-// codex/cursor/vercel/git/local/burndown, which is a board that boots showing
-// Claude alone and "fixes itself" on the next power cycle. Rebuilding this per
+// source order, a short filter keeps the prefix — the providers — and drops
+// vercel/git/local/burndown, which is a board that boots showing quota alone
+// and "fixes itself" on the next power cycle. Rebuilding this per
 // fetch asked the tightest heap on the board (canvas + Wi-Fi + LWIP live in
 // DRAM) for 4KB contiguous every poll; PSRAM has room and the doc already uses it.
 static bool usageFilterReady(JsonDocument **out) {
@@ -720,13 +752,12 @@ static bool usageFilterReady(JsonDocument **out) {
   if (built) return true;
 
   filter.clear();   // also resets overflowed()
-  for (const char *key : {"updated", "plan", "quota_ok", "session_pct",
-                          "session_pace_pct", "session_resets_in", "week_pct",
-                          "week_pace_pct", "week_resets_in"}) {
-    filter[key] = true;
-  }
-  filter["codex"] = true;
-  filter["cursor"] = true;
+  filter["updated"] = true;
+  // Whole subtree: device_view already trimmed it to three providers with
+  // their ring pools, so there is nothing further to filter. This goes in
+  // first because a filter that overflows keeps its prefix, and losing the
+  // providers is losing the whole quota half of the board.
+  filter["providers"] = true;
   filter["vercel"]["ok"] = true;
   filter["vercel"]["team"] = true;
   filter["vercel"]["deployments"][0]["project"] = true;
@@ -760,150 +791,145 @@ static bool usageFilterReady(JsonDocument **out) {
   return built;
 }
 
+// "#D97757" → RGB565. Anything that isn't six hex digits falls back to the
+// caller's default rather than painting black, which on this panel is
+// indistinguishable from a ring that failed to draw.
+static uint16_t accentToRgb565(const char *hex, uint16_t fallback) {
+  if (!hex) return fallback;
+  if (*hex == '#') hex++;
+  uint32_t value = 0;
+  for (uint8_t i = 0; i < 6; i++) {
+    const char c = hex[i];
+    uint8_t nibble;
+    if (c >= '0' && c <= '9') nibble = (uint8_t)(c - '0');
+    else if (c >= 'a' && c <= 'f') nibble = (uint8_t)(c - 'a' + 10);
+    else if (c >= 'A' && c <= 'F') nibble = (uint8_t)(c - 'A' + 10);
+    else return fallback;
+    value = (value << 4) | nibble;
+  }
+  if (hex[6] != '\0') return fallback;
+  return RGB565((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF);
+}
+
+// One provider's burndown series: the actual remaining-% curve, where the
+// current pace lands, and an optional second series (Cursor API) on the same
+// axis. `out` is assumed freshly default-constructed.
+static void applyBurndownDoc(JsonObject b, Burndown &out) {
+  out.t0 = (uint32_t)(b["t0"] | 0);
+  out.t1 = (uint32_t)(b["t1"] | 0);
+  if (out.t1 <= out.t0) return;
+  out.warn = b["warn"] | false;
+  out.estimated = b["est"] | false;
+  out.verdict = boardAscii((const char *)(b["verdict"] | ""));
+  out.exhausted = strcmp((const char *)(b["status"] | ""), "exhausted") == 0;
+
+  JsonArray pts = b["pts"].as<JsonArray>();
+  if (!pts.isNull()) {
+    for (JsonVariant v : pts) {
+      if (out.n >= MAX_BURN_PTS) break;
+      JsonArray pair = v.as<JsonArray>();
+      if (pair.isNull() || pair.size() < 2) continue;
+      out.t[out.n] = (uint32_t)(pair[0] | 0);
+      out.remaining[out.n] = (float)(pair[1] | 0.0);
+      out.n++;
+    }
+  }
+  JsonArray proj = b["proj"].as<JsonArray>();
+  if (!proj.isNull()) {
+    for (JsonVariant v : proj) {
+      if (out.projN >= 2) break;
+      JsonArray pair = v.as<JsonArray>();
+      if (pair.isNull() || pair.size() < 2) continue;
+      out.projT[out.projN] = (uint32_t)(pair[0] | 0);
+      out.projR[out.projN] = (float)(pair[1] | 0.0);
+      out.projN++;
+    }
+  }
+
+  // Optional Cursor API overlay.
+  JsonArray pts2 = b["pts2"].as<JsonArray>();
+  if (!pts2.isNull()) {
+    out.warn2 = b["warn2"] | false;
+    out.estimated2 = b["est2"] | false;
+    out.exhausted2 =
+        strcmp((const char *)(b["status2"] | ""), "exhausted") == 0;
+    for (JsonVariant v : pts2) {
+      if (out.n2 >= MAX_BURN_PTS) break;
+      JsonArray pair = v.as<JsonArray>();
+      if (pair.isNull() || pair.size() < 2) continue;
+      out.t2[out.n2] = (uint32_t)(pair[0] | 0);
+      out.remaining2[out.n2] = (float)(pair[1] | 0.0);
+      out.n2++;
+    }
+    JsonArray proj2 = b["proj2"].as<JsonArray>();
+    if (!proj2.isNull()) {
+      for (JsonVariant v : proj2) {
+        if (out.projN2 >= 2) break;
+        JsonArray pair = v.as<JsonArray>();
+        if (pair.isNull() || pair.size() < 2) continue;
+        out.projT2[out.projN2] = (uint32_t)(pair[0] | 0);
+        out.projR2[out.projN2] = (float)(pair[1] | 0.0);
+        out.projN2++;
+      }
+    }
+  }
+  out.ok = out.n > 0;
+}
+
 static bool applyUsageDoc(JsonDocument &doc) {
   updatedZ = String((const char *)(doc["updated"] | ""));
 
-  // Claude (top-level, back-compat)
-  claudeQ.ok           = doc["quota_ok"] | false;
-  claudeQ.plan         = String((const char *)(doc["plan"] | ""));
-  claudeQ.sessionPct   = doc["session_pct"].isNull() ? -1.f : (float)(doc["session_pct"] | -1.0);
-  claudeQ.weekPct      = doc["week_pct"].isNull()    ? -1.f : (float)(doc["week_pct"] | -1.0);
-  claudeQ.sessionPace  = doc["session_pace_pct"].isNull() ? -1.f : (float)(doc["session_pace_pct"] | -1.0);
-  claudeQ.weekPace     = doc["week_pace_pct"].isNull()    ? -1.f : (float)(doc["week_pace_pct"] | -1.0);
-  claudeQ.sessionResets= String((const char *)(doc["session_resets_in"] | ""));
-  claudeQ.weekResets   = String((const char *)(doc["week_resets_in"] | ""));
-  claudeQ.paceLabel = "";
-  claudeQ.runsOutIn = "";
-  claudeQ.resetCredits = -1;
-  claudeQ.resetCreditExpiries = "";
-  claudeQ.onDemand = "";
-
-  // Codex (nested)
-  JsonObject cx = doc["codex"].as<JsonObject>();
-  if (!cx.isNull()) {
-    codexQ.ok            = cx["ok"] | false;
-    codexQ.plan          = String((const char *)(cx["plan"] | ""));
-    codexQ.sessionPct    = cx["session_pct"].isNull() ? -1.f : (float)(cx["session_pct"] | -1.0);
-    codexQ.weekPct       = cx["week_pct"].isNull()    ? -1.f : (float)(cx["week_pct"] | -1.0);
-    codexQ.sessionPace   = cx["session_pace_pct"].isNull() ? -1.f : (float)(cx["session_pace_pct"] | -1.0);
-    codexQ.weekPace      = cx["week_pace_pct"].isNull()    ? -1.f : (float)(cx["week_pace_pct"] | -1.0);
-    codexQ.sessionResets = String((const char *)(cx["session_resets_in"] | ""));
-    codexQ.weekResets    = String((const char *)(cx["week_resets_in"] | ""));
-    codexQ.paceLabel     = String((const char *)(cx["pace_label"] | ""));
-    codexQ.runsOutIn     = String((const char *)(cx["runs_out_in"] | ""));
-    if (cx["reset_credits_available"].isNull()) codexQ.resetCredits = -1;
-    else codexQ.resetCredits = (int)(cx["reset_credits_available"] | 0);
-    codexQ.resetCreditExpiries = "";
-    codexQ.onDemand = "";
-    JsonArray ex = cx["reset_credits_expiries"].as<JsonArray>();
-    if (!ex.isNull()) {
-      for (JsonVariant v : ex) {
-        const char *s = v.as<const char *>();
-        if (!s || !s[0]) continue;
-        if (codexQ.resetCreditExpiries.length()) codexQ.resetCreditExpiries += " - ";
-        codexQ.resetCreditExpiries += s;
+  // The glance slots, exactly as the host ordered them. Which providers,
+  // what they are called and what color they are painted all arrive here —
+  // the board picks none of it, so Settings on the Mac is the one place any
+  // of it is decided.
+  for (uint8_t i = 0; i < MAX_SLOTS; i++) slots[i] = ProviderSlot{};
+  slotN = 0;
+  JsonArray provs = doc["providers"].as<JsonArray>();
+  providersSeen = !provs.isNull();
+  if (providersSeen) {
+    for (JsonVariant v : provs) {
+      if (slotN >= MAX_SLOTS) break;
+      JsonObject p = v.as<JsonObject>();
+      if (p.isNull()) continue;
+      ProviderSlot &slot = slots[slotN];
+      slot.id = String((const char *)(p["id"] | ""));
+      if (!slot.id.length()) continue;
+      slot.title = boardAscii((const char *)(p["title"] | ""));
+      if (!slot.title.length()) slot.title = slot.id;
+      slot.accent = accentToRgb565((const char *)(p["accent"] | nullptr),
+                                   COL_DIM);
+      slot.q.ok = p["ok"] | false;
+      slot.q.plan = boardAscii((const char *)(p["plan"] | ""));
+      slot.q.note = boardAscii((const char *)(p["note"] | ""));
+      slot.q.note2 = boardAscii((const char *)(p["note2"] | ""));
+      JsonArray pools = p["pools"].as<JsonArray>();
+      if (!pools.isNull()) {
+        for (JsonVariant pv : pools) {
+          if (slot.q.n >= MAX_POOLS) break;
+          JsonObject pool = pv.as<JsonObject>();
+          if (pool.isNull()) continue;
+          PoolRow &row = slot.q.pools[slot.q.n];
+          row.title = boardAscii((const char *)(pool["t"] | ""));
+          row.pct = pool["p"].isNull() ? -1.f : (float)(pool["p"] | -1.0);
+          row.pace = pool["c"].isNull() ? -1.f : (float)(pool["c"] | -1.0);
+          row.resets = boardAscii((const char *)(pool["r"] | ""));
+          if (row.pct < 0) continue;   // nothing to draw; reuse the row
+          slot.q.n++;
+        }
       }
+      slotN++;
     }
-  } else {
-    codexQ = ProviderQuota{};
   }
 
-  // Cursor (nested Total + API pools; Auto is omitted from the UI)
-  JsonObject cur = doc["cursor"].as<JsonObject>();
-  if (!cur.isNull()) {
-    cursorQ.ok            = cur["ok"] | false;
-    cursorQ.plan          = String((const char *)(cur["plan"] | ""));
-    cursorQ.totalPct      = cur["total_pct"].isNull() ? -1.f : (float)(cur["total_pct"] | -1.0);
-    // sessionPct unused for Cursor — Auto is always empty and used to steal
-    // the second ring from API. weekPct holds API.
-    cursorQ.sessionPct    = -1.f;
-    cursorQ.weekPct       = cur["api_pct"].isNull()  ? -1.f : (float)(cur["api_pct"] | -1.0);
-    cursorQ.totalPace     = cur["total_pace_pct"].isNull() ? -1.f : (float)(cur["total_pace_pct"] | -1.0);
-    cursorQ.sessionPace   = -1.f;
-    cursorQ.weekPace      = cur["api_pace_pct"].isNull()  ? -1.f : (float)(cur["api_pace_pct"] | -1.0);
-    String resets = String((const char *)(cur["resets_in"] | ""));
-    cursorQ.sessionResets = resets;
-    cursorQ.weekResets    = resets;
-    cursorQ.paceLabel     = String((const char *)(cur["pace_label"] | ""));
-    cursorQ.runsOutIn     = "";
-    cursorQ.resetCredits  = -1;
-    cursorQ.resetCreditExpiries = "";
-    cursorQ.onDemand      = String((const char *)(cur["on_demand_label"] | ""));
-  } else {
-    cursorQ = ProviderQuota{};
-  }
-
-  // Burndown series (one pool per provider; Cursor may overlay API as *2)
-  claudeBurn = Burndown();
-  codexBurn = Burndown();
-  cursorBurn = Burndown();
+  // Burndown series, looked up by the slot's provider id (Cursor may overlay
+  // API as *2). Ids now include extra accounts — "claude:work" — so the
+  // lookup is by string rather than by a fixed trio.
   JsonObject bd = doc["burndown"].as<JsonObject>();
   if (!bd.isNull()) {
-    struct { const char *id; Burndown *dst; } targets[3] = {
-      {"claude", &claudeBurn}, {"codex", &codexBurn}, {"cursor", &cursorBurn},
-    };
-    for (auto &target : targets) {
-      JsonObject b = bd[target.id].as<JsonObject>();
-      if (b.isNull()) continue;
-      Burndown &out = *target.dst;
-      out.t0 = (uint32_t)(b["t0"] | 0);
-      out.t1 = (uint32_t)(b["t1"] | 0);
-      if (out.t1 <= out.t0) continue;
-      out.warn = b["warn"] | false;
-      out.estimated = b["est"] | false;
-      out.verdict = boardAscii((const char *)(b["verdict"] | ""));
-      out.exhausted =
-          strcmp((const char *)(b["status"] | ""), "exhausted") == 0;
-      JsonArray pts = b["pts"].as<JsonArray>();
-      if (!pts.isNull()) {
-        for (JsonVariant v : pts) {
-          if (out.n >= MAX_BURN_PTS) break;
-          JsonArray pair = v.as<JsonArray>();
-          if (pair.isNull() || pair.size() < 2) continue;
-          out.t[out.n] = (uint32_t)(pair[0] | 0);
-          out.remaining[out.n] = (float)(pair[1] | 0.0);
-          out.n++;
-        }
-      }
-      JsonArray proj = b["proj"].as<JsonArray>();
-      if (!proj.isNull()) {
-        for (JsonVariant v : proj) {
-          if (out.projN >= 2) break;
-          JsonArray pair = v.as<JsonArray>();
-          if (pair.isNull() || pair.size() < 2) continue;
-          out.projT[out.projN] = (uint32_t)(pair[0] | 0);
-          out.projR[out.projN] = (float)(pair[1] | 0.0);
-          out.projN++;
-        }
-      }
-      // Optional Cursor API overlay.
-      JsonArray pts2 = b["pts2"].as<JsonArray>();
-      if (!pts2.isNull()) {
-        out.warn2 = b["warn2"] | false;
-        out.estimated2 = b["est2"] | false;
-        out.exhausted2 =
-            strcmp((const char *)(b["status2"] | ""), "exhausted") == 0;
-        for (JsonVariant v : pts2) {
-          if (out.n2 >= MAX_BURN_PTS) break;
-          JsonArray pair = v.as<JsonArray>();
-          if (pair.isNull() || pair.size() < 2) continue;
-          out.t2[out.n2] = (uint32_t)(pair[0] | 0);
-          out.remaining2[out.n2] = (float)(pair[1] | 0.0);
-          out.n2++;
-        }
-        JsonArray proj2 = b["proj2"].as<JsonArray>();
-        if (!proj2.isNull()) {
-          for (JsonVariant v : proj2) {
-            if (out.projN2 >= 2) break;
-            JsonArray pair = v.as<JsonArray>();
-            if (pair.isNull() || pair.size() < 2) continue;
-            out.projT2[out.projN2] = (uint32_t)(pair[0] | 0);
-            out.projR2[out.projN2] = (float)(pair[1] | 0.0);
-            out.projN2++;
-          }
-        }
-      }
-      out.ok = out.n > 0;
+    for (uint8_t i = 0; i < slotN; i++) {
+      JsonObject b = bd[slots[i].id.c_str()].as<JsonObject>();
+      if (!b.isNull()) applyBurndownDoc(b, slots[i].burn);
     }
   }
 
@@ -1457,11 +1483,12 @@ static bool updatedHHMM(char *buf, size_t n) {
 }
 
 static const char *pageName(Page p) {
+  if (isSlotPage(p)) {
+    const uint8_t i = slotOf(p);
+    return i < slotN ? slots[i].title.c_str() : "?";
+  }
   switch (p) {
     case PAGE_GLANCE: return "Headroom";
-    case PAGE_CLAUDE: return "Claude";
-    case PAGE_CODEX:  return "Codex";
-    case PAGE_CURSOR: return "Cursor";
     case PAGE_VERCEL: return "Vercel";
     case PAGE_GIT:    return "Git";
     case PAGE_LOCAL:  return "Local";
@@ -1484,20 +1511,15 @@ struct PaceLayer { float pct; float pace; };
 // outermost ring. A pool the API doesn't report is simply absent — Codex has
 // no session window on some plans — so a provider can legitimately draw one
 // ring instead of two.
+// The host already dropped non-ring pools and ordered the rest (Session then
+// Weekly, Total then API), so a layer is just the next row.
 static uint8_t providerLayers(const ProviderQuota &q, PaceLayer *out,
                               uint8_t max) {
   uint8_t n = 0;
-  if (!q.ok || max == 0) return 0;
-  if (q.totalPct >= 0) {
-    // Cursor: Total (included) then API (on-demand). Both ride the same
-    // billing cycle, so there is no faster/slower to order by — Total is the
-    // headline ring, API the one that actually drains when you burn tokens.
-    out[n++] = {q.totalPct, q.totalPace};
-    if (n < max && q.weekPct >= 0) out[n++] = {q.weekPct, q.weekPace};
-    return n;
+  if (!q.ok) return 0;
+  for (uint8_t i = 0; i < q.n && n < max; i++) {
+    out[n++] = {q.pools[i].pct, q.pools[i].pace};
   }
-  if (q.sessionPct >= 0) out[n++] = {q.sessionPct, q.sessionPace};
-  if (n < max && q.weekPct >= 0) out[n++] = {q.weekPct, q.weekPace};
   return n;
 }
 
@@ -1595,9 +1617,10 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
 static int32_t updatedTzOffsetS();
 
 static bool burnHistoryReady() {
-  return (claudeBurn.ok && claudeBurn.n > 0) ||
-         (codexBurn.ok && codexBurn.n > 0) ||
-         (cursorBurn.ok && cursorBurn.n > 0);
+  for (uint8_t i = 0; i < slotN; i++) {
+    if (slots[i].burn.ok && slots[i].burn.n > 0) return true;
+  }
+  return false;
 }
 
 // Eight-dot orbit while burndown pts are empty. Unit octagon — no trig/frame.
@@ -2153,19 +2176,15 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
 // under the three rings — shared calendar week, no budget diagonal.
 static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
                                int16_t lowBottom) {
-  const Page pages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
-  const uint16_t accents[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
-  const Burndown *burns[3] = {&claudeBurn, &codexBurn, &cursorBurn};
-  const int16_t slot = span / 3;
+  const int16_t slot = slotN > 0 ? (int16_t)(span / slotN) : span;
 
   uint32_t nowT = 0;
   uint8_t ready = 0;
-  for (uint8_t i = 0; i < 3; i++) {
-    if (burns[i]->ok && burns[i]->n > 0) {
+  for (uint8_t i = 0; i < slotN; i++) {
+    const Burndown &b = slots[i].burn;
+    if (b.ok && b.n > 0) {
       ready++;
-      if (burns[i]->t[burns[i]->n - 1] > nowT) {
-        nowT = burns[i]->t[burns[i]->n - 1];
-      }
+      if (b.t[b.n - 1] > nowT) nowT = b.t[b.n - 1];
     }
   }
 
@@ -2174,7 +2193,7 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
   // tomorrow 00:49" simply does not fit a third of this panel.
   const int16_t axisH = 12;
   const int16_t rowH = 16;
-  const int16_t legendH = (int16_t)(3 * rowH + 2);
+  const int16_t legendH = (int16_t)(slotN * rowH + 2);
   const int16_t chartY = (int16_t)(midY + 6);
   const int16_t chartH =
       (int16_t)(lowBottom - legendH - axisH - chartY);
@@ -2239,16 +2258,16 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
                        nowCol);
   }
 
-  for (uint8_t i = 0; i < 3; i++) {
-    drawOverallSeries(*burns[i], accents[i], chartX, chartY, chartW, chartH,
-                      tLo, tHi);
+  for (uint8_t i = 0; i < slotN; i++) {
+    drawOverallSeries(slots[i].burn, slots[i].accent, chartX, chartY, chartW,
+                      chartH, tLo, tHi);
   }
 
-  // Chart thirds → provider detail (same left→right order as the rings).
+  // Chart split by slot → provider detail (same left→right order as rings).
   const int16_t chartHitH = (int16_t)(chartY + chartH + axisH - midY);
-  for (uint8_t i = 0; i < 3; i++) {
+  for (uint8_t i = 0; i < slotN; i++) {
     glanceAddHit((int16_t)(padX + (int16_t)i * slot), midY, slot, chartHitH,
-                 pages[i]);
+                 slotPage(i));
   }
 
   // Legend: ring order, top → bottom. Full width so host verdicts stay intact.
@@ -2256,12 +2275,12 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
   const int16_t dotR = 3;
   const int16_t textX = (int16_t)(padX + dotR * 2 + 8);
   const int16_t textW = (int16_t)(span - (textX - padX));
-  for (uint8_t i = 0; i < 3; i++) {
+  for (uint8_t i = 0; i < slotN; i++) {
     const int16_t y = (int16_t)(legY + (int16_t)i * rowH);
-    glanceAddHit(padX, y, span, rowH, pages[i]);
-    const Burndown &b = *burns[i];
+    glanceAddHit(padX, y, span, rowH, slotPage(i));
+    const Burndown &b = slots[i].burn;
     const uint16_t dot =
-        b.ok ? (b.exhausted ? COL_DIM : accents[i]) : COL_DIM;
+        b.ok ? (b.exhausted ? COL_DIM : slots[i].accent) : COL_DIM;
     gfx->fillCircle((int16_t)(padX + dotR), (int16_t)(y + 6), dotR, dot);
     if (b.ok && b.verdict.length()) {
       drawTextAt(truncFit(b.verdict, textW, 2), textX, y, 2, COL_DIM);
@@ -2269,7 +2288,7 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
       char left[8];
       snprintf(left, sizeof left, "%d%%",
                (int)(b.remaining[b.n - 1] + 0.5f));
-      drawTextAt(left, textX, y, 2, accents[i]);
+      drawTextAt(left, textX, y, 2, slots[i].accent);
     } else {
       drawTextAt("-", textX, y, 2, COL_DIM);
     }
@@ -2301,39 +2320,51 @@ static void drawGlancePage() {
     drawRightAt(when, W - padX, top + 6, 2, COL_DIM);
   }
 
-  // 3 equal top slots (quota rings).
+  // Equal top slots (quota rings) — as many as the host sent, up to three.
   const int16_t span = W - padX * 2;
-  const int16_t slot = span / 3;
+  const int16_t slot = slotN > 0 ? (int16_t)(span / slotN) : span;
   const int16_t ringR = 32;
   const int16_t ringCy = top + 74;
   const int16_t midY = ringCy + ringR + 48;  // clear labels under rings
   const int16_t lowBottom = H - bot;         // no footer — run to the margin
 
-  const Page topPages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
-  const uint16_t topAccent[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
-  const char *topLabel[3] = {"Claude", "Codex", "Cursor"};
-
-  const ProviderQuota *qs[3] = {&claudeQ, &codexQ, &cursorQ};
-  for (uint8_t i = 0; i < 3; i++) {
+  for (uint8_t i = 0; i < slotN; i++) {
     int16_t colX = padX + (int16_t)i * slot;
-    glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)), topPages[i]);
-    drawQuotaRing(colX + slot / 2, ringCy, ringR, *qs[i], topAccent[i],
-                  topLabel[i]);
+    glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)),
+                 slotPage(i));
+    drawQuotaRing(colX + slot / 2, ringCy, ringR, slots[i].q, slots[i].accent,
+                  slots[i].title.c_str());
+  }
+  if (slotN == 0) {
+    drawTextAt(providersSeen ? "No coding providers enabled"
+                             : "Update the Mac host",
+               padX, (int16_t)(ringCy - 12), 2, COL_DIM);
+    if (!providersSeen) {
+      drawTextAt("this host is too old to send providers", padX,
+                 (int16_t)(ringCy + 10), 1, COL_DIM);
+    }
   }
 
   gfx->drawFastHLine(padX, midY, span, COL_DIM);
 
-  if (homeMode == HOME_BURNDOWN) drawGlanceBurndown(padX, span, midY, lowBottom);
-  else drawGlanceActivity(padX, span, midY, lowBottom);
+  if (homeMode == HOME_ACTIVITY || slotN > 0) {
+    if (homeMode == HOME_BURNDOWN) {
+      drawGlanceBurndown(padX, span, midY, lowBottom);
+    } else {
+      drawGlanceActivity(padX, span, midY, lowBottom);
+    }
+  }
 
   drawWifiDot(padX, top);
   present();
 }
 
+static const Burndown kNoBurndown{};
+
 static const Burndown &burnFor(Page p) {
-  if (p == PAGE_CODEX) return codexBurn;
-  if (p == PAGE_CURSOR) return cursorBurn;
-  return claudeBurn;
+  if (!isSlotPage(p)) return kNoBurndown;
+  const uint8_t i = slotOf(p);
+  return i < slotN ? slots[i].burn : kNoBurndown;
 }
 
 static void drawQuotaPage() {
@@ -2344,14 +2375,14 @@ static void drawQuotaPage() {
   const int16_t top = UI_PAD;
   const int16_t bot = UI_PAD;
 
-  const bool isCodex = (page == PAGE_CODEX);
-  const bool isCursor = (page == PAGE_CURSOR);
-  const ProviderQuota &q = isCodex ? codexQ : (isCursor ? cursorQ : claudeQ);
-  const uint16_t accent = isCodex ? COL_OPENAI
-                         : (isCursor ? COL_CURSOR : COL_CLAUDE);
-  const char *brand = isCodex ? "Codex" : (isCursor ? "Cursor" : "Claude");
+  static const ProviderSlot kEmptySlot{};
+  const uint8_t index = slotOf(page);
+  const ProviderSlot &s = index < slotN ? slots[index] : kEmptySlot;
+  const ProviderQuota &q = s.q;
+  const uint16_t accent = s.accent;
+  const char *brand = s.title.length() ? s.title.c_str() : "-";
 
-  // Header — brand in provider color + plan
+  // Header — provider name in its color + plan
   drawTextAt(brand, padX, top, 3, accent);
   if (q.plan.length()) {
     drawRightAt(q.plan.c_str(), W - padX, top + 6, 2, COL_DIM);
@@ -2370,43 +2401,24 @@ static void drawQuotaPage() {
   const int16_t midY =
       (int16_t)(contentTop + (contentBot - contentTop) / 2);
 
-  if (q.ok && (q.totalPct >= 0 || q.sessionPct >= 0 || q.weekPct >= 0)) {
+  if (q.ok && q.n > 0) {
+    // Whatever meters the host sent, in its order. Only rows that fit above
+    // the chart are drawn — the chart is the reason to open this page.
     int16_t rowY = contentTop;
-    if (isCursor) {
-      // Total + API stacked full-width. Auto is omitted (empty on most plans).
-      // They share a reset window — label it once on the first meter.
-      if (q.totalPct >= 0) {
-        drawQuotaRowCompact("Total", q.totalPct, q.totalPace,
-                            q.sessionResets, rowY, padX, accent);
-        rowY += QUOTA_ROW_H;
-      }
-      if (q.weekPct >= 0) {
-        drawQuotaRowCompact("API", q.weekPct, q.weekPace,
-                            q.totalPct >= 0 ? String() : q.weekResets,
-                            rowY, padX, accent);
-        rowY += QUOTA_ROW_H;
-      }
-    } else {
-      // Team Codex often has only a weekly window — skip empty session.
-      if (q.sessionPct >= 0) {
-        drawQuotaRowCompact("Session", q.sessionPct, q.sessionPace,
-                            q.sessionResets, rowY, padX, accent);
-        rowY += QUOTA_ROW_H;
-      }
-      if (q.weekPct >= 0) {
-        drawQuotaRowCompact("Weekly", q.weekPct, q.weekPace, q.weekResets,
-                            rowY, padX, accent);
-        rowY += QUOTA_ROW_H;
-      }
+    for (uint8_t i = 0; i < q.n; i++) {
+      if (rowY + QUOTA_ROW_H > midY) break;
+      const PoolRow &row = q.pools[i];
+      drawQuotaRowCompact(row.title.c_str(), row.pct, row.pace, row.resets,
+                          rowY, padX, accent);
+      rowY += QUOTA_ROW_H;
     }
 
-    // Codex reset credits: one line in leftover top-half space, never the chart.
-    if (isCodex && q.resetCredits >= 0 && rowY + 20 <= midY) {
-      char cred[40];
-      snprintf(cred, sizeof cred, "%d reset credits", q.resetCredits);
-      drawTextAt(cred, padX, rowY, 2, COL_DIM);
-      if (q.resetCreditExpiries.length()) {
-        drawRightAt(q.resetCreditExpiries.c_str(), W - padX, rowY, 2, COL_DIM);
+    // The provider's one extra line (Codex reset credits) in whatever top-half
+    // space is left over, never the chart's.
+    if (q.note.length() && rowY + 20 <= midY) {
+      drawTextAt(q.note.c_str(), padX, rowY, 2, COL_DIM);
+      if (q.note2.length()) {
+        drawRightAt(q.note2.c_str(), W - padX, rowY, 2, COL_DIM);
       }
     }
 
@@ -2436,12 +2448,10 @@ static void drawQuotaPage() {
     if (chartH >= 36) {
       drawBurndown(burn, padX, burnY, (int16_t)(W - padX * 2), chartH, accent);
     }
-  } else if (isCursor) {
-    drawTextAt("cursor quota unavailable", padX, top + 100, 2, COL_DIM);
-  } else if (isCodex) {
-    drawTextAt("codex quota unavailable", padX, top + 100, 2, COL_DIM);
   } else {
-    drawTextAt("claude quota unavailable", padX, top + 100, 2, COL_DIM);
+    char missing[48];
+    snprintf(missing, sizeof missing, "%s quota unavailable", brand);
+    drawTextAt(missing, padX, top + 100, 2, COL_DIM);
   }
 
   // Bottom bar: page dots. No Today $/model footer.
@@ -2844,9 +2854,11 @@ static void toggleHomeMode() {
 static bool pageEnabled(Page p) {
   switch (p) {
     case PAGE_GLANCE: return true;
-    case PAGE_CLAUDE: return sourceEnabled("claude");
-    case PAGE_CODEX:  return sourceEnabled("codex");
-    case PAGE_CURSOR: return sourceEnabled("cursor");
+    // Slots are the host's `focus`: already enabled-only and in pinned
+    // order, so an empty slot is simply a page that does not exist.
+    case PAGE_SLOT0:  return slotN > 0;
+    case PAGE_SLOT1:  return slotN > 1;
+    case PAGE_SLOT2:  return slotN > 2;
     case PAGE_VERCEL: return sourceEnabled("vercel");
     case PAGE_GIT:    return sourceEnabled("git");
     case PAGE_LOCAL:  return sourceEnabled("local");
@@ -3088,11 +3100,19 @@ void setup() {
       bootLine("LINK", linkLabel, ok ? COL_CRT : COL_RED);
 
       if (ok) {
-        Serial.printf("host=%s  fetch ok  burn=%d claude=%d codex=%d cursor=%d vercel=%d git=%d local=%d\n",
+        // Name the slots rather than a fixed trio — which three they are is
+        // the host's call now, and the log is where you check it took.
+        String provs;
+        for (uint8_t i = 0; i < slotN; i++) {
+          if (provs.length()) provs += ' ';
+          provs += slots[i].id;
+          provs += slots[i].q.ok ? "=1" : "=0";
+        }
+        if (!provs.length()) provs = "none";
+        Serial.printf("host=%s  fetch ok  burn=%d providers=[%s] vercel=%d git=%d local=%d\n",
                       resolvedHost.length() ? resolvedHost.c_str() : "usb",
-                      (int)burnHistoryReady(),
-                      (int)claudeQ.ok, (int)codexQ.ok,
-                      (int)cursorQ.ok, (int)vercelOk, (int)gitOk, (int)localOk);
+                      (int)burnHistoryReady(), provs.c_str(),
+                      (int)vercelOk, (int)gitOk, (int)localOk);
         bootLine("USAGE", burnHistoryReady() ? "OK" : "WARM", COL_CRT);
         bootLine("READY", "GO", COL_CRT);
         delay(320);

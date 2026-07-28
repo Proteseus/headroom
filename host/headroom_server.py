@@ -723,7 +723,8 @@ def _compute_doc():
         },
         "sources": _sources_payload(state),
         # The providers the compact surfaces show, already picked. Menu bar,
-        # widget, and ESP32 read this instead of each slicing their own top-N.
+        # widget and the board's three slots read this instead of each slicing
+        # their own top-N.
         "focus": sources_config.focus_ids(),
     }
     doc["attention"] = _build_attention(doc)
@@ -1374,6 +1375,11 @@ class Handler(BaseHTTPRequestHandler):
             if enabled is None and isinstance(order, list):
                 # Reorder-only write: don't force clients to resend the map.
                 result_order = sources_config.set_order(order)
+                # The cached document still names the old first three, and
+                # `focus` is what the menu bar, the widget and the board's
+                # three slots are cut from — a reorder nobody can see for a
+                # poll tick reads as one that didn't take.
+                publish()
                 self._send_json(200, {
                     "ok": True,
                     "enabled": sources_config.enabled_map(),
@@ -1388,6 +1394,7 @@ class Handler(BaseHTTPRequestHandler):
             result = sources_config.set_enabled(enabled)
             if isinstance(order, list):
                 sources_config.set_order(order)
+            publish()
             # Kick a refresh so ESP32/Mac see the change quickly.
             _refresh_async([sid for sid, on in result.items() if on])
             self._send_json(200, {

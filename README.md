@@ -11,8 +11,8 @@ that consolidates that into one glance:
 
 | Always on | What you see |
 |---|---|
-| **ESP32 AMOLED** | Claude / Codex / Cursor quota rings, Vercel, git, local ports |
-| **Menu bar** | Thin remaining-quota meters for enabled providers + amber/red attention pip |
+| **ESP32 AMOLED** | Quota rings for the same three providers the menu bar shows, Vercel, git, local ports |
+| **Menu bar** | Thin remaining-quota meters for the first three enabled providers + amber/red attention pip |
 | **Popover** | Overview rings, daily burn, spend, Activity / Services |
 | **iPhone / iPad** | Quotas, burndown, activity, services, controls, notifications, widgets |
 
@@ -34,21 +34,25 @@ feed. No cloud account for Headroom itself — your tokens stay on the machine.
 ```
   ~/.claude JSONL + OAuth          Mac (Python, stdlib)              Clients
   ~/.codex + Cursor state.vscdb    ┌──────────────────┐             ┌──────────────┐
-  Vercel / git / gh / SB / Plaus. ─▶│ headroom_        │◀── HTTP ────│ Menu bar app │
-  ~/.headroom/{config,sources}    │ server.py :8737  │◀── HTTP ────│ iPhone app   │
-                                  │ + usb_bridge     │◀── HTTP/USB─│ ESP32 /usage │
-                                  └──────────────────┘             └──────────────┘
+  ~/.gemini + Windsurf profile    ─▶│ headroom_        │◀── HTTP ────│ Menu bar app │
+  Copilot / JetBrains / Zed       │ server.py :8737  │◀── HTTP ────│ iPhone app   │
+  Vercel / git / gh / SB / Plaus. │ + usb_bridge     │◀── HTTP/USB─│ ESP32 /usage │
+  ~/.headroom/{config,sources}    └──────────────────┘             └──────────────┘
 ```
 
 **Hardware is optional.** The menu bar alone is useful. The Waveshare
 ESP32-S3-Touch-AMOLED-1.8 (368×448) is the always-on desk glance — same feed,
-tap a slot for detail, long-press to force-refresh.
+tap a slot for detail, long-press to force-refresh. Its three rings are the
+same three the menu bar draws — the host picks them and the board draws what
+it is sent, so a newer provider, an extra account, your pinned order and your
+color overrides all reach the desk. Its Vercel, git and local pages still stay
+up whether or not you switched those sources off.
 
 ## Why it exists
 
 - **Quota anxiety is real.** Session / weekly windows, pace, and spend are
   scattered across products. Headroom puts hottest pool % + pace on one
-  ring (and a menu-bar tick per enabled provider).
+  ring (and a menu-bar tick per provider in focus).
 - **Ship status is ambient.** Failed Actions, Vercel builds, Supabase alerts
   and RLS holes, and listening local servers surface as an attention pip — not
   another tab.
@@ -61,7 +65,7 @@ tap a slot for detail, long-press to force-refresh.
 |---|---|
 | macOS 14+ | Menu bar app |
 | Python 3.9+ | Bundled host is **stdlib only** (system `/usr/bin/python3`) |
-| At least one of Claude / Codex / Cursor | Already signed in locally |
+| At least one AI coding tool | Claude, Codex, Cursor, Copilot, Gemini, Windsurf, JetBrains AI or Zed, already signed in locally |
 | Optional: iPhone / iPad (iOS 17+) | Same LAN or Tailscale as the Mac |
 | Optional: Xcode + [xcodegen](https://github.com/yonaskolb/XcodeGen) | Build from source / flash tooling |
 | Optional: PlatformIO | Only if you flash the ESP32 |
@@ -81,7 +85,7 @@ No Headroom cloud account. Tokens stay on your Mac.
 4. On a Release `.app`, the host **starts automatically** and installs a
    LaunchAgent so it stays up at login (and after you quit the menu bar).
    Use **Start host & keep at login** only if that didn’t happen.
-5. Confirm which providers were detected (Claude / Codex / Cursor) → **Continue**.
+5. Confirm which providers were detected → **Continue**.
 
 ### Option B — macOS from source
 
@@ -120,8 +124,8 @@ open .build/Build/Products/Debug/Headroom.app
 ### First run (Mac)
 
 - `~/.headroom/sources.json` is seeded from **local detection** — only providers
-  that look signed-in are enabled. If none are found, all three quota sources
-  stay on so the UI can show sign-in errors.
+  that look signed-in are enabled. If none are found, every quota source stays
+  on so the UI can show sign-in errors.
 - The Welcome sheet lets you confirm toggles before the overview appears.
 - Edit `~/.headroom/config.json` later for git authors / GitHub org / timezone.
 
@@ -135,8 +139,9 @@ curl -s localhost:8737/setup  | python3 -m json.tool
 Onboarding and Settings keep them apart, because they answer different
 questions and take different setup:
 
-- **AI coding tools** — Claude, Codex, Cursor. How much plan is left. Read
-  from the sign-in already on the Mac, so there is nothing to paste.
+- **AI coding tools** — Claude, Codex, Cursor, Copilot, Gemini, Windsurf,
+  JetBrains AI, Zed. How much plan is left. Read from the sign-in already on
+  the Mac, so there is nothing to paste.
 - **Dev tools** — Vercel, Git, GitHub Actions, Supabase, Plausible, local
   servers. What your projects are doing. Some want a key, pasted once in
   **Mac Settings** (Keychain — never sent to the phone or written into
@@ -154,8 +159,8 @@ Which repos Actions watches is editable in **Settings → GitHub Actions**: owne
 filters, an always-watch list, and the discovery cap. Settings also shows the
 repos those settings resolve to on this machine.
 
-Both lists toggle under Settings, each in its own section (the same flags
-drive the menu bar, overview rings, iPhone, and ESP32 pages).
+Both lists toggle under Settings, each in its own section — the same flags
+drive the menu bar, overview rings, iPhone, and the board.
 
 **More than one account per tool.** Personal Claude and work Claude, two
 ChatGPT logins, a second Cursor profile — each is a separate plan with its own
@@ -187,17 +192,18 @@ blue next to a Sky blue is two rows you have to read to tell apart. Click the
 dot on a provider row in Settings for a grid of 24 colors plus **Default**. The
 host stores the override in `~/.headroom/sources.json` and resolves it into
 `accent`, so the menu bar, popover rings, burndown charts, iPhone and its
-widget all repaint together. The ESP32 keeps its compiled-in palette. Dev-tool
-rows have no brand color — their dot is the health light, so they stay as they
-are.
+widget all repaint together — and the ESP32 too, once it is running firmware
+from this version or later. Dev-tool rows have no brand color: their dot is the
+health light, so they stay as they are.
 
 **Order picks the top 3.** Drag the AI rows in Settings to reorder them, and
 that order is pinned in `~/.headroom/sources.json`. Compact
-surfaces — the menu-bar tanks and the iOS widget — show the first three
-*enabled* providers. The host does the picking and ships the ids as `focus` in
-`/usage`, so the Mac, the phone, and its widget never disagree about which
-three even when one of them is a poll behind. A provider added in a later
-release lands at the end of your order instead of jumping the queue.
+surfaces — the menu-bar tanks, the iOS widget, and the board's three rings —
+show the first three *enabled* providers. The host does the picking and ships
+the ids as `focus` in `/usage`, so the Mac, the phone, its widget and the desk
+never disagree about which three even when one of them is a poll behind. A
+provider added in a later release lands at the end of your order instead of
+jumping the queue.
 
 ### ESP32 desk display (optional)
 
@@ -206,6 +212,10 @@ release lands at the end of your order instead of jumping the queue.
 2. Paste the **host token** into `HOST_TOKEN` (`~/.headroom/token` after first
    start — not the mobile token).
 3. `cd firmware && pio run -t upload && pio device monitor`
+
+Update the Mac host before flashing: the board reads its three providers from
+`/usage?view=device` → `providers[]`, which a host older than 1.0.9 does not
+send. A board that gets no providers says so on the glance rather than guessing.
 
 Wi‑Fi first; USB CDC fallback when LAN fails. **Tap** a glance slot for detail;
 **long-press** home → `POST /sync/refresh`.
@@ -324,10 +334,12 @@ Everything below is loopback-open and token-gated off-box.
 
 | Path | Notes |
 |---|---|
-| `GET /usage` | Full flat JSON for the menu bar |
-| `GET /usage?view=device` | ~2KB projection the ESP32 polls |
-| `GET /health` | Host `version` + `build`, uptime, compact source status, cache age |
-| `GET /setup` | Detected credentials + enabled map (first-run sheet) |
+| `GET /usage` | Full flat JSON for the menu bar (~40KB) |
+| `GET /usage?view=device` | ~5KB projection the ESP32 polls |
+| `GET /health` | Host `version` + `build`, uptime, compact source status, cache age, last board check-in |
+| `GET /setup` | Detected credentials + enabled map + order / focus / accents (first-run sheet) |
+| `GET /github/watch` | Actions owner filters, always-watch list, cap, and the repos they resolve to (loopback) |
+| `POST /github/watch` | Replace those watch settings (loopback) |
 | `GET /accounts` | Extra logins per provider + who can hold them (loopback) |
 | `POST /accounts` | Add (`provider`/`label`/`root`) or drop (`remove`) an extra login, then restart (loopback) |
 | `GET /mobile/permissions` | Four effective permissions for the paired iOS app |

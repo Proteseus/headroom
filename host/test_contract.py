@@ -93,6 +93,9 @@ EMITTABLE = (
     | {("local", "servers", key) for key in device_view.SERVER_FIELDS}
     | {("sources",)}
     | {("sources", key) for key in device_view.SOURCE_FIELDS}
+    # Whole subtree, like burndown: device_view already trimmed it to the
+    # focus providers and their ring pools.
+    | {("providers",)}
     | {("burndown",)}
     | {("burndown", provider) for provider in sources_config.BURN_SOURCE_IDS}
     | {("burndown", provider, key)
@@ -144,6 +147,78 @@ class DeviceViewContractTests(unittest.TestCase):
         self.assertEqual(len(device["git"]["commits"]), device_view.MAX_COMMITS)
         self.assertEqual(len(device["local"]["servers"]),
                          device_view.MAX_SERVERS)
+
+    def test_device_view_sends_the_focus_three_in_order(self):
+        device = device_view.build(_demo_doc())
+        rows = device["providers"]
+        self.assertEqual([row["id"] for row in rows], _demo_doc()["focus"])
+        # Which three, what they are called, and what color they are painted
+        # all cross the wire now — the board hardcodes none of it.
+        self.assertEqual(rows[0]["title"], "Claude")
+        self.assertEqual(rows[0]["accent"], "#D97757")
+        self.assertEqual([pool["t"] for pool in rows[0]["pools"]],
+                         ["Session", "Weekly"])
+
+    def test_device_view_sends_only_ring_pools_with_readings(self):
+        doc = {
+            "focus": ["cursor"],
+            "providers": [{
+                "id": "cursor", "title": "Cursor", "ok": True,
+                "accent": "#789BC8",
+                "pools": {
+                    "auto": {"title": "Auto", "rank": 1, "pct": 5.0,
+                             "ring": False},
+                    "total": {"title": "Total", "rank": 0, "pct": 34.0},
+                    "api": {"title": "API", "rank": 2, "pct": None},
+                },
+            }],
+        }
+        pools = device_view.build(doc)["providers"][0]["pools"]
+        # Auto is charted but never drawn; API has no reading to draw.
+        self.assertEqual([pool["t"] for pool in pools], ["Total"])
+
+    def test_device_view_honours_the_slot_limit(self):
+        ids = [f"p{i}" for i in range(6)]
+        doc = {
+            "focus": ids,
+            "providers": [{"id": pid, "title": pid, "ok": True, "pools": {}}
+                          for pid in ids],
+        }
+        rows = device_view.build(doc)["providers"]
+        self.assertEqual(len(rows), device_view.MAX_PROVIDERS)
+
+    def test_device_view_charts_only_what_the_board_can_show(self):
+        doc = {
+            "focus": ["claude", "claude:work"],
+            "providers": [
+                {"id": "claude", "title": "Claude", "ok": True, "pools": {}},
+                {"id": "claude:work", "title": "Claude - Work", "ok": True,
+                 "pools": {}},
+            ],
+            "burndown": {
+                pid: {"week": {"pool": "week", "window_start": 0,
+                               "window_end": 100, "actual": [[1, 90]]}}
+                for pid in ("claude", "claude:work", "gemini")
+            },
+        }
+        charted = set(device_view.build(doc)["burndown"])
+        # The slots, plus the legacy trio an un-reflashed board draws by name.
+        self.assertIn("claude:work", charted)
+        self.assertNotIn("gemini", charted)
+
+    def test_device_slot_caps_match_firmware_constants(self):
+        with open(FIRMWARE_PATH) as handle:
+            source = handle.read()
+
+        def firmware_const(name):
+            match = re.search(
+                rf"static const uint8_t {name} = (\d+);", source)
+            self.assertIsNotNone(match, f"{name} missing from main.cpp")
+            return int(match.group(1))
+
+        self.assertEqual(firmware_const("MAX_SLOTS"),
+                         device_view.MAX_PROVIDERS)
+        self.assertEqual(firmware_const("MAX_POOLS"), device_view.MAX_POOLS)
 
     def test_device_row_caps_match_firmware_constants(self):
         with open(FIRMWARE_PATH) as handle:
