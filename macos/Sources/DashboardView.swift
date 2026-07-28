@@ -42,6 +42,15 @@ struct DashboardView: View {
                         }
                     } else {
                         providerSwitcher
+                        // Warnings first: failed deploys / Actions / etc. stay
+                        // visible without scrolling past quota charts. On
+                        // provider tabs, only show the card while something
+                        // needs attention.
+                        let hasAttentionWarning =
+                            store.snapshot.attention?.isWarning == true
+                        if selectedDashboard == .overview || hasAttentionWarning {
+                            AttentionCard(snapshot: store.snapshot)
+                        }
                         if selectedDashboard == .overview {
                             QuotaOverviewCard(snapshot: store.snapshot) { provider in
                                 selectedProviderRaw = provider.rawValue
@@ -53,7 +62,6 @@ struct DashboardView: View {
                                 providers: store.snapshot.activeQuotaProviders,
                                 tintFor: store.snapshot.tint(for:)
                             )
-                            AttentionCard(snapshot: store.snapshot)
                         } else {
                             ProviderQuotaCard(
                                 provider: selectedProvider,
