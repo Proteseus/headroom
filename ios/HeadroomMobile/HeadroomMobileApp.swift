@@ -45,6 +45,8 @@ struct HeadroomMobileApp: App {
             guard exportDirectory == nil else { return }
             switch phase {
             case .active:
+                // Stale recovery force-syncs inside refresh(); a live link
+                // stays a cheap GET.
                 Task { await store.refresh() }
             case .background:
                 MobileBackgroundRefresh.schedule()

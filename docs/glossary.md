@@ -50,6 +50,8 @@ Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown
 |---|---|
 | **Connected** | iOS link health when the Mac host is reachable |
 | **Mac unavailable** | iOS cannot reach the host |
+| **Reconnecting…** | Host answered again; forcing a source sync |
+| **Refreshing…** | In-flight poll / sync while already connected |
 | **All clear** | Healthy attention summary (host default + Attention card) |
 | **Needs attention** | Warning fallback when a reason has no summary |
 | **Collecting history** | Burndown empty / early verdict |

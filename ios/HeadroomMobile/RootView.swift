@@ -116,10 +116,16 @@ struct MobileStatusCard: View {
     }
 
     private var statusTitle: String {
+        if store.isLoading, store.isStale {
+            return HeadroomCopy.reconnecting
+        }
         if store.isStale {
             return store.hasSnapshot
                 ? HeadroomCopy.recentHistory
                 : HeadroomCopy.macUnavailable
+        }
+        if store.isLoading {
+            return HeadroomCopy.refreshing
         }
         if store.snapshot.attention?.isWarning == true {
             return HeadroomCopy.needsAttention

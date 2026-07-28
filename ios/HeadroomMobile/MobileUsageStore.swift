@@ -45,6 +45,10 @@ final class MobileUsageStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        // Stale / archived / errored: a plain GET can succeed with the same
+        // pre-outage document and look like nothing happened. Force sources
+        // when recovering so Connected lands with fresh meters.
+        let recovering = isStale
         let client = MobileHeadroomClient(
             endpoint: MobileConnection.endpoint,
             token: MobileTokenStore.read() ?? ""
@@ -53,10 +57,10 @@ final class MobileUsageStore: ObservableObject {
             if let permissions = try? await client.fetchMobilePermissions() {
                 mobilePermissions = permissions
             }
-            if forceServerSync {
+            if forceServerSync || recovering {
                 if mobilePermissions.refresh {
                     try await client.requestRefresh()
-                    try await Task.sleep(for: .milliseconds(700))
+                    await client.waitForRefresh()
                 }
             }
             snapshot = try await client.fetchAndArchiveUsage()

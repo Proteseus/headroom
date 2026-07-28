@@ -121,6 +121,31 @@ struct MobileHeadroomClient: Sendable {
         )
     }
 
+    /// Host answers /sync/refresh with 202 and works in the background — poll
+    /// /health until sources look fresh instead of sleeping a guessed interval.
+    func waitForRefresh(
+        timeout: TimeInterval = 6,
+        freshWithin: Int = 3
+    ) async {
+        let base = try? usageURL.deletingLastPathComponent()
+        guard let healthURL = base?.appending(path: "health") else { return }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let data = try? await send(url: healthURL),
+                  let object = try? JSONSerialization.jsonObject(with: data)
+                    as? [String: Any],
+                  let sources = object["sources"] as? [String: [String: Any]]
+            else { continue }
+            let settled = sources.values.allSatisfy { row in
+                if row["enabled"] as? Bool == false { return true }
+                guard let age = row["age_s"] as? Int else { return false }
+                return age <= freshWithin
+            }
+            if settled { return }
+        }
+    }
+
     func acknowledgeAttention(_ fingerprint: String) async throws {
         let url = try usageURL.deletingLastPathComponent()
             .appending(path: "attention")
