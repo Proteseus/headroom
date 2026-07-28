@@ -10,7 +10,9 @@ __pycache__/
 .pytest_cache/
 .venv-shots/
 
-# macOS / Xcode derived data (sources + project.yml + .xcodeproj are tracked)
+# macOS / Xcode. project.yml is the source of truth: XcodeGen writes the
+# .xcodeproj on every build, so tracking it only produces UUID churn.
+macos/Headroom.xcodeproj/
 macos/.build/
 macos/.build-ios/
 macos/.build-ios-shots/
@@ -19,6 +21,9 @@ macos/host/
 dist/
 *.xcuserstate
 xcuserdata/
+
+# Per-machine agent settings (permission allowlists, not project config).
+.claude/settings.local.json
 
 # OS junk
 .DS_Store
