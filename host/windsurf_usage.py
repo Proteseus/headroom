@@ -25,19 +25,35 @@ CACHE_KEY = "windsurf.settings.cachedPlanInfo"
 DAY_WINDOW_S = 24 * 3600
 WEEK_WINDOW_S = 7 * 86400
 
+# One cache per account, keyed by account id ("" is the default install).
 _cache = {"t": 0.0, "data": None, "err": None}
+_caches = {"": _cache}
 _EMPTY = {"ok": False, "plan": None, "session": None, "week": None}
+
+
+def _cache_for(account):
+    key = account.id if account else ""
+    cache = _caches.get(key)
+    if cache is None:
+        cache = _caches[key] = {"t": 0.0, "data": None, "err": None}
+    return cache
+
+
+def _state_db(account=None):
+    """A second Windsurf login is a second profile's state.vscdb."""
+    return account.root if account else STATE_DB
 
 
 def signed_in():
     return os.path.isfile(STATE_DB)
 
 
-def _read_cache_blob():
-    if not os.path.isfile(STATE_DB):
+def _read_cache_blob(account=None):
+    path = _state_db(account)
+    if not os.path.isfile(path):
         return None
     try:
-        con = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True)
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
             row = con.execute(
                 "SELECT value FROM ItemTable WHERE key = ?",
@@ -128,29 +144,33 @@ def _map(blob):
     }
 
 
-def fetch_quota(force=False):
+def fetch_quota(force=False, account=None):
+    """`account` is an extra login from accounts.py (None = the default one),
+    pointing at another profile's state.vscdb."""
     now = time.time()
-    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
-        return _cache["data"]
+    cache = _cache_for(account)
+    disk_name = account.cache_name if account else DISK
+    if cache_util.fresh(cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return cache["data"]
 
-    if not os.path.isfile(STATE_DB):
+    if not os.path.isfile(_state_db(account)):
         return cache_util.keep_stale(
-            _cache, now, "Windsurf not installed", _EMPTY, disk_name=DISK)
+            cache, now, "Windsurf not installed", _EMPTY, disk_name=disk_name)
 
-    blob = _read_cache_blob()
+    blob = _read_cache_blob(account)
     if blob is None:
         return cache_util.keep_stale(
-            _cache, now,
+            cache, now,
             "no Windsurf plan cache — open Windsurf once",
-            _EMPTY, disk_name=DISK)
+            _EMPTY, disk_name=disk_name)
 
     try:
         out = _map(blob)
         if out and out.get("ok"):
-            return cache_util.store(_cache, now, out, disk_name=DISK)
+            return cache_util.store(cache, now, out, disk_name=disk_name)
         err = (out or {}).get("error") or "Windsurf quota unavailable"
         return cache_util.keep_stale(
-            _cache, now, err, _EMPTY, disk_name=DISK)
+            cache, now, err, _EMPTY, disk_name=disk_name)
     except Exception as exc:  # noqa: BLE001
         return cache_util.keep_stale(
-            _cache, now, str(exc), _EMPTY, disk_name=DISK)
+            cache, now, str(exc), _EMPTY, disk_name=disk_name)

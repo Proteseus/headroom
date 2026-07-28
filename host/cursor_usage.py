@@ -31,12 +31,27 @@ STATE_DB = os.path.expanduser(
     "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb"
 )
 
+# One cache per account, keyed by account id ("" is the default install).
 _cache = {"t": 0.0, "data": None, "err": None}
+_caches = {"": _cache}
 
 
-def _state_value(key):
+def _cache_for(account):
+    key = account.id if account else ""
+    cache = _caches.get(key)
+    if cache is None:
+        cache = _caches[key] = {"t": 0.0, "data": None, "err": None}
+    return cache
+
+
+def _state_db(account=None):
+    """A second Cursor login is a second profile's state.vscdb — see accounts."""
+    return account.root if account else STATE_DB
+
+
+def _state_value(key, account=None):
     try:
-        con = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True)
+        con = sqlite3.connect(f"file:{_state_db(account)}?mode=ro", uri=True)
         try:
             row = con.execute(
                 "SELECT value FROM ItemTable WHERE key = ?", (key,)
@@ -53,13 +68,13 @@ def _state_value(key):
     return str(val)
 
 
-def _read_token():
-    tok = _state_value("cursorAuth/accessToken")
+def _read_token(account=None):
+    tok = _state_value("cursorAuth/accessToken", account)
     return tok.strip() if tok else None
 
 
-def _read_plan():
-    raw = _state_value("cursorAuth/stripeMembershipType")
+def _read_plan(account=None):
+    raw = _state_value("cursorAuth/stripeMembershipType", account)
     return _prettify_plan(raw)
 
 
@@ -280,15 +295,21 @@ def parse_usage(body, plan=None):
     }
 
 
-def fetch_quota(force=False):
-    """Return Cursor quota dict, using a short in-memory cache. Never raises."""
+def fetch_quota(force=False, account=None):
+    """Return Cursor quota dict, using a short in-memory cache. Never raises.
+
+    `account` is an extra login from accounts.py (None = the default install),
+    pointing at another profile's state.vscdb.
+    """
     now = time.time()
-    if _cache["data"] is None:
-        disk = cache_util.load_disk("cursor")
+    cache = _cache_for(account)
+    disk_name = account.cache_name if account else "cursor"
+    if cache["data"] is None:
+        disk = cache_util.load_disk(disk_name)
         if disk:
-            _cache.update(t=0.0, data=disk, err=None)
-    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
-        return _cache["data"]
+            cache.update(t=0.0, data=disk, err=None)
+    if cache_util.fresh(cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return cache["data"]
 
     empty = {
         "ok": False,
@@ -307,14 +328,15 @@ def fetch_quota(force=False):
 
     def _keep_stale(err):
         return cache_util.keep_stale(
-            _cache, now, err, empty, disk_name="cursor")
+            cache, now, err, empty, disk_name=disk_name)
 
     try:
-        token = _read_token()
+        token = _read_token(account)
         if not token:
-            return _keep_stale(f"no Cursor accessToken in {STATE_DB}")
+            return _keep_stale(
+                f"no Cursor accessToken in {_state_db(account)}")
 
-        plan = _read_plan()
+        plan = _read_plan(account)
         status, body = _http_usage(token)
         if status != 200:
             return _keep_stale(f"usage HTTP {status}")
@@ -322,6 +344,6 @@ def fetch_quota(force=False):
         data = parse_usage(body, plan=plan)
         data["stale"] = False
         data["error"] = None
-        return cache_util.store(_cache, now, data, disk_name="cursor")
+        return cache_util.store(cache, now, data, disk_name=disk_name)
     except Exception as e:
         return _keep_stale(str(e))

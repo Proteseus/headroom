@@ -214,6 +214,41 @@ struct HeadroomClient: Sendable {
         return (object?["order"] as? [String]) ?? order
     }
 
+    /// Extra logins per provider, and which providers can hold them.
+    func fetchAccounts() async throws -> ProviderAccounts {
+        let url = try base().appendingPathComponent("accounts")
+        let data = try await send(request(url, timeout: 5))
+        return try JSONDecoder().decode(ProviderAccounts.self, from: data)
+    }
+
+    /// Register a second login. The host answers with the stored list and
+    /// then restarts to rebuild its source registry around it, so callers
+    /// must wait for it to come back before trusting `/usage` again.
+    @discardableResult
+    func addAccount(
+        provider: String, label: String, root: String
+    ) async throws -> ProviderAccounts {
+        try await postAccounts([
+            "provider": provider, "label": label, "root": root,
+        ])
+    }
+
+    @discardableResult
+    func removeAccount(_ id: String) async throws -> ProviderAccounts {
+        try await postAccounts(["remove": id])
+    }
+
+    private func postAccounts(
+        _ body: [String: String]
+    ) async throws -> ProviderAccounts {
+        let url = try base().appendingPathComponent("accounts")
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(withJSONObject: body),
+            timeout: 10))
+        return try JSONDecoder().decode(ProviderAccounts.self, from: data)
+    }
+
     func fetchMobilePermissions() async throws -> MobilePermissions {
         let url = try base()
             .appendingPathComponent("mobile")
@@ -287,6 +322,42 @@ struct HeadroomClient: Sendable {
             throw ClientError.backend(result?.error ?? "Could not stop the server.")
         }
     }
+}
+
+/// Extra logins per provider, from `/accounts`. Mac-local like the GitHub
+/// watch list: these name folders holding live credentials, and the host
+/// serves the endpoint to loopback only.
+struct ProviderAccounts: Decodable, Sendable {
+    var providers: [AccountProvider] = []
+    /// True on the response to a write — the host is re-execing to rebuild
+    /// its source registry, so the caller should wait before re-reading.
+    var restarting: Bool?
+
+    var isEmpty: Bool { providers.isEmpty }
+}
+
+struct AccountProvider: Decodable, Identifiable, Sendable {
+    var id: String
+    var title: String
+    /// "dir" when a second login is a second credential folder, "file" when
+    /// it is the credential store itself. Drives which panel Add opens.
+    var kind: String
+    var hint: String?
+    var accent: String?
+    var max: Int?
+    var accounts: [ProviderAccount] = []
+
+    var wantsFolder: Bool { kind == "dir" }
+    var isFull: Bool { accounts.count >= (max ?? 8) }
+}
+
+struct ProviderAccount: Decodable, Identifiable, Sendable {
+    var id: String
+    var provider: String
+    var slug: String
+    var label: String
+    /// The credential location as the user typed it.
+    var root: String
 }
 
 /// Mac-local Actions configuration. Not in Shared: iOS never edits the config

@@ -1,10 +1,10 @@
 """The source registry: one entry per thing Headroom watches.
 
 This is the single place that knows a source exists. Adding one means adding a
-row to SOURCES — the HTTP payload, the Mac Settings list, the ESP32 footer, the
-poll schedule, and the log line all follow from it. Enabled flags persist to
-~/.headroom/sources.json; both Mac Settings and the ESP32 read them back via
-/usage → sources[].
+row to BASE_SOURCES — the HTTP payload, the Mac Settings list, the ESP32
+footer, the poll schedule, and the log line all follow from it. Enabled flags
+persist to ~/.headroom/sources.json; both Mac Settings and the ESP32 read them
+back via /usage → sources[].
 
 Quota providers (Claude / Codex / Cursor / …) are sources with kind="quota"
 plus pool specs. POOLS, daily-burn headlines, and /usage → providers[] all
@@ -16,16 +16,25 @@ Settings split rows by group: the AI coding tools you're signed into locally
 (no keys to paste) versus the dev tools you connect with a token. Section
 titles live in Shared/HeadroomCopy.swift — the registry only owns membership.
 
+A provider whose credentials live at a path you can point elsewhere carries an
+`account_kind`, and then a second login is a second row: the registry expands
+`claude` into `claude` plus `claude:work` at import (see accounts.py). Every
+consumer already iterates the registry, so extra accounts get their own poll,
+their own samples, their own burndown and their own ring for free — and the
+default login keeps the bare id, so nothing stored under it moves.
+
 Stdlib only.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import threading
 from typing import Callable, NamedTuple, Optional
 
+import accounts
 import codex_usage
 import copilot_usage
 import cursor_usage
@@ -94,6 +103,19 @@ class Source(NamedTuple):
     headline_fallback_max: tuple = ()
     # #RRGGBB — shared with firmware COL_* and macos UsageProvider.tint.
     accent: Optional[str] = None
+    # Extra logins. accounts.KIND_DIR when a second account is a second
+    # credential *directory* (Claude, Codex, Gemini), accounts.KIND_FILE when
+    # it is the credential store itself (Cursor / Windsurf state.vscdb).
+    # None means one login per Mac and Settings offers no Add button.
+    account_kind: Optional[str] = None
+    # Filename inside a KIND_DIR account, so Settings can say whether the
+    # folder someone picked actually holds credentials. The fetcher owns the
+    # constant; this is a reference to it, not a second copy.
+    account_file: Optional[str] = None
+    # What Settings shows as the example location for a new account.
+    account_hint: Optional[str] = None
+    # Set on rows the expansion created; None on the default login.
+    account: Optional[object] = None
 
     # ---- derived presentation (override with the *_fn fields above) ----
 
@@ -326,20 +348,28 @@ _ZED_POOLS = (
              zed_usage.MONTH_WINDOW_S),
 )
 
-SOURCES = (
+BASE_SOURCES = (
     Source("claude", "Claude", "Keychain / ~/.claude credentials", 60,
            oauth_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_CLAUDE_POOLS,
-           headline=("week", "session"), accent="#D97757"),
+           headline=("week", "session"), accent="#D97757",
+           account_kind=accounts.KIND_DIR,
+           account_file=oauth_usage.CREDS_NAME,
+           account_hint="~/.claude-work (a second CLAUDE_CONFIG_DIR)"),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
            codex_usage.fetch_quota, summary_fn=_summary_codex,
            kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
-           headline=("week", "session"), accent="#10A37F"),
+           headline=("week", "session"), accent="#10A37F",
+           account_kind=accounts.KIND_DIR,
+           account_file=codex_usage.AUTH_NAME,
+           account_hint="~/.codex-work (a second CODEX_HOME)"),
     Source("cursor", "Cursor", "Cursor IDE signed-in JWT", 60,
            cursor_usage.fetch_quota, summary_fn=_summary_cursor,
            kind="quota", group=GROUP_AI, pools=_CURSOR_POOLS,
            headline=("total",), headline_fallback_max=("auto", "api"),
-           accent="#789BC8"),
+           accent="#789BC8",
+           account_kind=accounts.KIND_FILE,
+           account_hint="another profile's state.vscdb"),
     Source("copilot", "Copilot", "GitHub token / `gh auth`", 60,
            copilot_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
@@ -347,11 +377,16 @@ SOURCES = (
     Source("gemini", "Gemini", "~/.gemini OAuth (Gemini CLI)", 60,
            gemini_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
-           headline=("pro", "flash"), accent="#4285F4"),
+           headline=("pro", "flash"), accent="#4285F4",
+           account_kind=accounts.KIND_DIR,
+           account_file=gemini_usage.CREDS_NAME,
+           account_hint="~/.gemini-work"),
     Source("windsurf", "Windsurf", "Windsurf IDE plan cache", 60,
            windsurf_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_WINDSURF_POOLS,
-           headline=("week", "session"), accent="#00C2A8"),
+           headline=("week", "session"), accent="#00C2A8",
+           account_kind=accounts.KIND_FILE,
+           account_hint="another profile's state.vscdb"),
     Source("jetbrains", "JetBrains AI", "Local AI Assistant quota XML", 60,
            jetbrains_usage.fetch_quota,
            kind="quota", group=GROUP_AI,
@@ -381,13 +416,72 @@ SOURCES = (
            _blank_plausible),
 )
 
+
+def _account_row(base, account):
+    """A registry row for one extra login of `base`.
+
+    Everything except identity and where the credentials are is inherited, so
+    an account row meters, logs, charts and colors exactly like the provider
+    it belongs to. `fetch` is bound to the account rather than wrapped, so the
+    fetcher keeps its own `force=` contract.
+    """
+    return base._replace(
+        id=account.id,
+        title=f"{base.title} · {account.label}",
+        hint=account.raw_root,
+        fetch=functools.partial(base.fetch, account=account),
+        account=account,
+    )
+
+
+def _expand(bases):
+    """Registry rows: each base source followed by its extra accounts."""
+    rows = []
+    for base in bases:
+        rows.append(base)
+        if not base.account_kind:
+            continue
+        for account in accounts.for_provider(base.id):
+            rows.append(_account_row(base, account))
+    return tuple(rows)
+
+
+SOURCES = _expand(BASE_SOURCES)
+
 BY_ID = {source.id: source for source in SOURCES}
 SOURCE_IDS = tuple(source.id for source in SOURCES)
+BASE_BY_ID = {source.id: source for source in BASE_SOURCES}
 
 # Quota subset — pollers, daily burn, burndown samples, /usage providers[].
 QUOTA_SOURCES = tuple(s for s in SOURCES if s.kind == "quota")
 BURN_SOURCE_IDS = tuple(s.id for s in QUOTA_SOURCES)
 
+
+def add_account(provider, label, root):
+    """Register a second login for `provider` and switch it on.
+
+    Enabling here rather than leaving it to the first-run defaults is the
+    point: someone who just pointed Headroom at a second Claude folder means
+    to see it, and a new id would otherwise default off like any other source
+    the registry grew. Raises ValueError for anything worth showing a person.
+    """
+    base = BASE_BY_ID.get(str(provider))
+    if base is None:
+        raise ValueError(f"unknown provider {provider!r}")
+    if not base.account_kind:
+        raise ValueError(f"{base.title} supports only one account")
+    account = accounts.add(
+        base.id, label, root, base.account_kind)
+    set_enabled({account.id: True})
+    return account
+
+
+def remove_account(source_id):
+    """Drop an extra login and forget its enabled flag. True when removed."""
+    if not accounts.remove(source_id):
+        return False
+    _forget_enabled(source_id)
+    return True
 
 
 def get(source_id):
@@ -476,10 +570,38 @@ _state = None
 FOCUS_LIMIT = 3
 
 
+def _known_ids():
+    """Registry ids, plus accounts added since this process started.
+
+    An account written by POST /accounts is real on disk but not in `SOURCES`
+    until the host restarts. Without it here, the enabled flag written next to
+    it would be dropped on the way to the file and the new row would come back
+    switched off.
+    """
+    ids = list(SOURCE_IDS)
+    for rows in accounts.all_accounts().values():
+        for account in rows:
+            if account.id not in ids:
+                ids.append(account.id)
+    return tuple(ids)
+
+
 def _default_enabled():
-    """First-run defaults: only sources that look signed-in locally."""
-    return detect_sources.suggested_enabled(
+    """First-run defaults: only sources that look signed-in locally.
+
+    Extra accounts are not in `detect_sources.PROBES` — nothing can probe for
+    a folder it has not been told about — so they are seeded from their own
+    credential check. Without this, deleting sources.json would bring the
+    machine back with every extra login switched off.
+    """
+    enabled = detect_sources.suggested_enabled(
         SOURCE_IDS, quota_ids=BURN_SOURCE_IDS)
+    for source in SOURCES:
+        if source.account is None:
+            continue
+        enabled[source.id] = accounts.present(
+            source.account, source.account_kind, source.account_file)
+    return enabled
 
 
 def _normalize_order(raw):
@@ -494,8 +616,18 @@ def _normalize_order(raw):
         if sid in BY_ID and is_quota(sid) and sid not in out:
             out.append(sid)
     for sid in BURN_SOURCE_IDS:
-        if sid not in out:
-            out.append(sid)
+        if sid in out:
+            continue
+        # An extra account slots in behind its provider rather than at the
+        # very end: "Claude · Work" belongs under Claude, not under Zed.
+        base = accounts.split_id(sid)[0]
+        if base != sid and base in out:
+            at = len(out) - 1
+            while at >= 0 and accounts.split_id(out[at])[0] != base:
+                at -= 1
+            out.insert(at + 1, sid)
+            continue
+        out.append(sid)
     return out
 
 
@@ -523,7 +655,8 @@ def _load():
         return {"enabled": _default_enabled(), "order": _normalize_order(None)}
     order = _normalize_order(
         data.get("order") if isinstance(data.get("order"), list) else None)
-    enabled = {sid: False for sid in SOURCE_IDS}
+    known = _known_ids()
+    enabled = {sid: False for sid in known}
     # Legacy files without an explicit map keep prior all-on behaviour only
     # when the key is missing entirely and the file has other content — but
     # normal files always have "enabled". Missing ids default off so new
@@ -531,8 +664,8 @@ def _load():
     raw = data.get("enabled") if isinstance(data.get("enabled"), dict) else {}
     if not raw and data.get("seeded_from") is None:
         # Pre-detect era file that somehow lacks enabled — treat as all on.
-        return {"enabled": {sid: True for sid in SOURCE_IDS}, "order": order}
-    for sid in SOURCE_IDS:
+        return {"enabled": {sid: True for sid in known}, "order": order}
+    for sid in known:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
     return {"enabled": enabled, "order": order}
@@ -566,15 +699,28 @@ def is_enabled(source_id):
 
 def set_enabled(updates):
     """Apply {source_id: bool} updates. Returns the full enabled map."""
+    known = set(_known_ids())
     with _lock:
         state = _state_locked()
         enabled = dict(state["enabled"])
         for sid, value in (updates or {}).items():
-            if sid in BY_ID:
+            if sid in known:
                 enabled[sid] = bool(value)
         state["enabled"] = enabled
         _save(state)
         return dict(enabled)
+
+
+def _forget_enabled(source_id):
+    """Drop a removed account's flag so re-adding the same slug starts clean."""
+    with _lock:
+        state = _state_locked()
+        enabled = dict(state["enabled"])
+        if enabled.pop(source_id, None) is None:
+            return
+        state["enabled"] = enabled
+        state["order"] = [sid for sid in state["order"] if sid != source_id]
+        _save(state)
 
 
 def order_ids():
@@ -618,9 +764,46 @@ def focus_ids(limit=FOCUS_LIMIT):
     return picked[:limit]
 
 
+def _detected_map():
+    """Local probes, extended with one existence check per extra account.
+
+    The probe answers "is there a credential store here", not "is the token
+    good" — a signed-out account still shows up as a row so its real error is
+    on screen instead of the row silently vanishing.
+    """
+    detected = detect_sources.detected_map()
+    for source in SOURCES:
+        if source.account is None:
+            continue
+        detected[source.id] = accounts.present(
+            source.account, source.account_kind, source.account_file)
+    return detected
+
+
+def accounts_payload():
+    """Shape for GET/POST /accounts — extra logins, and who can hold them."""
+    return {
+        "providers": [
+            {
+                "id": base.id,
+                "title": base.title,
+                "kind": base.account_kind,
+                "hint": base.account_hint,
+                "accent": base.accent,
+                "max": accounts.MAX_PER_PROVIDER,
+                "accounts": [
+                    account.payload()
+                    for account in accounts.for_provider(base.id)
+                ],
+            }
+            for base in BASE_SOURCES if base.account_kind
+        ],
+    }
+
+
 def detection_payload():
     """Shape for GET /setup — what local probes found + current enables."""
-    detected = detect_sources.detected_map()
+    detected = _detected_map()
     enabled = enabled_map()
     return {
         "detected": detected,
@@ -640,6 +823,7 @@ def detection_payload():
             }
             for source in ordered_sources()
         ],
+        **accounts_payload(),
     }
 
 def reset_for_tests():
@@ -647,3 +831,20 @@ def reset_for_tests():
     global _state
     with _lock:
         _state = None
+
+
+def reload_registry():
+    """Rebuild `SOURCES` from the accounts file (tests only).
+
+    The running host restarts instead: `quota_samples.POOLS` and the poller's
+    per-source clocks are derived at import, and quietly swapping the registry
+    under them would leave the sample schema disagreeing with the meters.
+    """
+    global SOURCES, BY_ID, SOURCE_IDS, QUOTA_SOURCES, BURN_SOURCE_IDS
+    accounts.reload()
+    SOURCES = _expand(BASE_SOURCES)
+    BY_ID = {source.id: source for source in SOURCES}
+    SOURCE_IDS = tuple(source.id for source in SOURCES)
+    QUOTA_SOURCES = tuple(s for s in SOURCES if s.kind == "quota")
+    BURN_SOURCE_IDS = tuple(s.id for s in QUOTA_SOURCES)
+    reset_for_tests()

@@ -35,16 +35,33 @@ FAIL_TTL_S = 20
 PACE_MIN_ELAPSED_FRAC = 0.03
 
 
-def _auth_path():
+# A second ChatGPT login is a second `CODEX_HOME` holding the same filename —
+# see accounts.py. The name lives here because the fetcher owns the layout.
+AUTH_NAME = "auth.json"
+
+
+def _auth_path(account=None):
+    if account:
+        return account.child(AUTH_NAME)
     home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
-    return os.path.join(home, "auth.json")
+    return os.path.join(home, AUTH_NAME)
 
 
+# One cache per account, keyed by account id ("" is the default login).
 _cache = {"t": 0.0, "data": None, "err": None}
+_caches = {"": _cache}
 
 
-def _read_auth():
-    path = _auth_path()
+def _cache_for(account):
+    key = account.id if account else ""
+    cache = _caches.get(key)
+    if cache is None:
+        cache = _caches[key] = {"t": 0.0, "data": None, "err": None}
+    return cache
+
+
+def _read_auth(account=None):
+    path = _auth_path(account)
     try:
         with open(path) as f:
             return json.load(f)
@@ -52,8 +69,8 @@ def _read_auth():
         return None
 
 
-def _write_auth(blob):
-    path = _auth_path()
+def _write_auth(blob, account=None):
+    path = _auth_path(account)
     raw = json.dumps(blob, indent=2)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -69,11 +86,11 @@ def _tokens(blob):
     return t
 
 
-def _refresh(blob):
+def _refresh(blob, account=None):
     tokens = _tokens(blob) or {}
     refresh = tokens.get("refresh_token")
     if not refresh:
-        raise RuntimeError("no refresh_token in ~/.codex/auth.json")
+        raise RuntimeError(f"no refresh_token in {_auth_path(account)}")
     data = http_util.request_json(
         TOKEN_URL,
         form_body={
@@ -96,7 +113,7 @@ def _refresh(blob):
         tokens["id_token"] = data["id_token"]
     blob["tokens"] = tokens
     blob["last_refresh"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    _write_auth(blob)
+    _write_auth(blob, account)
     return tokens
 
 
@@ -110,7 +127,7 @@ def _http_get(url, access_token, account_id):
     )
 
 
-def _http_get_authed(url, blob):
+def _http_get_authed(url, blob, account=None):
     tokens = _tokens(blob)
     if not tokens:
         raise RuntimeError("credentials missing tokens.access_token")
@@ -119,7 +136,7 @@ def _http_get_authed(url, blob):
     except urllib.error.HTTPError as e:
         if e.code not in (401, 403):
             raise
-        tokens = _refresh(blob)
+        tokens = _refresh(blob, account)
         return _http_get(url, tokens["access_token"], tokens.get("account_id"))
 
 
@@ -385,15 +402,21 @@ def parse_usage(body, credits_body=None):
     }
 
 
-def fetch_quota(force=False):
-    """Return Codex quota dict, using a short in-memory cache. Never raises."""
+def fetch_quota(force=False, account=None):
+    """Return Codex quota dict, using a short in-memory cache. Never raises.
+
+    `account` is an extra login from accounts.py (None = the default one):
+    its own `auth.json`, its own cache, its own disk snapshot.
+    """
     now = time.time()
-    if _cache["data"] is None:
-        disk = cache_util.load_disk("codex")
+    cache = _cache_for(account)
+    disk_name = account.cache_name if account else "codex"
+    if cache["data"] is None:
+        disk = cache_util.load_disk(disk_name)
         if disk:
-            _cache.update(t=0.0, data=disk, err=None)
-    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
-        return _cache["data"]
+            cache.update(t=0.0, data=disk, err=None)
+    if cache_util.fresh(cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return cache["data"]
 
     empty = {
         "ok": False, "plan": None, "session": None, "week": None,
@@ -403,22 +426,23 @@ def fetch_quota(force=False):
 
     def _keep_stale(err):
         return cache_util.keep_stale(
-            _cache, now, err, empty, disk_name="codex")
+            cache, now, err, empty, disk_name=disk_name)
 
     try:
-        blob = _read_auth()
+        blob = _read_auth(account)
         if not blob:
-            return _keep_stale(f"no Codex credentials at {_auth_path()}")
+            return _keep_stale(f"no Codex credentials at {_auth_path(account)}")
         if not _tokens(blob):
             return _keep_stale("auth.json missing tokens.access_token")
 
-        status, body = _http_get_authed(USAGE_URL, blob)
+        status, body = _http_get_authed(USAGE_URL, blob, account)
         if status != 200:
             return _keep_stale(f"usage HTTP {status}")
 
         credits_body = None
         try:
-            cstatus, credits_body = _http_get_authed(CREDITS_URL, blob)
+            cstatus, credits_body = _http_get_authed(
+                CREDITS_URL, blob, account)
             if cstatus != 200:
                 credits_body = None
         except Exception:
@@ -427,6 +451,6 @@ def fetch_quota(force=False):
         data = parse_usage(body, credits_body)
         data["stale"] = False
         data["error"] = None
-        return cache_util.store(_cache, now, data, disk_name="codex")
+        return cache_util.store(cache, now, data, disk_name=disk_name)
     except Exception as e:
         return _keep_stale(str(e))

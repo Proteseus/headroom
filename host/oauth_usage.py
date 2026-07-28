@@ -34,13 +34,29 @@ TOKEN_URLS = (
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA = "oauth-2025-04-20"
 UA = "claude-cli/2.1.201 (external, cli)"
-CREDS_FILE = os.path.expanduser("~/.claude/.credentials.json")
+# Claude Code keeps this inside its config directory, so a second login is a
+# second directory (`CLAUDE_CONFIG_DIR`) holding the same filename — see
+# accounts.py. The name lives here because the fetcher owns the layout.
+CREDS_NAME = ".credentials.json"
+CREDS_FILE = os.path.expanduser(os.path.join("~/.claude", CREDS_NAME))
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 CACHE_TTL_S = 60
 FAIL_TTL_S = 20          # retry sooner after transient misses (429, etc.)
 EXPIRY_SKEW_S = 120
 
+# One cache per account, keyed by account id ("" is the default login). The
+# default's dict is still `_cache`, so anything holding that reference keeps
+# talking about the same login it always did.
 _cache = {"t": 0.0, "data": None, "err": None}
+_caches = {"": _cache}
+
+
+def _cache_for(account):
+    key = account.id if account else ""
+    cache = _caches.get(key)
+    if cache is None:
+        cache = _caches[key] = {"t": 0.0, "data": None, "err": None}
+    return cache
 
 
 def _keychain_account():
@@ -61,20 +77,34 @@ def _keychain_account():
     return os.environ.get("USER") or os.environ.get("LOGNAME")
 
 
-def _read_creds_blob():
-    """Return (store, blob_dict) where store is 'keychain'|'file'|None."""
+def _creds_file(account=None):
+    return account.child(CREDS_NAME) if account else CREDS_FILE
+
+
+def _read_creds_blob(account=None):
+    """Return (store, blob_dict); store is 'keychain', a file path, or None.
+
+    Only the default login can come out of the Keychain — there is one
+    `Claude Code-credentials` item per Mac, and it belongs to whichever login
+    the CLI wrote last. An extra account is a directory by definition, so it
+    reads and writes its own file and never touches the shared item.
+    """
+    if account is None:
+        try:
+            raw = subprocess.check_output(
+                ["security", "find-generic-password",
+                 "-s", KEYCHAIN_SERVICE, "-w"],
+                stderr=subprocess.DEVNULL, text=True,
+            ).strip()
+            if raw:
+                return "keychain", json.loads(raw)
+        except (subprocess.CalledProcessError, FileNotFoundError,
+                json.JSONDecodeError):
+            pass
+    path = _creds_file(account)
     try:
-        raw = subprocess.check_output(
-            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        if raw:
-            return "keychain", json.loads(raw)
-    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
-        pass
-    try:
-        with open(CREDS_FILE) as f:
-            return "file", json.load(f)
+        with open(path) as f:
+            return path, json.load(f)
     except (OSError, json.JSONDecodeError):
         return None, None
 
@@ -87,11 +117,11 @@ def _write_creds_blob(store, blob):
         # refresh token in argv where any process can read it out of `ps`.
         keychain.set_generic_password(KEYCHAIN_SERVICE, acct, raw)
         return
-    tmp = CREDS_FILE + ".tmp"
+    tmp = store + ".tmp"
     with open(tmp, "w") as f:
         f.write(raw)
     os.chmod(tmp, 0o600)
-    os.replace(tmp, CREDS_FILE)
+    os.replace(tmp, store)
 
 
 def _oauth_block(blob):
@@ -256,27 +286,37 @@ def parse_usage(body, oauth=None):
     return out
 
 
-def fetch_quota(force=False):
-    """Return quota dict, using a short in-memory cache. Never raises."""
+def fetch_quota(force=False, account=None):
+    """Return quota dict, using a short in-memory cache. Never raises.
+
+    `account` is an extra login from accounts.py (None = the default one).
+    Everything below is per-account: its own cache, its own disk snapshot,
+    and its own credential file to refresh tokens back into.
+    """
     now = time.time()
-    if _cache["data"] is None:
-        disk = cache_util.load_disk("claude")
+    cache = _cache_for(account)
+    disk_name = account.cache_name if account else "claude"
+    if cache["data"] is None:
+        disk = cache_util.load_disk(disk_name)
         if disk:
-            _cache.update(t=0.0, data=disk, err=None)
-    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
-        return _cache["data"]
+            cache.update(t=0.0, data=disk, err=None)
+    if cache_util.fresh(cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return cache["data"]
 
     empty = {"ok": False, "plan": None, "session": None, "week": None, "error": None}
 
     def _keep_stale(err):
         return cache_util.keep_stale(
-            _cache, now, err, empty, disk_name="claude")
+            cache, now, err, empty, disk_name=disk_name)
 
     try:
-        store, blob = _read_creds_blob()
+        store, blob = _read_creds_blob(account)
         if not store:
             return _keep_stale(
-                "no Claude credentials (Keychain or ~/.claude/.credentials.json)")
+                f"no Claude credentials at {_creds_file(account)}"
+                if account
+                else "no Claude credentials "
+                     "(Keychain or ~/.claude/.credentials.json)")
         oauth = _oauth_block(blob)
         if not oauth:
             return _keep_stale("credentials missing claudeAiOauth.accessToken")
@@ -304,7 +344,7 @@ def fetch_quota(force=False):
         data = parse_usage(body, oauth)
         data["stale"] = False
         data["error"] = None
-        return cache_util.store(_cache, now, data, disk_name="claude")
+        return cache_util.store(cache, now, data, disk_name=disk_name)
     except Exception as e:
         return _keep_stale(str(e))
 

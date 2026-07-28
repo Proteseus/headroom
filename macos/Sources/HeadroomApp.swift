@@ -403,6 +403,9 @@ private struct SettingsView: View {
                 }
             } else {
                 sourceGroupSection(.ai)
+                AccountsSection(endpoint: endpoint) {
+                    await reloadSources()
+                }
                 sourceGroupSection(.devtools)
             }
 

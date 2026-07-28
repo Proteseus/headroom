@@ -20,16 +20,39 @@ import quota_util
 CACHE_TTL_S = 60
 FAIL_TTL_S = 20
 DISK = "gemini_quota"
-CREDS_PATH = os.path.expanduser("~/.gemini/oauth_creds.json")
-SETTINGS_PATH = os.path.expanduser("~/.gemini/settings.json")
+# A second Google login is a second Gemini CLI home holding the same two
+# filenames — see accounts.py. Names live here because the fetcher owns them.
+CREDS_NAME = "oauth_creds.json"
+SETTINGS_NAME = "settings.json"
+GEMINI_HOME = os.path.expanduser("~/.gemini")
+CREDS_PATH = os.path.join(GEMINI_HOME, CREDS_NAME)
+SETTINGS_PATH = os.path.join(GEMINI_HOME, SETTINGS_NAME)
 QUOTA_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
 TIER_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 UA = "Headroom/1"
 DAY_WINDOW_S = 24 * 3600
 
+# One cache per account, keyed by account id ("" is the default login).
 _cache = {"t": 0.0, "data": None, "err": None}
+_caches = {"": _cache}
 _EMPTY = {"ok": False, "plan": None, "pro": None, "flash": None}
+
+
+def _cache_for(account):
+    key = account.id if account else ""
+    cache = _caches.get(key)
+    if cache is None:
+        cache = _caches[key] = {"t": 0.0, "data": None, "err": None}
+    return cache
+
+
+def _creds_path(account=None):
+    return account.child(CREDS_NAME) if account else CREDS_PATH
+
+
+def _settings_path(account=None):
+    return account.child(SETTINGS_NAME) if account else SETTINGS_PATH
 
 
 def signed_in():
@@ -71,37 +94,38 @@ def _oauth_client():
     return None, None
 
 
-def _read_creds():
+def _read_creds(account=None):
     try:
-        with open(CREDS_PATH) as handle:
+        with open(_creds_path(account)) as handle:
             blob = json.load(handle)
     except (OSError, json.JSONDecodeError, TypeError):
         return None
     return blob if isinstance(blob, dict) else None
 
 
-def _write_creds(blob):
+def _write_creds(blob, account=None):
+    path = _creds_path(account)
     raw = json.dumps(blob, indent=2)
-    tmp = CREDS_PATH + ".tmp"
+    tmp = path + ".tmp"
     try:
         with open(tmp, "w") as handle:
             handle.write(raw)
         os.chmod(tmp, 0o600)
-        os.replace(tmp, CREDS_PATH)
+        os.replace(tmp, path)
     except OSError:
         pass
 
 
-def _auth_type():
+def _auth_type(account=None):
     try:
-        with open(SETTINGS_PATH) as handle:
+        with open(_settings_path(account)) as handle:
             blob = json.load(handle)
     except (OSError, json.JSONDecodeError, TypeError):
         return "oauth-personal"
     return (blob or {}).get("selectedAuthType") or "oauth-personal"
 
 
-def _refresh(blob):
+def _refresh(blob, account=None):
     refresh = blob.get("refresh_token")
     if not refresh:
         raise RuntimeError("Gemini OAuth refresh_token missing")
@@ -129,18 +153,18 @@ def _refresh(blob):
     if token.get("expires_in"):
         blob["expiry_date"] = int(
             (time.time() + float(token["expires_in"])) * 1000)
-    _write_creds(blob)
+    _write_creds(blob, account)
     return blob
 
 
-def _access_token(blob):
+def _access_token(blob, account=None):
     expiry = blob.get("expiry_date")
     try:
         expiry_s = float(expiry) / 1000.0 if expiry else 0
     except (TypeError, ValueError):
         expiry_s = 0
     if expiry_s and expiry_s < time.time() + 60:
-        blob = _refresh(blob)
+        blob = _refresh(blob, account)
     return blob.get("access_token"), blob
 
 
@@ -150,9 +174,9 @@ def _post_json(url, token, body):
         method="POST", user_agent=UA, timeout=12)
 
 
-def _tier_label(blob):
+def _tier_label(blob, account=None):
     try:
-        token, blob = _access_token(blob)
+        token, blob = _access_token(blob, account)
         if not token:
             return None, blob
         data = _post_json(
@@ -224,26 +248,31 @@ def _buckets(quota_blob):
     return pro_pct, flash_pct, resets_in
 
 
-def fetch_quota(force=False):
+def fetch_quota(force=False, account=None):
+    """`account` is an extra login from accounts.py (None = the default one):
+    its own Gemini home, its own cache, its own disk snapshot."""
     now = time.time()
-    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
-        return _cache["data"]
+    cache = _cache_for(account)
+    disk_name = account.cache_name if account else DISK
+    if cache_util.fresh(cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+        return cache["data"]
 
-    auth = _auth_type()
+    auth = _auth_type(account)
     if auth in ("api-key", "vertex-ai"):
         return cache_util.keep_stale(
-            _cache, now,
+            cache, now,
             f"Gemini auth type {auth} not supported (need OAuth)",
-            _EMPTY, disk_name=DISK)
+            _EMPTY, disk_name=disk_name)
 
-    blob = _read_creds()
+    blob = _read_creds(account)
     if not blob or not blob.get("access_token"):
         return cache_util.keep_stale(
-            _cache, now, "not signed in to Gemini CLI", _EMPTY, disk_name=DISK)
+            cache, now, "not signed in to Gemini CLI", _EMPTY,
+            disk_name=disk_name)
 
     try:
-        plan, blob = _tier_label(blob)
-        token, blob = _access_token(blob)
+        plan, blob = _tier_label(blob, account)
+        token, blob = _access_token(blob, account)
         if not token:
             raise RuntimeError("Gemini access_token missing")
         quota = _post_json(QUOTA_URL, token, {})
@@ -258,9 +287,9 @@ def fetch_quota(force=False):
             "stale": False,
         }
         if out["ok"]:
-            return cache_util.store(_cache, now, out, disk_name=DISK)
+            return cache_util.store(cache, now, out, disk_name=disk_name)
         return cache_util.keep_stale(
-            _cache, now, out["error"], _EMPTY, disk_name=DISK)
+            cache, now, out["error"], _EMPTY, disk_name=disk_name)
     except urllib.error.HTTPError as exc:
         body = ""
         try:
@@ -272,7 +301,7 @@ def fetch_quota(force=False):
         else:
             err = f"Gemini HTTP {exc.code}"
         return cache_util.keep_stale(
-            _cache, now, err, _EMPTY, disk_name=DISK)
+            cache, now, err, _EMPTY, disk_name=disk_name)
     except Exception as exc:  # noqa: BLE001
         return cache_util.keep_stale(
-            _cache, now, str(exc), _EMPTY, disk_name=DISK)
+            cache, now, str(exc), _EMPTY, disk_name=disk_name)

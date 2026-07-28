@@ -157,6 +157,30 @@ repos those settings resolve to on this machine.
 Both lists toggle under Settings, each in its own section (the same flags
 drive the menu bar, overview rings, iPhone, and ESP32 pages).
 
+**More than one account per tool.** Personal Claude and work Claude, two
+ChatGPT logins, a second Cursor profile — each is a separate plan with its own
+quota, and Headroom used to show only whichever one the CLI wrote last. Add the
+others in **Settings → Extra accounts**: pick the provider, name it, and point
+it at the credential location that login already uses.
+
+| Provider | What to point it at |
+|---|---|
+| **Claude** | A second config folder — `CLAUDE_CONFIG_DIR`, e.g. `~/.claude-work` |
+| **Codex** | A second `CODEX_HOME`, e.g. `~/.codex-work` |
+| **Gemini** | A second Gemini CLI home, e.g. `~/.gemini-work` |
+| **Cursor / Windsurf** | Another profile's `state.vscdb` |
+
+No tokens are pasted and nothing new is signed in: the host reads the
+credentials that CLI already wrote, refreshing them in place exactly as it does
+for the default login. Each account gets its own row, ring, burndown and
+history under the id `claude:work`, and can be reordered or switched off like
+any other source — the default login keeps the plain `claude` id, so nothing
+recorded under it moves. Copilot, JetBrains AI and Zed stay single-account:
+their credentials are one per Mac, with no second location to point at.
+The list lives in `~/.headroom/accounts.json`, and adding or removing one
+restarts the host (a couple of seconds) so the sample schema and the meters
+are rebuilt together.
+
 **Order picks the top 3.** Drag the AI rows in Settings to reorder them, and
 that order is pinned in `~/.headroom/sources.json`. Compact
 surfaces — the menu-bar tanks and the iOS widget — show the first three
@@ -233,10 +257,12 @@ LAN with `"require_auth": false`, in `~/.headroom/config.json`.
 | Local servers | `lsof` TCP LISTEN → labeled ports (stop from the menu bar) |
 
 Failures keep the last-good snapshot (`cache_util.keep_stale`). Each row is one
-entry in `SOURCES` in `host/sources_config.py`, tagged `group="ai"` or
+entry in `BASE_SOURCES` in `host/sources_config.py`, tagged `group="ai"` or
 `group="devtools"` — that tag is what splits the two lists in onboarding and
 Settings. Adding a dev tool is one registry entry; adding a coding provider is
-one entry + a fetcher module.
+one entry + a fetcher module. A provider whose credentials sit at a path you
+can point elsewhere also carries an `account_kind`, which is what lets one
+entry expand into several rows — see **Extra accounts** above.
 
 ## Reference
 
@@ -258,6 +284,23 @@ one entry + a fetcher module.
 | `require_auth` | `false` opens `/usage` to the whole network (default `true`) |
 | `mobile_permissions` | iOS grants: `read`, `refresh`, `sources`, `servers` |
 
+### Extra accounts (`~/.headroom/accounts.json`)
+
+Written by **Settings → Extra accounts**; editable by hand if you prefer, and
+picked up on the next host start. Each entry is a label plus a credential
+location — never a token.
+
+```json
+{
+  "claude": [{ "slug": "work", "label": "Work", "root": "~/.claude-work" }],
+  "codex":  [{ "slug": "alt",  "label": "Alt",  "root": "~/.codex-alt" }]
+}
+```
+
+`root` is the config folder for Claude / Codex / Gemini and the `state.vscdb`
+itself for Cursor / Windsurf. The row shows up as `claude:work` everywhere a
+source id does — `sources[]`, `providers[]`, `focus`, burndown, samples.
+
 ### Endpoints
 
 Everything below is loopback-open and token-gated off-box.
@@ -268,6 +311,8 @@ Everything below is loopback-open and token-gated off-box.
 | `GET /usage?view=device` | ~2KB projection the ESP32 polls |
 | `GET /health` | Host `version` + `build`, uptime, compact source status, cache age |
 | `GET /setup` | Detected credentials + enabled map (first-run sheet) |
+| `GET /accounts` | Extra logins per provider + who can hold them (loopback) |
+| `POST /accounts` | Add (`provider`/`label`/`root`) or drop (`remove`) an extra login, then restart (loopback) |
 | `GET /mobile/permissions` | Four effective permissions for the paired iOS app |
 | `POST /sync/refresh` | Force-refresh (LAN OK — ESP32 long-press) |
 | `POST /sources` | Toggle sources (`enabled` map) and/or pin provider order (`order` list). Loopback or paired iOS with `sources` scope |

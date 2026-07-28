@@ -43,6 +43,7 @@ from zoneinfo import ZoneInfo
 from glob import glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import accounts
 import app_config
 import auth
 import burndown
@@ -1008,6 +1009,48 @@ def _github_watch_payload():
     }
 
 
+# The Bonjour advertiser, so a restart can take it down before re-exec rather
+# than leaving a second one advertising the same service.
+_bonjour = None
+
+
+def _restart_host():
+    """Re-exec this host, off the request thread.
+
+    Adding an account changes the source list, and the sample schema, the
+    poller's per-source clocks and the burndown pools are all derived from it
+    at import. Rebuilding those live would leave them disagreeing with each
+    other for one tick; a restart is two seconds and is always right. Exec
+    rather than exit so it also works for a host run by hand from a clone,
+    where nothing would restart it.
+    """
+    def _go():
+        time.sleep(0.4)     # let the response reach the client first
+        print("accounts changed — restarting", flush=True)
+        try:
+            if _bonjour is not None and _bonjour.poll() is None:
+                _bonjour.terminate()
+        except Exception:
+            pass
+        try:
+            os.execv(sys.executable,
+                     [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
+        except Exception as exc:
+            # Under launchd, KeepAlive brings us straight back anyway.
+            print("re-exec failed, exiting for launchd:", exc, flush=True)
+            os._exit(0)
+
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def _accounts_payload(restarting=False):
+    return {
+        "ok": True,
+        "restarting": bool(restarting),
+        **sources_config.accounts_payload(),
+    }
+
+
 def _health_payload():
     doc = rollup()
     with _cache_lock:
@@ -1103,7 +1146,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
-        if path not in ("", "/usage", "/health", "/setup",
+        if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch"):
             self.send_error(404)
             return
@@ -1116,6 +1159,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
             self._send_json(200, _github_watch_payload())
+            return
+        if path == "/accounts":
+            # Names folders holding live credentials — Mac-local, like the
+            # tokens themselves.
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            self._send_json(200, _accounts_payload())
             return
         if path == "/mobile/permissions":
             granted = app_config.mobile_permissions()
@@ -1157,6 +1208,7 @@ class Handler(BaseHTTPRequestHandler):
             "/mobile/permissions",
             "/attention/ack",
             "/github/watch",
+            "/accounts",
         ):
             self.send_error(404)
             return
@@ -1235,6 +1287,33 @@ class Handler(BaseHTTPRequestHandler):
             # The cached run list was fetched for the old repos.
             github_actions.invalidate()
             self._send_json(200, _github_watch_payload())
+            return
+
+        if path == "/accounts":
+            remove = payload.get("remove")
+            try:
+                if isinstance(remove, str) and remove.strip():
+                    if not sources_config.remove_account(remove.strip()):
+                        self._send_json(
+                            404, {"ok": False, "error": f"no account {remove}"})
+                        return
+                else:
+                    sources_config.add_account(
+                        payload.get("provider"),
+                        payload.get("label"),
+                        payload.get("root"),
+                    )
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            except OSError as error:
+                self._send_json(
+                    500, {"ok": False, "error": f"could not save: {error}"})
+                return
+            # Answer with the list as stored, then rebuild the registry around
+            # it — the client polls /health until the new host is up.
+            self._send_json(200, _accounts_payload(restarting=True))
+            _restart_host()
             return
 
         if path == "/mobile/permissions":
@@ -1600,7 +1679,8 @@ def main():
         daemon=True,
     ).start()
 
-    bonjour = _advertise_bonjour(args.port)
+    global _bonjour
+    bonjour = _bonjour = _advertise_bonjour(args.port)
     # Materialize the dedicated iOS credential without printing it to logs.
     auth.mobile_token()
 
