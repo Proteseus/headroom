@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import device_view
 import headroom_server
@@ -179,12 +181,53 @@ class DeviceViewContractTests(unittest.TestCase):
         self.assertEqual(burn["pts2"][-1][1], 0.0)
         self.assertNotIn("auto", json.dumps(burn))
 
+    def test_device_view_ascii_folds_verdict_middot(self):
+        # glcdfont can't draw · — those UTF-8 bytes become garbage glyphs.
+        doc = _demo_doc()
+        week = doc["burndown"]["claude"]["week"]
+        week.update({
+            "window_start": 1_700_000_000,
+            "window_end": 1_700_604_800,
+            "window_s": 604_800,
+            "verdict": "On track · 15%",
+            "actual": [[1_700_000_100, 85.0]],
+        })
+        burn = device_view.build(doc)["burndown"]["claude"]
+        self.assertEqual(burn["verdict"], "On track - 15%")
+        self.assertNotIn("\u00b7", burn["verdict"])
+
 
 class RollupContractTests(unittest.TestCase):
+    def setUp(self):
+        # Payload order follows the pinned provider order, which lives in
+        # ~/.headroom/sources.json. Run against a throwaway store so these
+        # assertions describe the code, not whatever this machine has pinned.
+        sources_config.reset_for_tests()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.patcher = patch.object(
+            sources_config, "STORE_PATH",
+            os.path.join(self.tmp.name, "sources.json"))
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.tmp.cleanup()
+        sources_config.reset_for_tests()
+
     def test_rollup_exposes_every_registered_source(self):
         doc = headroom_server.publish()
         ids = [row["id"] for row in doc["sources"]]
         self.assertEqual(ids, list(sources_config.SOURCE_IDS))
+
+    def test_rollup_order_follows_the_pinned_provider_order(self):
+        rest = [s for s in sources_config.BURN_SOURCE_IDS if s != "cursor"]
+        sources_config.set_order(["cursor"] + rest)
+        doc = headroom_server.publish()
+        self.assertEqual(doc["providers"][0]["id"], "cursor")
+        self.assertEqual(doc["providers"][0]["rank"], 0)
+        self.assertEqual([row["id"] for row in doc["sources"]][0], "cursor")
+        self.assertEqual(doc["focus"][0], "cursor")
+        self.assertLessEqual(len(doc["focus"]), sources_config.FOCUS_LIMIT)
 
     def test_rollup_has_the_keys_the_mac_app_decodes(self):
         doc = headroom_server.publish()

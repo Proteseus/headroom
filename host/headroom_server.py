@@ -683,6 +683,9 @@ def _compute_doc():
             "servers": local.get("servers") or [],
         },
         "sources": _sources_payload(state),
+        # The providers the compact surfaces show, already picked. Menu bar,
+        # widget, and ESP32 read this instead of each slicing their own top-N.
+        "focus": sources_config.focus_ids(),
     }
     doc["attention"] = _build_attention(doc)
     return doc
@@ -825,7 +828,8 @@ def _sources_payload(state):
     with _lock:
         times = dict(_source_times)
     rows = []
-    for source in sources_config.SOURCES:
+    # Pinned order too, so the Settings list and the meters agree.
+    for source in sources_config.ordered_sources():
         payload = state.get(source.id) or {}
         age = times.get(source.id) or 0.0
         rows.append({
@@ -834,6 +838,9 @@ def _sources_payload(state):
             "hint": source.hint,
             "kind": source.kind,
             "group": source.group,
+            # Brand accent so Settings can identify a row by color instead of
+            # spending its only dot on health. Null for rows with no brand.
+            "accent": source.accent,
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
@@ -854,10 +861,15 @@ def _providers_payload(state, burndowns=None):
     """
     enabled = sources_config.enabled_map()
     rows = []
-    for source in sources_config.QUOTA_SOURCES:
+    # Pinned order, so a client that simply iterates providers[] agrees with
+    # the menu bar, the widget, and the board about sequence.
+    for rank, source in enumerate(sources_config.ordered_quota_sources()):
         payload = state.get(source.id) or {}
         pools = {}
-        for spec in source.pools:
+        # `pools` is a JSON object, so declaration order is lost on the wire.
+        # Ship it as a rank the way providers[] already does, so rings, bars
+        # and burndown charts can all sort by the one order defined here.
+        for pool_rank, spec in enumerate(source.pools):
             bucket = payload.get(spec.key) or {}
             raw = bucket.get("resets_in_s")
             if raw is None:
@@ -866,6 +878,7 @@ def _providers_payload(state, burndowns=None):
             window = bucket.get("window_s") or spec.default_window_s
             pools[spec.id] = {
                 "title": spec.title,
+                "rank": pool_rank,
                 "pct": bucket.get("pct"),
                 "window_s": window,
                 "resets_in_s": resets,
@@ -878,6 +891,7 @@ def _providers_payload(state, burndowns=None):
             "id": source.id,
             "title": source.title,
             "kind": "quota",
+            "rank": rank,
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "plan": payload.get("plan"),
@@ -1156,13 +1170,31 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/sources":
             enabled = payload.get("enabled")
+            order = payload.get("order")
+            if enabled is None and isinstance(order, list):
+                # Reorder-only write: don't force clients to resend the map.
+                result_order = sources_config.set_order(order)
+                self._send_json(200, {
+                    "ok": True,
+                    "enabled": sources_config.enabled_map(),
+                    "order": result_order,
+                    "focus": sources_config.focus_ids(),
+                })
+                return
             if not isinstance(enabled, dict):
                 self._send_json(400, {"ok": False, "error": "enabled map required"})
                 return
             result = sources_config.set_enabled(enabled)
+            if isinstance(order, list):
+                sources_config.set_order(order)
             # Kick a refresh so ESP32/Mac see the change quickly.
             _refresh_async([sid for sid, on in result.items() if on])
-            self._send_json(200, {"ok": True, "enabled": result})
+            self._send_json(200, {
+                "ok": True,
+                "enabled": result,
+                "order": sources_config.order_ids(),
+                "focus": sources_config.focus_ids(),
+            })
             return
 
         if path in ("/supabase/refresh", "/plausible/refresh", "/sync/refresh"):

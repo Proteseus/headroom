@@ -95,6 +95,7 @@
       "id": "claude",
       "title": "Claude",
       "kind": "quota",
+      "rank": 0,
       "enabled": true,
       "ok": true,
       "plan": "Max 5x",
@@ -103,6 +104,7 @@
       "pools": {
         "session": {
           "title": "Session",
+          "rank": 0,
           "pct": 42.0,
           "pace_pct": 38.0,
           "resets_in": "2h 14m",
@@ -110,6 +112,7 @@
         },
         "week": {
           "title": "Weekly",
+          "rank": 1,
           "pct": 63.0,
           "pace_pct": 55.0,
           "resets_in": "3d 6h",
@@ -121,6 +124,7 @@
       "id": "codex",
       "title": "Codex",
       "kind": "quota",
+      "rank": 1,
       "enabled": true,
       "ok": true,
       "plan": "Team",
@@ -129,11 +133,13 @@
       "pools": {
         "session": {
           "title": "Session",
+          "rank": 0,
           "pct": null,
           "ring": true
         },
         "week": {
           "title": "Weekly",
+          "rank": 1,
           "pct": 72.0,
           "pace_pct": 58.0,
           "resets_in": "3d 17h",
@@ -145,6 +151,7 @@
       "id": "cursor",
       "title": "Cursor",
       "kind": "quota",
+      "rank": 2,
       "enabled": true,
       "ok": true,
       "plan": "Pro",
@@ -153,6 +160,7 @@
       "pools": {
         "total": {
           "title": "Total",
+          "rank": 0,
           "pct": 34.0,
           "pace_pct": 48.0,
           "resets_in": "4d 19h",
@@ -160,12 +168,14 @@
         },
         "auto": {
           "title": "Auto",
+          "rank": 1,
           "pct": 12.0,
           "pace_pct": 48.0,
           "ring": false
         },
         "api": {
           "title": "API",
+          "rank": 2,
           "pct": 41.0,
           "pace_pct": 48.0,
           "ring": true
@@ -432,12 +442,18 @@
       }
     ]
   },
+  "focus": [
+    "claude",
+    "codex",
+    "cursor"
+  ],
   "sources": [
     {
       "id": "claude",
       "title": "Claude",
       "kind": "quota",
       "group": "ai",
+      "accent": "#D97757",
       "enabled": true,
       "ok": true,
       "configured": true,
@@ -448,6 +464,7 @@
       "title": "Codex",
       "kind": "quota",
       "group": "ai",
+      "accent": "#10A37F",
       "enabled": true,
       "ok": true,
       "configured": true,
@@ -458,6 +475,7 @@
       "title": "Cursor",
       "kind": "quota",
       "group": "ai",
+      "accent": "#789BC8",
       "enabled": true,
       "ok": true,
       "configured": true,

@@ -507,11 +507,32 @@ def blank_state():
 _lock = threading.Lock()
 _state = None
 
+# How many providers the compact surfaces show: menu-bar tanks, iOS widget,
+# ESP32 glance slots. One number, because they must agree about which three.
+FOCUS_LIMIT = 3
+
 
 def _default_enabled():
     """First-run defaults: only sources that look signed-in locally."""
     return detect_sources.suggested_enabled(
         SOURCE_IDS, quota_ids=BURN_SOURCE_IDS)
+
+
+def _normalize_order(raw):
+    """Pinned quota ids, deduped, with unpinned ones appended.
+
+    A provider added to the registry after the user pinned an order lands at
+    the end rather than silently jumping to the front — and an id that left
+    the registry drops out instead of poisoning the list.
+    """
+    out = []
+    for sid in (raw or []):
+        if sid in BY_ID and is_quota(sid) and sid not in out:
+            out.append(sid)
+    for sid in BURN_SOURCE_IDS:
+        if sid not in out:
+            out.append(sid)
+    return out
 
 
 def _load():
@@ -523,6 +544,7 @@ def _load():
         enabled = _default_enabled()
         state = {
             "enabled": enabled,
+            "order": _normalize_order(None),
             "seeded_from": "detect",
             "detected": detect_sources.detected_map(),
         }
@@ -530,11 +552,13 @@ def _load():
             _save(state)
         except OSError:
             pass
-        return {"enabled": enabled}
+        return {"enabled": enabled, "order": state["order"]}
     except (OSError, json.JSONDecodeError):
-        return {"enabled": _default_enabled()}
+        return {"enabled": _default_enabled(), "order": _normalize_order(None)}
     if not isinstance(data, dict):
-        return {"enabled": _default_enabled()}
+        return {"enabled": _default_enabled(), "order": _normalize_order(None)}
+    order = _normalize_order(
+        data.get("order") if isinstance(data.get("order"), list) else None)
     enabled = {sid: False for sid in SOURCE_IDS}
     # Legacy files without an explicit map keep prior all-on behaviour only
     # when the key is missing entirely and the file has other content — but
@@ -543,11 +567,11 @@ def _load():
     raw = data.get("enabled") if isinstance(data.get("enabled"), dict) else {}
     if not raw and data.get("seeded_from") is None:
         # Pre-detect era file that somehow lacks enabled — treat as all on.
-        return {"enabled": {sid: True for sid in SOURCE_IDS}}
+        return {"enabled": {sid: True for sid in SOURCE_IDS}, "order": order}
     for sid in SOURCE_IDS:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
-    return {"enabled": enabled}
+    return {"enabled": enabled, "order": order}
 
 
 def _save(state):
@@ -589,6 +613,47 @@ def set_enabled(updates):
         return dict(enabled)
 
 
+def order_ids():
+    """Quota ids in the user's pinned order (registry order until pinned)."""
+    with _lock:
+        return list(_state_locked()["order"])
+
+
+def set_order(ids):
+    """Pin the provider order. Returns the normalized full list."""
+    with _lock:
+        state = _state_locked()
+        state["order"] = _normalize_order(ids)
+        _save(state)
+        return list(state["order"])
+
+
+def ordered_quota_sources():
+    """QUOTA_SOURCES resequenced by the pinned order."""
+    return tuple(BY_ID[sid] for sid in order_ids())
+
+
+def ordered_sources():
+    """Registry rows with quota providers resequenced by the pinned order.
+
+    Onboarding and Settings should list providers the way the meters do.
+    """
+    return ordered_quota_sources() + tuple(
+        s for s in SOURCES if s.kind != "quota")
+
+
+def focus_ids(limit=FOCUS_LIMIT):
+    """The first `limit` *enabled* providers in pinned order.
+
+    Menu bar, widget, and ESP32 glance all render this list rather than each
+    slicing their own top-N — that is what keeps the three surfaces showing
+    the same providers between polls.
+    """
+    enabled = enabled_map()
+    picked = [sid for sid in order_ids() if enabled.get(sid, True)]
+    return picked[:limit]
+
+
 def detection_payload():
     """Shape for GET /setup — what local probes found + current enables."""
     detected = detect_sources.detected_map()
@@ -597,6 +662,8 @@ def detection_payload():
         "detected": detected,
         "enabled": enabled,
         "groups": list(GROUP_IDS),
+        "order": order_ids(),
+        "focus": focus_ids(),
         "sources": [
             {
                 "id": source.id,
@@ -607,7 +674,7 @@ def detection_payload():
                 "detected": bool(detected.get(source.id, False)),
                 "enabled": bool(enabled.get(source.id, False)),
             }
-            for source in SOURCES
+            for source in ordered_sources()
         ],
     }
 

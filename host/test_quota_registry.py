@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import daily_burn
@@ -13,6 +16,20 @@ import sources_config
 
 
 class QuotaRegistryTests(unittest.TestCase):
+    def setUp(self):
+        # providers[] follows the pinned order; keep it off this machine's.
+        sources_config.reset_for_tests()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.patcher = patch.object(
+            sources_config, "STORE_PATH",
+            os.path.join(self.tmp.name, "sources.json"))
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.tmp.cleanup()
+        sources_config.reset_for_tests()
+
     def test_quota_sources_drive_pools_and_burn_ids(self):
         # Today's registry is the classic three; assertions stay registry-tied
         # so a fourth quota source does not require rewriting this contract.

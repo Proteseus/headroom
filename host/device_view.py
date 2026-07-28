@@ -149,6 +149,21 @@ def _proj_for_device(projected):
     return proj
 
 
+def _board_text(value):
+    """Map host copy onto the board's ASCII-only glyph set.
+
+    glcdfont has no middot (·) / fancy dashes — those UTF-8 bytes render as
+    two garbage glyphs ("On track XX 15%"). Preview already substitutes; keep
+    the live projection matching what the panel can actually draw.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    return (value
+            .replace("\u00b7", "-")   # ·
+            .replace("\u2013", "-")   # –
+            .replace("\u2014", "-"))  # —
+
+
 def _trim_burndown(pool):
     """Strip one pool to the drawable marks the board understands."""
     if pool.get("window_start") is None or pool.get("window_end") is None:
@@ -166,7 +181,7 @@ def _trim_burndown(pool):
         "est": pool.get("rate_source") == "estimated",
         # ~25 bytes for the phrase the Mac shows, so the desk and the menu bar
         # answer "do I make it" with the same words.
-        "verdict": pool.get("verdict"),
+        "verdict": _board_text(pool.get("verdict")),
     }
 
 
