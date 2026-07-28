@@ -1623,6 +1623,35 @@ static void tickCollectingSpinner() {
                         (int16_t)(collectSpinCy - box / 2), box, box);
 }
 
+// Projection dashes along path length — not X. Stepping by X makes steep
+// forecasts (Codex running out soon) look sparse and shallow ones look solid.
+static const int16_t PROJ_DASH_ON = 3;
+static const int16_t PROJ_DASH_STRIDE = 12;  // 3 on, 9 off
+
+static void strokeDashedProj(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                             uint16_t col, int16_t clipY, int16_t clipH) {
+  const int32_t dx = (int32_t)x1 - x0;
+  const int32_t dy = (int32_t)y1 - y0;
+  const int32_t adx = dx < 0 ? -dx : dx;
+  const int32_t ady = dy < 0 ? -dy : dy;
+  // Octagon length approx — close enough to phase dashes; avoids float sqrt.
+  const int32_t len = adx > ady ? adx + ady / 2 : ady + adx / 2;
+  if (len < 1) return;
+  for (int32_t i = 0; i < len; i += PROJ_DASH_STRIDE) {
+    const int32_t i1 = (i + PROJ_DASH_ON > len) ? len : i + PROJ_DASH_ON;
+    const int16_t ax = (int16_t)(x0 + dx * i / len);
+    const int16_t ay = (int16_t)(y0 + dy * i / len);
+    const int16_t bx = (int16_t)(x0 + dx * i1 / len);
+    const int16_t by = (int16_t)(y0 + dy * i1 / len);
+    for (int16_t d = -1; d <= 1; d++) {
+      const int16_t a = (int16_t)(ay + d), c = (int16_t)(by + d);
+      if (a < clipY || a > clipY + clipH - 1 ||
+          c < clipY || c > clipY + clipH - 1) continue;
+      gfx->drawLine(ax, a, bx, c, col);
+    }
+  }
+}
+
 // Burndown chart: dotted budget line falling from full at the window's start
 // to zero at its reset, the actual remaining-% curve over it, and a lightly
 // dashed accent tail for where the current pace lands. Below the budget line
@@ -1787,19 +1816,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
         const int16_t x0 = px(b.projT2[0]), y0 = py(b.projR2[0]);
         const int16_t x1 = px(b.projT2[1]), y1 = py(b.projR2[1]);
         if (dR2 < -0.5f || dR2 > 0.5f) {
-          const int16_t steps = (int16_t)(x1 - x0);
-          // Shorter dashes, wider gap than Mac's 6/2 — reads as forecast at desk
-          // distance on a 3px stroke (6/2 looked almost solid on this panel).
-          const int16_t stride = 12;
-          const int16_t dash = 3;
-          for (int16_t i = 0; i < steps; i += stride) {
-            int16_t ax = (int16_t)(x0 + i);
-            int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-            const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
-            stroke(ax, ay, (int16_t)(ax + seg),
-                   (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
-                             (steps ? steps : 1)), line2);
-          }
+          strokeDashedProj(x0, y0, x1, y1, line2, y, plotH);
         }
         if (b.warn2) gfx->fillCircle(x1, y1, 3, line2);
       }
@@ -1821,27 +1838,16 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
            px(b.t[i]), py(b.remaining[i]), line);
   }
 
-  // Projection: open dashes (3 on, 9 off) — 6/2 matched Mac pixels but looked
-  // nearly solid under a 3px stroke. Skip a level forecast — measured-zero
-  // pace would paint a bar across the whole window and erase the budget
-  // diagonal (Codex idle after an early burn).
+  // Projection: path-length dashes (3 on, 9 off) so steep and shallow
+  // forecasts match. Skip a level forecast — measured-zero pace would paint a
+  // bar across the whole window and erase the budget diagonal.
   if (b.projN == 2) {
     const float dR = b.projR[1] - b.projR[0];
     if (dR < -0.5f || dR > 0.5f || b.warn) {
       const int16_t x0 = px(b.projT[0]), y0 = py(b.projR[0]);
       const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
       if (dR < -0.5f || dR > 0.5f) {
-        const int16_t steps = (int16_t)(x1 - x0);
-        const int16_t stride = 12;
-        const int16_t dash = 3;
-        for (int16_t i = 0; i < steps; i += stride) {
-          int16_t ax = (int16_t)(x0 + i);
-          int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
-          const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
-          stroke(ax, ay, (int16_t)(ax + seg),
-                 (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
-                           (steps ? steps : 1)), line);
-        }
+        strokeDashedProj(x0, y0, x1, y1, line, y, plotH);
       }
       if (b.warn) gfx->fillCircle(x1, y1, 4, line);
     }
@@ -2082,21 +2088,9 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
       if (clipBurnSeg(p0t, p0r, p1t, p1r, tLo, tHi, &ta, &ra, &tb, &rb)) {
         const int16_t x0 = px(ta), y0 = py(ra);
         const int16_t x1 = px(tb), y1 = py(rb);
-        // 3 on / 9 off along X — more open than Mac's 6/2 so forecast ≠ actual.
-        const int16_t steps = (int16_t)(x1 - x0);
-        const int16_t stride = 12;
-        const int16_t dash = 3;
-        if (steps > 0 && (dR < -0.5f || dR > 0.5f)) {
-          for (int16_t i = 0; i < steps; i += stride) {
-            const int16_t ax = (int16_t)(x0 + i);
-            const int16_t ay =
-                (int16_t)(y0 + (int32_t)(y1 - y0) * i / steps);
-            const int16_t seg =
-                (i + dash > steps) ? (int16_t)(steps - i) : dash;
-            stroke(ax, ay, (int16_t)(ax + seg),
-                   (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) / steps),
-                   line);
-          }
+        // Path-length 3 on / 9 off — same density for steep and shallow slopes.
+        if (dR < -0.5f || dR > 0.5f) {
+          strokeDashedProj(x0, y0, x1, y1, line, y, h);
         }
         if (tb == p1t) {
           const int16_t r = (b.warn && p1r <= 0.5f) ? 3 : 2;
