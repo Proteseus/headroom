@@ -88,7 +88,7 @@ jobs:
           security unlock-keychain -p "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" \
             -P "$MACOS_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 \
+            -A -f pkcs12 \
             -k "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: \
@@ -97,9 +97,10 @@ jobs:
             | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' \
             | head -1)
           if [[ -z "$IDENTITY" ]]; then
-            echo "error: no Developer ID Application identity in imported keychain" >&2
-            security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2
-            exit 1
+            echo "imported=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Developer ID identity missing after import — falling back to ad-hoc."
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2 || true
+            exit 0
           fi
           echo "HEADROOM_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "imported=true" >> "$GITHUB_OUTPUT"
