@@ -2,7 +2,7 @@
 # Archive HeadroomMobile (+ widget) and optionally upload to TestFlight.
 #
 #   ./scripts/build-ios.sh                 # archive + export IPA → dist/
-#   ./scripts/build-ios.sh --upload        # also upload via App Store Connect API
+#   ./scripts/build-ios.sh --upload        # export + asc publish testflight
 #
 # Versioning matches macOS (scripts/version-env.sh).
 #
@@ -10,9 +10,11 @@
 #   APPLE_API_KEY_PATH / APPLE_API_KEY
 #   APPLE_API_KEY_ID
 #   APPLE_API_ISSUER_ID
+#   ASC_APP_ID              App Store Connect app id (6795549853)
+#   ASC_TESTFLIGHT_GROUP    group name or id (default: Internal)
 #
-# Requires: Xcode, xcodegen, signing set up for team 992N457T8D,
-# and an App Store Connect app for com.centaur-labs.headroom (create once in ASC).
+# Requires: Xcode, xcodegen, asc (brew install asc), team 992N457T8D,
+# and an App Store Connect app for com.centaur-labs.headroom.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=version-env.sh
@@ -27,7 +29,7 @@ for arg in "$@"; do
 Archive HeadroomMobile for App Store / TestFlight.
 
   ./scripts/build-ios.sh          # → dist/Headroom-iOS.ipa
-  ./scripts/build-ios.sh --upload # export + upload to App Store Connect
+  ./scripts/build-ios.sh --upload # export + asc publish → Internal group
 EOF
       exit 0
       ;;
@@ -122,34 +124,41 @@ if [[ "$UPLOAD" -eq 0 ]]; then
   exit 0
 fi
 
+app_id="${ASC_APP_ID:-}"
+group="${ASC_TESTFLIGHT_GROUP:-Internal}"
+if [[ -z "$app_id" ]]; then
+  echo "error: ASC_APP_ID required for --upload (App Store Connect app id)" >&2
+  exit 1
+fi
 if [[ -z "$key_id" || -z "$issuer" ]]; then
   echo "error: APPLE_API_KEY_ID and APPLE_API_ISSUER_ID required for --upload" >&2
   exit 1
 fi
-
-# altool looks in ~/.appstoreconnect/private_keys/AuthKey_<id>.p8
-mkdir -p "$HOME/.appstoreconnect/private_keys"
-altool_key="$HOME/.appstoreconnect/private_keys/AuthKey_${key_id}.p8"
-if [[ ! -f "$altool_key" ]]; then
-  if [[ -n "$key_path" && -f "$key_path" ]]; then
-    cp "$key_path" "$altool_key"
-  elif [[ -n "${APPLE_API_KEY:-}" ]]; then
-    printf '%s\n' "$APPLE_API_KEY" > "$altool_key"
-  else
-    echo "error: set APPLE_API_KEY_PATH or APPLE_API_KEY for --upload" >&2
-    exit 1
-  fi
-  chmod 600 "$altool_key"
+if [[ -z "$key_path" || ! -f "$key_path" ]]; then
+  echo "error: set APPLE_API_KEY_PATH or APPLE_API_KEY for --upload" >&2
+  exit 1
 fi
+command -v asc >/dev/null || {
+  echo "error: install asc (brew install asc) for TestFlight upload" >&2
+  exit 1
+}
 
-echo "Uploading to App Store Connect (TestFlight)…"
-xcrun altool --upload-app \
-  --type ios \
-  --file "$DIST/Headroom-iOS.ipa" \
-  --apiKey "$key_id" \
-  --apiIssuer "$issuer" \
-  --verbose
+# Prefer env auth so CI does not need a keychain profile.
+export ASC_KEY_ID="$key_id"
+export ASC_ISSUER_ID="$issuer"
+export ASC_PRIVATE_KEY_PATH="$key_path"
+export ASC_BYPASS_KEYCHAIN=true
+export ASC_APP_ID="$app_id"
+
+echo "Publishing to TestFlight (app $app_id → group $group)…"
+asc publish testflight \
+  --app "$app_id" \
+  --ipa "$DIST/Headroom-iOS.ipa" \
+  --group "$group" \
+  --wait \
+  --notify \
+  --output table
 
 [[ -n "$tmp_auth_key" ]] && rm -f "$tmp_auth_key"
 
-echo "Upload submitted. Processing in App Store Connect may take a few minutes."
+echo "TestFlight publish finished ($HEADROOM_VERSION+$HEADROOM_BUILD → $group)."

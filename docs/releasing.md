@@ -15,9 +15,17 @@ Public download URLs (macOS Releases + iOS TestFlight) live in
    [`scripts/setup-release-secrets.sh`](../scripts/setup-release-secrets.sh)
    (or set the table below in the repo Settings UI). Without these, tags still
    publish an **ad-hoc** `Headroom-macOS.zip` (Gatekeeper warns).
-2. **App Store Connect app** — create iOS app `com.centaur-labs.headroom` once.
-3. **Smoke upload** — locally `./scripts/build-ios.sh --upload` (signed into
-   Xcode) so ASC has a build before CI relies on automatic signing.
+2. **App Store Connect app** — `com.centaur-labs.headroom` (id `6795549853`).
+   Set GitHub secret `ASC_APP_ID` to that id. Optional: `ASC_TESTFLIGHT_GROUP`
+   (default `Internal`).
+3. **Smoke upload** — locally:
+   ```bash
+   export ASC_APP_ID=6795549853
+   export APPLE_API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_YAX564736L.p8
+   export APPLE_API_KEY_ID=YAX564736L
+   export APPLE_API_ISSUER_ID=3cfd203a-f83c-4f1b-8895-2f31c9c02a26
+   ./scripts/build-ios.sh --upload
+   ```
 4. **Public TestFlight link** — ASC → TestFlight → Public Link → paste into
    [`install-links.md`](install-links.md) → commit.
 5. **Cut the tag** — `./scripts/cut-release.sh`
@@ -36,7 +44,7 @@ What the [Release workflow](../.github/workflows/release.yml) does on a `v*` tag
 |---|---|
 | macOS zip | Always. Notarized when signing + ASC secrets exist; else ad-hoc. |
 | GitHub Release | Attaches `Headroom-macOS.zip` + notes (incl. TestFlight URL if set). |
-| TestFlight | Soft-attempt: uploads IPA when ASC secrets exist; skips with a warning otherwise. |
+| TestFlight | Soft-attempt: `asc publish testflight` → Internal group when ASC secrets + `ASC_APP_ID` exist. |
 | IPA asset | Attached to the same Release when the upload ran. |
 
 Manual **Actions → Release → Run workflow** can force notarize / TestFlight
@@ -81,6 +89,8 @@ base64 -i DeveloperID.p12 | pbcopy
 | `APPLE_API_KEY` | raw `.p8` PEM contents |
 | `APPLE_API_KEY_ID` | Key ID |
 | `APPLE_API_ISSUER_ID` | Issuer ID |
+| `ASC_APP_ID` | App Store Connect app id (`6795549853`) |
+| `ASC_TESTFLIGHT_GROUP` | Optional; default `Internal` |
 
 Helper (needs a `gh` token that can write Actions secrets):
 
