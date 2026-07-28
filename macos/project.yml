@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.mz
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -44,3 +45,35 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
     dependencies:
       - target: HeadroomBar
+  HeadroomMobile:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../ios/HeadroomMobile
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ../ios/HeadroomMobile/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_STRICT_CONCURRENCY: complete
+    scheme:
+      testTargets:
+        - HeadroomMobileTests
+  HeadroomMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ../ios/HeadroomMobileTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.mz.headroom.tests
+        SWIFT_STRICT_CONCURRENCY: complete
+    dependencies:
+      - target: HeadroomMobile
