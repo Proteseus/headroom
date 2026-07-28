@@ -1788,9 +1788,10 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
         const int16_t x1 = px(b.projT2[1]), y1 = py(b.projR2[1]);
         if (dR2 < -0.5f || dR2 > 0.5f) {
           const int16_t steps = (int16_t)(x1 - x0);
-          // Same 6-on / 2-off as Mac/iOS — estimated vs measured is copy, not stroke.
-          const int16_t stride = 8;
-          const int16_t dash = 6;
+          // Shorter dashes, wider gap than Mac's 6/2 — reads as forecast at desk
+          // distance on a 3px stroke (6/2 looked almost solid on this panel).
+          const int16_t stride = 12;
+          const int16_t dash = 3;
           for (int16_t i = 0; i < steps; i += stride) {
             int16_t ax = (int16_t)(x0 + i);
             int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
@@ -1820,8 +1821,8 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
            px(b.t[i]), py(b.remaining[i]), line);
   }
 
-  // Projection: lightly dashed accent (6 on, 2 off — same as Mac/iOS) plus a
-  // marker where it hits the floor. Skip a level forecast — measured-zero
+  // Projection: open dashes (3 on, 9 off) — 6/2 matched Mac pixels but looked
+  // nearly solid under a 3px stroke. Skip a level forecast — measured-zero
   // pace would paint a bar across the whole window and erase the budget
   // diagonal (Codex idle after an early burn).
   if (b.projN == 2) {
@@ -1831,8 +1832,8 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
       const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
       if (dR < -0.5f || dR > 0.5f) {
         const int16_t steps = (int16_t)(x1 - x0);
-        const int16_t stride = 8;
-        const int16_t dash = 6;
+        const int16_t stride = 12;
+        const int16_t dash = 3;
         for (int16_t i = 0; i < steps; i += stride) {
           int16_t ax = (int16_t)(x0 + i);
           int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
@@ -2081,10 +2082,10 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
       if (clipBurnSeg(p0t, p0r, p1t, p1r, tLo, tHi, &ta, &ra, &tb, &rb)) {
         const int16_t x0 = px(ta), y0 = py(ra);
         const int16_t x1 = px(tb), y1 = py(rb);
-        // 6 on / 2 off along X — same pattern Mac/iOS use for projections.
+        // 3 on / 9 off along X — more open than Mac's 6/2 so forecast ≠ actual.
         const int16_t steps = (int16_t)(x1 - x0);
-        const int16_t stride = 8;
-        const int16_t dash = 6;
+        const int16_t stride = 12;
+        const int16_t dash = 3;
         if (steps > 0 && (dR < -0.5f || dR > 0.5f)) {
           for (int16_t i = 0; i < steps; i += stride) {
             const int16_t ax = (int16_t)(x0 + i);
