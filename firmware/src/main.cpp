@@ -702,8 +702,24 @@ static String boardAscii(const char *s);
 // Only these keys survive deserialization. The host's ?view=device projection
 // already drops the rest, but the filter also protects the board if it is
 // pointed at an older host still serving the full ~30KB document.
-static JsonDocument usageFilter() {
-  JsonDocument filter;
+//
+// Built once, in PSRAM, and checked for overflow — all three matter. ArduinoJson
+// grows a document 4KB at a time (ARDUINOJSON_POOL_CAPACITY) and a failed
+// allocation makes `filter[key] = true` a silent no-op that only sets
+// overflowed(). A filter that lost keys still parses clean: the deserializer
+// skips members the filter doesn't name and returns Ok. Since keys go in in
+// source order, a short filter keeps the prefix — Claude's scalars — and drops
+// codex/cursor/vercel/git/local/burndown, which is a board that boots showing
+// Claude alone and "fixes itself" on the next power cycle. Rebuilding this per
+// fetch asked the tightest heap on the board (canvas + Wi-Fi + LWIP live in
+// DRAM) for 4KB contiguous every poll; PSRAM has room and the doc already uses it.
+static bool usageFilterReady(JsonDocument **out) {
+  static JsonDocument filter(&spiRamAlloc);
+  static bool built = false;
+  *out = &filter;
+  if (built) return true;
+
+  filter.clear();   // also resets overflowed()
   for (const char *key : {"updated", "plan", "quota_ok", "session_pct",
                           "session_pace_pct", "session_resets_in", "week_pct",
                           "week_pace_pct", "week_resets_in"}) {
@@ -736,7 +752,12 @@ static JsonDocument usageFilter() {
   // Whole subtree, like codex/cursor above: device_view has already trimmed it
   // (one pool, or Total+API for Cursor), so there is nothing further to filter.
   filter["burndown"] = true;
-  return filter;
+
+  // Leave `built` false on overflow so the next fetch retries the build once
+  // PSRAM frees up, rather than latching a filter that silently eats providers.
+  built = !filter.overflowed();
+  if (!built) Serial.println("json filter: PSRAM short — payload skipped");
+  return built;
 }
 
 static bool applyUsageDoc(JsonDocument &doc) {
@@ -976,12 +997,16 @@ static bool applyUsageDoc(JsonDocument &doc) {
 }
 
 static bool applyUsageJson(const char *payload, size_t len) {
+  JsonDocument *filter = nullptr;
+  if (!usageFilterReady(&filter)) {
+    hostOk = false;
+    return false;
+  }
   JsonDocument doc(&spiRamAlloc);
-  JsonDocument filter = usageFilter();
   DeserializationError err = (len > 0)
       ? deserializeJson(doc, payload, len,
-                        DeserializationOption::Filter(filter))
-      : deserializeJson(doc, payload, DeserializationOption::Filter(filter));
+                        DeserializationOption::Filter(*filter))
+      : deserializeJson(doc, payload, DeserializationOption::Filter(*filter));
   if (err) {
     Serial.printf("json parse fail: %s\n", err.c_str());
     hostOk = false;
@@ -991,10 +1016,14 @@ static bool applyUsageJson(const char *payload, size_t len) {
 }
 
 static bool applyUsageStream(Stream &stream) {
+  JsonDocument *filter = nullptr;
+  if (!usageFilterReady(&filter)) {
+    hostOk = false;
+    return false;
+  }
   JsonDocument doc(&spiRamAlloc);
-  JsonDocument filter = usageFilter();
   DeserializationError err =
-      deserializeJson(doc, stream, DeserializationOption::Filter(filter));
+      deserializeJson(doc, stream, DeserializationOption::Filter(*filter));
   if (err) {
     Serial.printf("json parse fail: %s\n", err.c_str());
     hostOk = false;
