@@ -62,9 +62,8 @@ enum MobileWidgetCache {
     private static let key = "widgetSnapshot"
 
     static func save(_ snapshot: UsageSnapshot) {
-        let providers = (snapshot.providers ?? [])
-            .filter { $0.enabled != false }
-            .prefix(3)
+        // Same three the menu bar draws — the host picked them.
+        let providers = snapshot.focusProviders()
             .map { provider in
                 let percent = provider.pools?.values
                     .filter { $0.ring != false }
