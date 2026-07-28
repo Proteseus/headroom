@@ -47,6 +47,10 @@ empty); each in-range reset is an accent dotted vertical rule, and the legend
 shows **Resets …**.
 
 Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown`).
+Provider charts share one X-axis rule across Mac / iOS / ESP32: at most **seven
+weekday-named columns** (never day-of-month numbers); windows longer than a week
+clip to seven days covering now; sub-day sessions get hour ticks instead of a
+blank axis.
 
 ## Status
 
@@ -127,6 +131,27 @@ Say **top 3** in user-facing copy, not "focus" — that word is API vocabulary.
 
 Pool titles (`Session`, `Weekly`, `Total`, `API`, …) come from the host
 `PoolSpec` and should not be re-hardcoded in UI chrome when the API supplies them.
+
+## Colour
+
+Colour carries one meaning per surface. Don't borrow it for emphasis.
+
+| Where | Rule |
+|---|---|
+| **Quota meters, burndown** | Provider accent only. Exhaustion desaturates (`tint.drained()`); nothing turns red or orange |
+| **Attention card, source health dots** | Green / amber / red — this is the *only* place alarm colour belongs |
+| **Provider accent** | `sources_config.Source.accent` → `providers[].accent` / `sources[].accent`, mirrored by firmware `COL_*` and `UsageProvider.tint` |
+
+**The burndown card never alarms.** "Runs out tomorrow 04:18" is a reading, and
+the words already deliver it; painting it red says the same thing a second
+time, louder. Burning exceeding Budget is visible in the cell beside it. This
+was settled in `fd29592` ("drop distinct critical red tint") and then
+reintroduced by a later refactor, so `scripts/check-glossary-copy.sh` now fails
+the build if `Color.red` / `.orange` reappears in `BurndownCard.swift`,
+`QuotaSection.swift`, or `DailyBurnCard.swift`.
+
+If a genuinely new state needs to shout, add it to the Attention card — not to
+a meter.
 
 ## What stays surface-specific
 
