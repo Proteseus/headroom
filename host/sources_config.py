@@ -62,16 +62,25 @@ class PoolSpec(NamedTuple):
 
 
 class Source(NamedTuple):
-    """Everything the host needs to know about one watched service."""
+    """Everything the host needs to know about one watched service.
+
+    `detail`, `summary` and `blank` are methods, not fields: a plain quota
+    source derives all three from its `pools` and `headline`, so a new
+    provider is a registry row plus a fetcher and nothing else. The `*_fn`
+    overrides exist for the payloads that carry more than pools — Codex
+    credits, Cursor's shared billing cycle, and every non-quota source.
+    """
 
     id: str
     title: str
     hint: str
     poll_s: int          # how often the background poller refreshes it
     fetch: Callable      # fetch(force=bool) -> payload dict, never raises
-    detail: Callable     # detail(payload) -> short status string or None
-    summary: Callable    # summary(payload) -> log line body for a good fetch
-    blank: Callable      # blank() -> the payload shape before the first fetch
+    # Overrides for the generic pool-derived versions below. None means
+    # "derive it", which is the right answer for most quota sources.
+    detail_fn: Optional[Callable] = None   # (payload) -> status string or None
+    summary_fn: Optional[Callable] = None  # (payload) -> log line body
+    blank_fn: Optional[Callable] = None    # () -> shape before first fetch
     # "quota" feeds burndown / daily burn / provider tabs; everything else is
     # activity (Vercel, git, …) and only shows in Settings + ship-status panes.
     kind: str = "activity"
@@ -86,6 +95,43 @@ class Source(NamedTuple):
     # #RRGGBB — shared with firmware COL_* and macos UsageProvider.tint.
     accent: Optional[str] = None
 
+    # ---- derived presentation (override with the *_fn fields above) ----
+
+    def _headline_pool(self):
+        """The pool a one-line status speaks for: the first headline key the
+        row declares, else its first pool."""
+        if self.headline:
+            return self.headline[0]
+        return self.pools[0].id if self.pools else None
+
+    def detail(self, payload):
+        """Short status for the Mac Settings row and the ESP32 footer."""
+        if self.detail_fn is not None:
+            return self.detail_fn(payload)
+        key = self._headline_pool()
+        if key is None:
+            return payload.get("error")
+        return _window_detail(payload, key, key)
+
+    def summary(self, payload):
+        """Log line body for a good fetch, under the LaunchAgent."""
+        if self.summary_fn is not None:
+            return self.summary_fn(payload)
+        bits = [f"plan={payload.get('plan')}"]
+        for spec in self.pools:
+            pct = (payload.get(spec.key) or {}).get("pct")
+            bits.append(f"{spec.id}={pct}%")
+        return "  ".join(bits)
+
+    def blank(self):
+        """The payload shape before the first fetch."""
+        if self.blank_fn is not None:
+            return self.blank_fn()
+        out = {"ok": False, "plan": None}
+        for spec in self.pools:
+            out[spec.key] = None
+        return out
+
 
 # ---------------- detail formatters (Mac Settings + ESP32 rows) ----------------
 
@@ -95,38 +141,6 @@ def _window_detail(payload, key, label):
     if plan and pct is not None:
         return f"{plan} · {label} {pct:.0f}%"
     return plan or payload.get("error")
-
-
-def _detail_claude(payload):
-    return _window_detail(payload, "week", "week")
-
-
-def _detail_codex(payload):
-    return _window_detail(payload, "week", "week")
-
-
-def _detail_cursor(payload):
-    return _window_detail(payload, "total", "total")
-
-
-def _detail_copilot(payload):
-    return _window_detail(payload, "premium", "premium")
-
-
-def _detail_gemini(payload):
-    return _window_detail(payload, "pro", "pro")
-
-
-def _detail_windsurf(payload):
-    return _window_detail(payload, "week", "week")
-
-
-def _detail_jetbrains(payload):
-    return _window_detail(payload, "month", "month")
-
-
-def _detail_zed(payload):
-    return _window_detail(payload, "predictions", "predictions")
 
 
 def _detail_vercel(payload):
@@ -191,12 +205,6 @@ def _detail_plausible(payload):
 
 # ---------------- log summaries (stdout under the LaunchAgent) ----------------
 
-def _summary_claude(payload):
-    session = (payload.get("session") or {}).get("pct")
-    week = (payload.get("week") or {}).get("pct")
-    return f"plan={payload.get('plan')}  session={session}%  week={week}%"
-
-
 def _summary_codex(payload):
     session = (payload.get("session") or {}).get("pct")
     week = (payload.get("week") or {}).get("pct")
@@ -211,34 +219,6 @@ def _summary_cursor(payload):
     api = (payload.get("api") or {}).get("pct")
     return (f"plan={payload.get('plan')}  auto={auto}%  api={api}%  "
             f"resets={payload.get('resets_in_s')}")
-
-
-def _summary_copilot(payload):
-    premium = (payload.get("premium") or {}).get("pct")
-    chat = (payload.get("chat") or {}).get("pct")
-    return f"plan={payload.get('plan')}  premium={premium}%  chat={chat}%"
-
-
-def _summary_gemini(payload):
-    pro = (payload.get("pro") or {}).get("pct")
-    flash = (payload.get("flash") or {}).get("pct")
-    return f"plan={payload.get('plan')}  pro={pro}%  flash={flash}%"
-
-
-def _summary_windsurf(payload):
-    session = (payload.get("session") or {}).get("pct")
-    week = (payload.get("week") or {}).get("pct")
-    return f"plan={payload.get('plan')}  day={session}%  week={week}%"
-
-
-def _summary_jetbrains(payload):
-    month = (payload.get("month") or {}).get("pct")
-    return f"plan={payload.get('plan')}  month={month}%"
-
-
-def _summary_zed(payload):
-    preds = (payload.get("predictions") or {}).get("pct")
-    return f"plan={payload.get('plan')}  predictions={preds}%"
 
 
 def _summary_vercel(payload):
@@ -273,30 +253,8 @@ def _summary_plausible(payload):
 
 
 # ---------------- blank payloads (shape before the first fetch) ----------------
-
-def _blank_quota():
-    return {"ok": False, "plan": None, "session": None, "week": None}
-
-
-def _blank_cursor():
-    return {"ok": False, "plan": None, "auto": None, "api": None}
-
-
-def _blank_copilot():
-    return {"ok": False, "plan": None, "premium": None, "chat": None}
-
-
-def _blank_gemini():
-    return {"ok": False, "plan": None, "pro": None, "flash": None}
-
-
-def _blank_jetbrains():
-    return {"ok": False, "plan": None, "month": None}
-
-
-def _blank_zed():
-    return {"ok": False, "plan": None, "predictions": None}
-
+# Quota sources derive theirs from `pools`; only the shapes that carry more
+# than plan-plus-meters are spelled out.
 
 def _blank_vercel():
     return {"ok": False, "team": None, "deployments": []}
@@ -364,37 +322,37 @@ _ZED_POOLS = (
 
 SOURCES = (
     Source("claude", "Claude", "Keychain / ~/.claude credentials", 60,
-           oauth_usage.fetch_quota, _detail_claude, _summary_claude,
-           _blank_quota, kind="quota", group=GROUP_AI, pools=_CLAUDE_POOLS,
+           oauth_usage.fetch_quota,
+           kind="quota", group=GROUP_AI, pools=_CLAUDE_POOLS,
            headline=("week", "session"), accent="#D97757"),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
-           codex_usage.fetch_quota, _detail_codex, _summary_codex,
-           _blank_quota, kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
+           codex_usage.fetch_quota, summary_fn=_summary_codex,
+           kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
            headline=("week", "session"), accent="#10A37F"),
     Source("cursor", "Cursor", "Cursor IDE signed-in JWT", 60,
-           cursor_usage.fetch_quota, _detail_cursor, _summary_cursor,
-           _blank_cursor, kind="quota", group=GROUP_AI, pools=_CURSOR_POOLS,
+           cursor_usage.fetch_quota, summary_fn=_summary_cursor,
+           kind="quota", group=GROUP_AI, pools=_CURSOR_POOLS,
            headline=("total",), headline_fallback_max=("auto", "api"),
            accent="#789BC8"),
     Source("copilot", "Copilot", "GitHub token / `gh auth`", 60,
-           copilot_usage.fetch_quota, _detail_copilot, _summary_copilot,
-           _blank_copilot, kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
+           copilot_usage.fetch_quota,
+           kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
            headline=("premium", "chat"), accent="#A371F7"),
     Source("gemini", "Gemini", "~/.gemini OAuth (Gemini CLI)", 60,
-           gemini_usage.fetch_quota, _detail_gemini, _summary_gemini,
-           _blank_gemini, kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
+           gemini_usage.fetch_quota,
+           kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
            headline=("pro", "flash"), accent="#4285F4"),
     Source("windsurf", "Windsurf", "Windsurf IDE plan cache", 60,
-           windsurf_usage.fetch_quota, _detail_windsurf, _summary_windsurf,
-           _blank_quota, kind="quota", group=GROUP_AI, pools=_WINDSURF_POOLS,
+           windsurf_usage.fetch_quota,
+           kind="quota", group=GROUP_AI, pools=_WINDSURF_POOLS,
            headline=("week", "session"), accent="#00C2A8"),
     Source("jetbrains", "JetBrains AI", "Local AI Assistant quota XML", 60,
-           jetbrains_usage.fetch_quota, _detail_jetbrains, _summary_jetbrains,
-           _blank_jetbrains, kind="quota", group=GROUP_AI,
+           jetbrains_usage.fetch_quota,
+           kind="quota", group=GROUP_AI,
            pools=_JETBRAINS_POOLS, headline=("month",), accent="#FE315D"),
     Source("zed", "Zed", "Zed Keychain session", 60,
-           zed_usage.fetch_quota, _detail_zed, _summary_zed,
-           _blank_zed, kind="quota", group=GROUP_AI, pools=_ZED_POOLS,
+           zed_usage.fetch_quota,
+           kind="quota", group=GROUP_AI, pools=_ZED_POOLS,
            headline=("predictions",), accent="#084CCF"),
     Source("vercel", "Vercel", "Vercel CLI login", 60,
            vercel_builds.fetch_deployments, _detail_vercel, _summary_vercel,
