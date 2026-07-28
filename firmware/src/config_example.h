@@ -24,11 +24,11 @@ static const struct { const char *ssid; const char *pass; } WIFI_NETWORKS[] = {
 // blocks mDNS). Set to the Mac's IP on that network, or leave as-is.
 #define HOST_FALLBACK_IP "192.168.1.50"
 
-// Shared secret for LAN access. /usage carries repo names, commit subjects,
-// local server paths and spend, so the host requires this from anything that
-// isn't loopback. The host prints it at startup and stores it in
-// ~/.headroom/token. Leave empty only if you set "require_auth": false in
-// ~/.headroom/config.json — that opens the feed to your whole network.
+// Host token for LAN access (ESP32 / generic clients). /usage carries repo
+// names, commit subjects, local server paths and spend, so the host requires
+// this from anything that isn't loopback. Stored at ~/.headroom/token after
+// first host start — not the iPhone mobile token (~/.headroom/mobile-token).
+// Leave empty only if you set "require_auth": false in ~/.headroom/config.json.
 // Not needed for the USB path: the cable already implies physical access.
 #define HOST_TOKEN ""
 

@@ -283,6 +283,10 @@ struct Burndown {
   bool warn = false;       // pace runs out before the window resets
   bool exhausted = false;
   bool estimated = false;  // projection from token history, not from samples
+  // "Runs out tomorrow 10:26" — the same phrase the menu bar shows, so the
+  // desk and the Mac answer "do I make it" with the same words. Host-supplied
+  // rather than assembled here: one vocabulary, one place to change it.
+  String verdict;
   // Optional overlay (Cursor API). n2==0 means absent.
   uint8_t n2 = 0;
   uint32_t t2[MAX_BURN_PTS];
@@ -331,6 +335,23 @@ struct ServerRow {
   String cmd;
 };
 
+// Build identity, stamped by firmware/version.py. The counter moves on every
+// build, not every commit, so a rebuild of uncommitted work is still
+// distinguishable — which is the case where "did that actually flash?" is
+// hardest to answer. Sent to the host on every poll so the question has a
+// reading rather than an inference.
+#ifndef FW_BUILD
+#define FW_BUILD 0
+#endif
+#ifndef FW_VERSION
+#define FW_VERSION "unversioned"
+#endif
+
+static const String &fwVersion() {
+  static const String v = FW_VERSION;
+  return v;
+}
+
 static String updatedZ = "";
 static bool haveData = false;
 static bool hostOk = false;   // last /usage fetch succeeded
@@ -362,8 +383,14 @@ static const char *PREFS_NS = "headroom";
 // and a stale value would silently pin a board to the wrong default.
 static const char *PREF_HOME_MODE = "home_pane";
 
+// Must match docs/glossary.md / Shared/HeadroomCopy.swift.
+static const char *LABEL_BURNDOWN = "Burndown";
+static const char *LABEL_ACTIVITY = "Activity";
+static const char *LABEL_COLLECTING_HISTORY = "Collecting history";
+static const char *LABEL_NO_DATA = "no data";
+
 static const char *homeModeName(HomeMode m) {
-  return m == HOME_BURNDOWN ? "burndown" : "activity";
+  return m == HOME_BURNDOWN ? LABEL_BURNDOWN : LABEL_ACTIVITY;
 }
 
 static void homeModeLoad() {
@@ -793,6 +820,7 @@ static bool applyUsageDoc(JsonDocument &doc) {
       if (out.t1 <= out.t0) continue;
       out.warn = b["warn"] | false;
       out.estimated = b["est"] | false;
+      out.verdict = (const char *)(b["verdict"] | "");
       out.exhausted =
           strcmp((const char *)(b["status"] | ""), "exhausted") == 0;
       JsonArray pts = b["pts"].as<JsonArray>();
@@ -968,7 +996,7 @@ static bool applyUsageStream(Stream &stream) {
 static bool fetchUsageHttp() {
   if (WiFi.status() != WL_CONNECTED) return false;
   String url = "http://" + hostFor() + ":" + String(HOST_PORT) +
-               "/usage?view=device";
+               "/usage?view=device&fw=" + fwVersion();
   HTTPClient http;
   // Fail fast — a slow/wrong LAN must not starve BOOT/touch.
   http.setConnectTimeout(700);
@@ -996,7 +1024,8 @@ static bool fetchUsageHttp() {
 static bool fetchUsageUsb(uint32_t timeoutMs) {
   char *body = nullptr;
   size_t len = 0;
-  if (!usbTransact("HR GET /usage", 200, &body, &len, timeoutMs)) return false;
+  const String request = "HR GET /usage?fw=" + fwVersion();
+  if (!usbTransact(request.c_str(), 200, &body, &len, timeoutMs)) return false;
   bool ok = applyUsageJson(body, len);
   if (body) heap_caps_free(body);
   return ok;
@@ -1133,24 +1162,28 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
     bootChrome();
   }
 
-  // Right status must fit; truncate long SSIDs / hostnames.
-  char right[18];
-  size_t sn = strlen(status);
-  if (sn > 16) {
-    memcpy(right, status, 15);
-    right[15] = '\0';
-  } else {
-    memcpy(right, status, sn + 1);
-  }
-
   const int16_t x0 = UI_PAD + 10;
   const int16_t xMax = scrW() - UI_PAD - 10;
   gfx->setTextSize(2);
   int16_t x1, y1; uint16_t lw, lh, rw, rh, dw, dh;
   gfx->getTextBounds(label, 0, 0, &x1, &y1, &lw, &lh);
-  gfx->getTextBounds(right, 0, 0, &x1, &y1, &rw, &rh);
   gfx->getTextBounds(".", 0, 0, &x1, &y1, &dw, &dh);
   if (dw < 1) dw = 6;
+
+  // Keep room for label + a few leader dots; show as many status chars as fit.
+  const int16_t budget =
+      (int16_t)(xMax - x0 - (int16_t)lw - 4 - (int16_t)(dw + 2) * 3);
+  char right[40];
+  size_t sn = strlen(status);
+  if (sn >= sizeof(right)) sn = sizeof(right) - 1;
+  memcpy(right, status, sn);
+  right[sn] = '\0';
+  while (sn > 0) {
+    gfx->getTextBounds(right, 0, 0, &x1, &y1, &rw, &rh);
+    if ((int16_t)rw <= budget) break;
+    right[--sn] = '\0';
+  }
+  if (sn == 0) rw = 0;
 
   // Label (bright) … leaders (faded) … status
   drawTextAt(label, x0, bootY, 2, COL_CRT);
@@ -1173,23 +1206,41 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
   delay(55);
 }
 
-// Growing dots after the label (WIFI. → WIFI.. → WIFI...), advanced by caller.
+// Growing dots after the label, marching toward the right edge (not a 4-dot loop).
 static void bootProgress(const char *label, uint8_t step) {
-  char left[24];
-  size_t n = strlen(label);
-  if (n > 12) n = 12;
-  memcpy(left, label, n);
-  const uint8_t dots = (uint8_t)((step % 4) + 1);  // 1..4
-  for (uint8_t i = 0; i < dots; i++) left[n + i] = '.';
-  left[n + dots] = '\0';
-
   const int16_t x0 = UI_PAD + 10;
   const int16_t y = bootY;
-  const int16_t bw = (int16_t)(scrW() - UI_PAD * 2 - 20);
+  const int16_t xMax = scrW() - UI_PAD - 10;
+  const int16_t bw = (int16_t)(xMax - x0);
   gfx->fillRect(x0, y, bw, 18, COL_CRT_BG);
   for (int16_t sy = y; sy < y + 18; sy += 3)
     gfx->drawFastHLine(x0, sy, bw, COL_CRT_SCAN);
-  drawTextAt(left, x0, y, 2, COL_CRT);
+
+  drawTextAt(label, x0, y, 2, COL_CRT);
+
+  int16_t x1, y1; uint16_t lw, lh, dw, dh;
+  gfx->setTextSize(2);
+  gfx->getTextBounds(label, 0, 0, &x1, &y1, &lw, &lh);
+  gfx->getTextBounds(".", 0, 0, &x1, &y1, &dw, &dh);
+  if (dw < 1) dw = 6;
+
+  const int16_t start = (int16_t)(x0 + (int16_t)lw + 4);
+  const int16_t gap = (int16_t)(dw + 2);
+  uint8_t maxDots = 0;
+  for (int16_t x = start; x + (int16_t)dw <= xMax; x = (int16_t)(x + gap))
+    maxDots++;
+  if (maxDots < 1) maxDots = 1;
+
+  uint8_t dots = (uint8_t)(step + 1);
+  if (dots > maxDots) dots = maxDots;
+
+  gfx->setTextColor(COL_CRT);
+  int16_t dotX = start;
+  for (uint8_t i = 0; i < dots; i++) {
+    gfx->setCursor(dotX, y);
+    gfx->print('.');
+    dotX = (int16_t)(dotX + gap);
+  }
   bootFlush();
 }
 
@@ -1283,10 +1334,10 @@ static void drawNameAgoRow(int16_t x, int16_t y, int16_t colW,
   gfx->print(ago);
 }
 
-// Activity dots: red for bad, dim otherwise. Status words carry the rest
+// Activity dots stay neutral — status words carry good vs bad
 // (same rule as the Mac GitHub list).
 static uint16_t statusColor(const String &status) {
-  if (status == "error" || status == "failure") return COL_RED;
+  (void)status;
   return COL_DIM;
 }
 
@@ -1384,7 +1435,27 @@ static uint16_t dimToward(uint16_t color, uint16_t bg, float factor) {
   return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-// One ring band: track + filled arc from 12 o'clock + white pace tick.
+// Fixed-width radial "now" line. Unlike an angular arc, its apparent width
+// does not grow with radius, so inner and outer quota bands match.
+static void drawRadialIndicator(int16_t cx, int16_t cy, int16_t inner,
+                                int16_t outer, float angle,
+                                uint16_t color) {
+  const float radians = angle * DEG_TO_RAD;
+  const float ux = cosf(radians);
+  const float uy = sinf(radians);
+  const float tx = -uy;
+  const float ty = ux;
+  for (int8_t offset = -1; offset <= 1; offset++) {
+    gfx->drawLine(
+        (int16_t)lroundf(cx + ux * inner + tx * offset),
+        (int16_t)lroundf(cy + uy * inner + ty * offset),
+        (int16_t)lroundf(cx + ux * outer + tx * offset),
+        (int16_t)lroundf(cy + uy * outer + ty * offset),
+        color);
+  }
+}
+
+// One ring band: track + filled arc from 12 o'clock + radial pace line.
 // The gap between where the arc stops and where the tick sits is the deficit.
 static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
                          float pct, float pacePct, uint16_t accent) {
@@ -1392,7 +1463,9 @@ static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
   // A neutral track is indistinguishable from background at this size, so two
   // near-empty rings merge into one dark blob. Tinting keeps each ring legible
   // as a ring before any of it fills.
-  gfx->fillArc(cx, cy, r, inner, 0, 360, dimToward(accent, COL_BG, 0.30f));
+  // Shared Headroom ring contract: 20% tinted track, square usage arc, and a
+  // high-contrast radial pace line. Swift surfaces mirror these semantics.
+  gfx->fillArc(cx, cy, r, inner, 0, 360, dimToward(accent, COL_BG, 0.20f));
   if (pct >= 0) {
     float p = pct > 100 ? 100 : pct;
     float sweep = p * 3.6f;
@@ -1406,12 +1479,9 @@ static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
   if (pacePct >= 0) {
     float pp = pacePct > 100 ? 100 : pacePct;
     float a = -90.0f + pp * 3.6f;
-    gfx->fillArc(cx, cy, (int16_t)(r + 1), (int16_t)(inner - 1),
-                 a - 2.8f, a + 2.8f, COL_WHITE);
+    drawRadialIndicator(cx, cy, (int16_t)(inner - 2),
+                        (int16_t)(r + 2), a, COL_WHITE);
   }
-  // Black 0° mark at 12 o'clock (start of the ring).
-  gfx->fillArc(cx, cy, (int16_t)(r + 1), (int16_t)(inner - 1),
-               -90.0f - 2.6f, -90.0f + 2.6f, COL_BLACK);
 }
 
 // Concentric pace layers for one provider, plus the label underneath.
@@ -1450,8 +1520,8 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   const uint16_t track = dimToward(accent, COL_BG, 0.45f);
   gfx->drawRect(x, y, w, h, track);
   if (!b.ok || b.t1 <= b.t0) {
-    // "collecting history" is 216px at size 2 — it doesn't fit a home column.
-    drawTextAt(w >= 232 ? "collecting history" : "no data",
+    // LABEL_COLLECTING_HISTORY is ~216px at size 2 — it doesn't fit a home column.
+    drawTextAt(w >= 232 ? LABEL_COLLECTING_HISTORY : LABEL_NO_DATA,
                x + 8, y + h / 2 - 8, 2, COL_DIM);
     return;
   }
@@ -1496,7 +1566,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   // an accent. Dimmed so the two stay distinguishable.
   if (b.n2 > 1) {
     const uint16_t line2 = b.exhausted2 ? COL_DIM
-                         : (b.warn2 ? COL_RED : dimToward(accent, COL_BG, 0.70f));
+                         : dimToward(accent, COL_BG, 0.70f);
     for (uint8_t i = 1; i < b.n2; i++) {
       stroke(px(b.t2[i - 1]), py(b.remaining2[i - 1]),
              px(b.t2[i]), py(b.remaining2[i]), line2);
@@ -1508,8 +1578,9 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
         const int16_t x1 = px(b.projT2[1]), y1 = py(b.projR2[1]);
         if (dR2 < -0.5f || dR2 > 0.5f) {
           const int16_t steps = (int16_t)(x1 - x0);
-          const int16_t stride = b.estimated2 ? 7 : 8;
-          const int16_t dash = b.estimated2 ? 5 : 6;
+          // Same 6-on / 2-off as Mac/iOS — estimated vs measured is copy, not stroke.
+          const int16_t stride = 8;
+          const int16_t dash = 6;
           for (int16_t i = 0; i < steps; i += stride) {
             int16_t ax = (int16_t)(x0 + i);
             int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
@@ -1519,7 +1590,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                              (steps ? steps : 1)), line2);
           }
         }
-        if (b.warn2) gfx->fillCircle(x1, y1, 3, COL_RED);
+        if (b.warn2) gfx->fillCircle(x1, y1, 3, line2);
       }
     }
     if (b.n2 > 0) {
@@ -1527,17 +1598,22 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     }
   }
 
-  // Actual curve (primary / Total).
-  const uint16_t line = b.exhausted ? COL_DIM : (b.warn ? COL_RED : accent);
+  // Actual curve (primary / Total). Only exhaustion changes the colour, and it
+  // desaturates rather than warns — same rule the Mac card follows. Running out
+  // early is a reading, not a verdict: the curve's distance below the budget
+  // diagonal already shows it, the dot marks where it hits zero, and the
+  // caption says it in words. Painting all three plus the line itself red
+  // spends the loudest colour on the thing least able to be precise about it.
+  const uint16_t line = b.exhausted ? COL_DIM : accent;
   for (uint8_t i = 1; i < b.n; i++) {
     stroke(px(b.t[i - 1]), py(b.remaining[i - 1]),
            px(b.t[i]), py(b.remaining[i]), line);
   }
 
-  // Projection: lightly dashed accent (long on, short gap) plus a marker
-  // where it hits the floor. Estimates stay a touch sparser. Skip a level
-  // forecast — measured-zero pace would paint a bar across the whole window
-  // and erase the budget diagonal (Codex idle after an early burn).
+  // Projection: lightly dashed accent (6 on, 2 off — same as Mac/iOS) plus a
+  // marker where it hits the floor. Skip a level forecast — measured-zero
+  // pace would paint a bar across the whole window and erase the budget
+  // diagonal (Codex idle after an early burn).
   if (b.projN == 2) {
     const float dR = b.projR[1] - b.projR[0];
     if (dR < -0.5f || dR > 0.5f || b.warn) {
@@ -1545,8 +1621,8 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
       const int16_t x1 = px(b.projT[1]), y1 = py(b.projR[1]);
       if (dR < -0.5f || dR > 0.5f) {
         const int16_t steps = (int16_t)(x1 - x0);
-        const int16_t stride = b.estimated ? 7 : 8;
-        const int16_t dash = b.estimated ? 5 : 6;
+        const int16_t stride = 8;
+        const int16_t dash = 6;
         for (int16_t i = 0; i < steps; i += stride) {
           int16_t ax = (int16_t)(x0 + i);
           int16_t ay = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
@@ -1556,7 +1632,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                            (steps ? steps : 1)), line);
         }
       }
-      if (b.warn) gfx->fillCircle(x1, y1, 4, COL_RED);
+      if (b.warn) gfx->fillCircle(x1, y1, 4, line);
     }
   }
 
@@ -1577,7 +1653,7 @@ struct GlanceHit {
   HitKind kind;
   Page target;
 };
-static const uint8_t MAX_GLANCE_HITS = 8;   // 3 rings + 3 lower slots + header
+static const uint8_t MAX_GLANCE_HITS = 10;  // mode + 3 rings + 3 chart + 3 legend
 static GlanceHit glanceHits[MAX_GLANCE_HITS];
 static uint8_t glanceHitN = 0;
 
@@ -1701,79 +1777,237 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
   }
 }
 
-// "3d 4h" / "6h 20m" / "45m" — two units, widest case 6 chars so it fits the
-// right half of a 122px column caption at text size 2.
-static String shortDur(uint32_t secs) {
-  const uint32_t m = secs / 60;
-  if (m < 1) return "now";
-  if (m < 60) return String(m) + "m";
-  const uint32_t h = m / 60, rm = m % 60;
-  if (h < 24) return rm ? String(h) + "h " + String(rm) + "m" : String(h) + "h";
-  const uint32_t d = h / 24, rh = h % 24;
-  return rh ? String(d) + "d " + String(rh) + "h" : String(d) + "d";
+// Host `updated` ends in ±HHMM (e.g. +0200). Used to align the overall chart
+// to the same local calendar week the Mac/iOS cards use. No NTP on the board.
+static int32_t updatedTzOffsetS() {
+  const int n = (int)updatedZ.length();
+  if (n < 5) return 0;
+  const char *s = updatedZ.c_str();
+  const char sign = s[n - 5];
+  if (sign != '+' && sign != '-') return 0;
+  const int hh = (s[n - 4] - '0') * 10 + (s[n - 3] - '0');
+  const int mm = (s[n - 2] - '0') * 10 + (s[n - 1] - '0');
+  if (hh < 0 || hh > 14 || mm < 0 || mm > 59) return 0;
+  const int32_t off = (int32_t)hh * 3600 + (int32_t)mm * 60;
+  return sign == '-' ? -off : off;
 }
 
-// One unit, for captions that already spend characters on a prefix.
-static String coarseDur(uint32_t secs) {
-  const uint32_t m = secs / 60;
-  if (m < 60) return String(m ? m : 1) + "m";
-  const uint32_t h = m / 60;
-  return h < 24 ? String(h) + "h" : String(h / 24) + "d";
+// Clip a time/remaining segment to [tLo, tHi], interpolating at the edges so a
+// weekly pool that runs past Friday still paints up to the chart's right edge
+// instead of vanishing (Mac OverviewBurndownCard does the same).
+static bool clipBurnSeg(uint32_t ta, float ra, uint32_t tb, float rb,
+                        uint32_t tLo, uint32_t tHi,
+                        uint32_t *oa, float *ora, uint32_t *ob, float *orb) {
+  if (ta == tb) return false;
+  if (ta > tb) {
+    uint32_t ts = ta; ta = tb; tb = ts;
+    float rs = ra; ra = rb; rb = rs;
+  }
+  if (tb < tLo || ta > tHi) return false;
+  *oa = ta; *ora = ra; *ob = tb; *orb = rb;
+  const float span = (float)(tb - ta);
+  if (ta < tLo) {
+    const float u = (float)(tLo - ta) / span;
+    *oa = tLo;
+    *ora = ra + u * (rb - ra);
+  }
+  if (tb > tHi) {
+    const float u = (float)(tHi - ta) / span;
+    *ob = tHi;
+    *orb = ra + u * (rb - ra);
+  }
+  return *oa < *ob || (*oa == *ob && *ora != *orb);
 }
 
-// Lower half, burndown reading: one chart per provider, each under its ring,
-// so a column reads top-to-bottom as "where I am" then "where that lands".
+// One provider's actual + dashed projection on a shared absolute-time axis.
+// No budget diagonal — windows start and reset at different times.
+static void drawOverallSeries(const Burndown &b, uint16_t accent,
+                              int16_t x, int16_t y, int16_t w, int16_t h,
+                              uint32_t tLo, uint32_t tHi) {
+  if (!b.ok || b.n < 1 || tHi <= tLo) return;
+  const uint32_t span = tHi - tLo;
+  auto px = [&](uint32_t t) -> int16_t {
+    if (t <= tLo) return x;
+    if (t >= tHi) return (int16_t)(x + w - 1);
+    return (int16_t)(x + (int32_t)((uint64_t)(t - tLo) * (w - 1) / span));
+  };
+  auto py = [&](float remaining) -> int16_t {
+    float r = remaining < 0 ? 0 : (remaining > 100 ? 100 : remaining);
+    return (int16_t)(y + h - 1 - (int16_t)(r * (h - 1) / 100.0f));
+  };
+  auto stroke = [&](int16_t ax, int16_t ay, int16_t bx, int16_t by,
+                    uint16_t col) {
+    for (int16_t d = -1; d <= 1; d++) {
+      const int16_t a = (int16_t)(ay + d), c = (int16_t)(by + d);
+      if (a < y || a > y + h - 1 || c < y || c > y + h - 1) continue;
+      gfx->drawLine(ax, a, bx, c, col);
+    }
+  };
+
+  const uint16_t line = b.exhausted ? COL_DIM : accent;
+  for (uint8_t i = 1; i < b.n; i++) {
+    uint32_t ta, tb; float ra, rb;
+    if (!clipBurnSeg(b.t[i - 1], b.remaining[i - 1], b.t[i], b.remaining[i],
+                     tLo, tHi, &ta, &ra, &tb, &rb)) {
+      continue;
+    }
+    stroke(px(ta), py(ra), px(tb), py(rb), line);
+  }
+
+  if (b.projN == 2) {
+    const float dR = b.projR[1] - b.projR[0];
+    if (dR < -0.5f || dR > 0.5f || b.warn) {
+      uint32_t ta, tb; float ra, rb;
+      if (clipBurnSeg(b.projT[0], b.projR[0], b.projT[1], b.projR[1],
+                      tLo, tHi, &ta, &ra, &tb, &rb)) {
+        const int16_t x0 = px(ta), y0 = py(ra);
+        const int16_t x1 = px(tb), y1 = py(rb);
+        if (dR < -0.5f || dR > 0.5f) {
+          const int16_t steps = (int16_t)(x1 - x0);
+          const int16_t stride = 8;
+          const int16_t dash = 6;
+          for (int16_t i = 0; i < steps; i += stride) {
+            const int16_t ax = (int16_t)(x0 + i);
+            const int16_t ay =
+                (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps ? steps : 1));
+            const int16_t seg = (i + dash > steps) ? (int16_t)(steps - i) : dash;
+            stroke(ax, ay, (int16_t)(ax + seg),
+                   (int16_t)(y0 + (int32_t)(y1 - y0) * (i + seg) /
+                             (steps ? steps : 1)),
+                   line);
+          }
+        }
+        if (b.warn && tb == b.projT[1]) gfx->fillCircle(x1, y1, 3, line);
+      }
+    }
+  }
+
+  // Now marker — last in-range actual point.
+  for (int8_t i = (int8_t)b.n - 1; i >= 0; i--) {
+    if (b.t[i] < tLo || b.t[i] > tHi) continue;
+    const int16_t nx = px(b.t[i]);
+    const int16_t ny = py(b.remaining[i]);
+    gfx->fillCircle(nx, ny, 3, line);
+    gfx->drawCircle(nx, ny, 4, COL_BG);
+    break;
+  }
+}
+
+// Lower half, burndown reading: one combined chart (Mac/iOS Overall burndown)
+// under the three rings — shared calendar week, no budget diagonal.
 static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
                                int16_t lowBottom) {
   const Page pages[3] = {PAGE_CLAUDE, PAGE_CODEX, PAGE_CURSOR};
   const uint16_t accents[3] = {COL_CLAUDE, COL_OPENAI, COL_CURSOR};
+  const Burndown *burns[3] = {&claudeBurn, &codexBurn, &cursorBurn};
   const int16_t slot = span / 3;
-  const int16_t colPad = 4;
-  const int16_t capH = 20;      // caption line above each chart
-  const int16_t chartY = (int16_t)(midY + 6 + capH);
-  const int16_t chartH = (int16_t)(lowBottom - chartY);
 
+  uint32_t nowT = 0;
+  uint8_t ready = 0;
   for (uint8_t i = 0; i < 3; i++) {
-    const int16_t colX = (int16_t)(padX + (int16_t)i * slot);
-    glanceAddHit(colX, midY, slot, (int16_t)(lowBottom - midY), pages[i]);
-    const Burndown &b = burnFor(pages[i]);
-
-    // Caption carries the two numbers the chart can only imply: how much is
-    // left, and how long it has to last. Naming the pool would be redundant —
-    // "3d 4h" is a weekly window and "4h" is a session, plainly.
-    const int16_t capY = midY + 6;
-    const int16_t capL = (int16_t)(colX + colPad);
-    const int16_t capR = (int16_t)(colX + slot - colPad);
-    if (b.ok && b.n > 0) {
-      // When Cursor overlays API, the caption tracks the worse remaining —
-      // Total alone would look fine while API is already toast.
-      float rem = b.remaining[b.n - 1];
-      if (b.n2 > 0 && b.remaining2[b.n2 - 1] < rem) {
-        rem = b.remaining2[b.n2 - 1];
-      }
-      char left[8];
-      snprintf(left, sizeof left, "%d%%", (int)(rem + 0.5f));
-      drawTextAt(left, capL, capY, 2, accents[i]);
-
-      // Sample time, not wall clock — the board has no RTC, and the newest
-      // point is "now" as far as this chart is concerned.
-      const uint32_t now = b.t[b.n - 1];
-      const bool warn = b.warn || b.warn2;
-      const bool exhausted = b.exhausted && (b.n2 == 0 || b.exhausted2);
-      if (warn && !exhausted && b.projN == 2 && b.projT[1] > now) {
-        drawRightAt("out " + coarseDur(b.projT[1] - now), capR, capY, 2,
-                    COL_RED);
-      } else if (b.warn2 && !b.exhausted2 && b.projN2 == 2 && b.projT2[1] > now) {
-        drawRightAt("out " + coarseDur(b.projT2[1] - now), capR, capY, 2,
-                    COL_RED);
-      } else if (b.t1 > now) {
-        drawRightAt(shortDur(b.t1 - now), capR, capY, 2, COL_DIM);
+    if (burns[i]->ok && burns[i]->n > 0) {
+      ready++;
+      if (burns[i]->t[burns[i]->n - 1] > nowT) {
+        nowT = burns[i]->t[burns[i]->n - 1];
       }
     }
+  }
 
-    if (chartH >= 40) {
-      drawBurndown(b, (int16_t)(colX + colPad), chartY,
-                   (int16_t)(slot - colPad * 2), chartH, accents[i]);
+  // Day labels between chart and verdicts so curves keep the plot area.
+  // Verdicts are full-width rows (not 3 cramped columns) — size-2 "Runs out
+  // tomorrow 00:49" simply does not fit a third of this panel.
+  const int16_t axisH = 12;
+  const int16_t rowH = 16;
+  const int16_t legendH = (int16_t)(3 * rowH + 2);
+  const int16_t chartY = (int16_t)(midY + 6);
+  const int16_t chartH =
+      (int16_t)(lowBottom - legendH - axisH - chartY);
+  const int16_t chartX = padX;
+  const int16_t chartW = span;
+
+  if (ready == 0 || chartH < 40) {
+    drawTextAt(LABEL_COLLECTING_HISTORY, chartX + 8,
+               chartY + (chartH > 0 ? chartH / 2 : 8), 2, COL_DIM);
+    return;
+  }
+
+  // Local calendar week: today−3 … today+4, matching OverviewBurndownCard.
+  const int32_t tz = updatedTzOffsetS();
+  const uint32_t localNow = (uint32_t)((int64_t)nowT + tz);
+  const uint32_t localDay = localNow - (localNow % 86400u);
+  const uint32_t todayUtc = (uint32_t)((int64_t)localDay - tz);
+  const uint32_t tLo = todayUtc - 3u * 86400u;
+  const uint32_t tHi = tLo + 7u * 86400u;
+
+  const uint16_t track = dimToward(COL_WHITE, COL_BG, 0.35f);
+  gfx->drawRect(chartX, chartY, chartW, chartH, track);
+
+  // Horizontal 50% rule + vertical day rules (no Y labels — rings carry %).
+  const uint16_t grid = dimToward(COL_WHITE, COL_BG, 0.22f);
+  {
+    const int16_t mid = (int16_t)(chartY + chartH / 2);
+    gfx->drawFastHLine(chartX + 1, mid, chartW - 2, grid);
+  }
+  static const char *const WD[] = {
+      "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  // Unix day 0 = Thu → (days + 4) % 7 = Sun..Sat.
+  const int startWd = (int)(((localDay / 86400u) + 4u) % 7u);
+  const int16_t axisY = (int16_t)(chartY + chartH + 2);
+  for (uint8_t d = 0; d < 7; d++) {
+    const uint32_t dayT = tLo + (uint32_t)d * 86400u;
+    const int16_t dx =
+        (int16_t)(chartX +
+                  (int32_t)((uint64_t)(dayT - tLo) * (chartW - 1) / (tHi - tLo)));
+    if (d > 0) {
+      gfx->drawFastVLine(dx, (int16_t)(chartY + 1), (int16_t)(chartH - 2), grid);
+    }
+    const int wd = (startWd - 3 + (int)d + 70) % 7;
+    drawTextAt(WD[wd], (int16_t)(dx + 2), axisY, 1, COL_DIM);
+  }
+
+  // "Now" marker — darker than day rules so it isn't mistaken for one.
+  if (nowT > tLo && nowT < tHi) {
+    const uint16_t nowCol = dimToward(COL_WHITE, COL_BG, 0.45f);
+    const int16_t nx =
+        (int16_t)(chartX +
+                  (int32_t)((uint64_t)(nowT - tLo) * (chartW - 1) / (tHi - tLo)));
+    gfx->drawFastVLine(nx, (int16_t)(chartY + 1), (int16_t)(chartH - 2),
+                       nowCol);
+  }
+
+  for (uint8_t i = 0; i < 3; i++) {
+    drawOverallSeries(*burns[i], accents[i], chartX, chartY, chartW, chartH,
+                      tLo, tHi);
+  }
+
+  // Chart thirds → provider detail (same left→right order as the rings).
+  const int16_t chartHitH = (int16_t)(chartY + chartH + axisH - midY);
+  for (uint8_t i = 0; i < 3; i++) {
+    glanceAddHit((int16_t)(padX + (int16_t)i * slot), midY, slot, chartHitH,
+                 pages[i]);
+  }
+
+  // Legend: ring order, top → bottom. Full width so host verdicts stay intact.
+  const int16_t legY = (int16_t)(lowBottom - legendH + 1);
+  const int16_t dotR = 3;
+  const int16_t textX = (int16_t)(padX + dotR * 2 + 8);
+  const int16_t textW = (int16_t)(span - (textX - padX));
+  for (uint8_t i = 0; i < 3; i++) {
+    const int16_t y = (int16_t)(legY + (int16_t)i * rowH);
+    glanceAddHit(padX, y, span, rowH, pages[i]);
+    const Burndown &b = *burns[i];
+    const uint16_t dot =
+        b.ok ? (b.exhausted ? COL_DIM : accents[i]) : COL_DIM;
+    gfx->fillCircle((int16_t)(padX + dotR), (int16_t)(y + 6), dotR, dot);
+    if (b.ok && b.verdict.length()) {
+      drawTextAt(truncFit(b.verdict, textW, 2), textX, y, 2, COL_DIM);
+    } else if (b.ok && b.n > 0) {
+      char left[8];
+      snprintf(left, sizeof left, "%d%%",
+               (int)(b.remaining[b.n - 1] + 0.5f));
+      drawTextAt(left, textX, y, 2, accents[i]);
+    } else {
+      drawTextAt("-", textX, y, 2, COL_DIM);
     }
   }
 }
@@ -1915,9 +2149,21 @@ static void drawQuotaPage() {
     // Bottom half: burndown for the provider's longest window.
     const Burndown &burn = burnFor(page);
     int16_t burnY = midY;
-    drawTextAt("Burndown", padX, burnY, 2, COL_WHITE);
-    if (burn.warn || burn.warn2) {
-      drawRightAt("runs out early", W - padX, burnY, 2, COL_RED);
+    drawTextAt(LABEL_BURNDOWN, padX, burnY, 2, COL_WHITE);
+    // The host's verdict, in the host's words. Falls back to the locally
+    // assembled tags only when talking to a server too old to send one.
+    if (burn.verdict.length()) {
+      // Neutral always — the words carry the warning; colour would shout.
+      const uint16_t tint = burn.exhausted ? COL_DIM : COL_WHITE;
+      // Host copy can grow, and running under the Burndown label is worse
+      // than a smaller face, so measure before committing to size 2.
+      const int16_t room =
+          (int16_t)(W - padX * 2 - textWidth(LABEL_BURNDOWN, 2) - 12);
+      const bool full = textWidth(burn.verdict.c_str(), 2) <= room;
+      drawRightAt(burn.verdict.c_str(), W - padX,
+                  full ? burnY : (int16_t)(burnY + 4), full ? 2 : 1, tint);
+    } else if (burn.warn || burn.warn2) {
+      drawRightAt("runs out early", W - padX, burnY, 2, COL_DIM);
     } else if (burn.estimated) {
       drawRightAt("estimated", W - padX, burnY, 2, COL_DIM);
     }
@@ -1927,11 +2173,11 @@ static void drawQuotaPage() {
       drawBurndown(burn, padX, burnY, (int16_t)(W - padX * 2), chartH, accent);
     }
   } else if (isCursor) {
-    drawTextAt("cursor quota unavailable", padX, top + 100, 2, COL_RED);
+    drawTextAt("cursor quota unavailable", padX, top + 100, 2, COL_DIM);
   } else if (isCodex) {
-    drawTextAt("codex quota unavailable", padX, top + 100, 2, COL_RED);
+    drawTextAt("codex quota unavailable", padX, top + 100, 2, COL_DIM);
   } else {
-    drawTextAt("claude quota unavailable", padX, top + 100, 2, COL_RED);
+    drawTextAt("claude quota unavailable", padX, top + 100, 2, COL_DIM);
   }
 
   // Bottom bar: page dots. No Today $/model footer.
@@ -1985,7 +2231,7 @@ static void drawVercelPage() {
     }
   } else {
     drawTextAt(vercelOk ? "no deployments" : "vercel unavailable",
-               padX, top + 100, 2, COL_RED);
+               padX, top + 100, 2, COL_DIM);
   }
 
   const int16_t footY = H - bot - 10;
@@ -2027,7 +2273,7 @@ static void drawGitPage() {
     }
   } else {
     drawTextAt(gitOk ? "no commits" : "git unavailable",
-               padX, top + 100, 2, COL_RED);
+               padX, top + 100, 2, COL_DIM);
   }
 
   const int16_t footY = H - bot - 10;
@@ -2076,7 +2322,7 @@ static void drawLocalPage() {
     }
   } else {
     drawTextAt(localOk ? "no servers" : "local unavailable",
-               padX, top + 100, 2, COL_RED);
+               padX, top + 100, 2, COL_DIM);
   }
 
   const int16_t footY = H - bot - 10;
@@ -2445,6 +2691,7 @@ void setup() {
   // Never block the UI forever when the Mac isn't draining CDC TX.
   Serial.setTxTimeoutMs(0);
   delay(1500);   // let native USB-CDC re-enumerate so the boot log isn't lost
+  Serial.printf("headroom firmware %s\n", fwVersion().c_str());
   Serial.println("\n=== headroom booting ===");
 
   powerInit();
@@ -2477,7 +2724,7 @@ void setup() {
   {
     char disp[20];
     snprintf(disp, sizeof disp, "%dx%d", (int)scrW(), (int)scrH());
-    bootLine("DISP", disp, pok && cok ? COL_CRT : COL_RED);
+    bootLine("DISPLAY", disp, pok && cok ? COL_CRT : COL_RED);
   }
   bootLine("PANEL", pok && cok ? "OK" : "FAIL",
            pok && cok ? COL_CRT : COL_RED);
@@ -2491,69 +2738,89 @@ void setup() {
     bootLine("RADIO", aps, COL_CRT);
   }
 
+  // Kick STA + known APs; associate in loop(). Desk USB can finish boot now.
   connectWifi();
-  uint32_t t0 = millis();
-  uint32_t lastDots = 0;
-  uint8_t spin = 0;
-  bootProgress("WIFI", spin++);
-  while (wifiMulti.run() != WL_CONNECTED && millis() - t0 < 20000) {
-    if (millis() - lastDots >= 1000) {
-      bootProgress("WIFI", spin++);
-      lastDots = millis();
-    }
-    delay(50);
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    String ssid = WiFi.SSID();
-    bootLine("WIFI", ssid.length() ? ssid.c_str() : "OK", COL_CRT);
-    bootLine("IP", WiFi.localIP().toString().c_str(), COL_CRT);
-    {
-      char rssi[12];
-      snprintf(rssi, sizeof rssi, "%d dBm", WiFi.RSSI());
-      bootLine("RSSI", rssi, COL_CRT);
-    }
-    mdnsUp = MDNS.begin(OTA_HOSTNAME);   // needed for MDNS.queryHost()
-    bootLine("MDNS", mdnsUp ? OTA_HOSTNAME : "FAIL",
-             mdnsUp ? COL_CRT : COL_RED);
-    otaBegin();
-    bootLine("OTA", otaUp ? OTA_HOSTNAME : "OFF",
-             otaUp ? COL_CRT : COL_CRT_DIM);
-    Serial.printf("wifi ok  ip=%s  ssid=%s  mdns=%d\n",
-                  WiFi.localIP().toString().c_str(),
-                  WiFi.SSID().c_str(), mdnsUp);
-    bootLine("HOST", HOST_NAME, COL_CRT_DIM);
-  } else {
-    bootLine("WIFI", "FAIL", COL_RED);
-    Serial.println("wifi FAILED (no known network in range?) — trying USB");
-    bootLine("HOST", "USB", COL_CRT_DIM);
-  }
 
   {
     int16_t hostY = bootY;
     bootProgress("LINK", 0);
-    bool ok = fetchUsage();
+    bool ok = fetchUsageUsb(USB_TIMEOUT_SYNC_MS);
     bootY = hostY;
-    const char *linkLabel = ok
-        ? (resolvedHost.length() ? resolvedHost.c_str() : "USB")
-        : "FAIL";
-    bootLine("LINK", linkLabel, ok ? COL_CRT : COL_RED);
 
     if (ok) {
-      Serial.printf("host=%s  fetch ok  claude=%d codex=%d cursor=%d vercel=%d git=%d local=%d\n",
-                    resolvedHost.length() ? resolvedHost.c_str() : "usb",
-                    (int)claudeQ.ok, (int)codexQ.ok,
-                    (int)cursorQ.ok, (int)vercelOk, (int)gitOk, (int)localOk);
+      // Cable answered — skip the Wi-Fi wait; mDNS/OTA come up in loop().
+      Serial.println("usage via USB (boot) — Wi-Fi continues in background");
+      bootLine("WIFI", "PENDING", COL_CRT_DIM);
+      bootLine("HOST", "USB", COL_CRT_DIM);
+      bootLine("LINK", "USB", COL_CRT);
       bootLine("USAGE", "OK", COL_CRT);
       bootLine("READY", "GO", COL_CRT);
       delay(320);
       drawDashboard();
     } else {
-      Serial.println("fetch FAILED (server/host unreachable)");
-      bootLine("USAGE", "FAIL", COL_RED);
-      bootLine("READY", "FAIL", COL_RED);
-      delay(400);
-      drawStatus("server unreachable", COL_RED);
+      // No host on CDC — wait for Wi-Fi, then HTTP (USB still a fallback).
+      uint32_t t0 = millis();
+      uint32_t lastDots = 0;
+      uint8_t spin = 0;
+      bootProgress("WIFI", spin++);
+      while (wifiMulti.run() != WL_CONNECTED && millis() - t0 < 20000) {
+        if (millis() - lastDots >= 1000) {
+          bootProgress("WIFI", spin++);
+          lastDots = millis();
+        }
+        delay(50);
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        String ssid = WiFi.SSID();
+        bootLine("WIFI", ssid.length() ? ssid.c_str() : "OK", COL_CRT);
+        bootLine("IP", WiFi.localIP().toString().c_str(), COL_CRT);
+        {
+          char rssi[12];
+          snprintf(rssi, sizeof rssi, "%d dBm", WiFi.RSSI());
+          bootLine("RSSI", rssi, COL_CRT);
+        }
+        mdnsUp = MDNS.begin(OTA_HOSTNAME);   // needed for MDNS.queryHost()
+        bootLine("MDNS", mdnsUp ? OTA_HOSTNAME : "FAIL",
+                 mdnsUp ? COL_CRT : COL_RED);
+        otaBegin();
+        bootLine("OTA", otaUp ? OTA_HOSTNAME : "OFF",
+                 otaUp ? COL_CRT : COL_CRT_DIM);
+        Serial.printf("wifi ok  ip=%s  ssid=%s  mdns=%d\n",
+                      WiFi.localIP().toString().c_str(),
+                      WiFi.SSID().c_str(), mdnsUp);
+        bootLine("HOST", HOST_NAME, COL_CRT_DIM);
+      } else {
+        bootLine("WIFI", "FAIL", COL_RED);
+        Serial.println("wifi FAILED (no known network in range?) — trying USB");
+        bootLine("HOST", "USB", COL_CRT_DIM);
+      }
+
+      hostY = bootY;
+      bootProgress("LINK", 0);
+      ok = fetchUsage(USB_TIMEOUT_SYNC_MS);
+      bootY = hostY;
+      const char *linkLabel = ok
+          ? (resolvedHost.length() ? resolvedHost.c_str() : "USB")
+          : "FAIL";
+      bootLine("LINK", linkLabel, ok ? COL_CRT : COL_RED);
+
+      if (ok) {
+        Serial.printf("host=%s  fetch ok  claude=%d codex=%d cursor=%d vercel=%d git=%d local=%d\n",
+                      resolvedHost.length() ? resolvedHost.c_str() : "usb",
+                      (int)claudeQ.ok, (int)codexQ.ok,
+                      (int)cursorQ.ok, (int)vercelOk, (int)gitOk, (int)localOk);
+        bootLine("USAGE", "OK", COL_CRT);
+        bootLine("READY", "GO", COL_CRT);
+        delay(320);
+        drawDashboard();
+      } else {
+        Serial.println("fetch FAILED (server/host unreachable)");
+        bootLine("USAGE", "FAIL", COL_RED);
+        bootLine("READY", "FAIL", COL_RED);
+        delay(400);
+        drawStatus("server unreachable", COL_RED);
+      }
     }
   }
   lastPoll = millis();
@@ -2579,11 +2846,12 @@ void loop() {
   if (otaUp) ArduinoOTA.handle();
 
   // WiFiMulti.run() blocks for seconds while hunting APs. Call it rarely when
-  // disconnected; when associated just poke it occasionally.
+  // disconnected; when associated just poke it occasionally. lastWifi==0 means
+  // try on the first loop pass (USB-fast boot left associate pending).
   static uint32_t lastWifi = 0;
   const uint32_t wifiEvery =
       (WiFi.status() == WL_CONNECTED) ? 10000u : 20000u;
-  if (millis() - lastWifi >= wifiEvery) {
+  if (lastWifi == 0 || millis() - lastWifi >= wifiEvery) {
     lastWifi = millis();
     uint8_t st = wifiMulti.run();
     if (st == WL_CONNECTED) {

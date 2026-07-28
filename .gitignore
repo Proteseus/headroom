@@ -13,6 +13,7 @@ __pycache__/
 # macOS / Xcode derived data (sources + project.yml + .xcodeproj are tracked)
 macos/.build/
 macos/.build-ios/
+macos/.build-ios-shots/
 macos/.build-release/
 macos/host/
 dist/
@@ -22,3 +23,7 @@ xcuserdata/
 # OS junk
 .DS_Store
 **/.DS_Store
+
+# Per-machine firmware build counter (see firmware/version.py).
+firmware/.build_number
+firmware/.flashed_build
