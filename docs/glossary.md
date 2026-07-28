@@ -41,6 +41,10 @@ Do not title the activity feed **GitHub**. That word is reserved for the
 | **Headroom rings** | Concentric usage + pace indicator | see `docs/rings.md` |
 
 Overall burndown’s optional subtitle is just **7 days** (don’t restate “all quotas”).
+The domain is a fixed local week — today−3 … today+4 — so history stays readable
+and far-out resets don’t stretch the axis. Forecasts crop at each reset (and at
+empty); each in-range reset is an accent dotted vertical rule, and the legend
+shows **Resets …**.
 
 Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown`).
 
@@ -111,6 +115,15 @@ served as `sources[].group`). Section titles are chrome and live in
 
 Don't call the first group **Sources** on its own, and don't call the second
 **Activity** — that word belongs to the merged feed.
+
+## Focus (the top 3)
+
+The providers the compact surfaces draw: menu-bar tanks, the iOS widget, and
+the ESP32 glance slots. Picked host-side from the pinned order (enabled only,
+`sources_config.FOCUS_LIMIT`) and served as `focus` in `/usage`, so no surface
+computes its own top-N. Drag to reorder under Mac Settings → AI coding tools.
+
+Say **top 3** in user-facing copy, not "focus" — that word is API vocabulary.
 
 Pool titles (`Session`, `Weekly`, `Total`, `API`, …) come from the host
 `PoolSpec` and should not be re-hardcoded in UI chrome when the API supplies them.

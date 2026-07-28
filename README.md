@@ -152,8 +152,8 @@ questions and take different setup:
 Both lists toggle under Settings, each in its own section (the same flags
 drive the menu bar, overview rings, iPhone, and ESP32 pages).
 
-**Order picks the top 3.** The AI list is drag-ordered with the ▲▼ controls in
-Settings, and that order is pinned in `~/.headroom/sources.json`. Compact
+**Order picks the top 3.** Drag the AI rows in Settings to reorder them, and
+that order is pinned in `~/.headroom/sources.json`. Compact
 surfaces — the menu-bar tanks and the iOS widget — show the first three
 *enabled* providers. The host does the picking and ships the ids as `focus` in
 `/usage`, so the Mac, the phone, and its widget never disagree about which
