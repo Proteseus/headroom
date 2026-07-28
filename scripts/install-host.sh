@@ -78,6 +78,10 @@ python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)
   || die "Python 3.9+ required (found $(python3 -V 2>&1))"
 
 mkdir -p "$LOG_DIR" "$HOME_DIR/Library/LaunchAgents"
+# Logs carry repo names, branches and local server paths. launchd would create
+# them 0644; keep the whole folder to the owner.
+chmod 700 "$LOG_DIR" 2>/dev/null || true
+chmod 600 "$LOG_DIR"/headroom.log "$LOG_DIR"/headroom.err 2>/dev/null || true
 
 if [[ ! -f "$CONFIG" ]]; then
   if [[ -f "$EXAMPLE" ]]; then

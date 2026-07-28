@@ -192,7 +192,7 @@ LAN with `"require_auth": false`, in `~/.headroom/config.json`.
 | Symptom | Fix |
 |---|---|
 | Welcome / host isn’t running | Tap **Start host & keep at login** in the popover |
-| Host unhealthy | `tail -f ~/.headroom/logs/headroom.err` |
+| Host unhealthy | `tail -f ~/.headroom/logs/headroom.err` (owner-only, but it names your repos and ports, so read before pasting into an issue) |
 | Empty provider | Sign into that app/CLI; enable under Settings → AI coding tools |
 | Empty dev tool | Paste its key under Settings, then enable it under Dev tools |
 | iPhone won’t pair | Confirm **mobile token** (not host token); Local Network allowed |

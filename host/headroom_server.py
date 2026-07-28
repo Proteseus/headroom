@@ -1300,17 +1300,31 @@ def _refresh_async(sources, force=True):
 
 
 def _rotate_logs():
-    """Keep LaunchAgent logs from growing forever."""
+    """Keep LaunchAgent logs from growing forever, and keep them private.
+
+    launchd creates these 0644. They carry repo names, branches and local
+    server paths, so every tick also narrows them to the owner — which
+    retroactively closes older installs that logged more than they should.
+    """
     folder = os.path.expanduser("~/.headroom/logs")
-    os.makedirs(folder, exist_ok=True)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(folder, 0o700)
+    except OSError:
+        pass
     limit = 5 * 1024 * 1024
-    for name in ("headroom.log", "headroom.err"):
+    for name in ("headroom.log", "headroom.err", "headroom.log.1",
+                 "headroom.err.1"):
         path = os.path.join(folder, name)
         try:
             size = os.path.getsize(path)
         except OSError:
             continue
-        if size < limit:
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        if size < limit or name.endswith(".1"):
             continue
         try:
             os.replace(path, path + ".1")
@@ -1478,9 +1492,13 @@ def main():
           flush=True)
     print(f"  health check: http://127.0.0.1:{args.port}/health", flush=True)
     if auth.required():
-        print(f"LAN clients need this token (also in {auth.TOKEN_PATH}):",
+        # Never print the value: launchd sends stdout to
+        # ~/.headroom/logs/headroom.log, and troubleshooting means people paste
+        # that log into issues. Same reason the mobile token stays quiet above.
+        auth.token()
+        print(f"LAN clients need the host token from {auth.TOKEN_PATH}:",
               flush=True)
-        print(f"  {auth.token()}", flush=True)
+        print(f"  cat {auth.TOKEN_PATH}", flush=True)
         print("  put it in firmware/src/config.h as HOST_TOKEN", flush=True)
     else:
         print("require_auth is off — /usage is open to the whole network",

@@ -3,7 +3,7 @@
      Prefer the installer (fills paths for you):
        ./scripts/install-host.sh
      Manual install:
-       mkdir -p ~/.headroom/logs
+       mkdir -p ~/.headroom/logs && chmod 700 ~/.headroom/logs
        # Edit ProgramArguments / WorkingDirectory to your clone path, then:
        cp host/com.centaur-labs.headroom.plist ~/Library/LaunchAgents/
        launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.centaur-labs.headroom.plist
