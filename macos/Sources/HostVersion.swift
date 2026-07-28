@@ -96,8 +96,12 @@ struct HostSkew: Equatable, Sendable {
 }
 
 /// Shown in the popover when launchd is serving a host this app didn't ship.
-/// Deliberately an offer, not an automatic reinstall: someone running the host
-/// from a clone gets to keep their own copy.
+///
+/// The store reinstalls on sight (see `installBundledHost`), so by the time
+/// anyone reads this banner the automatic attempt is either in flight or it
+/// didn't take — a clone's LaunchAgent that keeps winning :8737, a launchctl
+/// that refused. The button is the manual retry for that case, not the only
+/// way out of skew.
 struct HostSkewBanner: View {
     let skew: HostSkew
     @ObservedObject var store: UsageStore

@@ -14,6 +14,17 @@ final class MobileUsageStore: ObservableObject {
     /// The snapshot on screen came off disk; nothing has reached the Mac yet.
     @Published private(set) var isShowingArchive = false
 
+    /// Foreground poll. The Mac restarts its host on its own schedule — an
+    /// update reinstalling the LaunchAgent, a wake, a launchctl kickstart — and
+    /// an app that only fetches when it comes to the front keeps drawing the
+    /// pre-restart document until someone pulls to refresh.
+    private var liveLoop: Task<Void, Never>?
+    private var consecutiveFailures = 0
+
+    private static let liveInterval: TimeInterval = 60
+    /// Ceiling for the fast retry after a failed poll — see `nextInterval`.
+    private static let retryCeiling: TimeInterval = 30
+
     init() {
         guard let entry = MobileSnapshotArchive.load() else { return }
         snapshot = entry.snapshot
@@ -38,6 +49,36 @@ final class MobileUsageStore: ObservableObject {
     /// How old the numbers on screen are, for the copy that says so.
     var age: TimeInterval? {
         capturedAt.map { Date().timeIntervalSince($0) }
+    }
+
+    /// Poll while the app is on screen. Idempotent — scenePhase can hand us
+    /// `.active` more than once for the same visit.
+    func startLiveUpdates() {
+        guard liveLoop == nil, isConfigured else { return }
+        liveLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                try? await Task.sleep(for: .seconds(self.nextInterval()))
+                guard !Task.isCancelled else { return }
+                await self.refresh()
+            }
+        }
+    }
+
+    func stopLiveUpdates() {
+        liveLoop?.cancel()
+        liveLoop = nil
+    }
+
+    private func nextInterval() -> TimeInterval {
+        // Lost the Mac: most often it is restarting its host, which takes
+        // seconds. Come back on that scale rather than a minute, then back off
+        // so a phone left open on a sleeping Mac isn't retrying all evening.
+        if consecutiveFailures > 0 {
+            return min(Self.retryCeiling,
+                       pow(2, Double(min(consecutiveFailures, 5))))
+        }
+        return Self.liveInterval
     }
 
     func refresh(forceServerSync: Bool = false) async {
@@ -67,17 +108,22 @@ final class MobileUsageStore: ObservableObject {
             errorMessage = nil
             capturedAt = Date()
             isShowingArchive = false
+            consecutiveFailures = 0
             MobileWidgetCache.save(snapshot)
             await MobileNotifications.notifyIfNeeded(snapshot.attention)
         } catch {
             // Keep whatever is on screen. Losing a week of burndown because the
             // Mac went to sleep is worse than showing it with its age attached.
+            consecutiveFailures += 1
             errorMessage = error.localizedDescription
         }
     }
 
     func configured() async {
         objectWillChange.send()
+        // Pairing is the first moment `startLiveUpdates` has an endpoint to
+        // poll; the one at launch bailed on `isConfigured`.
+        startLiveUpdates()
         await refresh()
     }
 

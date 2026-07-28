@@ -70,6 +70,7 @@ struct ServicesScreen: View {
                                     : AnyShapeStyle(.secondary)
                             )
                         }
+                        lintRows(project)
                     } label: {
                         Button {
                             if let raw = project.dashboardURL, let url = URL(string: raw) {
@@ -89,6 +90,16 @@ struct ServicesScreen: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                                Spacer()
+                                if let errors = project.lintErrorCount, errors > 0 {
+                                    Label("\(errors)", systemImage: "shield.lefthalf.filled")
+                                        .font(.caption)
+                                        .foregroundStyle(HeadroomPalette.red)
+                                } else if let warns = project.lintWarnCount, warns > 0 {
+                                    Label("\(warns)", systemImage: "shield.lefthalf.filled")
+                                        .font(.caption)
+                                        .foregroundStyle(HeadroomPalette.amber)
+                                }
                             }
                         }
                         .buttonStyle(.plain)
@@ -104,6 +115,54 @@ struct ServicesScreen: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// Security advisor findings under each project, worst first. Tapping one
+    /// opens Supabase's remediation doc, or the project's advisor page.
+    @ViewBuilder
+    private func lintRows(_ project: SupabaseProject) -> some View {
+        if let failure = project.advisorError {
+            Label("Advisors unavailable · \(failure)", systemImage: "shield.slash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        ForEach(project.lints ?? []) { lint in
+            Button {
+                let target = lint.remediation ?? project.advisorsURL
+                if let url = URL(string: target) { openURL(url) }
+            } label: {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: lint.isError
+                          ? "exclamationmark.shield.fill"
+                          : "shield.lefthalf.filled")
+                        .foregroundStyle(lint.isError
+                                         ? HeadroomPalette.red
+                                         : HeadroomPalette.amber)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(lint.title ?? lint.name)
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                        if let entity = lint.entity {
+                            Text(entity)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        if let detail = lint.detail ?? lint.description {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        if project.lintTruncated == true, let total = project.lintTotal {
+            Text("+ \(total - (project.lints ?? []).count) more in the dashboard")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

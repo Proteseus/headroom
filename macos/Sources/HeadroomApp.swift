@@ -262,6 +262,13 @@ private struct SettingsView: View {
     @State private var githubToken = ""
     @State private var githubTokenStored = false
     @State private var githubMessage: String?
+    /// Comma-separated drafts, so one field edits a list without a row editor.
+    @State private var githubOwners = ""
+    @State private var githubAlwaysRepos = ""
+    @State private var githubMaxDiscovered = 6
+    @State private var githubWatching: [String] = []
+    @State private var githubDevRoot = "~/Dev"
+    @State private var savingGitHubWatch = false
 
     @State private var hostToken = ""
     @State private var hostTokenStored = false
@@ -539,10 +546,44 @@ private struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                Divider()
+                TextField(
+                    "Owners",
+                    text: $githubOwners,
+                    prompt: Text("acme/, ada/ (blank watches every repo found)")
+                )
+                TextField(
+                    "Always watch",
+                    text: $githubAlwaysRepos,
+                    prompt: Text("acme/api, ada/site")
+                )
+                Stepper(
+                    "Discover up to \(githubMaxDiscovered) repos",
+                    value: $githubMaxDiscovered,
+                    in: 0...50
+                )
+                HStack {
+                    Button("Save repos") {
+                        Task { await saveGitHubWatch() }
+                    }
+                    .disabled(savingGitHubWatch)
+                    if savingGitHubWatch {
+                        ProgressView().controlSize(.small)
+                    }
+                    Spacer()
+                }
+                if !githubWatching.isEmpty {
+                    LabeledContent("Watching") {
+                        Text(githubWatching.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
             } header: {
                 Text(HeadroomCopy.githubActions)
             } footer: {
-                Text("Repos from config.json. Failures show under \(HeadroomCopy.activity).")
+                Text("Owners filter the repos found under \(githubDevRoot). Always-watch takes owner/name and ignores that filter. Failures show under \(HeadroomCopy.activity).")
             }
 
             Section {
@@ -606,6 +647,7 @@ private struct SettingsView: View {
             hostTokenStored = TokenStore.host.exists()
             await reloadSources()
             await reloadMobilePermissions()
+            await reloadGitHubWatch()
         }
     }
 
@@ -804,6 +846,47 @@ private struct SettingsView: View {
             githubTokenStored = true
             githubMessage = "Saved — refreshing Actions…"
             Task { await refreshSources(["github"]) }
+        } catch {
+            githubMessage = error.localizedDescription
+        }
+    }
+
+    private func reloadGitHubWatch() async {
+        guard let watch = try? await client.fetchGitHubWatch() else { return }
+        applyGitHubWatch(watch)
+    }
+
+    private func applyGitHubWatch(_ watch: GitHubWatch) {
+        githubOwners = watch.owners.joined(separator: ", ")
+        githubAlwaysRepos = watch.alwaysRepos.joined(separator: ", ")
+        githubMaxDiscovered = watch.maxDiscovered
+        githubWatching = watch.watching
+        if let root = watch.devRoot, !root.isEmpty { githubDevRoot = root }
+    }
+
+    /// Both fields take a comma- or newline-separated list; the host does the
+    /// real validation and says which entry it refused.
+    private func splitList(_ text: String) -> [String] {
+        text.split(whereSeparator: { $0 == "," || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func saveGitHubWatch() async {
+        savingGitHubWatch = true
+        defer { savingGitHubWatch = false }
+        do {
+            let watch = try await client.setGitHubWatch(
+                owners: splitList(githubOwners),
+                alwaysRepos: splitList(githubAlwaysRepos),
+                maxDiscovered: githubMaxDiscovered
+            )
+            applyGitHubWatch(watch)
+            githubMessage = watch.watching.isEmpty
+                ? "Saved. Nothing matched under \(githubDevRoot) yet."
+                : "Watching \(watch.watching.count) "
+                    + (watch.watching.count == 1 ? "repo." : "repos.")
+            await refreshSources(["github"])
         } catch {
             githubMessage = error.localizedDescription
         }

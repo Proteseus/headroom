@@ -1447,12 +1447,20 @@ struct SupabaseUsage: Decodable, Sendable {
     var projectCount: Int?
     var healthyCount: Int?
     var alertCount: Int?
+    /// Portfolio-wide advisor totals. Health and lints are separate signals:
+    /// `alertCount` is "something is down", these are "something is unsafe".
+    var lintErrorCount: Int?
+    var lintWarnCount: Int?
+    var lintTotal: Int?
 
     enum CodingKeys: String, CodingKey {
         case ok, configured, error, projects, stale
         case projectCount = "project_count"
         case healthyCount = "healthy_count"
         case alertCount = "alert_count"
+        case lintErrorCount = "lint_error_count"
+        case lintWarnCount = "lint_warn_count"
+        case lintTotal = "lint_total"
     }
 }
 
@@ -1538,16 +1546,56 @@ struct SupabaseProject: Decodable, Identifiable, Sendable {
     var unhealthyServices: [String]?
     var healthError: String?
     var dashboardURL: String?
+    /// Security advisor findings, ERROR first. Capped host-side; `lintTotal`
+    /// is the real count.
+    var lints: [SupabaseLint]?
+    var lintTruncated: Bool?
+    var lintErrorCount: Int?
+    var lintWarnCount: Int?
+    var lintInfoCount: Int?
+    var lintTotal: Int?
+    /// Set when the advisors endpoint failed; health is still trustworthy.
+    var advisorError: String?
 
     var id: String { ref }
 
+    /// Deep link to the project's advisor page, where these get fixed.
+    var advisorsURL: String {
+        "https://supabase.com/dashboard/project/\(ref)/advisors/security"
+    }
+
     enum CodingKeys: String, CodingKey {
-        case ref, name, region, status, healthy, services
+        case ref, name, region, status, healthy, services, lints
         case organizationID = "organization_id"
         case unhealthyServices = "unhealthy_services"
         case healthError = "health_error"
         case dashboardURL = "dashboard_url"
+        case lintTruncated = "lint_truncated"
+        case lintErrorCount = "lint_error_count"
+        case lintWarnCount = "lint_warn_count"
+        case lintInfoCount = "lint_info_count"
+        case lintTotal = "lint_total"
+        case advisorError = "advisor_error"
     }
+}
+
+/// One security advisor finding — `rls_disabled_in_public` and friends.
+struct SupabaseLint: Decodable, Identifiable, Sendable {
+    var name: String
+    var title: String?
+    /// "ERROR", "WARN", or "INFO". Unknown severities arrive as "WARN".
+    var level: String?
+    var categories: [String]?
+    var description: String?
+    var detail: String?
+    /// Docs URL for the fix, when Supabase supplies one.
+    var remediation: String?
+    /// The table or view the finding is about, e.g. "public.posts".
+    var entity: String?
+
+    var id: String { "\(name)|\(entity ?? "")" }
+
+    var isError: Bool { (level ?? "").uppercased() == "ERROR" }
 }
 
 struct SupabaseService: Decodable, Identifiable, Sendable {

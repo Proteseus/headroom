@@ -41,7 +41,11 @@ struct HeadroomMobileApp: App {
             switch phase {
             case .active:
                 Task { await store.refresh() }
+                store.startLiveUpdates()
             case .background:
+                // .inactive is the app switcher and Control Center — keep
+                // polling through those, stop only once we're really away.
+                store.stopLiveUpdates()
                 MobileBackgroundRefresh.schedule()
             default:
                 break

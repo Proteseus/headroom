@@ -98,6 +98,13 @@ struct HeadroomClient: Sendable {
         }
         if http.statusCode == 401 { throw ClientError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {
+            // The host explains rejections in the body ("'acme' is not
+            // owner/name"); an HTTP number alone sends people to the logs.
+            if let object = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any],
+               let message = object["error"] as? String, !message.isEmpty {
+                throw ClientError.backend(message)
+            }
             throw ClientError.badResponse(http.statusCode)
         }
         return data
@@ -232,6 +239,32 @@ struct HeadroomClient: Sendable {
             .permissions
     }
 
+    func fetchGitHubWatch() async throws -> GitHubWatch {
+        let url = try base()
+            .appendingPathComponent("github")
+            .appendingPathComponent("watch")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(GitHubWatch.self, from: data)
+    }
+
+    /// Persist which repos Actions watches and answer with the resolved list.
+    @discardableResult
+    func setGitHubWatch(
+        owners: [String], alwaysRepos: [String], maxDiscovered: Int
+    ) async throws -> GitHubWatch {
+        let url = try base()
+            .appendingPathComponent("github")
+            .appendingPathComponent("watch")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "owners": owners,
+            "always_repos": alwaysRepos,
+            "max_discovered": maxDiscovered,
+        ])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(GitHubWatch.self, from: data)
+    }
+
     func stopServer(pid: Int, port: Int) async throws {
         let url = try base()
             .appendingPathComponent("local")
@@ -253,6 +286,24 @@ struct HeadroomClient: Sendable {
         guard result?.ok == true else {
             throw ClientError.backend(result?.error ?? "Could not stop the server.")
         }
+    }
+}
+
+/// Mac-local Actions configuration. Not in Shared: iOS never edits the config
+/// that lives next to the Mac's GitHub token.
+struct GitHubWatch: Decodable, Sendable {
+    var owners: [String] = []
+    var alwaysRepos: [String] = []
+    var maxDiscovered: Int = 6
+    var devRoot: String?
+    /// What the owners and always-repos resolved to on this machine.
+    var watching: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case owners, watching
+        case alwaysRepos = "always_repos"
+        case maxDiscovered = "max_discovered"
+        case devRoot = "dev_root"
     }
 }
 
