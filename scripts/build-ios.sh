@@ -151,12 +151,23 @@ export ASC_BYPASS_KEYCHAIN=true
 export ASC_APP_ID="$app_id"
 
 echo "Publishing to TestFlight (app $app_id → group $group)…"
-asc publish testflight \
+# Upload + wait first, then mark export-compliance exempt and attach groups.
+# `asc publish testflight` can race before the build is assignable when encryption
+# compliance is still unanswered.
+asc builds upload \
   --app "$app_id" \
   --ipa "$DIST/Headroom-iOS.ipa" \
-  --group "$group" \
   --wait \
-  --notify \
+  --output table
+asc builds update \
+  --app "$app_id" \
+  --latest \
+  --uses-non-exempt-encryption=false \
+  --output table
+asc builds add-groups \
+  --app "$app_id" \
+  --latest \
+  --group "$group" \
   --output table
 
 [[ -n "$tmp_auth_key" ]] && rm -f "$tmp_auth_key"
