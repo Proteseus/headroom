@@ -685,6 +685,9 @@ private struct SettingsView: View {
                         },
                         onNudge: { offset in
                             Task { await nudgeSource(source.id, by: offset) }
+                        },
+                        onAccent: { hex in
+                            Task { await setAccent(source.id, hex: hex) }
                         }
                     )
                     .modifier(DragReorder(
@@ -738,6 +741,23 @@ private struct SettingsView: View {
         guard order.indices.contains(to) else { return }
         order.swapAt(from, to)
         await commitOrder(order, movedID: id)
+    }
+
+    /// Repaint one source everywhere. `nil` restores the shipped color.
+    private func setAccent(_ id: String, hex: String?) async {
+        togglingSourceID = id
+        defer { togglingSourceID = nil }
+        do {
+            _ = try await client.setSourceAccent(id, hex: hex)
+            // Colors are presentation only — the host republished the cached
+            // document, so re-reading it is the whole update.
+            await reloadSources()
+            sourcesMessage = hex == nil
+                ? "Restored the default color."
+                : "Color updated — menu bar, rings and iPhone follow."
+        } catch {
+            sourcesMessage = error.localizedDescription
+        }
     }
 
     private func commitOrder(_ order: [String], movedID: String) async {
@@ -1066,6 +1086,10 @@ private struct SourceRow: View {
     let onRefresh: () -> Void
     /// -1 up, +1 down. Keyboard / VoiceOver equivalent of the drag.
     var onNudge: ((Int) -> Void)?
+    /// nil restores the registry color. Absent on rows with no brand dot.
+    var onAccent: ((String?) -> Void)?
+
+    @State private var isPickingColor = false
 
     private var enabled: Bool { source.enabled ?? true }
 
@@ -1082,18 +1106,36 @@ private struct SourceRow: View {
             // Brand fill, health as the ring around it — one dot, both facts.
             // Without a brand the fill *is* the health color, so nothing is
             // lost on rows the registry gives no accent.
-            Circle()
-                .fill(brandColor ?? statusColor)
-                .frame(width: 9, height: 9)
-                .overlay {
-                    if brandColor != nil {
-                        Circle()
-                            .strokeBorder(statusColor, lineWidth: 1.5)
-                            .frame(width: 15, height: 15)
+            Button {
+                guard canPickColor else { return }
+                isPickingColor = true
+            } label: {
+                Circle()
+                    .fill(brandColor ?? statusColor)
+                    .frame(width: 9, height: 9)
+                    .overlay {
+                        if brandColor != nil {
+                            Circle()
+                                .strokeBorder(statusColor, lineWidth: 1.5)
+                                .frame(width: 15, height: 15)
+                        }
                     }
-                }
-                .frame(width: 16, height: 16)
-                .accessibilityLabel(statusLabel)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canPickColor)
+            .help(canPickColor ? "Change color" : statusLabel)
+            .accessibilityLabel(
+                canPickColor ? "\(statusLabel). Change color" : statusLabel)
+            .popover(isPresented: $isPickingColor, arrowEdge: .bottom) {
+                AccentPicker(
+                    title: source.title ?? source.id,
+                    defaultHex: source.accentDefault,
+                    currentHex: source.accent,
+                    onPick: { onAccent?($0) }
+                )
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.title ?? source.id)
@@ -1173,12 +1215,20 @@ private struct SourceRow: View {
         return HeadroomPalette.red
     }
 
-    /// The registry's brand accent, so a row is identifiable at a glance in a
-    /// list eight providers long. Rows with no brand keep the status color —
-    /// health then reads off the fill exactly as it used to.
+    /// The row's accent — Settings override when set, else the registry's —
+    /// so a row is identifiable at a glance in a list eight providers long.
+    /// Rows with no brand keep the status color: health then reads off the
+    /// fill exactly as it used to.
     private var brandColor: Color? {
         guard enabled else { return nil }
         return HeadroomPalette.color(hex: source.accent)
+    }
+
+    /// Providers only. A dev-tool row has no brand color to start from and no
+    /// ring anywhere else to keep in sync — its dot is the health light, and
+    /// repainting that would be repainting the status.
+    private var canPickColor: Bool {
+        onAccent != nil && source.accentDefault != nil
     }
 
     private func ageLabel(_ age: Int) -> String {

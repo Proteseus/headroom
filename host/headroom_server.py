@@ -892,7 +892,13 @@ def _sources_payload(state):
             "group": source.group,
             # Brand accent so Settings can identify a row by color instead of
             # spending its only dot on health. Null for rows with no brand.
-            "accent": source.accent,
+            # Resolved on the host, so the menu bar, the phone and the popover
+            # cannot disagree about a color one of them just changed.
+            "accent": sources_config.accent_for(source.id),
+            # What Settings' color grid marks as "Default" — the registry's
+            # own answer, which is also how a client tells an override apart
+            # from the shipped color.
+            "accent_default": source.accent,
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
@@ -948,7 +954,8 @@ def _providers_payload(state, burndowns=None):
             "ok": bool(payload.get("ok")),
             "plan": payload.get("plan"),
             "error": payload.get("error"),
-            "accent": source.accent,
+            "accent": sources_config.accent_for(source.id),
+            "accent_default": source.accent,
             "headline": source.headline[0] if source.headline else None,
             "pools": pools,
         })
@@ -1341,6 +1348,29 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sources":
             enabled = payload.get("enabled")
             order = payload.get("order")
+            accents = payload.get("accents")
+            if accents is not None:
+                if not isinstance(accents, dict):
+                    self._send_json(
+                        400, {"ok": False, "error": "accents map required"})
+                    return
+                try:
+                    stored = sources_config.set_accents(accents)
+                except ValueError as error:
+                    self._send_json(400, {"ok": False, "error": str(error)})
+                    return
+                # Colors are presentation only — no source needs refetching,
+                # but the cached document holds the old ones.
+                publish()
+                if enabled is None and order is None:
+                    self._send_json(200, {
+                        "ok": True,
+                        "accents": stored,
+                        "enabled": sources_config.enabled_map(),
+                        "order": sources_config.order_ids(),
+                        "focus": sources_config.focus_ids(),
+                    })
+                    return
             if enabled is None and isinstance(order, list):
                 # Reorder-only write: don't force clients to resend the map.
                 result_order = sources_config.set_order(order)
@@ -1349,6 +1379,7 @@ class Handler(BaseHTTPRequestHandler):
                     "enabled": sources_config.enabled_map(),
                     "order": result_order,
                     "focus": sources_config.focus_ids(),
+                    "accents": sources_config.accent_overrides(),
                 })
                 return
             if not isinstance(enabled, dict):
@@ -1364,6 +1395,7 @@ class Handler(BaseHTTPRequestHandler):
                 "enabled": result,
                 "order": sources_config.order_ids(),
                 "focus": sources_config.focus_ids(),
+                "accents": sources_config.accent_overrides(),
             })
             return
 

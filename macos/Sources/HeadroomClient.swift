@@ -249,6 +249,23 @@ struct HeadroomClient: Sendable {
         return try JSONDecoder().decode(ProviderAccounts.self, from: data)
     }
 
+    /// Override the color a source is painted in, everywhere. Pass nil to
+    /// restore the registry's own. The host resolves it into `accent` on the
+    /// next document, so rings, meters and the phone follow without each
+    /// client keeping its own copy.
+    @discardableResult
+    func setSourceAccent(_ id: String, hex: String?) async throws -> [String: String] {
+        let url = try base().appendingPathComponent("sources")
+        let value: Any = hex ?? NSNull()
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(
+                withJSONObject: ["accents": [id: value]]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["accents"] as? [String: String]) ?? [:]
+    }
+
     func fetchMobilePermissions() async throws -> MobilePermissions {
         let url = try base()
             .appendingPathComponent("mobile")

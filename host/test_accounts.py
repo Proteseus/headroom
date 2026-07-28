@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Extra logins per provider: the store, and the registry rows it grows."""
+"""Telling one source row from another: extra logins, and their colors.
+
+Both features answer the same question — which row am I looking at — and both
+are stored per source id, so they share a fixture: a temp accounts store and a
+temp sources store, never this machine's real ones.
+"""
 
 from __future__ import annotations
 
@@ -130,6 +135,46 @@ class AccountsTests(unittest.TestCase):
         self.assertEqual(by_id["claude"]["kind"], accounts.KIND_DIR)
         self.assertEqual(by_id["cursor"]["kind"], accounts.KIND_FILE)
         self.assertNotIn("zed", by_id)
+
+    def test_accent_override_replaces_the_registry_color(self):
+        shipped = sources_config.default_accent("claude")
+        self.assertEqual(sources_config.accent_for("claude"), shipped)
+        sources_config.set_accents({"claude": "#4F97D4"})
+        self.assertEqual(sources_config.accent_for("claude"), "#4F97D4")
+        # The default is still what the picker offers to go back to.
+        self.assertEqual(sources_config.default_accent("claude"), shipped)
+        sources_config.set_accents({"claude": None})
+        self.assertEqual(sources_config.accent_for("claude"), shipped)
+        self.assertEqual(sources_config.accent_overrides(), {})
+
+    def test_accents_are_normalized_and_validated(self):
+        sources_config.set_accents({"claude": "4f97d4"})
+        self.assertEqual(sources_config.accent_overrides()["claude"], "#4F97D4")
+        with self.assertRaisesRegex(ValueError, "not a #RRGGBB color"):
+            sources_config.set_accents({"claude": "blue"})
+        # The rejected write leaves the previous color alone.
+        self.assertEqual(sources_config.accent_for("claude"), "#4F97D4")
+
+    def test_accents_survive_toggles_and_reloads(self):
+        sources_config.set_accents({"claude": "#4F97D4"})
+        sources_config.set_enabled({"codex": False})
+        sources_config.set_order(["codex", "claude"])
+        sources_config.reset_for_tests()
+        self.assertEqual(sources_config.accent_for("claude"), "#4F97D4")
+
+    def test_each_account_takes_its_own_color(self):
+        sources_config.add_account("claude", "Work", self._claude_dir())
+        sources_config.reload_registry()
+        # Two Claude rows are the same brand — telling them apart is the
+        # reason a per-row color exists.
+        sources_config.set_accents({"claude:work": "#4F97D4"})
+        self.assertEqual(sources_config.accent_for("claude:work"), "#4F97D4")
+        self.assertEqual(
+            sources_config.accent_for("claude"),
+            sources_config.default_accent("claude"))
+        # Removing the account takes its color with it.
+        sources_config.remove_account("claude:work")
+        self.assertNotIn("claude:work", sources_config.accent_overrides())
 
     def test_store_survives_a_corrupt_file(self):
         with open(accounts.STORE_PATH, "w") as handle:

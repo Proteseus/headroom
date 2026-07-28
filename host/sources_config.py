@@ -31,6 +31,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 import threading
 from typing import Callable, NamedTuple, Optional
 
@@ -570,6 +571,35 @@ _state = None
 FOCUS_LIMIT = 3
 
 
+# A stored accent is `#RRGGBB` and nothing else. The host does not police
+# taste — the Mac offers a curated grid (HeadroomPalette.accentChoices) — but
+# it does refuse anything that would paint black on every surface at once.
+ACCENT_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")
+
+
+def _normalize_accent(value):
+    """'#d97757' / 'D97757' → '#D97757'. None for anything else."""
+    text = str(value or "").strip()
+    if not ACCENT_RE.match(text):
+        return None
+    return "#" + text.lstrip("#").upper()
+
+
+def _clean_accents(raw):
+    """Overrides as stored: {source_id: '#RRGGBB'}, junk dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for sid, value in raw.items():
+        accent = _normalize_accent(value)
+        # Kept even for ids this build doesn't know: a color set for a
+        # provider you disabled, or one added by a newer release, should
+        # still be there when it comes back rather than quietly reset.
+        if accent:
+            out[str(sid)] = accent
+    return out
+
+
 def _known_ids():
     """Registry ids, plus accounts added since this process started.
 
@@ -631,6 +661,14 @@ def _normalize_order(raw):
     return out
 
 
+def _blank_store():
+    return {
+        "enabled": _default_enabled(),
+        "order": _normalize_order(None),
+        "accents": {},
+    }
+
+
 def _load():
     try:
         with open(STORE_PATH) as handle:
@@ -648,13 +686,14 @@ def _load():
             _save(state)
         except OSError:
             pass
-        return {"enabled": enabled, "order": state["order"]}
+        return {"enabled": enabled, "order": state["order"], "accents": {}}
     except (OSError, json.JSONDecodeError):
-        return {"enabled": _default_enabled(), "order": _normalize_order(None)}
+        return _blank_store()
     if not isinstance(data, dict):
-        return {"enabled": _default_enabled(), "order": _normalize_order(None)}
+        return _blank_store()
     order = _normalize_order(
         data.get("order") if isinstance(data.get("order"), list) else None)
+    accents = _clean_accents(data.get("accents"))
     known = _known_ids()
     enabled = {sid: False for sid in known}
     # Legacy files without an explicit map keep prior all-on behaviour only
@@ -664,11 +703,12 @@ def _load():
     raw = data.get("enabled") if isinstance(data.get("enabled"), dict) else {}
     if not raw and data.get("seeded_from") is None:
         # Pre-detect era file that somehow lacks enabled — treat as all on.
-        return {"enabled": {sid: True for sid in known}, "order": order}
+        return {"enabled": {sid: True for sid in known}, "order": order,
+                "accents": accents}
     for sid in known:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
-    return {"enabled": enabled, "order": order}
+    return {"enabled": enabled, "order": order, "accents": accents}
 
 
 def _save(state):
@@ -720,7 +760,64 @@ def _forget_enabled(source_id):
             return
         state["enabled"] = enabled
         state["order"] = [sid for sid in state["order"] if sid != source_id]
+        accents = dict(state.get("accents") or {})
+        accents.pop(source_id, None)
+        state["accents"] = accents
         _save(state)
+
+
+def default_accent(source_id):
+    """The registry's own color for a row, ignoring any override."""
+    source = BY_ID.get(source_id)
+    return source.accent if source else None
+
+
+def accent_overrides():
+    with _lock:
+        return dict(_state_locked().get("accents") or {})
+
+
+def accent_for(source_id):
+    """The color every surface should paint this row: override, else registry.
+
+    One resolution, on the host, because the menu bar, the popover rings, the
+    phone and its widget each read `accent` off the payload — if they each
+    merged an override locally they would drift the moment one of them was a
+    poll behind.
+    """
+    return accent_overrides().get(source_id) or default_accent(source_id)
+
+
+def set_accents(updates):
+    """Apply {source_id: '#RRGGBB' | None}. None (or '') restores the default.
+
+    Returns the stored override map. Raises ValueError on a color that isn't
+    six hex digits, so Settings can say so rather than silently keeping the
+    old one.
+    """
+    known = set(_known_ids())
+    cleaned = {}
+    for sid, value in (updates or {}).items():
+        if sid not in known:
+            continue
+        if value is None or str(value).strip() == "":
+            cleaned[sid] = None
+            continue
+        accent = _normalize_accent(value)
+        if accent is None:
+            raise ValueError(f"{value!r} is not a #RRGGBB color")
+        cleaned[sid] = accent
+    with _lock:
+        state = _state_locked()
+        accents = dict(state.get("accents") or {})
+        for sid, accent in cleaned.items():
+            if accent is None:
+                accents.pop(sid, None)
+            else:
+                accents[sid] = accent
+        state["accents"] = accents
+        _save(state)
+        return dict(accents)
 
 
 def order_ids():
@@ -789,7 +886,7 @@ def accounts_payload():
                 "title": base.title,
                 "kind": base.account_kind,
                 "hint": base.account_hint,
-                "accent": base.accent,
+                "accent": accent_for(base.id),
                 "max": accounts.MAX_PER_PROVIDER,
                 "accounts": [
                     account.payload()
@@ -811,6 +908,7 @@ def detection_payload():
         "groups": list(GROUP_IDS),
         "order": order_ids(),
         "focus": focus_ids(),
+        "accents": accent_overrides(),
         "sources": [
             {
                 "id": source.id,
@@ -818,6 +916,8 @@ def detection_payload():
                 "hint": source.hint,
                 "kind": source.kind,
                 "group": source.group,
+                "accent": accent_for(source.id),
+                "accent_default": source.accent,
                 "detected": bool(detected.get(source.id, False)),
                 "enabled": bool(enabled.get(source.id, False)),
             }

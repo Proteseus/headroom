@@ -80,4 +80,64 @@ enum HeadroomPalette {
     static func providerTint(id: String, accent: String? = nil) -> Color {
         color(hex: accent) ?? builtinTint(id: id) ?? dim
     }
+
+    /// One swatch in the Settings color grid.
+    struct AccentChoice: Identifiable, Hashable, Sendable {
+        let name: String
+        let hex: String
+
+        var id: String { hex }
+        var color: Color { HeadroomPalette.color(hex: hex) ?? dim }
+    }
+
+    /// The colors Settings offers for a source, past its shipped one.
+    ///
+    /// Curated rather than a system color well on purpose. These read on a
+    /// light Mac, a dark Mac, and the board's near-black background, and they
+    /// stay distinguishable from each other at 9pt — which is the size the
+    /// dot they paint actually is. A free picker gets you a source you can't
+    /// find in the list and a ring that vanishes in dark mode.
+    ///
+    /// Six per row at 24: a full hue wheel plus four neutrals for the rows
+    /// you want present but quiet. The host stores whatever `#RRGGBB` it is
+    /// given, so hand-edited `sources.json` colors keep working.
+    static let accentChoices: [AccentChoice] = [
+        AccentChoice(name: "Red", hex: "#D05353"),
+        AccentChoice(name: "Coral", hex: "#E0705A"),
+        AccentChoice(name: "Orange", hex: "#D98A3C"),
+        AccentChoice(name: "Amber", hex: "#C7A03F"),
+        AccentChoice(name: "Olive", hex: "#9FA84A"),
+        AccentChoice(name: "Lime", hex: "#7FB050"),
+
+        AccentChoice(name: "Green", hex: "#5FA36B"),
+        AccentChoice(name: "Emerald", hex: "#3EA982"),
+        AccentChoice(name: "Teal", hex: "#34A5A0"),
+        AccentChoice(name: "Cyan", hex: "#3FA3BE"),
+        AccentChoice(name: "Sky", hex: "#4F97D4"),
+        AccentChoice(name: "Blue", hex: "#5B7FD4"),
+
+        AccentChoice(name: "Indigo", hex: "#6F6FD0"),
+        AccentChoice(name: "Violet", hex: "#8A6BD1"),
+        AccentChoice(name: "Purple", hex: "#A371F7"),
+        AccentChoice(name: "Orchid", hex: "#B96AC4"),
+        AccentChoice(name: "Magenta", hex: "#C95FA8"),
+        AccentChoice(name: "Pink", hex: "#D46A90"),
+
+        AccentChoice(name: "Rose", hex: "#D2687A"),
+        AccentChoice(name: "Rust", hex: "#B5705A"),
+        AccentChoice(name: "Sand", hex: "#B39A78"),
+        AccentChoice(name: "Stone", hex: "#94908A"),
+        AccentChoice(name: "Slate", hex: "#7E8894"),
+        AccentChoice(name: "Graphite", hex: "#6E7378"),
+    ]
+
+    /// Case-insensitive `#RRGGBB` compare, so a stored `#d97757` still reads
+    /// as the same swatch the grid drew.
+    static func sameAccent(_ lhs: String?, _ rhs: String?) -> Bool {
+        func normal(_ value: String?) -> String? {
+            guard let value, !value.isEmpty else { return nil }
+            return value.replacingOccurrences(of: "#", with: "").uppercased()
+        }
+        return normal(lhs) == normal(rhs)
+    }
 }

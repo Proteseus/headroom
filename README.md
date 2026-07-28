@@ -181,6 +181,16 @@ The list lives in `~/.headroom/accounts.json`, and adding or removing one
 restarts the host (a couple of seconds) so the sample schema and the meters
 are rebuilt together.
 
+**Colors are yours.** Each provider ships with its brand color, which is a good
+default and a bad rule — two Claude accounts are the same brand, and a Cursor
+blue next to a Sky blue is two rows you have to read to tell apart. Click the
+dot on a provider row in Settings for a grid of 24 colors plus **Default**. The
+host stores the override in `~/.headroom/sources.json` and resolves it into
+`accent`, so the menu bar, popover rings, burndown charts, iPhone and its
+widget all repaint together. The ESP32 keeps its compiled-in palette. Dev-tool
+rows have no brand color — their dot is the health light, so they stay as they
+are.
+
 **Order picks the top 3.** Drag the AI rows in Settings to reorder them, and
 that order is pinned in `~/.headroom/sources.json`. Compact
 surfaces — the menu-bar tanks and the iOS widget — show the first three
@@ -284,6 +294,13 @@ entry expand into several rows — see **Extra accounts** above.
 | `require_auth` | `false` opens `/usage` to the whole network (default `true`) |
 | `mobile_permissions` | iOS grants: `read`, `refresh`, `sources`, `servers` |
 
+### Source preferences (`~/.headroom/sources.json`)
+
+Seeded from local detection on first run, then written by Settings. Three keys:
+`enabled` (`{id: bool}`), `order` (pinned provider ids — the first three
+enabled become `focus`), and `accents` (`{id: "#RRGGBB"}` — only the rows you
+recolored; delete an entry to go back to the shipped color).
+
 ### Extra accounts (`~/.headroom/accounts.json`)
 
 Written by **Settings → Extra accounts**; editable by hand if you prefer, and
@@ -315,7 +332,7 @@ Everything below is loopback-open and token-gated off-box.
 | `POST /accounts` | Add (`provider`/`label`/`root`) or drop (`remove`) an extra login, then restart (loopback) |
 | `GET /mobile/permissions` | Four effective permissions for the paired iOS app |
 | `POST /sync/refresh` | Force-refresh (LAN OK — ESP32 long-press) |
-| `POST /sources` | Toggle sources (`enabled` map) and/or pin provider order (`order` list). Loopback or paired iOS with `sources` scope |
+| `POST /sources` | Toggle sources (`enabled` map), pin provider order (`order` list), and/or recolor rows (`accents` map — `#RRGGBB`, `null` restores the default). Loopback or paired iOS with `sources` scope |
 | `POST /supabase/refresh` | Force Supabase poll (loopback) |
 | `POST /plausible/refresh` | Force Plausible poll (loopback) |
 | `POST /local/stop` | Stop server (loopback or paired iOS with `servers` scope) |

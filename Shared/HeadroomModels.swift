@@ -1052,6 +1052,9 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var plan: String?
     var error: String?
     var accent: String?
+    /// The registry's own color, before any Settings override. Settings marks
+    /// this swatch "Default"; everything else just paints `accent`.
+    var accentDefault: String?
     var headline: String?
     var pools: [String: QuotaPoolInfo]?
 
@@ -1065,6 +1068,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         plan: String? = nil,
         error: String? = nil,
         accent: String? = nil,
+        accentDefault: String? = nil,
         headline: String? = nil,
         pools: [String: QuotaPoolInfo]? = nil
     ) {
@@ -1077,8 +1081,15 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.plan = plan
         self.error = error
         self.accent = accent
+        self.accentDefault = accentDefault
         self.headline = headline
         self.pools = pools
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, kind, rank, enabled, ok, plan, error, accent
+        case headline, pools
+        case accentDefault = "accent_default"
     }
 
     var displayTitle: String { title ?? id.capitalized }
@@ -1472,8 +1483,12 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var kind: String?
     /// "ai" or "devtools" — which Settings section this row belongs to.
     var group: String?
-    /// Brand accent `#RRGGBB` from the registry. Nil for rows with no brand.
+    /// Brand accent `#RRGGBB` — the Settings override when one is set,
+    /// otherwise the registry's. Nil for rows with no brand.
     var accent: String?
+    /// The registry's own color, so the picker can offer "Default" and tell
+    /// an overridden row from a shipped one.
+    var accentDefault: String?
     var enabled: Bool?
     var ok: Bool?
     var stale: Bool?
@@ -1485,6 +1500,7 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, title, hint, kind, group, accent, enabled, ok, stale
         case configured, error, detail
+        case accentDefault = "accent_default"
         case ageS = "age_s"
     }
 
