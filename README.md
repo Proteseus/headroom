@@ -72,8 +72,8 @@ No Headroom cloud account. Tokens stay on your Mac.
 ### Option A — macOS from a GitHub Release
 
 1. Download **Headroom-macOS.zip** from
-   [Releases](https://github.com/michellzappa/headroom/releases)
-   (collaborators on this private repo). If no release exists yet, use Option B.
+   [Releases](https://github.com/michellzappa/headroom/releases).
+   If no release exists yet, use Option B.
 2. Unzip and open `Headroom.app` (notarized builds open normally;
    ad-hoc builds need right-click → Open once).
 3. Click the menu bar meters → the **Welcome** sheet appears.
@@ -321,7 +321,29 @@ the port.
 | [docs/releasing.md](docs/releasing.md) | Notarize, TestFlight, `cut-release` |
 | [docs/glossary.md](docs/glossary.md) | Shared chrome names |
 | [docs/rings.md](docs/rings.md) | Ring / pace semantics |
+| [docs/backlog.md](docs/backlog.md) | What's queued and why |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, and PR expectations |
+| [SECURITY.md](SECURITY.md) | Threat model and how to report a hole |
+
+## Contributing
+
+Build and test commands are in [CONTRIBUTING.md](CONTRIBUTING.md); the short
+version is that the host is stdlib-only Python and every surface has to keep
+agreeing about the shape of `/usage`. Security reports go through
+[SECURITY.md](SECURITY.md) rather than a public issue.
+
+Signing identifiers belong to the maintainer: the bundle prefix is
+`com.centaur-labs` (Centaur Labs is the entity behind the App Store listing),
+and `$HEADROOM_TEAM_ID` defaults to that team. Both are overridable, and
+unsigned local builds need neither. See CONTRIBUTING.md.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Headroom reads local state that other tools leave on your Mac. It is not
+affiliated with, endorsed by, or supported by Anthropic, OpenAI, Anysphere,
+GitHub, Google, JetBrains, Zed, Codeium, Vercel, Supabase, or Plausible. Those
+names appear here to say what is being measured. Any of them can change a file
+format or an endpoint without notice, and the matching provider goes quiet
+until Headroom catches up.
