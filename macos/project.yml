@@ -8,9 +8,10 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
-    DEVELOPMENT_TEAM: 992N457T8D
-    # MARKETING_VERSION / CURRENT_PROJECT_VERSION live only in Version.xcconfig.
-    # Setting them here would override the xcconfig and freeze builds at 1.
+    # MARKETING_VERSION / CURRENT_PROJECT_VERSION / DEVELOPMENT_TEAM live only
+    # in Version.xcconfig, written by scripts/version-env.sh. Setting them here
+    # would override the xcconfig and freeze builds at 1; hardcoding the team
+    # would stop forks from signing as themselves ($HEADROOM_TEAM_ID).
 configFiles:
   Debug: Version.xcconfig
   Release: Version.xcconfig

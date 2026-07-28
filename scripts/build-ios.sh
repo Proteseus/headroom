@@ -13,8 +13,9 @@
 #   ASC_APP_ID              App Store Connect app id (6795549853)
 #   ASC_TESTFLIGHT_GROUP    group name or id (default: Internal)
 #
-# Requires: Xcode, xcodegen, asc (brew install asc), team 992N457T8D,
-# and an App Store Connect app for com.centaur-labs.headroom.
+# Requires: Xcode, xcodegen, asc (brew install asc), and an App Store Connect
+# app. Signs as $HEADROOM_TEAM_ID (default: the maintainer's team) against
+# com.centaur-labs.headroom — forks export their own team and bundle id.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=version-env.sh
@@ -60,8 +61,16 @@ mkdir -p "$DERIVED" "$DIST"
 VERSION_ARGS=(
   "MARKETING_VERSION=$HEADROOM_VERSION"
   "CURRENT_PROJECT_VERSION=$HEADROOM_BUILD"
-  "DEVELOPMENT_TEAM=992N457T8D"
+  "DEVELOPMENT_TEAM=$HEADROOM_TEAM_ID"
 )
+
+# ios/ExportOptions.plist carries the maintainer's team and profile names. Sign
+# as whoever $HEADROOM_TEAM_ID says; a fork also swaps the profile names for
+# its own (see CONTRIBUTING.md).
+EXPORT_OPTIONS_RESOLVED="$DERIVED/ExportOptions.plist"
+cp "$EXPORT_OPTIONS" "$EXPORT_OPTIONS_RESOLVED"
+/usr/libexec/PlistBuddy -c "Set :teamID $HEADROOM_TEAM_ID" \
+  "$EXPORT_OPTIONS_RESOLVED"
 
 echo "Archiving HeadroomMobile $HEADROOM_VERSION ($HEADROOM_BUILD)"
 
@@ -100,7 +109,7 @@ xcodebuild archive \
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportPath "$EXPORT_DIR" \
-  -exportOptionsPlist "$EXPORT_OPTIONS" \
+  -exportOptionsPlist "$EXPORT_OPTIONS_RESOLVED" \
   "${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"}"
 
 IPA=$(find "$EXPORT_DIR" -maxdepth 1 -name '*.ipa' | head -1)
