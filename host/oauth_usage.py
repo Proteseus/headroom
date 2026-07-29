@@ -1,12 +1,16 @@
 """Anthropic OAuth plan-usage fetcher (CodexBar-equivalent).
 
-Reads the Claude Code OAuth token from macOS Keychain
-(`Claude Code-credentials`) or `~/.claude/.credentials.json`, calls
-`GET https://api.anthropic.com/api/oauth/usage`, and returns session/weekly
-utilization + reset times. Refreshes the access token when expired/401 and
-writes it back to the same credential store — through the Security framework
-(see keychain.py), never through `security -w`, which would expose the token
-in the process table.
+Reads the Claude Code OAuth token from macOS Keychain or
+`~/.claude/.credentials.json`, calls `GET /api/oauth/usage`, and returns
+session/weekly utilization + reset times. Current Claude Code uses one
+Keychain service per config directory:
+
+    Claude Code-credentials-<sha256(config dir)[:8]>
+
+The old unqualified `Claude Code-credentials` service and credential files
+remain fallbacks. Refreshed tokens go back to the store they came from —
+through the Security framework (see keychain.py), never through `security -w`,
+which would expose the token in the process table.
 
 Stdlib only. The endpoint is undocumented and may change; failures degrade
 to an empty quota dict so the desk gadget still shows local cost data.
@@ -14,6 +18,7 @@ to an empty quota dict so the desk gadget still shows local cost data.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -34,12 +39,15 @@ TOKEN_URLS = (
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA = "oauth-2025-04-20"
 UA = "claude-cli/2.1.201 (external, cli)"
-# Claude Code keeps this inside its config directory, so a second login is a
-# second directory (`CLAUDE_CONFIG_DIR`) holding the same filename — see
-# accounts.py. The name lives here because the fetcher owns the layout.
+# Claude Code used to keep this inside its config directory. It remains a
+# fallback for older installs; current releases put the same payload in a
+# Keychain service derived from `CLAUDE_CONFIG_DIR`.
 CREDS_NAME = ".credentials.json"
-CREDS_FILE = os.path.expanduser(os.path.join("~/.claude", CREDS_NAME))
+CONFIG_DIR = os.path.expanduser("~/.claude")
+CREDS_FILE = os.path.join(CONFIG_DIR, CREDS_NAME)
 KEYCHAIN_SERVICE = "Claude Code-credentials"
+KEYCHAIN_SERVICE_PREFIX = KEYCHAIN_SERVICE + "-"
+KEYCHAIN_STORE_PREFIX = "keychain:"
 CACHE_TTL_S = 60
 FAIL_TTL_S = 20          # retry sooner after transient misses (429, etc.)
 EXPIRY_SKEW_S = 120
@@ -59,10 +67,32 @@ def _cache_for(account):
     return cache
 
 
-def _keychain_account():
+def _keychain_service(account=None):
+    """Claude Code's Keychain service for one config directory."""
+    config_dir = account.root if account else CONFIG_DIR
+    digest = hashlib.sha256(config_dir.encode("utf-8")).hexdigest()[:8]
+    return KEYCHAIN_SERVICE_PREFIX + digest
+
+
+def _keychain_store(service):
+    """Opaque store id that lets refresh write back to the same service."""
+    if service == KEYCHAIN_SERVICE:
+        return "keychain"
+    return KEYCHAIN_STORE_PREFIX + service
+
+
+def _service_from_store(store):
+    if store == "keychain":
+        return KEYCHAIN_SERVICE
+    if isinstance(store, str) and store.startswith(KEYCHAIN_STORE_PREFIX):
+        return store[len(KEYCHAIN_STORE_PREFIX):]
+    return None
+
+
+def _keychain_account(service=KEYCHAIN_SERVICE):
     try:
         out = subprocess.check_output(
-            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE],
+            ["security", "find-generic-password", "-s", service],
             stderr=subprocess.DEVNULL, text=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -81,11 +111,11 @@ def _creds_file(account=None):
     return account.child(CREDS_NAME) if account else CREDS_FILE
 
 
-def _read_keychain_blob():
+def _read_keychain_blob(service=KEYCHAIN_SERVICE):
     try:
         raw = subprocess.check_output(
             ["security", "find-generic-password",
-             "-s", KEYCHAIN_SERVICE, "-w"],
+             "-s", service, "-w"],
             stderr=subprocess.DEVNULL, text=True,
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -107,12 +137,13 @@ def _read_file_blob(path):
 
 
 def _read_creds_blob(account=None):
-    """Return (store, blob_dict); store is 'keychain', a file path, or None.
+    """Return (store, blob_dict); store identifies a Keychain item or file.
 
-    Only the default login can come out of the Keychain — there is one
-    `Claude Code-credentials` item per Mac, and it belongs to whichever login
-    the CLI wrote last. An extra account is a directory by definition, so it
-    reads and writes its own file and never touches the shared item.
+    Current Claude Code gives every config directory its own hashed Keychain
+    service, which is what makes simultaneous `CLAUDE_CONFIG_DIR` logins
+    distinct. The default login also checks the old global service, and every
+    login checks its legacy credential file, so upgrades do not strand either
+    storage generation.
 
     A store that parses but carries no `claudeAiOauth.accessToken` is not an
     answer, so the search goes on rather than stopping at it. That item is
@@ -123,9 +154,12 @@ def _read_creds_blob(account=None):
     the first store that parsed is still returned, so the failure is reported
     against the place the credentials are supposed to be.
     """
-    stores = []
+    service = _keychain_service(account)
+    stores = [
+        (_keychain_store(service), _read_keychain_blob(service)),
+    ]
     if account is None:
-        stores.append(("keychain", _read_keychain_blob()))
+        stores.append(("keychain", _read_keychain_blob(KEYCHAIN_SERVICE)))
     path = _creds_file(account)
     stores.append((path, _read_file_blob(path)))
 
@@ -138,11 +172,12 @@ def _read_creds_blob(account=None):
 
 def _write_creds_blob(store, blob):
     raw = json.dumps(blob, separators=(",", ":"))
-    if store == "keychain":
-        acct = _keychain_account() or "Claude"
+    service = _service_from_store(store)
+    if service:
+        acct = _keychain_account(service) or "Claude"
         # Via the Security framework, not `security -w`, which would put the
         # refresh token in argv where any process can read it out of `ps`.
-        keychain.set_generic_password(KEYCHAIN_SERVICE, acct, raw)
+        keychain.set_generic_password(service, acct, raw)
         return
     tmp = store + ".tmp"
     with open(tmp, "w") as f:
@@ -156,6 +191,23 @@ def _oauth_block(blob):
     if not o.get("accessToken"):
         return None
     return o
+
+
+def credentials_present(account=None):
+    """Whether this config directory has a usable Claude OAuth token."""
+    _store, blob = _read_creds_blob(account)
+    return bool(_oauth_block(blob))
+
+
+def _credentials_hint(account=None):
+    path = _creds_file(account)
+    service = _keychain_service(account)
+    if account:
+        return f"Keychain service {service} or {path}"
+    return (
+        f"Keychain service {service}, legacy {KEYCHAIN_SERVICE}, "
+        f"or {path}"
+    )
 
 
 def _shape_hint(store, blob):
@@ -356,10 +408,7 @@ def fetch_quota(force=False, account=None):
         store, blob = _read_creds_blob(account)
         if not store:
             return _keep_stale(
-                f"no Claude credentials at {_creds_file(account)}"
-                if account
-                else "no Claude credentials "
-                     "(Keychain or ~/.claude/.credentials.json)")
+                f"no Claude credentials in {_credentials_hint(account)}")
         oauth = _oauth_block(blob)
         if not oauth:
             return _keep_stale(_shape_hint(store, blob))

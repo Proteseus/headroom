@@ -17,6 +17,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+import accounts
 import burndown
 import cache_util
 import headroom_server
@@ -49,6 +50,34 @@ class CredentialSearchTests(unittest.TestCase):
     GOOD = {"claudeAiOauth": {"accessToken": "plan-token",
                               "refreshToken": "r"}}
 
+    @staticmethod
+    def _account(root="/Users/example/.claudewho-work"):
+        return accounts.Account(
+            provider="claude",
+            slug="work",
+            label="Work",
+            root=root,
+            raw_root=root,
+        )
+
+    def test_profile_keychain_service_hashes_the_config_directory(self):
+        service = oauth_usage._keychain_service(self._account())
+        self.assertEqual(service, "Claude Code-credentials-abfbd7ee")
+
+    def test_profile_reads_its_own_hashed_keychain_item(self):
+        account = self._account()
+        service = oauth_usage._keychain_service(account)
+
+        def keychain_blob(wanted):
+            return self.GOOD if wanted == service else None
+
+        with patch.object(oauth_usage, "_read_keychain_blob",
+                          side_effect=keychain_blob):
+            store, blob = oauth_usage._read_creds_blob(account)
+        self.assertEqual(store, f"keychain:{service}")
+        self.assertEqual(oauth_usage._oauth_block(blob)["accessToken"],
+                         "plan-token")
+
     def test_keychain_without_plan_token_falls_through_to_file(self):
         # The real shape that broke it: Claude Code keeps per-MCP-server OAuth
         # in the same Keychain item, and a blob left holding only `mcpOAuth`
@@ -65,21 +94,47 @@ class CredentialSearchTests(unittest.TestCase):
         self.assertEqual(oauth_usage._oauth_block(blob)["accessToken"],
                          "plan-token")
 
-    def test_keychain_wins_when_it_has_the_token(self):
-        # Unchanged from before: the Keychain is still the preferred store, so
-        # a refresh writes back where the CLI expects it.
+    def test_legacy_keychain_remains_a_default_login_fallback(self):
+        hashed = oauth_usage._keychain_service()
+
+        def keychain_blob(service):
+            if service == hashed:
+                return None
+            if service == oauth_usage.KEYCHAIN_SERVICE:
+                return self.GOOD
+            return None
+
         with patch.object(oauth_usage, "_read_keychain_blob",
-                          return_value=self.GOOD), \
+                          side_effect=keychain_blob), \
              patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
             store, blob = oauth_usage._read_creds_blob()
         self.assertEqual(store, "keychain")
         self.assertTrue(oauth_usage._oauth_block(blob))
 
+    def test_hashed_keychain_wins_for_the_default_login(self):
+        hashed = oauth_usage._keychain_service()
+
+        def keychain_blob(service):
+            return self.GOOD if service == hashed else None
+
+        with patch.object(oauth_usage, "_read_keychain_blob",
+                          side_effect=keychain_blob), \
+             patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
+            store, blob = oauth_usage._read_creds_blob()
+        self.assertEqual(store, f"keychain:{hashed}")
+        self.assertTrue(oauth_usage._oauth_block(blob))
+
     def test_token_nowhere_still_reports_against_a_real_store(self):
         # Nothing to find, but the error has to name a place that exists or it
         # reads as "Headroom lost your credentials".
+
+        def keychain_blob(service):
+            if service == oauth_usage.KEYCHAIN_SERVICE:
+                return self.MCP_ONLY
+            return None
+
         with patch.object(oauth_usage, "_read_keychain_blob",
-                          return_value=self.MCP_ONLY), \
+                          side_effect=keychain_blob), \
              patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
             store, blob = oauth_usage._read_creds_blob()
         self.assertEqual(store, "keychain")
@@ -90,6 +145,17 @@ class CredentialSearchTests(unittest.TestCase):
                           return_value=None), \
              patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
             self.assertEqual(oauth_usage._read_creds_blob(), (None, None))
+
+    def test_refresh_writes_back_to_the_profile_keychain_service(self):
+        service = oauth_usage._keychain_service(self._account())
+        store = f"keychain:{service}"
+        with patch.object(oauth_usage, "_keychain_account",
+                          return_value="profile-account"), \
+             patch.object(oauth_usage.keychain, "set_generic_password") as put:
+            oauth_usage._write_creds_blob(store, self.GOOD)
+        put.assert_called_once()
+        self.assertEqual(put.call_args.args[:2],
+                         (service, "profile-account"))
 
 
 class StaleAgeTests(unittest.TestCase):

@@ -15,31 +15,13 @@ import app_config
 import copilot_usage
 import gemini_usage
 import jetbrains_usage
+import oauth_usage
 import windsurf_usage
 import zed_usage
 
 
 def claude_signed_in():
-    try:
-        raw = subprocess.check_output(
-            ["security", "find-generic-password",
-             "-s", "Claude Code-credentials", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        if raw:
-            blob = json.loads(raw)
-            if (blob.get("claudeAiOauth") or {}).get("accessToken"):
-                return True
-    except (subprocess.CalledProcessError, FileNotFoundError,
-            json.JSONDecodeError, TypeError):
-        pass
-    path = os.path.expanduser("~/.claude/.credentials.json")
-    try:
-        with open(path) as handle:
-            blob = json.load(handle)
-        return bool((blob.get("claudeAiOauth") or {}).get("accessToken"))
-    except (OSError, json.JSONDecodeError, TypeError):
-        return False
+    return oauth_usage.credentials_present()
 
 
 def codex_signed_in():

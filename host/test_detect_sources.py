@@ -11,10 +11,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import detect_sources
+import oauth_usage
 import sources_config
 
 
 class DetectSourcesTests(unittest.TestCase):
+    def test_claude_detection_uses_the_fetchers_credential_search(self):
+        with patch.object(oauth_usage, "credentials_present",
+                          return_value=True) as present:
+            self.assertTrue(detect_sources.claude_signed_in())
+        present.assert_called_once_with()
+
     def test_suggested_enables_detected_only(self):
         with patch.object(detect_sources, "detected_map", return_value={
             "claude": True,

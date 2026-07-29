@@ -115,11 +115,15 @@ class Source(NamedTuple):
     # None means one login per Mac and Settings offers no Add button.
     account_kind: Optional[str] = None
     # Filename inside a KIND_DIR account, so Settings can say whether the
-    # folder someone picked actually holds credentials. The fetcher owns the
-    # constant; this is a reference to it, not a second copy.
+    # folder someone picked holds legacy file credentials. The fetcher owns
+    # the constant; this is a reference to it, not a second copy.
     account_file: Optional[str] = None
     # What Settings shows as the example location for a new account.
     account_hint: Optional[str] = None
+    # Optional provider-owned credential probe. Claude needs this because
+    # current Claude Code stores one hashed Keychain item per config directory
+    # instead of a file inside that directory.
+    account_probe: Optional[Callable] = None
     # Set on rows the expansion created; None on the default login.
     account: Optional[object] = None
 
@@ -361,7 +365,8 @@ BASE_SOURCES = (
            headline=("week", "session"), accent="#D97757",
            account_kind=accounts.KIND_DIR,
            account_file=oauth_usage.CREDS_NAME,
-           account_hint="~/.claude-work (a second CLAUDE_CONFIG_DIR)"),
+           account_hint="~/.claude-work (a second CLAUDE_CONFIG_DIR)",
+           account_probe=oauth_usage.credentials_present),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
            codex_usage.fetch_quota, summary_fn=_summary_codex,
            kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
@@ -637,8 +642,11 @@ def _default_enabled():
     for source in SOURCES:
         if source.account is None:
             continue
-        enabled[source.id] = accounts.present(
-            source.account, source.account_kind, source.account_file)
+        if source.account_probe is not None:
+            enabled[source.id] = bool(source.account_probe(source.account))
+        else:
+            enabled[source.id] = accounts.present(
+                source.account, source.account_kind, source.account_file)
     return enabled
 
 
@@ -880,8 +888,11 @@ def _detected_map():
     for source in SOURCES:
         if source.account is None:
             continue
-        detected[source.id] = accounts.present(
-            source.account, source.account_kind, source.account_file)
+        if source.account_probe is not None:
+            detected[source.id] = bool(source.account_probe(source.account))
+        else:
+            detected[source.id] = accounts.present(
+                source.account, source.account_kind, source.account_file)
     return detected
 
 

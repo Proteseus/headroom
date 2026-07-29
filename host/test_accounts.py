@@ -120,6 +120,22 @@ class AccountsTests(unittest.TestCase):
         self.assertIn(
             "claude:empty", [row["id"] for row in payload["sources"]])
 
+    def test_detection_probes_the_account_keychain_service(self):
+        account = sources_config.add_account(
+            "claude", "Keychain", self._claude_dir(
+                "keychain", signed_in=False))
+        sources_config.reload_registry()
+        service = oauth_usage._keychain_service(account)
+        good = {"claudeAiOauth": {"accessToken": "plan-token"}}
+
+        def keychain_blob(wanted):
+            return good if wanted == service else None
+
+        with patch.object(oauth_usage, "_read_keychain_blob",
+                          side_effect=keychain_blob):
+            payload = sources_config.detection_payload()
+        self.assertTrue(payload["detected"]["claude:keychain"])
+
     def test_reseeding_keeps_a_signed_in_account_on(self):
         sources_config.add_account("claude", "Work", self._claude_dir())
         sources_config.reload_registry()
@@ -128,6 +144,24 @@ class AccountsTests(unittest.TestCase):
         os.remove(sources_config.STORE_PATH)
         sources_config.reset_for_tests()
         self.assertTrue(sources_config.enabled_map()["claude:work"])
+
+    def test_reseeding_keeps_a_keychain_account_on(self):
+        account = sources_config.add_account(
+            "claude", "Keychain", self._claude_dir(
+                "keychain-seed", signed_in=False))
+        sources_config.reload_registry()
+        service = oauth_usage._keychain_service(account)
+        good = {"claudeAiOauth": {"accessToken": "plan-token"}}
+        os.remove(sources_config.STORE_PATH)
+        sources_config.reset_for_tests()
+
+        def keychain_blob(wanted):
+            return good if wanted == service else None
+
+        with patch.object(oauth_usage, "_read_keychain_blob",
+                          side_effect=keychain_blob):
+            self.assertTrue(
+                sources_config.enabled_map()["claude:keychain"])
 
     def test_setup_payload_lists_who_can_hold_accounts(self):
         providers = sources_config.accounts_payload()["providers"]
