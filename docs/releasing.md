@@ -106,8 +106,17 @@ base64 -i DeveloperID.p12 | pbcopy
 ### 2. App Store Connect API key (notarize + TestFlight)
 
 1. [Users and Access → Integrations → Team Key](https://appstoreconnect.apple.com/access/integrations/api)
-2. Create a key with **Developer** (or Admin) access; download the `.p8` once.
+2. Create a key with **App Manager** (or Admin) access; download the `.p8` once.
 3. Note Key ID + Issuer ID.
+
+A **Developer**-role key notarizes fine but cannot mint distribution
+provisioning profiles, so the macOS job goes green and the iOS one fails at
+export with `Cloud signing permission error` / `No profiles for
+'com.centaur-labs.headroom' were found`. The archive succeeds first, which is
+what makes it look like a build problem rather than a credentials one. Fixing
+it means a new key at the higher role and re-running
+`scripts/setup-release-secrets.sh` — the role of an existing key cannot be
+changed.
 
 ### 3. GitHub Actions secrets
 
