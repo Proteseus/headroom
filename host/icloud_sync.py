@@ -355,6 +355,29 @@ def _peer_view(peer, now):
     return out
 
 
+def configuration(now=None):
+    """What Settings shows and edits: the switch, the folder, who is out there.
+
+    `available` is the honest half. iCloud Drive being switched off in System
+    Settings is not an error this can fix or should hide — the toggle still
+    works, it just will not find anyone, and saying so beats an empty list that
+    looks like a bug.
+    """
+    now = time.time() if now is None else now
+    enabled = app_config.icloud_sync_enabled()
+    folder = root_dir() or (app_config.icloud_dir() or DEFAULT_DIR)
+    with _lock:
+        peers = list(_peers)
+    return {
+        "ok": True,
+        "enabled": enabled,
+        "directory": folder,
+        "available": os.path.isdir(os.path.dirname(folder)),
+        "machine": machine_identity.describe(),
+        "peers": [_peer_view(peer, now) for peer in peers],
+    }
+
+
 def machines_payload(beacon=None, now=None):
     """`machines[]` for /usage: this Mac first, then peers by how fresh.
 

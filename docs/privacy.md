@@ -47,9 +47,9 @@ profiles. We do not sell data.
 
 Multi-Mac sync writes one small file per Mac into a folder in *your* iCloud
 Drive so a second Mac can pick up your settings and show what the first one is
-doing. It is off until you set `icloud_sync` in `~/.headroom/config.json`, it
-never carries credentials or file paths, and there is still no Headroom
-account or Headroom server involved. See [multi-mac.md](multi-mac.md).
+doing. It is off until you turn it on in Settings → Other Macs, it never
+carries credentials or file paths, and there is still no Headroom account or
+Headroom server involved. See [multi-mac.md](multi-mac.md).
 
 Deleting the iOS app removes its Keychain items and local cache for that
 install. Uninstalling the Mac host / purging `~/.headroom` removes host-side

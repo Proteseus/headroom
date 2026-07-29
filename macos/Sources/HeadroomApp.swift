@@ -301,6 +301,9 @@ private struct SettingsView: View {
     @State private var mobileTokenMessage: String?
     @State private var mobilePermissions = MobilePermissions.allEnabled
     @State private var changingMobilePermission: MobilePermission?
+    @State private var multiMac = MultiMacConfiguration.unknown
+    @State private var multiMacMessage: String?
+    @State private var changingMultiMac = false
 
     private var tokenDraft: String {
         supabaseToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -367,6 +370,62 @@ private struct SettingsView: View {
                 Text(endpointIsRemote
                      ? "Remote hosts need the host token (~/.headroom/token) — not the mobile token used by iPhone."
                      : "Mac, iPhone, and ESP32 all read this host. If it’s down, tap Start host or run ./scripts/install-host.sh from a clone. Source toggles also hide ESP32 pages.")
+            }
+
+            Section {
+                Toggle(
+                    "Share settings between my Macs",
+                    isOn: Binding(
+                        get: { multiMac.enabled },
+                        set: { enabled in
+                            multiMac.enabled = enabled
+                            Task { await saveMultiMac(enabled) }
+                        }
+                    )
+                )
+                .disabled(endpointIsRemote || changingMultiMac)
+
+                LabeledContent("This Mac") {
+                    HStack(spacing: 6) {
+                        Text(multiMac.machine.name)
+                            .foregroundStyle(.secondary)
+                        if changingMultiMac {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
+
+                if multiMac.enabled {
+                    if multiMac.peers.isEmpty {
+                        Text(multiMac.available
+                             ? "No other Macs yet. Turn this on over there too."
+                             : "iCloud Drive is not available on this Mac.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(multiMac.peers) { peer in
+                            LabeledContent(peer.title) {
+                                Text(peer.lastSeenLabel)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Text(multiMac.directory)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let multiMacMessage {
+                    Text(multiMacMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text(HeadroomCopy.otherMacs)
+            } footer: {
+                Text(endpointIsRemote
+                     ? "Multi-Mac settings must be changed on the Mac running the Headroom host."
+                     : "Enabled sources, provider order, and accent colours follow you between Macs through a folder in your iCloud Drive. Credentials, file paths, and this Mac's local servers and commits are never shared. Quota percentages already match everywhere, because your provider counts the account rather than the machine.")
             }
 
             Section {
@@ -696,6 +755,7 @@ private struct SettingsView: View {
             hostTokenStored = TokenStore.host.exists()
             await reloadSources()
             await reloadMobilePermissions()
+            await reloadMultiMac()
             await reloadGitHubWatch()
         }
     }
@@ -827,6 +887,38 @@ private struct SettingsView: View {
     private func reloadMobilePermissions() async {
         if let permissions = try? await client.fetchMobilePermissions() {
             mobilePermissions = permissions
+        }
+    }
+
+    private func reloadMultiMac() async {
+        do {
+            multiMac = try await client.fetchMultiMacConfiguration()
+        } catch {
+            multiMacMessage = error.localizedDescription
+        }
+    }
+
+    private func saveMultiMac(_ enabled: Bool) async {
+        guard !changingMultiMac else { return }
+        changingMultiMac = true
+        multiMacMessage = nil
+        defer { changingMultiMac = false }
+        do {
+            multiMac = try await client.setMultiMacConfiguration(enabled: enabled)
+            if multiMac.enabled {
+                multiMacMessage = multiMac.peers.isEmpty
+                    ? nil
+                    : "Found \(multiMac.peers.count) other Mac"
+                        + (multiMac.peers.count == 1 ? "." : "s.")
+            } else {
+                // The folder is left where it is. Turning sync off should stop
+                // this Mac publishing, not reach into iCloud and delete a
+                // record the other Macs are still reading.
+                multiMacMessage = "This Mac has stopped sharing."
+            }
+        } catch {
+            multiMacMessage = error.localizedDescription
+            await reloadMultiMac()
         }
     }
 

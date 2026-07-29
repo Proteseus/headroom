@@ -307,6 +307,25 @@ def icloud_dir():
     return os.path.expanduser(value) if value else None
 
 
+def set_icloud_sync(enabled=None, directory=None):
+    """Persist the multi-Mac settings. Returns them as stored."""
+    updates = {}
+    if enabled is not None:
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be true or false")
+        updates["icloud_sync"] = enabled
+    if directory is not None:
+        if not isinstance(directory, str):
+            raise ValueError("directory must be a string")
+        folder = directory.strip()
+        if len(folder) > 4096 or "\x00" in folder:
+            raise ValueError("invalid directory")
+        updates["icloud_dir"] = folder
+    if updates:
+        _persist(**updates)
+    return {"enabled": icloud_sync_enabled(), "directory": icloud_dir()}
+
+
 def shared_config():
     """The synced subset of config.json, as stored (absent keys omitted).
 

@@ -291,6 +291,28 @@ struct HeadroomClient: Sendable {
             .permissions
     }
 
+    func fetchMultiMacConfiguration() async throws -> MultiMacConfiguration {
+        let url = try base()
+            .appendingPathComponent("machines")
+            .appendingPathComponent("config")
+        let data = try await send(request(url, timeout: 5))
+        return try JSONDecoder().decode(MultiMacConfiguration.self, from: data)
+    }
+
+    /// Turning sync on runs a round host-side before answering, so the peers
+    /// in the response are real rather than a promise about the next minute.
+    func setMultiMacConfiguration(enabled: Bool) async throws
+        -> MultiMacConfiguration {
+        let url = try base()
+            .appendingPathComponent("machines")
+            .appendingPathComponent("config")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["enabled": enabled])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(MultiMacConfiguration.self, from: data)
+    }
+
     func fetchGitHubWatch() async throws -> GitHubWatch {
         let url = try base()
             .appendingPathComponent("github")
@@ -393,6 +415,27 @@ struct GitHubWatch: Decodable, Sendable {
         case maxDiscovered = "max_discovered"
         case devRoot = "dev_root"
     }
+}
+
+struct MultiMacConfiguration: Decodable, Sendable {
+    var ok: Bool
+    var enabled: Bool
+    var directory: String
+    /// False when the folder's parent is missing — iCloud Drive switched off,
+    /// or a configured directory that no longer exists. The toggle still
+    /// works; it just will not find anyone, which is worth saying out loud.
+    var available: Bool
+    var machine: MultiMacIdentity
+    var peers: [MachineSummary]
+
+    static let unknown = MultiMacConfiguration(
+        ok: false, enabled: false, directory: "", available: false,
+        machine: MultiMacIdentity(id: "", name: "This Mac"), peers: [])
+}
+
+struct MultiMacIdentity: Decodable, Sendable {
+    var id: String
+    var name: String
 }
 
 struct HealthReport: Decodable, Sendable {

@@ -33,18 +33,25 @@ others show it with an owner and an age.
 
 ## Turning it on
 
-Off by default, because it writes data to a folder that leaves the machine.
+**Settings → Other Macs → Share settings between my Macs**, on each Mac. The
+toggle runs a sync round before it answers, so the peer list under it is real
+rather than a promise about the next minute.
 
-```json
-{ "icloud_sync": true }
-```
+Off by default. Not because it is risky, but because it writes data to a folder
+that leaves the machine, and an app that starts doing that on upgrade — for
+every user, including the ones with one Mac and no use for it — has made a
+decision that was theirs. It is one switch, and the second Mac is the moment
+you go looking for it.
 
-in `~/.headroom/config.json`, on each Mac. Restart the host, or wait a minute.
-
-`icloud_dir` overrides where the machines meet. Empty means
+The switch is `icloud_sync` in `~/.headroom/config.json` if you would rather
+edit it directly. `icloud_dir` overrides where the machines meet; empty means
 `~/Library/Mobile Documents/com~apple~CloudDocs/Headroom`. Nothing in the
 implementation is iCloud-specific but that default path — point it at Dropbox,
 Syncthing, or a shared volume and the rest works unchanged.
+
+Turning it **off** stops this Mac publishing. It does not delete the folder or
+the file: the other Macs are still reading it, and reaching into iCloud to
+remove a record on their behalf is not what a local toggle should mean.
 
 ## Why a folder and not CloudKit
 

@@ -1325,7 +1325,8 @@ class Handler(BaseHTTPRequestHandler):
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
-                        "/mobile/permissions", "/github/watch"):
+                        "/mobile/permissions", "/github/watch",
+                        "/machines/config"):
             self.send_error(404)
             return
         if not self._allowed():
@@ -1345,6 +1346,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
             self._send_json(200, _accounts_payload())
+            return
+        if path == "/machines/config":
+            # Names a folder on this Mac's disk and decides whether this Mac
+            # publishes anything. Mac-local, like the credentials settings.
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            self._send_json(200, icloud_sync.configuration())
             return
         if path == "/mobile/permissions":
             granted = app_config.mobile_permissions()
@@ -1387,6 +1396,7 @@ class Handler(BaseHTTPRequestHandler):
             "/attention/ack",
             "/github/watch",
             "/accounts",
+            "/machines/config",
         ):
             self.send_error(404)
             return
@@ -1436,6 +1446,25 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
             self._send_json(400, {"ok": False, "error": "invalid request"})
+            return
+        if path == "/machines/config":
+            try:
+                app_config.set_icloud_sync(
+                    enabled=payload.get("enabled"),
+                    directory=payload.get("directory"),
+                )
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            # Run a round now rather than leaving Settings looking broken for
+            # up to a minute: switching this on and seeing nothing happen is
+            # indistinguishable from it not working.
+            try:
+                icloud_sync.tick(beacon=_machine_beacon(rollup()))
+            except Exception as exc:
+                print("multi-mac sync error:", exc, flush=True)
+            publish()
+            self._send_json(200, icloud_sync.configuration())
             return
 
         if path == "/attention/ack":
