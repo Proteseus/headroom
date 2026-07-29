@@ -6,6 +6,28 @@ import XCTest
 /// someone notices weeks later. The Python half is host/test_contract.py.
 final class ContractTests: XCTestCase {
 
+    func testProviderIconsCoverEveryQuotaSourceAndNamedAccounts() {
+        let expectedAssets = [
+            "claude": "ProviderClaude",
+            "codex": "ProviderCodex",
+            "cursor": "ProviderCursor",
+            "copilot": "ProviderCopilot",
+            "gemini": "ProviderGemini",
+            "windsurf": "ProviderWindsurf",
+            "jetbrains": "ProviderJetBrains",
+            "zed": "ProviderZed",
+        ]
+
+        for (providerID, assetName) in expectedAssets {
+            XCTAssertEqual(ProviderIcon.assetName(for: providerID), assetName)
+            XCTAssertEqual(
+                ProviderIcon.assetName(for: "\(providerID):work"),
+                assetName
+            )
+        }
+        XCTAssertNil(ProviderIcon.assetName(for: "unknown"))
+    }
+
     /// docs/demo_usage.json, located relative to this source file so the
     /// fixture doesn't have to be copied into the test bundle.
     private func demoFixtureURL() throws -> URL {
