@@ -38,3 +38,9 @@ firmware/.flashed_build
 *.p12
 *.p8
 *.mobileprovision
+
+# Generated on every build from host/VERSION + the commit count
+# (scripts/version-env.sh --write-xcconfig, run by sync-embedded-host.sh
+# before xcodegen and again as an Xcode build phase). Tracking it meant a
+# dirty working tree after every build, in a file nobody edits.
+macos/Version.xcconfig
