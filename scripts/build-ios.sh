@@ -208,11 +208,20 @@ asc builds update \
   --latest \
   --uses-non-exempt-encryption=false \
   --output table
-asc builds add-groups \
+# The upload above is the delivery; this only widens who sees it. An internal
+# group already receives every build, and App Store Connect then rejects the
+# explicit assignment with "There is no resource of type 'builds'" — naming the
+# build it just accepted. Do not fail a shipped build over it.
+if ! asc builds add-groups \
   --app "$app_id" \
   --latest \
   --group "$group" \
   --output table
+then
+  echo "::warning::could not attach the build to '$group' — it is uploaded and" \
+       "processed, and internal testers get it regardless. Check the group in" \
+       "App Store Connect if external testers are waiting on it."
+fi
 
 [[ -n "$tmp_auth_key" ]] && rm -f "$tmp_auth_key"
 

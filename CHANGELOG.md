@@ -7,6 +7,23 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.5 — 2026-07-29
+
+### Fixed
+
+- The iPhone app reaches TestFlight again. Every release since 1.0.9 built it
+  and then failed to sign it, so testers stayed on a build from 28 July while
+  the Mac app went on to 1.1.4. Releases now sign the export with the team's
+  distribution certificate and named App Store profiles, rather than asking the
+  build machine to create credentials it has no way to create.
+
+### Added
+
+- `scripts/ship-ios.sh` sends a release to TestFlight from a Mac for when the
+  workflow cannot. It refuses to run on a dirty tree or away from the release
+  tag: the build number comes from the commit, and a build uploaded under the
+  wrong one cannot be taken back.
+
 ## 1.1.4 — 2026-07-29
 
 ### Added
