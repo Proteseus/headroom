@@ -68,10 +68,7 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Embed host + generate project
-        working-directory: macos
-        run: |
-          ../scripts/sync-embedded-host.sh
-          xcodegen generate
+        run: ./scripts/gen-project.sh
       - name: Build and test
         working-directory: macos
         run: |

@@ -22,10 +22,8 @@ echo "→ ESP32 glance preview"
   --out "$OUT/esp32-glance.png"
 
 echo "→ build Headroom (Debug)"
+"$ROOT/scripts/gen-project.sh" >/dev/null
 cd "$ROOT/macos"
-if command -v xcodegen >/dev/null 2>&1; then
-  xcodegen generate >/dev/null
-fi
 xcodebuild \
   -project Headroom.xcodeproj \
   -scheme Headroom \

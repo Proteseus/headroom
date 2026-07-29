@@ -32,8 +32,14 @@ Public download URLs (macOS Releases + iOS TestFlight) live in
 
 ## Cut a release
 
+Every point version gets a section in [`CHANGELOG.md`](../CHANGELOG.md) before
+it is tagged. `cut-release.sh` refuses a version with no `## <version>` heading,
+so this is a step you cannot skip by forgetting it.
+
 ```bash
-# bump host/VERSION if needed, commit, then:
+# 1. bump host/VERSION
+# 2. add a "## <version> — YYYY-MM-DD" section to CHANGELOG.md
+# 3. commit both, then:
 ./scripts/cut-release.sh
 # or: git tag v1.0.0 && git push origin v1.0.0
 ```
@@ -135,6 +141,6 @@ python3 ../tiny/scripts/push-metadata.py \
 | Surface | Marketing | Build |
 |---|---|---|
 | Host `/health` | `host/VERSION` | content fingerprint of shipped `.py` |
-| Headroom | same | commit count |
+| Headroom + widget | same | commit count |
 | HeadroomMobile + widget | same | commit count |
 | ESP32 firmware | n/a | local `firmware/.build_number` (per flash machine) |

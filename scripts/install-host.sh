@@ -188,7 +188,8 @@ cat <<EOF
 
 Next:
   1. Build the menu bar app (once):
-       cd $ROOT/macos && xcodegen generate
+       $ROOT/scripts/gen-project.sh
+       cd $ROOT/macos
        xcodebuild -project Headroom.xcodeproj -scheme Headroom \\
          -configuration Debug -derivedDataPath .build build
        open .build/Build/Products/Debug/Headroom.app

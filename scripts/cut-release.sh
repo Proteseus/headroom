@@ -13,6 +13,7 @@ DRY=0
 
 TAG="v$HEADROOM_VERSION"
 LINKS="$ROOT/docs/install-links.md"
+CHANGELOG="$ROOT/CHANGELOG.md"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -25,6 +26,11 @@ fi
 
 if git rev-parse "$TAG" >/dev/null 2>&1; then
   die "tag $TAG already exists"
+fi
+
+# A tag with no changelog entry ships a Release whose notes nobody wrote.
+if ! grep -qE "^## $HEADROOM_VERSION( |$)" "$CHANGELOG" 2>/dev/null; then
+  die "CHANGELOG.md has no '## $HEADROOM_VERSION' section — write it before tagging"
 fi
 
 TESTFLIGHT="$(

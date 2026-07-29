@@ -41,13 +41,11 @@ EOF
   esac
 done
 
-command -v xcodegen >/dev/null || { echo "error: install xcodegen (brew install xcodegen)" >&2; exit 1; }
 command -v xcodebuild >/dev/null || { echo "error: Xcode required" >&2; exit 1; }
 
-"$ROOT/scripts/sync-embedded-host.sh"
+"$ROOT/scripts/gen-project.sh"
 
 cd "$ROOT/macos"
-xcodegen generate
 
 DERIVED="$ROOT/macos/.build-ios"
 ARCHIVE="$DERIVED/HeadroomMobile.xcarchive"

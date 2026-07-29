@@ -14,6 +14,7 @@ that consolidates that into one glance:
 | **ESP32 AMOLED** | Quota rings for the same three providers the menu bar shows, Vercel, git, local ports |
 | **Menu bar** | Thin remaining-quota meters for the first three enabled providers + amber/red attention pip |
 | **Popover** | Overview rings, daily burn, spend, Activity / Services |
+| **Notification Center** | The same widget the iPhone runs: rings small, combined burndown medium |
 | **iPhone / iPad** | Quotas, burndown, activity, services, controls, notifications, widgets |
 
 One Python host on your Mac reads local auth + CLIs and serves a single JSON
@@ -100,7 +101,8 @@ Or the two-piece flow (host from clone, debug app):
 
 ```bash
 ./scripts/install-host.sh
-cd macos && ../scripts/sync-embedded-host.sh && xcodegen generate
+./scripts/gen-project.sh          # embeds host + writes Headroom.xcodeproj
+cd macos
 xcodebuild -project Headroom.xcodeproj -scheme Headroom \
   -configuration Debug -derivedDataPath .build build
 open .build/Build/Products/Debug/Headroom.app
@@ -198,7 +200,7 @@ health light, so they stay as they are.
 
 **Order picks the top 3.** Drag the AI rows in Settings to reorder them, and
 that order is pinned in `~/.headroom/sources.json`. Compact
-surfaces — the menu-bar tanks, the iOS widget, and the board's three rings —
+surfaces — the menu-bar tanks, the widgets, and the board's three rings —
 show the first three *enabled* providers. The host does the picking and ships
 the ids as `focus` in `/usage`, so the Mac, the phone, its widget and the desk
 never disagree about which three even when one of them is a poll behind. A
@@ -370,9 +372,13 @@ git commit count. Cut releases with `./scripts/cut-release.sh` — see
 
 ```bash
 cd host && python3 -m unittest discover -p "test_*.py"
-cd macos && xcodegen generate && xcodebuild test -project Headroom.xcodeproj -scheme Headroom -derivedDataPath .build
+./scripts/gen-project.sh && cd macos && xcodebuild test -project Headroom.xcodeproj -scheme Headroom -derivedDataPath .build CODE_SIGNING_ALLOWED=NO
 cd firmware && pio run
 ```
+
+`gen-project.sh` writes `macos/Headroom.xcodeproj`, which is generated and
+gitignored. Calling `xcodegen generate` directly on a fresh clone fails on the
+missing `macos/host` copy.
 
 `host/test_contract.py` and `macos/Tests/ContractTests.swift` pin the `/usage`
 shape. CI runs host + firmware + macOS on push (`.github/workflows/ci.yml`).
@@ -398,6 +404,7 @@ the port.
 | [docs/privacy.md](docs/privacy.md) | Privacy policy (ASC URL) |
 | [docs/install-links.md](docs/install-links.md) | Release + TestFlight URLs |
 | [docs/releasing.md](docs/releasing.md) | Notarize, TestFlight, `cut-release` |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each tagged version |
 | [docs/glossary.md](docs/glossary.md) | Shared chrome names |
 | [docs/rings.md](docs/rings.md) | Ring / pace semantics |
 | [docs/backlog.md](docs/backlog.md) | What's queued and why |

@@ -24,11 +24,15 @@ cd host && python3 -m unittest discover -p "test_*.py"
 ```
 
 ```bash
-cd macos && ../scripts/sync-embedded-host.sh && xcodegen generate && xcodebuild test -project Headroom.xcodeproj -scheme Headroom -derivedDataPath .build CODE_SIGNING_ALLOWED=NO
+./scripts/gen-project.sh && cd macos && xcodebuild test -project Headroom.xcodeproj -scheme Headroom -derivedDataPath .build CODE_SIGNING_ALLOWED=NO
 ```
 
 ```bash
 cp firmware/src/config_example.h firmware/src/config.h && cd firmware && pio run
+```
+
+```bash
+./scripts/gen-project.sh && cd macos && xcodebuild -project Headroom.xcodeproj -scheme HeadroomMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
 A full `.app`: `./scripts/build-app.sh` writes `dist/Headroom.app`, ad-hoc
@@ -45,7 +49,18 @@ unattended. You do not need them:
 |---|---|---|
 | Team | `$HEADROOM_TEAM_ID` (992N457T8D) | `export HEADROOM_TEAM_ID=ABCDE12345` |
 | Bundle prefix | `com.centaur-labs` | edit `macos/project.yml` |
-| iOS profiles | minted by Xcode from `$HEADROOM_TEAM_ID` | nothing to edit |
+| iOS profiles | the maintainer's, already on their Mac | see below |
+
+The Mac app and the iOS **simulator** build pass `CODE_SIGNING_ALLOWED=NO` and
+touch none of this. Only an iOS **device** build, a notarized release, or a
+TestFlight upload does.
+
+A device build cannot go unsigned, and Apple will not mint anyone else a
+profile for `com.centaur-labs.*`. Forks change `options.bundleIdPrefix` in
+`macos/project.yml` (plus the matching App Group), export their own
+`HEADROOM_TEAM_ID`, and build with `-allowProvisioningUpdates` so Xcode
+registers the new ids. Full steps in
+[docs/ios-companion.md](docs/ios-companion.md).
 
 `scripts/build-app.sh` passes `CODE_SIGNING_ALLOWED=NO`, so a local Mac build
 touches none of this. Only notarized releases and TestFlight uploads do.
@@ -69,3 +84,10 @@ still draws. Screenshots help for anything visual.
 
 Commit messages follow what is already in `git log`: a `type: summary` subject
 in the imperative, wrapped body explaining why rather than what.
+
+## Releasing
+
+Every point version gets a section in [`CHANGELOG.md`](CHANGELOG.md) before it
+is tagged, written for someone deciding whether to update rather than for the
+person who wrote the code. `scripts/cut-release.sh` refuses a version with no
+`## <version>` heading. Procedure in [docs/releasing.md](docs/releasing.md).
