@@ -7,6 +7,42 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.0 — 2026-07-29
+
+### Fixed
+
+- **Claude quota could sit fifteen hours out of date and still read as live.**
+  Claude Code keeps per-MCP-server OAuth in the same Keychain item as your plan
+  token. Once that item held only `mcpOAuth`, the search for credentials ended
+  there instead of going on to `~/.claude/.credentials.json`, so every fetch
+  failed and no fresh login could bring it back. The search now passes over a
+  store that has no plan token in it, and when there is none anywhere it tells
+  you to run `claude login` rather than naming a missing JSON key.
+- A source that has been failing for a day no longer reports as one poll old.
+  Payloads carry the moment they were fetched; the poll clock only ever knew
+  when we last *tried*, and a failing source is retried on the same schedule as
+  a healthy one. This is what the menu bar's "N minutes stale" line reads, so
+  it had been stuck at one minute for the whole outage. Snapshots written
+  before the field get their age from the cache file's mtime, so the count is
+  right on the first poll after upgrading rather than a fetch later.
+- Stale quota no longer drives anything measured against the clock. The
+  percentages still show — last-known beats blank — but the countdown, the
+  pace, and the burndown chart drop out instead of being computed off a reading
+  that has stopped moving. A frozen `resets_in_s` counted down was the most
+  convincing wrong number on the card: right shape, right units, ticking a dead
+  window to zero in front of you. One missed poll is still treated as a blip
+  and changes nothing.
+- Stale readings are no longer written to the quota sample log. Re-recording
+  one reading laid down a flat line indistinguishable from a real idle stretch,
+  and each sample walked the derived window forward, so a source that stopped
+  answering last night still showed windows rolling on schedule today.
+
+### Changed
+
+- `providers[]` carries `stale` and `age_s` per source, so a client can tell
+  last-known numbers from current ones without inferring it from an absent
+  countdown.
+
 ## 1.0.11 — 2026-07-29
 
 ### Added

@@ -30,6 +30,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
+import cache_util
 import oauth_usage
 import quota_samples
 
@@ -385,13 +386,20 @@ def compute_all(state, *, now=None, points=DEFAULT_POINTS, tz=None,
     Reads the sample log once per pool. Sources that are off, unconfigured, or
     failing simply do not appear. `priors` maps provider id to a %/day burn
     estimate used only where samples are too thin to fit.
+
+    A source stuck on a stale reading drops out too, once past the blip
+    window. Everything this returns is measured from *now* — the countdown, the
+    pace delta, the time to exhaustion — so computing it against a reading from
+    last night does not produce a slightly old chart, it produces a confident
+    wrong one. No chart, plus the staleness the sources list already reports,
+    is the honest version.
     """
     now = time.time() if now is None else float(now)
     priors = priors or {}
     out = {}
     for spec in quota_samples.POOLS:
         payload = (state or {}).get(spec.provider)
-        if not isinstance(payload, dict) or not payload.get("ok"):
+        if not cache_util.trusted(payload, now):
             continue
         try:
             result = compute(spec.provider, spec.pool, payload,

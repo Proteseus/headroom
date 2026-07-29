@@ -81,6 +81,31 @@ def _creds_file(account=None):
     return account.child(CREDS_NAME) if account else CREDS_FILE
 
 
+def _read_keychain_blob():
+    try:
+        raw = subprocess.check_output(
+            ["security", "find-generic-password",
+             "-s", KEYCHAIN_SERVICE, "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _read_file_blob(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def _read_creds_blob(account=None):
     """Return (store, blob_dict); store is 'keychain', a file path, or None.
 
@@ -88,25 +113,27 @@ def _read_creds_blob(account=None):
     `Claude Code-credentials` item per Mac, and it belongs to whichever login
     the CLI wrote last. An extra account is a directory by definition, so it
     reads and writes its own file and never touches the shared item.
+
+    A store that parses but carries no `claudeAiOauth.accessToken` is not an
+    answer, so the search goes on rather than stopping at it. That item is
+    shared: Claude Code also keeps per-MCP-server OAuth in it, and a blob left
+    holding only `mcpOAuth` used to end the search on the Keychain and make the
+    file unreachable — a quota that could not come back on its own even after a
+    fresh login wrote a good token to disk. When nothing anywhere has a token
+    the first store that parsed is still returned, so the failure is reported
+    against the place the credentials are supposed to be.
     """
+    stores = []
     if account is None:
-        try:
-            raw = subprocess.check_output(
-                ["security", "find-generic-password",
-                 "-s", KEYCHAIN_SERVICE, "-w"],
-                stderr=subprocess.DEVNULL, text=True,
-            ).strip()
-            if raw:
-                return "keychain", json.loads(raw)
-        except (subprocess.CalledProcessError, FileNotFoundError,
-                json.JSONDecodeError):
-            pass
+        stores.append(("keychain", _read_keychain_blob()))
     path = _creds_file(account)
-    try:
-        with open(path) as f:
-            return path, json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None, None
+    stores.append((path, _read_file_blob(path)))
+
+    found = [(store, blob) for store, blob in stores if blob is not None]
+    for store, blob in found:
+        if _oauth_block(blob):
+            return store, blob
+    return found[0] if found else (None, None)
 
 
 def _write_creds_blob(store, blob):
@@ -319,7 +346,12 @@ def fetch_quota(force=False, account=None):
                      "(Keychain or ~/.claude/.credentials.json)")
         oauth = _oauth_block(blob)
         if not oauth:
-            return _keep_stale("credentials missing claudeAiOauth.accessToken")
+            # Reachable with a perfectly healthy Claude Code: the store is
+            # there and parses, it just has no plan token in it any more. Say
+            # what fixes it, because "missing key" reads like a Headroom bug
+            # and sends you looking in the wrong place.
+            return _keep_stale(
+                "no Claude plan token in credentials — run `claude login`")
 
         if _needs_refresh(oauth):
             try:
