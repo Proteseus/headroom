@@ -13,10 +13,8 @@ __pycache__/
 # macOS / Xcode. project.yml is the source of truth: XcodeGen writes the
 # .xcodeproj on every build, so tracking it only produces UUID churn.
 macos/Headroom.xcodeproj/
-macos/.build/
-macos/.build-ios/
-macos/.build-ios-shots/
-macos/.build-release/
+# Every derivedDataPath this repo uses, and the next one someone invents.
+macos/.build*/
 macos/host/
 dist/
 *.xcuserstate
