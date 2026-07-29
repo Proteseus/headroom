@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.3 — 2026-07-29
+
+### Fixed
+
+- Named Claude accounts now read the Keychain credentials for their own
+  profile instead of reusing the default account, so each account reports its
+  own quota and stale state.
+
 ## 1.1.2 — 2026-07-29
 
 ### Fixed
