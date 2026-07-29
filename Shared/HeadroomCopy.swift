@@ -16,6 +16,7 @@ enum HeadroomCopy {
     static let activity = "Activity"
     static let services = "Services"
     static let localServers = "Local servers"
+    static let otherMacs = "Other Macs"
     static let settings = "Settings"
     static let attention = "Attention"
 

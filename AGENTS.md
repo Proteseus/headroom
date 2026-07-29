@@ -225,6 +225,23 @@ Ring and pace semantics are a cross-platform contract: `docs/rings.md`, with
 `Shared/HeadroomRings.swift` as the implementation and the firmware mirroring
 its constants. Changing one means changing all of them.
 
+## Multi-Mac
+
+Settings sync between Macs through a folder, one file per machine, written by
+its owner and read by everyone else ([docs/multi-mac.md](docs/multi-mac.md)).
+Two rules are load-bearing if you touch it:
+
+- **A machine writes only its own file.** That is the entire reason there are
+  no conflict copies. Anything that writes a peer's file, or a shared one,
+  reintroduces the problem the design exists to avoid.
+- **`app_config.SHARED_CONFIG_KEYS` is a whitelist, not a blocklist.** The file
+  it reads holds the host token. A new config key is local until someone adds
+  it there on purpose.
+
+Per-machine facts — local servers, git commits, attention events — are
+*reported* with an owner and never merged. A merged list would describe a
+computer that does not exist.
+
 ## Layout
 
 | Path | What |

@@ -54,6 +54,7 @@ import device_view
 import git_activity
 import github_actions
 import host_version
+import icloud_sync
 import local_servers
 import oauth_usage
 import plausible_usage
@@ -806,7 +807,46 @@ def _compute_doc():
         "focus": sources_config.focus_ids(),
     }
     doc["attention"] = _build_attention(doc)
+    # Last, because it summarizes everything above it.
+    doc["machines"] = icloud_sync.machines_payload(_machine_beacon(doc))
     return doc
+
+
+def _machine_beacon(doc):
+    """What this Mac tells the others about itself.
+
+    Deliberately a summary and not a slice of the document. A peer Mac cannot
+    act on the desktop's git log or open its local servers, and merging either
+    into one list would invent a machine that does not exist. What travels is
+    what makes you get up and walk over: what it is burning, whether something
+    is waiting on you there, and how long ago it said so.
+    """
+    providers = []
+    for row in (doc.get("providers") or []):
+        if not row.get("enabled"):
+            continue
+        pool = (row.get("pools") or {}).get(row.get("headline")) or {}
+        providers.append({
+            "id": row.get("id"),
+            "title": row.get("title"),
+            "pct": pool.get("pct"),
+            "accent": row.get("accent"),
+        })
+    attention = doc.get("attention") or {}
+    local = doc.get("local") or {}
+    beacon = {
+        "host_version": host_version.version(),
+        "providers": providers[:sources_config.FOCUS_LIMIT],
+        "servers": len(local.get("servers") or []),
+    }
+    if attention.get("level") not in (None, "ok"):
+        beacon["attention_open"] = len(attention.get("reasons") or [])
+        beacon["attention_top"] = attention.get("summary")
+    if _device_payload(time.time()):
+        # Only one Mac has the board on its desk, and that is worth saying:
+        # it is the machine whose numbers the panel is showing.
+        beacon["board"] = True
+    return beacon
 
 
 def publish():
@@ -1738,6 +1778,32 @@ def _poller(interval):
         time.sleep(interval)
 
 
+def _sync_loop():
+    """Publish this Mac to the shared folder and read the other Macs back.
+
+    Its own thread rather than a step in `_poller`: this touches iCloud Drive,
+    where a read can block on a download that has not finished. The poll loop
+    is what keeps the menu bar and the board current, and it has no business
+    waiting on another machine's file.
+    """
+    while True:
+        try:
+            result = icloud_sync.tick(beacon=_machine_beacon(rollup()))
+            if result.get("adopted"):
+                # Settings arriving from another Mac change what this one
+                # polls and how it is painted, so the document has to be
+                # rebuilt before anyone reads it again.
+                publish()
+                print(
+                    f"multi-mac: adopted {len(result['adopted'])} setting(s) "
+                    f"from {result['peers']} peer(s)",
+                    flush=True,
+                )
+        except Exception as exc:
+            print("multi-mac sync error:", exc, flush=True)
+        time.sleep(icloud_sync.TICK_S)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8737)
@@ -1826,6 +1892,7 @@ def main():
     threading.Thread(target=_backfill_history, daemon=True).start()
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
+    threading.Thread(target=_sync_loop, daemon=True).start()
 
     def _usb_get_usage():
         # The cable is slow: hand the board its trimmed view, not the full doc.

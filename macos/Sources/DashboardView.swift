@@ -89,6 +89,7 @@ struct DashboardView: View {
                         SupabaseSection(data: store.snapshot.supabase)
                         PlausibleSection(data: store.snapshot.plausible)
                         ServersSection(store: store, pendingStop: $serverToStop)
+                        MachinesSection(machines: store.snapshot.peerMachines)
                     }
                 }
                 .padding(16)

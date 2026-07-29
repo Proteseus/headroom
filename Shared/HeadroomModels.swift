@@ -32,6 +32,10 @@ struct UsageSnapshot: Decodable, Sendable {
     /// Per-provider, per-pool burndown keyed as ["claude": ["week": …]].
     var burndown: [String: [String: Burndown]]?
     var burndownPrimary: Burndown?
+    /// Every Mac signed into the same shared folder, this one first. Always at
+    /// least one row, so a single-Mac install has the same shape as a synced
+    /// one and no surface needs a special case for "sync is off".
+    var machines: [MachineSummary]?
 
     static let empty = UsageSnapshot()
 
@@ -61,7 +65,8 @@ struct UsageSnapshot: Decodable, Sendable {
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
         burndown: [String: [String: Burndown]]? = nil,
-        burndownPrimary: Burndown? = nil
+        burndownPrimary: Burndown? = nil,
+        machines: [MachineSummary]? = nil
     ) {
         self.updated = updated
         self.plan = plan
@@ -89,11 +94,12 @@ struct UsageSnapshot: Decodable, Sendable {
         self.attention = attention
         self.burndown = burndown
         self.burndownPrimary = burndownPrimary
+        self.machines = machines
     }
 
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, providers, vercel, git, github, activity, local
-        case supabase, plausible, sources, attention, focus, burndown
+        case supabase, plausible, sources, attention, focus, burndown, machines
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
         case quotaOK = "quota_ok"
@@ -1472,6 +1478,89 @@ struct LocalServer: Decodable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case name, port, pid, cmd, cwd, bind, reachable
         case latencyMS = "latency_ms"
+    }
+}
+
+/// One Mac signed into the same shared folder.
+///
+/// A summary, not a slice of that Mac's document: what it is burning, whether
+/// something is waiting on you there, and how long ago it said so. Nothing
+/// here is merged with the local numbers — two Macs are allowed to disagree,
+/// and each row carries its own age so a reader can tell which is which.
+struct MachineSummary: Decodable, Identifiable, Sendable {
+    var id: String?
+    var name: String?
+    var isSelf: Bool?
+    var ageS: Int?
+    var stale: Bool?
+    var hostVersion: String?
+    var providers: [MachineProvider]?
+    var servers: Int?
+    var attentionOpen: Int?
+    var attentionTop: String?
+    /// Coding agents on that Mac waiting for an answer.
+    var agent: Int?
+    /// True on the one Mac with the ESP32 on its desk.
+    var board: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, stale, providers, servers, agent, board
+        case isSelf = "self"
+        case ageS = "age_s"
+        case hostVersion = "host_version"
+        case attentionOpen = "attention_open"
+        case attentionTop = "attention_top"
+    }
+
+    var title: String { name ?? "Mac" }
+    var isCurrent: Bool { isSelf == true }
+    var needsYou: Bool { (agent ?? 0) > 0 || (attentionOpen ?? 0) > 0 }
+
+    /// "just now" / "4m ago" / "2h ago" / "3d ago".
+    ///
+    /// Coarse on purpose. The question a reader has is whether the other Mac
+    /// is awake, and to the minute is already more precision than that needs.
+    var lastSeenLabel: String {
+        let seconds = ageS ?? 0
+        if isCurrent || seconds < 90 { return "just now" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        if seconds < 86_400 { return "\(seconds / 3600)h ago" }
+        return "\(seconds / 86_400)d ago"
+    }
+
+    /// What that Mac is doing, in one line, or nil when there is nothing to say.
+    var activityLabel: String? {
+        var parts: [String] = []
+        if let agent, agent > 0 {
+            parts.append("\(agent) waiting")
+        }
+        if let servers, servers > 0 {
+            parts.append("\(servers) server" + (servers == 1 ? "" : "s"))
+        }
+        if let top = attentionTop, !top.isEmpty, (agent ?? 0) == 0 {
+            parts.append(top)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// A provider meter as another Mac reported it.
+struct MachineProvider: Decodable, Identifiable, Sendable {
+    var id: String?
+    var title: String?
+    var pct: Double?
+    var accent: String?
+}
+
+extension UsageSnapshot {
+    /// Other Macs, freshest first. Empty when sync is off or this is the only one.
+    var peerMachines: [MachineSummary] {
+        (machines ?? []).filter { !$0.isCurrent }
+    }
+
+    /// This Mac's own row, when the host published one.
+    var currentMachine: MachineSummary? {
+        (machines ?? []).first { $0.isCurrent }
     }
 }
 

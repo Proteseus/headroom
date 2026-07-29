@@ -7,6 +7,22 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.4 — 2026-07-29
+
+### Added
+
+- Headroom is aware of your other Macs. Turn on `icloud_sync` in
+  `~/.headroom/config.json` and each Mac publishes a small summary of itself
+  to a folder in your iCloud Drive: what it is burning, how many local servers
+  it has up, and whether it needs your attention. The popover lists the others
+  with their own timestamps rather than merging them into one reading, because
+  two Macs are allowed to disagree.
+- Enabled sources, pinned provider order, accent colours and the non-secret
+  half of `config.json` follow you between Macs. Opening Headroom on a second
+  Mac adopts the settings already in the folder instead of starting from
+  defaults. Credentials and machine paths are never synced. See
+  [docs/multi-mac.md](docs/multi-mac.md).
+
 ## 1.1.3 — 2026-07-29
 
 ### Fixed

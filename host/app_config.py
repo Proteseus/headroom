@@ -29,7 +29,30 @@ DEFAULTS = {
     # Authenticated iOS clients may use only these capabilities, and only from
     # a private/Tailscale address. Credential management remains Mac-local.
     "mobile_permissions": ["read", "refresh", "sources", "servers"],
+    # Multi-Mac. Off until asked for: sync writes usage data to a folder that
+    # leaves the machine, and installing Headroom must not start doing that on
+    # its own. See icloud_sync.py and docs/multi-mac.md.
+    "icloud_sync": False,
+    # Where peer machines meet. Empty means the default iCloud Drive folder;
+    # point it anywhere that syncs (Dropbox, Syncthing) and the rest works
+    # unchanged — nothing here is iCloud-specific but the default path.
+    "icloud_dir": "",
 }
+
+# Config keys that are the same person's answer on every Mac, so they follow
+# them from one to the next. Everything absent from this tuple stays local,
+# and two of those absences are load-bearing: `auth_token` is a credential,
+# and `dev_root` / `codex_binary` are paths that describe one machine's disk.
+SHARED_CONFIG_KEYS = (
+    "git_authors",
+    "vercel_team_slugs",
+    "github_org_prefix",
+    "github_always_repos",
+    "github_max_discovered",
+    "plausible_sites",
+    "plausible_host",
+    "plausible_range",
+)
 
 _lock = threading.Lock()
 _cache = None
@@ -271,6 +294,43 @@ def set_mobile_permissions(values):
     ordered = [item for item in MOBILE_PERMISSION_ORDER if item in selected]
     _persist(mobile_permissions=ordered)
     return frozenset(ordered)
+
+
+def icloud_sync_enabled():
+    """Whether this Mac publishes to, and reads, the shared machine folder."""
+    return get("icloud_sync") is True
+
+
+def icloud_dir():
+    """Configured sync folder, or None to let icloud_sync pick the default."""
+    value = str(get("icloud_dir") or "").strip()
+    return os.path.expanduser(value) if value else None
+
+
+def shared_config():
+    """The synced subset of config.json, as stored (absent keys omitted).
+
+    Reads the file rather than `raw()` so a key the user has never set stays
+    absent instead of syncing this build's default out to every other Mac as
+    though it were a choice.
+    """
+    data = _load()
+    return {k: data[k] for k in SHARED_CONFIG_KEYS if k in data}
+
+
+def set_shared_config(updates):
+    """Write synced config keys. Anything outside the whitelist is ignored.
+
+    The filter is here rather than in the caller on purpose: this module owns
+    the file that holds the host token, so it is the right place to be sure a
+    sync can never write one.
+    """
+    clean = {
+        k: v for k, v in (updates or {}).items() if k in SHARED_CONFIG_KEYS
+    }
+    if clean:
+        _persist(**clean)
+    return clean
 
 
 def attention_ack_fingerprint():

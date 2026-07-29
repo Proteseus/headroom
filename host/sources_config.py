@@ -598,6 +598,11 @@ def _normalize_accent(value):
     return "#" + text.lstrip("#").upper()
 
 
+def normalize_accent(value):
+    """Public form of the accent rule, for callers validating before writing."""
+    return _normalize_accent(value)
+
+
 def _clean_accents(raw):
     """Overrides as stored: {source_id: '#RRGGBB'}, junk dropped."""
     if not isinstance(raw, dict):
