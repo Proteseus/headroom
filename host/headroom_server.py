@@ -47,6 +47,7 @@ import accounts
 import app_config
 import auth
 import burndown
+import cache_util
 import claude_history
 import daily_burn
 import device_view
@@ -424,7 +425,13 @@ def _accumulate(target, bucket):
     target["cost_usd"] += cost
 
 
-def _held_resets(burndowns, provider, pool, raw):
+def _age_seconds(payload, now=None):
+    """How old this payload's numbers are, or None when it never said."""
+    age = cache_util.age_s(payload, now)
+    return None if age is None else int(max(0, age))
+
+
+def _held_resets(burndowns, provider, pool, raw, trusted=True):
     """Seconds to reset for one pool, preferring the burndown's held window.
 
     Sources report `resets_in_s` loosely enough that it drifts against the
@@ -436,7 +443,16 @@ def _held_resets(burndowns, provider, pool, raw):
 
     Falls back to the raw value for a pool with no burndown yet: a source that
     is off, unconfigured, or still collecting its first sample.
+
+    `trusted=False` gives no countdown at all. A stale snapshot still has a
+    `resets_in_s` in it, and it is the most convincing wrong number in the
+    document: it was true once, it is the right shape, and counting it down
+    against the clock walks a dead window to zero in front of you. A percentage
+    with no countdown reads as last-known. A percentage with a live countdown
+    reads as now.
     """
+    if not trusted:
+        return None
     pools = (burndowns or {}).get(provider) or {}
     held = (pools.get(pool) or {}).get("resets_in_s")
     return raw if held is None else held
@@ -449,10 +465,11 @@ def _flatten_codex(codex, burndowns=None):
     pace = codex.get("pace") or {}
     credits = codex.get("reset_credits") or {}
     spend = codex.get("spend") or {}
+    trusted = cache_util.trusted(codex)
     session_resets = _held_resets(burndowns, "codex", "session",
-                                  session_q.get("resets_in_s"))
+                                  session_q.get("resets_in_s"), trusted)
     week_resets = _held_resets(burndowns, "codex", "week",
-                               week_q.get("resets_in_s"))
+                               week_q.get("resets_in_s"), trusted)
     session_window = session_q.get("window_s") or oauth_usage.SESSION_WINDOW_S
     week_window = week_q.get("window_s") or oauth_usage.WEEK_WINDOW_S
     return {
@@ -492,11 +509,13 @@ def _flatten_cursor(cursor, burndowns=None):
     on_demand = cursor.get("on_demand") or {}
     # Cursor reports one billing cycle at the top level for every pool, so a
     # bucket without its own reading inherits it before the burndown is asked.
+    trusted = cache_util.trusted(cursor)
+
     def pool_resets(pool, bucket):
         raw = bucket.get("resets_in_s")
         if raw is None:
             raw = cursor.get("resets_in_s")
-        return _held_resets(burndowns, "cursor", pool, raw)
+        return _held_resets(burndowns, "cursor", pool, raw, trusted)
 
     total_resets = pool_resets("total", total_q)
     auto_resets = pool_resets("auto", auto_q)
@@ -649,10 +668,11 @@ def _compute_doc():
     # Flatten Claude fields at the top level (back-compat with older firmware).
     session_q = quota.get("session") or {}
     week_q = quota.get("week") or {}
+    quota_trusted = cache_util.trusted(quota, now)
     session_resets = _held_resets(burndowns, "claude", "session",
-                                  session_q.get("resets_in_s"))
+                                  session_q.get("resets_in_s"), quota_trusted)
     week_resets = _held_resets(burndowns, "claude", "week",
-                               week_q.get("resets_in_s"))
+                               week_q.get("resets_in_s"), quota_trusted)
     doc = {
         "updated": datetime.now(local_tz).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "plan": quota.get("plan"),
@@ -885,6 +905,7 @@ def _sources_payload(state):
     for source in sources_config.ordered_sources():
         payload = state.get(source.id) or {}
         age = times.get(source.id) or 0.0
+        fetched_age = _age_seconds(payload, now)
         rows.append({
             "id": source.id,
             "title": source.title,
@@ -906,7 +927,14 @@ def _sources_payload(state):
             "configured": payload.get("configured"),
             "error": payload.get("error"),
             "detail": sources_config.detail_for(source.id, payload),
-            "age_s": (int(max(0, now - age)) if age > 0 else None),
+            # Age of the *numbers*, falling back to the last poll for sources
+            # that carry no timestamp of their own. `_source_times` records
+            # when we last tried, and a failing source is tried on the same
+            # schedule as a healthy one — so reporting that as the age is how
+            # something broken since last night reads as a minute old, and how
+            # the "N minutes stale" line stays at one minute forever.
+            "age_s": (fetched_age if fetched_age is not None
+                      else (int(max(0, now - age)) if age > 0 else None)),
         })
     return rows
 
@@ -924,6 +952,7 @@ def _providers_payload(state, burndowns=None):
     # the menu bar, the widget, and the board about sequence.
     for rank, source in enumerate(sources_config.ordered_quota_sources()):
         payload = state.get(source.id) or {}
+        trusted = cache_util.trusted(payload)
         pools = {}
         # `pools` is a JSON object, so declaration order is lost on the wire.
         # Ship it as a rank the way providers[] already does, so rings, bars
@@ -933,7 +962,7 @@ def _providers_payload(state, burndowns=None):
             raw = bucket.get("resets_in_s")
             if raw is None:
                 raw = payload.get("resets_in_s")
-            resets = _held_resets(burndowns, source.id, spec.id, raw)
+            resets = _held_resets(burndowns, source.id, spec.id, raw, trusted)
             window = bucket.get("window_s") or spec.default_window_s
             pools[spec.id] = {
                 "title": spec.title,
@@ -953,6 +982,13 @@ def _providers_payload(state, burndowns=None):
             "rank": rank,
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
+            # Bars stay up on a stale payload — last-known beats blank — so the
+            # card needs the flag to say so. Without it the only difference
+            # between last night's numbers and this minute's is a countdown
+            # that is now deliberately absent, which is not a difference a
+            # reader can be expected to notice.
+            "stale": bool(payload.get("stale")),
+            "age_s": _age_seconds(payload),
             "plan": payload.get("plan"),
             "error": payload.get("error"),
             "accent": sources_config.accent_for(source.id),

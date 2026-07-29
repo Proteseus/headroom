@@ -43,6 +43,8 @@ import os
 import threading
 import time
 
+import cache_util
+
 import sources_config
 
 STORE_PATH = os.path.expanduser("~/.headroom/quota_samples.jsonl")
@@ -406,7 +408,12 @@ def record(state, *, now=None, persist=True):
             _seed_locked()
             for spec in POOLS:
                 payload = (state or {}).get(spec.provider)
-                if not isinstance(payload, dict) or not payload.get("ok"):
+                # A stale payload is the same reading over and over. Recording
+                # it lays down a flat line that is indistinguishable from a
+                # real idle stretch, and every one of those samples walks the
+                # derived window forward, so a source that stopped answering
+                # last night still shows a window rolling on schedule today.
+                if not cache_util.trusted(payload, now):
                     continue
                 reading = extract(spec.provider, spec.pool, payload)
                 if reading is None:
