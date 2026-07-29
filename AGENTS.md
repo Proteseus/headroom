@@ -53,6 +53,88 @@ half-finished work and cannot tell whose failure you are looking at:
 git worktree add --detach /tmp/verify HEAD
 ```
 
+## The board
+
+There is one ESP32 on one desk and it takes one owner at a time. Before you
+touch it, **check that nothing else is using it, and stop if something is.**
+Do not kill the holder to get your turn.
+
+```bash
+./scripts/flash-esp32.sh
+```
+
+That does the check and refuses to race. Use it instead of `pio run -t upload`.
+
+`Headroom.app` launches `host/headroom_server.py`, which holds
+`/dev/cu.usbmodem*` open to push `/usage` to the board over USB-CDC. Flash
+while the app is running and the two fight for the port — and **esptool does
+not fail cleanly.** It can write part of the app partition and then stop
+responding, which leaves the board unbootable.
+
+The failure reads as a hardware fault and isn't:
+
+| What you see | What it actually is |
+|---|---|
+| `The chip stopped responding` mid-write | Something else owns the port |
+| `device reports readiness to read but returned no data` | Same, on the retry |
+| Board dark, port still enumerates | Partial app partition — it can't boot |
+
+Recovering a half-written board needs hands: hold **BOOT**, tap **RESET** (or
+replug USB), release BOOT, then flash again. OTA cannot save you, because OTA
+needs a firmware that boots far enough to bring up Wi-Fi.
+
+To check by hand:
+
+```bash
+lsof /dev/cu.usbmodem*
+```
+
+**Quitting `Headroom.app` is not enough, and neither is `kill`.** The host
+server runs from a `KeepAlive` LaunchAgent, so it is detached from the app
+(PPID 1) and launchd restarts it within seconds of any kill. You will watch the
+PID change and the port stay busy.
+
+Stop the agent, flash, put it back:
+
+```bash
+launchctl bootout gui/$(id -u)/com.centaur-labs.headroom
+./scripts/flash-esp32.sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.centaur-labs.headroom.plist
+```
+
+Always restore it. The board gets its usage data from that process, so leaving
+it unloaded looks exactly like a broken board on the next boot.
+
+## Boot splash art is generated
+
+`firmware/src/boot_max.h` is generated — never hand-edit it. The mask, both
+copper tables and the previews all come from one script:
+
+```bash
+.venv-shots/bin/python scripts/render_esp32_boot.py --emit-header firmware/src/boot_max.h --out /tmp/boot
+```
+
+`--out` writes stills plus an animated GIF of the sequence at the real frame
+timings, so the splash can be judged without a reflash. The venv is the one
+`scripts/generate_screenshots.sh` builds; it only needs Pillow.
+
+The splash plays on cold boot only — `esp_reset_reason()` gates it to
+`POWERON`/`BROWNOUT`, and holding BOOT at power-on skips it. An OTA push or a
+watchdog reboot goes straight to the amber ROM checklist, so the dev loop
+doesn't pay four seconds an iteration.
+
+`connectWifi()` is called **before** the splash in `setup()` on purpose. The
+animation runs while the radio associates, which is time the board spends
+anyway. Move it back after the splash and the show starts costing real
+time-to-first-data.
+
+`scripts/render_esp32_preview.py` and `render_esp32_boot.py` redraw what the
+panel draws at the same logical 448x368, with text through
+`scripts/gfx_font.py` — the same 5x7 glyphs and `6*size` metrics Arduino_GFX
+blits, not a lookalike in a desktop font. Change layout in
+`firmware/src/main.cpp` and change it in the renderer too, or the previews
+start lying.
+
 ## Versioning
 
 `host/VERSION` is the marketing version, hand-bumped. Apple build numbers come

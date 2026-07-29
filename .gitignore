@@ -15,6 +15,7 @@ __pycache__/
 macos/Headroom.xcodeproj/
 # Every derivedDataPath this repo uses, and the next one someone invents.
 macos/.build*/
+macos/build/
 macos/host/
 dist/
 *.xcuserstate

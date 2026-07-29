@@ -5,8 +5,8 @@ Apple build numbers are `git rev-list --count HEAD` via [`scripts/version-env.sh
 
 **Each coherent set of changes gets one release, and the patch never passes 9.**
 Increment the patch; at `.9` roll to the next minor and reset it, so 1.1.9 is
-followed by 1.2.0 and 1.9.9 by 2.0.0. That rule is why the Apple Watch release
-is 1.1.0 rather than 1.0.12.
+followed by 1.2.0 and 1.9.9 by 2.0.0. The existing `v1.0.10` and `v1.0.11`
+tags predate this rule; the next release after them rolls to `1.1.0`.
 
 Because the bump ships whatever is on `main`, one-set-per-release means one
 branch per set, merged and bumped one at a time — see
