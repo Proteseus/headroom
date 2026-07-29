@@ -64,6 +64,12 @@ struct MobileSettingsScreen: View {
                 }
                 .disabled(store.isLoading || !store.mobilePermissions.refresh)
             }
+
+            Section {
+                AboutHeadroomView()
+            } header: {
+                Text(HeadroomCopy.about)
+            }
         }
         .navigationTitle(HeadroomCopy.settings)
     }

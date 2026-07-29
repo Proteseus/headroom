@@ -1,11 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// First-run + “host down” onboarding: start the bundled host, show what we
-/// detected locally, and let the user confirm Sources before diving in.
+/// The “host down” card: start the bundled host, show what we detected
+/// locally, and let the user fix Sources without a trip to Settings.
+///
+/// First run is no longer this view's job. It moved to `WelcomeView` in its own
+/// window, because a `.transient` popover cannot hold a screen someone reads
+/// once and cannot point at the menu bar icon it hangs from.
 struct SetupView: View {
     @ObservedObject var store: UsageStore
-    var isFirstRun: Bool
     var onFinished: () -> Void
 
     @State private var hostBusy = false
@@ -27,11 +30,9 @@ struct SetupView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(isFirstRun ? "Welcome to Headroom" : "Start the host")
+            Text("Start the host")
                 .font(.title3.weight(.semibold))
-            Text(isFirstRun
-                 ? "A Release app starts the local host automatically and tracks signed-in coding tools."
-                 : "Needs the local host on :8737. Starts at login.")
+            Text("Needs the local host on :8737. Starts at login.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -119,65 +120,23 @@ struct SetupView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(groupedRows, id: \.group) { section in
-                    groupBlock(section.group, rows: section.rows)
-                }
+                SetupSourcesList(
+                    rows: $setupRows,
+                    enabled: hostReady && !hostBusy
+                )
             }
         }
         .cardStyle()
     }
 
-    /// Quota meters and dev-tool watchers do different jobs — asking about
-    /// them in one flat list makes the user sort it out row by row.
-    private var groupedRows: [(group: SourceGroup, rows: [SetupSourceRow])] {
-        SourceGroup.allCases.compactMap { group in
-            let rows = setupRows.filter { $0.sourceGroup == group }
-            return rows.isEmpty ? nil : (group, rows)
-        }
-    }
-
-    private func groupBlock(
-        _ group: SourceGroup,
-        rows: [SetupSourceRow]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(group.title)
-                    .font(.subheadline.weight(.semibold))
-                Text(group.subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 2)
-
-            ForEach(rows) { row in
-                Toggle(isOn: binding(for: row.id)) {
-                    HStack {
-                        Text(row.title)
-                        Spacer()
-                        Text(row.detected ? "Detected" : "Not found")
-                            .font(.caption2)
-                            .foregroundStyle(row.detected ? HeadroomPalette.green : .secondary)
-                    }
-                }
-                .disabled(!hostReady || hostBusy)
-            }
-        }
-    }
-
     private var footer: some View {
         HStack {
-            if isFirstRun {
-                Button("Skip for now") { onFinished() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-            }
             Spacer()
-            Button(isFirstRun ? "Continue" : "Done") {
+            Button("Done") {
                 Task { await saveAndFinish() }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!hostReady && isFirstRun == false)
+            .disabled(!hostReady)
         }
     }
 
@@ -185,17 +144,6 @@ struct SetupView: View {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "App \(short) (\(build))"
-    }
-
-    private func binding(for id: String) -> Binding<Bool> {
-        Binding(
-            get: { setupRows.first(where: { $0.id == id })?.enabled ?? false },
-            set: { value in
-                if let idx = setupRows.firstIndex(where: { $0.id == id }) {
-                    setupRows[idx].enabled = value
-                }
-            }
-        )
     }
 
     private func bootstrap() async {
@@ -287,6 +235,63 @@ struct SetupView: View {
             }
         }
         onFinished()
+    }
+}
+
+/// The grouped source toggles, shared by the welcome window and the host-down
+/// card so the two lists cannot drift apart.
+///
+/// Quota meters and dev-tool watchers do different jobs — asking about them in
+/// one flat list makes the user sort it out row by row.
+struct SetupSourcesList: View {
+    @Binding var rows: [SetupSourceRow]
+    var enabled: Bool
+
+    private var grouped: [(group: SourceGroup, rows: [SetupSourceRow])] {
+        SourceGroup.allCases.compactMap { group in
+            let matching = rows.filter { $0.sourceGroup == group }
+            return matching.isEmpty ? nil : (group, matching)
+        }
+    }
+
+    var body: some View {
+        ForEach(grouped, id: \.group) { section in
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(section.group.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(section.group.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 2)
+
+                ForEach(section.rows) { row in
+                    Toggle(isOn: binding(for: row.id)) {
+                        HStack {
+                            Text(row.title)
+                            Spacer()
+                            Text(row.detected ? "Detected" : "Not found")
+                                .font(.caption2)
+                                .foregroundStyle(
+                                    row.detected ? HeadroomPalette.green : .secondary)
+                        }
+                    }
+                    .disabled(!enabled)
+                }
+            }
+        }
+    }
+
+    private func binding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { rows.first(where: { $0.id == id })?.enabled ?? false },
+            set: { value in
+                if let idx = rows.firstIndex(where: { $0.id == id }) {
+                    rows[idx].enabled = value
+                }
+            }
+        )
     }
 }
 

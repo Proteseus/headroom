@@ -17,6 +17,7 @@ struct HeadroomApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
     private var statusController: StatusItemController?
+    private var welcomeController: WelcomeWindowController?
     private var wakeObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -56,6 +57,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Task { @MainActor in
             await Self.ensureHostRunning(store: store)
+        }
+
+        let welcome = WelcomeWindowController(
+            store: store,
+            statusItemFrame: { [weak self] in self?.statusController?.buttonScreenFrame },
+            onFinish: { [weak self] in
+                // The window is mid-close, and closing it drops the app back to
+                // `.accessory`. Showing the popover in the same turn races that
+                // and it opens behind everything; next turn it lands.
+                DispatchQueue.main.async {
+                    self?.statusController?.openPopover()
+                }
+            }
+        )
+        welcomeController = welcome
+        // Second and later launches return immediately.
+        welcome.showIfPending()
+
+        NotificationCenter.default.addObserver(
+            forName: .headroomShowWelcome,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.welcomeController?.show() }
         }
     }
 
@@ -105,8 +130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AttentionAck.dismissedFingerprint = nil
         UserDefaults.standard.set("overview", forKey: "selectedDashboard")
-        // Skip the first-run Welcome sheet so the overview is what we ship.
-        UserDefaults.standard.set(true, forKey: "setupCompleted")
+        // Belt and braces: this path returns before the welcome window is even
+        // built, but a shipped screenshot must never be onboarding.
+        UserDefaults.standard.set(
+            WelcomeWindowController.currentVersion,
+            forKey: WelcomeWindowController.shownVersionKey)
 
         if let fixture {
             do {
@@ -641,6 +669,21 @@ private struct SettingsView: View {
                     in: 1...20
                 )
                 Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
+            }
+
+            Section {
+                Button(HeadroomCopy.showWelcome) {
+                    NotificationCenter.default.post(
+                        name: .headroomShowWelcome, object: nil)
+                }
+            } footer: {
+                Text("The first-run walkthrough: the menu bar icon, the background helper, pairing a phone, and the desk display.")
+            }
+
+            Section {
+                AboutHeadroomView()
+            } header: {
+                Text(HeadroomCopy.about)
             }
         }
         .formStyle(.grouped)

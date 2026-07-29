@@ -54,6 +54,22 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// Where the icon sits on screen, for the welcome window's coach mark.
+    /// Read on demand rather than cached: the icon moves when another app
+    /// claims a slot, when it's dragged, and when a display comes or goes.
+    var buttonScreenFrame: NSRect? {
+        guard let button = statusItem.button, let window = button.window
+        else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    /// Open the dashboard from outside. The welcome window's last step uses
+    /// this so "it lives up there" ends on the thing itself.
+    func openPopover() {
+        guard !popover.isShown else { return }
+        togglePopover()
+    }
+
     private func update(snapshot: UsageSnapshot, healthy: Bool) {
         let attention = snapshot.attention
         let showPip = attention?.isWarning == true

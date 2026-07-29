@@ -10,8 +10,6 @@ struct DashboardView: View {
     private var selectedProviderRaw = UsageProvider.codex.rawValue
     @AppStorage("selectedDashboard")
     private var selectedDashboardRaw = DashboardSelection.overview
-    @AppStorage("setupCompleted")
-    private var setupCompleted = false
     @State private var serverToStop: LocalServer?
 
     private var visibleProviders: [QuotaProviderInfo] {
@@ -22,12 +20,16 @@ struct DashboardView: View {
         selectedDashboardRaw == DashboardSelection.overview
     }
 
-    /// Onboarding is for "there is no host to talk to", not "the last call
+    /// The setup card is for "there is no host to talk to", not "the last call
     /// failed". `errorMessage` collects every failure in the app — a refused
     /// server stop, one flaky poll — and keying off it threw the whole
     /// dashboard back to the setup sheet over things the host was fine for.
+    ///
+    /// First run is not part of this condition any more: it has its own window
+    /// (`WelcomeWindowController`), so an empty dashboard behind the welcome is
+    /// the dashboard, not a second copy of onboarding.
     private var needsSetup: Bool {
-        !setupCompleted || !store.hostReachable
+        !store.hostReachable
     }
 
     var body: some View {
@@ -37,11 +39,7 @@ struct DashboardView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if needsSetup {
-                        SetupView(
-                            store: store,
-                            isFirstRun: !setupCompleted
-                        ) {
-                            setupCompleted = true
+                        SetupView(store: store) {
                             Task { await store.refresh() }
                         }
                     } else {

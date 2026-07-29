@@ -18,7 +18,13 @@ enum HeadroomCopy {
     static let localServers = "Local servers"
     static let otherMacs = "Other Macs"
     static let settings = "Settings"
+    static let about = "About"
     static let attention = "Attention"
+
+    /// Person who made it (LICENSE copyright holder).
+    static let createdBy = "Created by Michell Zappa"
+    /// App Store / signing entity — secondary to the personal credit.
+    static let publisher = "Centaur Labs"
 
     // MARK: Charts
 
@@ -167,6 +173,17 @@ enum HeadroomCopy {
     static let aiToolsHint = "Signed in on this Mac. Nothing to paste."
     static let devTools = "Dev tools"
     static let devToolsHint = "Projects and pipelines. Some need a key."
+
+    // MARK: Welcome
+
+    /// First-run chrome. Only the names that appear in more than one place
+    /// live here — the pane prose is macOS-only and stays in `WelcomeView`,
+    /// which keeps forty strings out of the watch and widget binaries.
+    static let welcomeTitle = "Welcome to Headroom"
+    static let welcomeFinish = "Start using Headroom"
+    static let showWelcome = "Show welcome"
+    /// The callout that points at the menu bar icon on first run.
+    static let welcomeCoachMark = "Headroom lives here"
 
     // MARK: Widget
 
