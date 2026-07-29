@@ -40,6 +40,9 @@ struct HeadroomMobileApp: App {
             guard exportDirectory == nil else { return }
             switch phase {
             case .active:
+                // Before the refresh, so the session is activated by the time
+                // the fetch it kicks off comes back with something to forward.
+                WatchBridge.shared.activate()
                 Task { await store.refresh() }
                 store.startLiveUpdates()
             case .background:

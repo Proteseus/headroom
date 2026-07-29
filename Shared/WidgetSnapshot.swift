@@ -41,6 +41,11 @@ enum HeadroomAppGroup {
     /// Key for the encoded `HeadroomWidgetSnapshot` inside the group defaults.
     static let snapshotKey = "widgetSnapshot"
 
+    /// Key for the same payload inside a WatchConnectivity dictionary. The
+    /// phone writes it, the watch reads it, and neither can see the other's
+    /// container — so this is the one string that has to agree across devices.
+    static let watchPayloadKey = "snapshot"
+
     #if os(macOS)
     private static func signingTeamIdentifier() -> String? {
         var code: SecCode?

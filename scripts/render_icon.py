@@ -50,6 +50,7 @@ MACOS_ICONS = {
 }
 MACOS_DIR = ROOT / "macos/Assets.xcassets/AppIcon.appiconset"
 IOS_ICON = ROOT / "ios/HeadroomMobile/Assets.xcassets/AppIcon.appiconset/HeadroomIcon.png"
+WATCH_ICON = ROOT / "watch/HeadroomWatch/Assets.xcassets/AppIcon.appiconset/HeadroomIcon.png"
 APPSTORE_ICON = ROOT / "docs/appstore/icon-1024.png"
 
 SUPERSAMPLE = 4
@@ -118,7 +119,7 @@ def main():
             image.save(MACOS_DIR / name, format="PNG")
             written.append(MACOS_DIR / name)
     full = render(SIDE)
-    for path in (IOS_ICON, APPSTORE_ICON):
+    for path in (IOS_ICON, WATCH_ICON, APPSTORE_ICON):
         full.save(path)
         written.append(path)
     for path in written:

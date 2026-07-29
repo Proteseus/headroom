@@ -25,7 +25,7 @@ check_absent() {
   local pattern="$1"
   local hint="$2"
   local hits
-  hits="$(search "$pattern" macos/Sources ios/HeadroomMobile widget Shared firmware/src)"
+  hits="$(search "$pattern" macos/Sources ios/HeadroomMobile widget watch Shared firmware/src)"
   if [[ -n "$hits" ]]; then
     echo "Banned phrase found ($hint):"
     echo "$hits"

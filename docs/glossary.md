@@ -39,6 +39,14 @@ Do not title the activity feed **GitHub**. That word is reserved for the
 | **Daily burn** | Per-day %-point burn across providers | `by_day` |
 | **pts / day** | Unit subtitle for daily burn | — |
 | **Headroom rings** | Concentric usage + pace indicator | see `docs/rings.md` |
+| **N% used** | The rings' reading | — |
+| **N% left** | The burndown's reading (remaining) | — |
+| **Empty Thu** | Forecast reaches zero before the pool renews | — |
+
+Rings say **used**, burndown says **left**. Keep the word attached to the
+number wherever both glyphs share a surface — the watch's rectangular
+complication does — so they never look like one figure disagreeing with
+itself. Where only one date fits, **Empty** outranks **Resets**.
 
 Overall burndown’s optional subtitle is just **7 days** (don’t restate “all quotas”).
 The domain is a fixed local week — today−3 … today+4 — so history stays readable
@@ -87,6 +95,7 @@ Keep these short; don’t explain the pipeline.
 | **No activity yet** | Activity feed empty |
 | **No local servers** | Local servers empty |
 | **Waiting for Mac sync** | iOS before first payload |
+| **Open Headroom on iPhone** | Watch before first payload — it cannot reach the Mac itself |
 | **Searching…** | Bonjour discovery in progress |
 
 ## Sources (host registry titles)

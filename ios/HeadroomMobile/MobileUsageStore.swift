@@ -109,7 +109,9 @@ final class MobileUsageStore: ObservableObject {
             capturedAt = Date()
             isShowingArchive = false
             consecutiveFailures = 0
-            HeadroomWidgetCache.save(snapshot)
+            // Same bytes to both caches: the phone's widget group, and — over
+            // WatchConnectivity — the watch's, which no other surface can fill.
+            WatchBridge.shared.push(HeadroomWidgetCache.save(snapshot))
             await MobileNotifications.notifyIfNeeded(snapshot.attention)
         } catch {
             // Keep whatever is on screen. Losing a week of burndown because the

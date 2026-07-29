@@ -16,6 +16,7 @@ that consolidates that into one glance:
 | **Popover** | Overview rings, daily burn, spend, Activity / Services |
 | **Notification Center** | The same widget the iPhone runs: rings small, combined burndown medium |
 | **iPhone / iPad** | Quotas, burndown, activity, services, controls, notifications, widgets |
+| **Apple Watch** | Two complications: one ring per source, or the week's burndown |
 
 One Python host on your Mac reads local auth + CLIs and serves a single JSON
 feed. No cloud account for Headroom itself — your tokens stay on the machine.
@@ -400,6 +401,7 @@ the port.
 | Doc | For |
 |---|---|
 | [docs/ios-companion.md](docs/ios-companion.md) | iPhone build, pairing, widgets |
+| [docs/watch.md](docs/watch.md) | Apple Watch complications and how data reaches the wrist |
 | [docs/appstore.md](docs/appstore.md) | App Store listing copy + screenshot plan |
 | [docs/privacy.md](docs/privacy.md) | Privacy policy (ASC URL) |
 | [docs/install-links.md](docs/install-links.md) | Release + TestFlight URLs |

@@ -7,8 +7,13 @@ import WidgetKit
 /// Both apps write it. On iOS the phone has just fetched from the Mac; on the
 /// Mac the app is the source itself, which is why its widget is current while
 /// the phone's is up to a background-refresh interval behind.
+///
+/// `save` hands the payload back so the phone can forward the very same bytes
+/// to the watch (`WatchBridge`) rather than building a second, drifting wire
+/// for it — the watch complications draw the widget's snapshot verbatim.
 enum HeadroomWidgetCache {
-    static func save(_ snapshot: UsageSnapshot) {
+    @discardableResult
+    static func save(_ snapshot: UsageSnapshot) -> HeadroomWidgetSnapshot {
         // Clip the series here rather than in the extension: the widget gets a
         // week of chart and nothing else, and it redraws from a cache it can
         // hold in memory. It clips again on its own clock, which has moved on
@@ -47,9 +52,10 @@ enum HeadroomWidgetCache {
         )
         guard let data = try? JSONEncoder().encode(value),
               let defaults = HeadroomAppGroup.defaults()
-        else { return }
+        else { return value }
         defaults.set(data, forKey: HeadroomAppGroup.snapshotKey)
         WidgetCenter.shared.reloadAllTimelines()
+        return value
     }
 
     /// One provider's line on the wide widget's combined burndown, from the

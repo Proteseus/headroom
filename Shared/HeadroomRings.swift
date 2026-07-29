@@ -2,12 +2,29 @@ import SwiftUI
 
 /// One quota pool in the Headroom rings glyph.
 ///
-/// Layers are ordered outside-in. Every surface uses at most two: the fastest
-/// quota window first, followed by the slower window.
+/// Layers are ordered outside-in. Most surfaces use at most two: the fastest
+/// quota window first, followed by the slower window. The watch's combined dial
+/// spends its bands on providers instead, which is what `tint` is for — one
+/// glyph, one hue per band.
 struct HeadroomRingLayer: Identifiable, Sendable {
     let id: String
     let percent: Double?
     let pacePercent: Double?
+    /// Band colour when one glyph mixes providers. Nil falls back to the view's
+    /// `tint`, which is every surface that draws a single provider.
+    var tint: Color?
+
+    init(
+        id: String,
+        percent: Double?,
+        pacePercent: Double?,
+        tint: Color? = nil
+    ) {
+        self.id = id
+        self.percent = percent
+        self.pacePercent = pacePercent
+        self.tint = tint
+    }
 }
 
 /// The visual contract shared by macOS, iOS, widgets, and mirrored in firmware.
@@ -35,6 +52,48 @@ enum HeadroomRingStyle {
     }
 }
 
+/// Band proportions for one family of surfaces.
+///
+/// `standard` is the shipped look on Mac, iPhone, and the home-screen widgets.
+/// The watch needs its own because it draws a third band at a third of the
+/// diameter, where the shipped ratios leave the inner ring too thin to read.
+struct HeadroomRingProfile: Sendable {
+    var maximumLayerCount = HeadroomRingStyle.maximumLayerCount
+    var strokeRatio = HeadroomRingStyle.strokeRatio
+    var spacingRatio = HeadroomRingStyle.spacingRatio
+    var minimumStroke: CGFloat = 3
+    var minimumSpacing: CGFloat = 2
+
+    static let standard = HeadroomRingProfile()
+
+    /// One band per provider on a complication-sized dial. Thicker bands so a
+    /// 30pt circular still reads, tighter gaps so the third band clears the
+    /// `radius > lineWidth` floor instead of being dropped.
+    static let watch = HeadroomRingProfile(
+        maximumLayerCount: 3,
+        strokeRatio: 8.0 / 72.0,
+        spacingRatio: 3.0 / 72.0,
+        minimumStroke: 2,
+        minimumSpacing: 1.5
+    )
+}
+
+/// Which half of the glyph to paint.
+///
+/// A watch complication renders in `.accented`: the system flattens the whole
+/// view to one tint unless part of it is moved into a second group with
+/// `.widgetAccentable()`. Drawing bands and pace dots as two stacked canvases
+/// is what keeps the gap between arc and dot — the entire point of the glyph —
+/// readable there. Every other surface draws `.all` in one pass.
+enum HeadroomRingPass: Sendable {
+    case all
+    case bands
+    case pace
+
+    var drawsBands: Bool { self != .pace }
+    var drawsPace: Bool { self != .bands }
+}
+
 /// Headroom's canonical quota indicator.
 ///
 /// The accent arc is usage. The contrasting dot is where an even burn would be
@@ -43,9 +102,11 @@ struct HeadroomRings: View {
     let layers: [HeadroomRingLayer]
     let tint: Color
     var indicatorColor: Color = .primary
+    var profile: HeadroomRingProfile = .standard
+    var pass: HeadroomRingPass = .all
 
     private var visibleLayers: [HeadroomRingLayer] {
-        let values = Array(layers.prefix(HeadroomRingStyle.maximumLayerCount))
+        let values = Array(layers.prefix(profile.maximumLayerCount))
         return values.isEmpty
             ? [HeadroomRingLayer(id: "unavailable", percent: nil, pacePercent: nil)]
             : values
@@ -54,8 +115,12 @@ struct HeadroomRings: View {
     var body: some View {
         Canvas { context, size in
             let side = min(size.width, size.height)
-            let lineWidth = max(3, side * HeadroomRingStyle.strokeRatio)
-            let spacing = max(2, side * HeadroomRingStyle.spacingRatio)
+            let lineWidth = max(
+                profile.minimumStroke, side * profile.strokeRatio
+            )
+            let spacing = max(
+                profile.minimumSpacing, side * profile.spacingRatio
+            )
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             var radius = side / 2 - lineWidth / 2 - 1
 
@@ -72,7 +137,10 @@ struct HeadroomRings: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        // The pace pass is the same glyph a second time. Letting it keep a
+        // label would make VoiceOver read every ring twice.
+        .accessibilityLabel(pass == .pace ? "" : accessibilitySummary)
+        .accessibilityHidden(pass == .pace)
     }
 
     private func draw(
@@ -82,21 +150,24 @@ struct HeadroomRings: View {
         center: CGPoint,
         context: inout GraphicsContext
     ) {
+        let bandTint = layer.tint ?? tint
         let rect = CGRect(
             x: center.x - radius,
             y: center.y - radius,
             width: radius * 2,
             height: radius * 2
         )
-        var track = Path()
-        track.addEllipse(in: rect)
-        context.stroke(
-            track,
-            with: .color(tint.opacity(HeadroomRingStyle.trackOpacity)),
-            lineWidth: lineWidth
-        )
+        if pass.drawsBands {
+            var track = Path()
+            track.addEllipse(in: rect)
+            context.stroke(
+                track,
+                with: .color(bandTint.opacity(HeadroomRingStyle.trackOpacity)),
+                lineWidth: lineWidth
+            )
+        }
 
-        if let percent = layer.percent {
+        if pass.drawsBands, let percent = layer.percent {
             let clamped = max(0, min(percent, 100))
             var sweep = clamped * 3.6
             if clamped > 0 {
@@ -117,18 +188,18 @@ struct HeadroomRings: View {
                 )
                 context.stroke(
                     usage,
-                    with: .color(tint),
+                    with: .color(bandTint),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
             } else if sweep > 0 {
                 // Shorter than its own two caps: a zero-length stroked arc is
                 // not reliably drawn, so paint the cap itself.
                 context.fill(dot(at: -90 + sweep / 2, radius: radius, center: center,
-                                 diameter: lineWidth), with: .color(tint))
+                                 diameter: lineWidth), with: .color(bandTint))
             }
         }
 
-        if let pacePercent = layer.pacePercent {
+        if pass.drawsPace, let pacePercent = layer.pacePercent {
             let angle = -90 + max(0, min(pacePercent, 100)) * 3.6
             context.fill(
                 dot(

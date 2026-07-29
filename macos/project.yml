@@ -4,6 +4,10 @@ options:
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
+    # watchOS 10 is where WidgetKit complications and `.containerBackground`
+    # landed; the watch app has no reason to reach further back than the
+    # complications it exists to host.
+    watchOS: "10.0"
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -107,6 +111,10 @@ targets:
     dependencies:
       - target: HeadroomWidget
         embed: true
+      # The watch app rides inside the phone app. It is the only route the
+      # watch has to the Mac's numbers — see ios/HeadroomMobile/WatchBridge.swift.
+      - target: HeadroomWatch
+        embed: true
     scheme:
       testTargets:
         - HeadroomMobileTests
@@ -127,6 +135,7 @@ targets:
       - path: ../Shared/HeadroomPalette.swift
       - path: ../Shared/BurndownChartMath.swift
       - path: ../Shared/BurndownChartCanvas.swift
+      - path: ../Shared/WidgetSnapshotPresentation.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.widget
@@ -153,6 +162,7 @@ targets:
       - path: ../Shared/HeadroomPalette.swift
       - path: ../Shared/BurndownChartMath.swift
       - path: ../Shared/BurndownChartCanvas.swift
+      - path: ../Shared/WidgetSnapshotPresentation.swift
     settings:
       base:
         PRODUCT_NAME: HeadroomWidget
@@ -162,6 +172,82 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ../widget/macos/HeadroomWidget.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+  # The watch app exists to host the complications and to be somewhere to land
+  # when you tap one. It cannot reach the Mac — the phone forwards the widget
+  # snapshot over WatchConnectivity and this writes it into the watch's own app
+  # group, where the complication extension reads it.
+  HeadroomWatch:
+    type: application
+    platform: watchOS
+    configFiles:
+      Debug: Version.xcconfig
+      Release: Version.xcconfig
+    sources:
+      - path: ../watch/HeadroomWatch
+        excludes:
+          - Info.plist
+          - "**/*.entitlements"
+      - path: ../watch/Shared
+      # The wire, the palette, the chrome, the ring engine, and the chart
+      # geometry — the same files the widgets compile, and deliberately free of
+      # the model layer so neither has to.
+      - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/WidgetSnapshotPresentation.swift
+      - path: ../Shared/HeadroomRings.swift
+      - path: ../Shared/HeadroomCopy.swift
+      - path: ../Shared/HeadroomPalette.swift
+      - path: ../Shared/BurndownChartMath.swift
+      - path: ../Shared/BurndownChartCanvas.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.watchkitapp
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ../watch/HeadroomWatch/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: ../watch/HeadroomWatch/HeadroomWatch.entitlements
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+    dependencies:
+      - target: HeadroomWatchComplication
+        embed: true
+  HeadroomWatchComplication:
+    type: app-extension
+    platform: watchOS
+    configFiles:
+      Debug: Version.xcconfig
+      Release: Version.xcconfig
+    sources:
+      - path: ../watch/HeadroomWatchComplication
+        excludes:
+          - Info.plist
+          - "**/*.entitlements"
+      # Everything under watch/Shared is written to compile in both — the
+      # complication draws the same glyph and the same chart the watch app's
+      # own screen does.
+      - path: ../watch/Shared
+      - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/WidgetSnapshotPresentation.swift
+      - path: ../Shared/HeadroomRings.swift
+      - path: ../Shared/HeadroomCopy.swift
+      - path: ../Shared/HeadroomPalette.swift
+      - path: ../Shared/BurndownChartMath.swift
+      - path: ../Shared/BurndownChartCanvas.swift
+    settings:
+      base:
+        # Not `.complication` — Apple's portal refuses to register that exact
+        # identifier ("not available") even though the parent `.watchkitapp`
+        # registers fine. A short single-word suffix is what works on this
+        # team (cf. com.septena.cloud.watchkitapp.next). Both complications
+        # live in this one extension, so the word names neither of them.
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.watchkitapp.faces
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ../watch/HeadroomWatchComplication/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: ../watch/HeadroomWatchComplication/HeadroomWatchComplication.entitlements
         SKIP_INSTALL: YES
         SWIFT_STRICT_CONCURRENCY: complete
   HeadroomMobileTests:

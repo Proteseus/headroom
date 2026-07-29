@@ -21,6 +21,12 @@ Do **not** paste the **host token** (`~/.headroom/token`) — that is for the
 ESP32 / generic LAN clients. The phone always uses
 `~/.headroom/mobile-token`.
 
+## Apple Watch
+
+The watch app rides inside this one and installs with it. It cannot reach the
+Mac on its own — the phone forwards what it fetched. See
+[docs/watch.md](watch.md).
+
 ## Features
 
 - Automatic discovery of nearby Headroom Macs over Bonjour.

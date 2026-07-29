@@ -32,6 +32,29 @@ enum HeadroomCopy {
         "Resets \(label)"
     }
 
+    /// "42% used" — the rings' reading. Rounded, because a ring drawn to a
+    /// tenth of a percent is the same ring.
+    static func percentUsed(_ percent: Double) -> String {
+        "\(Int(percent.rounded()))% used"
+    }
+
+    /// "58% left" — the burndown's reading, which is remaining rather than
+    /// used. Both words stay attached to their number wherever the two glyphs
+    /// share a surface, so they never look like one figure disagreeing with
+    /// itself.
+    static func percentLeft(_ percent: Double) -> String {
+        "\(Int(percent.rounded()))% left"
+    }
+
+    /// "Empty Thu" — the forecast reaches zero before the pool renews.
+    ///
+    /// The counterpart to `resets(_:)`, and the one that outranks it wherever
+    /// only one fits: a pool that runs dry inside the week is the fact worth
+    /// spending the wrist's single line on.
+    static func empty(_ label: String) -> String {
+        "Empty \(label)"
+    }
+
     static func poolBurndown(_ poolTitle: String) -> String {
         "\(poolTitle) burndown"
     }
@@ -110,4 +133,12 @@ enum HeadroomCopy {
 
     static let openToSync = "Open to sync"
     static let openHeadroom = "Open Headroom"
+
+    // MARK: Watch
+
+    /// The watch's empty state. It cannot reach the Mac itself — the phone
+    /// forwards what it fetched — so "open Headroom" has to say where.
+    static let openOnPhone = "Open Headroom on iPhone"
+    /// Header above the combined dial on the watch app's one screen.
+    static let onePerProvider = "One ring per source"
 }

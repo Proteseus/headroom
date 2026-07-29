@@ -17,6 +17,28 @@ menu bar, and the desk display.
   is ahead of or behind pace.
 - Missing data draws a track without inventing zero usage.
 
+## The combined dial (Apple Watch)
+
+A watch face has room for one glyph, not three, so the watch spends its bands
+on the other axis: **one band per source**, outside-in, most spent first, each
+filled to the pool that binds it. Position identifies the source the way it
+does on Activity. Everything above still holds — accent arc, pace dot, 20%
+track, 12 o'clock start.
+
+Two things are watch-only, both forced by the `.accented` rendering mode a
+complication draws in, where the system flattens the view to a single tint:
+
+- The glyph draws in two passes (`HeadroomRingPass`). Bands go in the
+  accentable group, pace dots in the other, so the gap between arc and dot —
+  the whole reading — survives being tinted. Stacked in one pass the dot would
+  land on an arc of its own colour and disappear.
+- Band proportions come from `HeadroomRingProfile.watch`, not the shipped
+  ratios. A third band at a third of the diameter needs thicker strokes and
+  tighter gaps or it falls under the minimum and is dropped.
+
+The watch app itself renders full colour and keeps the brand hues; only the
+complications go monochrome.
+
 `Shared/HeadroomRings.swift` is the Swift implementation. The constants beside
 `drawPaceRing` in `firmware/src/main.cpp` mirror it for the embedded display.
 The app icon is the same glyph without pace dots — three bands at 90 / 60 / 30

@@ -42,7 +42,7 @@ struct HeadroomWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     private var charted: [HeadroomWidgetSnapshot.Provider] {
-        entry.snapshot.providers.filter { $0.burndown != nil }
+        entry.snapshot.charted
     }
 
     var body: some View {
@@ -60,18 +60,12 @@ struct HeadroomWidgetView: View {
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let provider = entry.snapshot.providers.first {
-                HeadroomRings(
-                    layers: provider.ringLayers,
-                    tint: HeadroomPalette.providerTint(
-                        id: provider.id,
-                        accent: provider.accent
-                    )
-                )
+                HeadroomRings(layers: provider.ringLayers, tint: provider.tint)
                 .frame(width: 62, height: 62)
                 Spacer(minLength: 8)
                 Text(provider.title)
                     .font(.caption.weight(.semibold))
-                Text("\(Int(provider.percent.rounded()))% used")
+                Text(HeadroomCopy.percentUsed(provider.percent))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             } else {
@@ -104,11 +98,7 @@ struct HeadroomWidgetView: View {
                 ForEach(entry.snapshot.providers.prefix(3)) { provider in
                     VStack(spacing: 5) {
                         HeadroomRings(
-                            layers: provider.ringLayers,
-                            tint: HeadroomPalette.providerTint(
-                                id: provider.id,
-                                accent: provider.accent
-                            )
+                            layers: provider.ringLayers, tint: provider.tint
                         )
                         .frame(width: 54, height: 54)
                         Text(provider.title)
@@ -175,43 +165,22 @@ private struct CombinedBurndownChart: View {
 
     var body: some View {
         Canvas { context, size in
-            let domain = OverallBurndownChartMath.domain(now: .now)
-            let plot = burndownPlotRect(in: size, axis: true, gutter: 0)
-            let span = domain.endEpoch - domain.startEpoch
-            guard span > 0, plot.width > 0, plot.height > 0 else { return }
+            let plot = BurndownGeometry(
+                rect: burndownPlotRect(in: size, axis: true, gutter: 0),
+                domain: OverallBurndownChartMath.domain(now: .now)
+            )
+            guard plot.isDrawable else { return }
+            let domain = plot.domain
 
-            func x(_ time: Double) -> CGFloat {
-                plot.minX + CGFloat((time - domain.startEpoch) / span) * plot.width
-            }
-            func y(_ remaining: Double) -> CGFloat {
-                plot.maxY
-                    - CGFloat(max(0, min(remaining, 100)) / 100) * plot.height
-            }
-            func path(_ pairs: [[Double]]) -> Path? {
-                let points = pairs.compactMap { pair -> CGPoint? in
-                    guard pair.count >= 2 else { return nil }
-                    return CGPoint(x: x(pair[0]), y: y(pair[1]))
-                }
-                guard points.count >= 2 else { return nil }
-                var line = Path()
-                line.move(to: points[0])
-                for point in points.dropFirst() { line.addLine(to: point) }
-                return line
-            }
-
-            drawBurndownScale(&context, plot: plot, labels: false)
+            drawBurndownScale(&context, plot: plot.rect, labels: false)
             drawBurndownCalendar(
-                &context, plot: plot,
+                &context, plot: plot.rect,
                 start: domain.startEpoch,
                 end: domain.endEpoch,
                 now: domain.nowEpoch
             )
-
-            var nowMarker = Path()
-            nowMarker.move(to: CGPoint(x: x(domain.nowEpoch), y: plot.minY))
-            nowMarker.addLine(to: CGPoint(x: x(domain.nowEpoch), y: plot.maxY))
             context.stroke(
-                nowMarker,
+                plot.rule(at: domain.nowEpoch),
                 with: .color(.secondary.opacity(0.4)),
                 lineWidth: 1
             )
@@ -223,22 +192,15 @@ private struct CombinedBurndownChart: View {
                 let actual = OverallBurndownChartMath.preparedActual(
                     series.actual, domain: domain
                 )
-                if let line = path(actual) {
+                if let line = plot.line(actual) {
                     context.stroke(
                         line,
                         with: .color(tint),
                         style: StrokeStyle(lineWidth: 2, lineJoin: .round)
                     )
                 }
-                if let last = actual.last, last.count >= 2 {
-                    let head = CGPoint(x: x(last[0]), y: y(last[1]))
-                    context.fill(
-                        Path(ellipseIn: CGRect(
-                            x: head.x - 2.5, y: head.y - 2.5,
-                            width: 5, height: 5
-                        )),
-                        with: .color(tint)
-                    )
+                if let last = actual.last, let head = plot.dot(last, diameter: 5) {
+                    context.fill(head, with: .color(tint))
                 }
 
                 let projected = OverallBurndownChartMath.preparedProjection(
@@ -246,7 +208,7 @@ private struct CombinedBurndownChart: View {
                     windowEnd: series.windowEnd,
                     domain: domain
                 )
-                if let forecast = path(projected) {
+                if let forecast = plot.line(projected) {
                     context.stroke(
                         forecast,
                         with: .color(tint),
@@ -256,25 +218,17 @@ private struct CombinedBurndownChart: View {
                     )
                     // A forecast that reaches empty inside the week is the one
                     // thing on this chart worth a mark of its own.
-                    if let hit = projected.last, hit.count >= 2, hit[1] <= 0 {
-                        context.fill(
-                            Path(ellipseIn: CGRect(
-                                x: x(hit[0]) - 3, y: y(hit[1]) - 3,
-                                width: 6, height: 6
-                            )),
-                            with: .color(tint.opacity(0.85))
-                        )
+                    if let hit = projected.last, hit.count >= 2, hit[1] <= 0,
+                       let mark = plot.dot(hit, diameter: 6) {
+                        context.fill(mark, with: .color(tint.opacity(0.85)))
                     }
                 }
 
                 if let renew = series.windowEnd,
                    renew > domain.nowEpoch,
                    renew <= domain.endEpoch {
-                    var renewMarker = Path()
-                    renewMarker.move(to: CGPoint(x: x(renew), y: plot.minY))
-                    renewMarker.addLine(to: CGPoint(x: x(renew), y: plot.maxY))
                     context.stroke(
-                        renewMarker,
+                        plot.rule(at: renew),
                         with: .color(tint),
                         style: StrokeStyle(lineWidth: 1.5, dash: [1.5, 2.5])
                     )
@@ -288,34 +242,6 @@ private struct CombinedBurndownChart: View {
                     "\(provider.title) \(Int(provider.percent.rounded())) percent used"
                 }.joined(separator: ", ")
         )
-    }
-}
-
-private extension HeadroomWidgetSnapshot.Provider {
-    var ringLayers: [HeadroomRingLayer] {
-        if let layers, !layers.isEmpty {
-            return layers.map {
-                HeadroomRingLayer(
-                    id: $0.id,
-                    percent: $0.percent,
-                    pacePercent: $0.pacePercent
-                )
-            }
-        }
-        return [
-            HeadroomRingLayer(
-                id: title,
-                percent: percent,
-                pacePercent: nil
-            ),
-        ]
-    }
-
-    /// A spent pool recedes rather than warns — the same reading the Mac gives
-    /// it, minus the AppKit colour surgery `Color.drained()` needs.
-    var burndownTint: Color {
-        let base = HeadroomPalette.providerTint(id: id, accent: accent)
-        return burndown?.exhausted == true ? base.opacity(0.45) : base
     }
 }
 
