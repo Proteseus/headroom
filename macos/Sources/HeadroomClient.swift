@@ -55,6 +55,13 @@ struct HeadroomClient: Sendable {
         return host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
 
+    /// The endpoint as configured, for callers that need to build a client
+    /// rather than print one. `displayEndpoint` is the human-readable form and
+    /// is not a URL.
+    static var currentEndpoint: String {
+        UserDefaults.standard.string(forKey: "usageEndpoint") ?? defaultEndpoint
+    }
+
     static var displayEndpoint: String {
         let raw = UserDefaults.standard.string(forKey: "usageEndpoint")
             ?? defaultEndpoint
@@ -291,6 +298,33 @@ struct HeadroomClient: Sendable {
             .permissions
     }
 
+    func fetchAgentGatewayConfiguration() async throws
+        -> AgentGatewayConfiguration {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("config")
+        let data = try await send(request(url, timeout: 5))
+        return try JSONDecoder().decode(
+            AgentGatewayConfiguration.self, from: data)
+    }
+
+    func setAgentGatewayConfiguration(
+        enabled: Bool,
+        codexBinary: String
+    ) async throws -> AgentGatewayConfiguration {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("config")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "enabled": enabled,
+            "codex_binary": codexBinary,
+        ])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(
+            AgentGatewayConfiguration.self, from: data)
+    }
+
     func fetchMultiMacConfiguration() async throws -> MultiMacConfiguration {
         let url = try base()
             .appendingPathComponent("machines")
@@ -311,6 +345,64 @@ struct HeadroomClient: Sendable {
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 10))
         return try JSONDecoder().decode(MultiMacConfiguration.self, from: data)
+    }
+
+    /// Hand the host the peer payloads fetched from CloudKit; get back the one
+    /// this Mac should publish. The whole CloudKit contract in one call.
+    ///
+    /// `records` are the raw payload strings as stored, parsed here only far
+    /// enough to nest them in the request body.
+    func syncMachines(records: [String]) async throws -> MachineRound {
+        let url = try base()
+            .appendingPathComponent("machines")
+            .appendingPathComponent("sync")
+        let parsed = records.compactMap { blob -> Any? in
+            guard let data = blob.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data)
+        }
+        let body = try JSONSerialization.data(
+            withJSONObject: ["records": parsed])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 15))
+        guard let object = try JSONSerialization.jsonObject(with: data)
+                as? [String: Any],
+              let record = object["record"] as? [String: Any],
+              let recordID = record["id"] as? String, !recordID.isEmpty,
+              let encoded = try? JSONSerialization.data(
+                withJSONObject: record, options: [.sortedKeys]),
+              let json = String(data: encoded, encoding: .utf8)
+        else { throw ClientError.badResponse(0) }
+        return MachineRound(
+            recordID: recordID,
+            recordJSON: json,
+            adopted: object["adopted"] as? [String] ?? [],
+            peerCount: (object["peers"] as? [Any])?.count ?? 0
+        )
+    }
+
+    func fetchClaudeHookConfiguration() async throws
+        -> ClaudeHookConfiguration {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("claude")
+            .appendingPathComponent("config")
+        let data = try await send(request(url, timeout: 5))
+        return try JSONDecoder().decode(
+            ClaudeHookConfiguration.self, from: data)
+    }
+
+    func changeClaudeHooks(_ action: String) async throws
+        -> ClaudeHookConfiguration {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("claude")
+            .appendingPathComponent("config")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["action": action])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(
+            ClaudeHookConfiguration.self, from: data)
     }
 
     func fetchGitHubWatch() async throws -> GitHubWatch {
@@ -417,9 +509,23 @@ struct GitHubWatch: Decodable, Sendable {
     }
 }
 
+struct AgentGatewayConfiguration: Decodable, Sendable {
+    var ok: Bool
+    var enabled: Bool
+    var codexBinary: String
+    var provider: AgentProviderStatus
+
+    enum CodingKeys: String, CodingKey {
+        case ok, enabled, provider
+        case codexBinary = "codex_binary"
+    }
+}
+
 struct MultiMacConfiguration: Decodable, Sendable {
     var ok: Bool
     var enabled: Bool
+    /// "cloudkit", "folder", or "off". Which transport carries this Mac.
+    var mode: String?
     var directory: String
     /// False when the folder's parent is missing — iCloud Drive switched off,
     /// or a configured directory that no longer exists. The toggle still
@@ -427,15 +533,72 @@ struct MultiMacConfiguration: Decodable, Sendable {
     var available: Bool
     var machine: MultiMacIdentity
     var peers: [MachineSummary]
+    /// Why the folder cannot be read, when it cannot. Writing keeps working
+    /// when this is set, so without it "syncing fine, nobody there" and
+    /// "macOS is blocking us" look identical.
+    var trouble: String?
+    var troubleDetail: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, enabled, mode, directory, available, machine, peers, trouble
+        case troubleDetail = "trouble_detail"
+    }
 
     static let unknown = MultiMacConfiguration(
-        ok: false, enabled: false, directory: "", available: false,
+        ok: false, enabled: false, mode: "off", directory: "",
+        available: false,
         machine: MultiMacIdentity(id: "", name: "This Mac"), peers: [])
 }
 
 struct MultiMacIdentity: Decodable, Sendable {
     var id: String
     var name: String
+}
+
+/// One `/machines/sync` round.
+///
+/// The record stays as raw JSON rather than a dictionary. That is not laziness
+/// about typing it: Swift is transport here and must never read the contents,
+/// so `Data` states the contract the type system can actually enforce — and it
+/// is `Sendable`, which `[String: Any]` is not.
+struct MachineRound: Sendable {
+    /// CloudKit record name for this Mac's own record.
+    var recordID: String
+    /// Exactly the bytes to store in the record's payload field.
+    var recordJSON: String
+    var adopted: [String]
+    var peerCount: Int
+}
+
+struct AgentProviderStatus: Decodable, Sendable {
+    var provider: String
+    var available: Bool
+    var connection: String
+    var error: String?
+    var version: String?
+    var resolvedBinary: String?
+
+    enum CodingKeys: String, CodingKey {
+        case provider, available, connection, error, version
+        case resolvedBinary = "resolved_binary"
+    }
+}
+
+struct ClaudeHookConfiguration: Decodable, Sendable {
+    var ok: Bool
+    var provider: String
+    var settingsPath: String?
+    var state: String
+    var installed: Bool
+    var installedEvents: [String]?
+    var version: Int?
+    var error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, provider, state, installed, version, error
+        case settingsPath = "settings_path"
+        case installedEvents = "installed_events"
+    }
 }
 
 struct HealthReport: Decodable, Sendable {

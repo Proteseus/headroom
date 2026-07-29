@@ -28,4 +28,27 @@ enum MobileNotifications {
             UserDefaults.standard.set(attention.fingerprint, forKey: key)
         }
     }
+
+    static func notifyIfNeeded(_ events: [AgentAttentionEvent]) async {
+        guard UserDefaults.standard.bool(forKey: "notificationsEnabled") else {
+            return
+        }
+        for event in events where event.state == "pending" {
+            let key = "lastNotifiedAgentEvent-\(event.id)"
+            guard !UserDefaults.standard.bool(forKey: key) else { continue }
+            let content = UNMutableNotificationContent()
+            content.title = event.title
+            content.body = event.summary
+            content.sound = .default
+            content.userInfo = ["agent_event_id": event.id]
+            let request = UNNotificationRequest(
+                identifier: "headroom-agent-\(event.id)",
+                content: content,
+                trigger: nil
+            )
+            if (try? await UNUserNotificationCenter.current().add(request)) != nil {
+                UserDefaults.standard.set(true, forKey: key)
+            }
+        }
+    }
 }

@@ -54,10 +54,22 @@ final class UsageStore: ObservableObject {
     /// reads /usage from a process that is mid-restart.
     private var hostInstall: Task<HostController.Readiness, Never>?
 
+    /// Multi-Mac transport, built lazily so a Mac with sync switched off never
+    /// touches CloudKit — constructing a `CKContainer` on a machine with no
+    /// iCloud account is harmless but pointless, and a CloudKit call on the
+    /// launch path is not free.
+    private var cloudSync: MachineCloudSync?
+    private var cloudLoop: Task<Void, Never>?
+    /// How often this Mac republishes and re-reads. The subscription is what
+    /// makes a change arrive quickly; this is the floor under it for the case
+    /// where the push never lands.
+    private static let cloudInterval: TimeInterval = 120
+
     init() {}
 
     deinit {
         refreshLoop?.cancel()
+        cloudLoop?.cancel()
     }
 
     private var client: HeadroomClient { HeadroomClient() }
@@ -73,6 +85,48 @@ final class UsageStore: ObservableObject {
                 await self.tick()
             }
         }
+        startCloudSync()
+    }
+
+    /// Drive the multi-Mac transport, if the host has it switched on.
+    ///
+    /// Its own loop rather than a step in the poll: this reaches CloudKit,
+    /// where a round trip can be slow or stalled, and the menu bar has no
+    /// business waiting on another Mac's records. Asking the host each round
+    /// whether sync is on keeps the switch in one place — Settings writes it
+    /// there, and this notices without needing to be told.
+    func startCloudSync() {
+        // An unsigned build cannot reach CloudKit, and asking it to would take
+        // the process down rather than fail — so it never starts the loop.
+        guard MachineCloudSync.isAvailable, cloudLoop == nil else { return }
+        cloudLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.cloudRound()
+                try? await Task.sleep(for: .seconds(Self.cloudInterval))
+            }
+        }
+    }
+
+    private func cloudRound() async {
+        guard let config = try? await client.fetchMultiMacConfiguration(),
+              config.enabled, config.mode == "cloudkit"
+        else { return }
+        guard let sync = cloudSync ?? MachineCloudSync(
+            endpoint: HeadroomClient.currentEndpoint)
+        else { return }
+        cloudSync = sync
+        await sync.subscribeIfNeeded()
+        if case let .success(summary) = await sync.run(), summary.adopted > 0 {
+            // Settings arriving from another Mac change what this one polls and
+            // how it is painted, so take the document again rather than waiting
+            // out the poll interval showing the old one.
+            await refresh()
+        }
+    }
+
+    /// Called when CloudKit says something changed. Cheap and idempotent.
+    func cloudSyncNow() {
+        Task { await cloudRound() }
     }
 
     /// One pass of the loop: ask who is answering before believing what it says.

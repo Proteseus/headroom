@@ -218,7 +218,7 @@ enum MeterIconRenderer {
         let trackStrokeAlpha: CGFloat = healthy ? 0.44 : 0.28
         let fillAlpha: CGFloat = healthy ? 1 : 0.55
         let frame = pixelRect.rect
-        let radius = CGFloat(pixelRect.height / 2) / outputScale
+        let radius = CGFloat(pixelRect.width / 2) / outputScale
         let track = NSBezierPath(
             roundedRect: frame,
             xRadius: radius,
@@ -237,9 +237,9 @@ enum MeterIconRenderer {
         )
         let stroke = NSBezierPath(
             roundedRect: strokeRect.rect,
-            xRadius: CGFloat(max(0, pixelRect.height / 2 - insetPixels))
+            xRadius: CGFloat(max(0, pixelRect.width / 2 - insetPixels))
                 / outputScale,
-            yRadius: CGFloat(max(0, pixelRect.height / 2 - insetPixels))
+            yRadius: CGFloat(max(0, pixelRect.width / 2 - insetPixels))
                 / outputScale
         )
         stroke.lineWidth = CGFloat(strokePixels) / outputScale

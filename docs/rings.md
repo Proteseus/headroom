@@ -10,7 +10,8 @@ menu bar, and the desk display.
 - The track is the same accent mixed 20% over the surface.
 - The usage arc has round ends. The cap is half the band thickness, and the arc
   is pulled in by that much at each end, so the painted arc still covers exactly
-  the percentage used.
+  the percentage used. At 100% the two caps meet at 12 o'clock and leave a
+  visible `)(` seam — do not collapse that into a solid ring.
 - The dot is the expected usage at the current point in time. It rides inside
   the band and is sized off the band thickness, so it is the same dot on inner
   and outer rings. The distance between the arc and the dot shows whether usage

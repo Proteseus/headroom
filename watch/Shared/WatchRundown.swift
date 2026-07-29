@@ -4,25 +4,24 @@ import SwiftUI
 ///
 /// The Mac's `OverviewBurndownCard` and the medium widget draw the same week
 /// with a percent gutter, a labelled weekday axis, a legend, and every source
-/// in its own brand colour. None of that survives here. A rectangular
-/// complication is roughly 160×72 points, and it renders `.accented` — the
-/// system flattens the whole view into one tint plus whatever is marked
-/// accentable, so colour cannot carry identity at all.
+/// in its own brand colour. Most of that does not survive at roughly 160×72
+/// points, but the colour does: `.widgetAccentable(false)` opts the chart out
+/// of the face's tint, so each source keeps the hue it wears everywhere else.
 ///
 /// What that leaves is a deliberate reduction rather than a shrunk copy:
 ///
-///   * **One source is named, in words, above the chart** — whichever runs dry
-///     first. That is the question a glance is asking, and text answers it in a
-///     way a legend at 8pt cannot.
-///   * **Its line is the accented one, and the only thick one.** The rest stay
-///     in the base tone as context: the shape of the week, not a legend to
-///     decode.
+///   * **No text at all.** The chart takes the whole tile. The percent and the
+///     deadline it used to carry are the same sentence the inline and corner
+///     families already say, and repeating them cost a fifth of the height
+///     that makes the line readable.
+///   * **The binding source's line is the only thick one.** The rest keep their
+///     colours at lower opacity as context: the shape of the week, not a legend
+///     to decode.
 ///   * **The axis goes, the rhythm stays.** Day boundaries keep their rules and
 ///     lose their labels; the scale keeps its three lines and loses "100%".
 ///
-/// Two canvases, not one, because `.widgetAccentable()` groups views — it
-/// cannot reach inside a single `Canvas`. Both build their geometry from the
-/// same size and domain, so the layers register exactly.
+/// One canvas, because colour separates the sources and there is no tint group
+/// to keep the lead line out of.
 struct WatchRundownChart: View {
     let snapshot: HeadroomWidgetSnapshot
 
@@ -34,23 +33,18 @@ struct WatchRundownChart: View {
     }
 
     var body: some View {
-        ZStack {
-            Canvas { context, size in
-                guard let plot = Self.plot(in: size) else { return }
-                Self.drawFurniture(&context, plot: plot)
-                for provider in charted where provider.id != lead?.id {
-                    Self.draw(
-                        provider, in: &context, plot: plot, leading: false
-                    )
-                }
+        Canvas { context, size in
+            guard let plot = Self.plot(in: size) else { return }
+            Self.drawFurniture(&context, plot: plot)
+            // Context lines first so the named source draws over them.
+            for provider in charted where provider.id != lead?.id {
+                Self.draw(provider, in: &context, plot: plot, leading: false)
             }
-
-            Canvas { context, size in
-                guard let plot = Self.plot(in: size), let lead else { return }
+            if let lead {
                 Self.draw(lead, in: &context, plot: plot, leading: true)
             }
-            .widgetAccentable()
         }
+        .widgetAccentable(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
     }
@@ -86,16 +80,58 @@ struct WatchRundownChart: View {
             now: plot.domain.nowEpoch,
             labels: false
         )
+        // Where "now" falls is what makes the forecast half legible as a
+        // forecast, so it carries a little more than the day rules around it —
+        // but stays under the data lines it sits behind.
         context.stroke(
             plot.rule(at: plot.domain.nowEpoch),
-            with: .color(.primary.opacity(0.35)),
-            lineWidth: 1
+            with: .color(.primary.opacity(0.45)),
+            lineWidth: 1.4
         )
     }
 
-    /// One source's week. `leading` is the named one: thicker, and alone in the
-    /// accented layer, so it separates from the context lines under any tint
-    /// the face happens to be wearing.
+    /// Stroke weights for the wrist.
+    ///
+    /// Heavier than the medium widget's, which draws the same week at 2pt over
+    /// roughly twice the width. A hairline survives being looked at on a desk;
+    /// it does not survive a wrist at arm's length, in sunlight, for the second
+    /// a glance lasts. Nothing here goes below 1.5.
+    private enum Ink {
+        static let actualLead: CGFloat = 3.2
+        static let actualContext: CGFloat = 2.0
+        static let projectedLead: CGFloat = 2.2
+        static let projectedContext: CGFloat = 1.5
+        static let renewalRule: CGFloat = 1.6
+        static let headDot: CGFloat = 6
+        static let emptyLead: CGFloat = 6.5
+        static let emptyContext: CGFloat = 4.5
+    }
+
+    /// The source's colour at the one opacity that fits both facts about it:
+    /// whether it is the named source, and whether its pool is spent.
+    ///
+    /// Deliberately not `burndownTint`, which already dims a spent pool to
+    /// 0.45. `Color.opacity` multiplies, so dimming that again for a context
+    /// line lands at a quarter — a weight chosen by accident, and invisible on
+    /// a wrist. Setting it once from both facts keeps the floor at 0.45, which
+    /// is the faintest thing on this chart that still reads as a line.
+    private static func ink(
+        for provider: HeadroomWidgetSnapshot.Provider,
+        leading: Bool
+    ) -> Color {
+        let spent = provider.burndown?.exhausted == true
+        let alpha: Double = switch (leading, spent) {
+        case (true, false): 1
+        case (true, true): 0.65
+        case (false, false): 0.6
+        case (false, true): 0.45
+        }
+        return provider.watchTint.opacity(alpha)
+    }
+
+    /// One source's week, in that source's colour. `leading` is the named one:
+    /// full strength and thicker, so it separates from the context lines
+    /// without needing the legend there is no room for.
     private static func draw(
         _ provider: HeadroomWidgetSnapshot.Provider,
         in context: inout GraphicsContext,
@@ -103,9 +139,7 @@ struct WatchRundownChart: View {
         leading: Bool
     ) {
         guard let series = provider.burndown else { return }
-        // The face supplies the colour in `.accented`; opacity is the only part
-        // of this that survives, and it is what pushes context lines back.
-        let ink = Color.primary.opacity(leading ? 1 : 0.45)
+        let ink = Self.ink(for: provider, leading: leading)
 
         let actual = OverallBurndownChartMath.preparedActual(
             series.actual, domain: plot.domain
@@ -115,12 +149,13 @@ struct WatchRundownChart: View {
                 line,
                 with: .color(ink),
                 style: StrokeStyle(
-                    lineWidth: leading ? 2.4 : 1.2, lineJoin: .round
+                    lineWidth: leading ? Ink.actualLead : Ink.actualContext,
+                    lineJoin: .round
                 )
             )
         }
         if leading, let last = actual.last,
-           let head = plot.dot(last, diameter: 4.5) {
+           let head = plot.dot(last, diameter: Ink.headDot) {
             context.fill(head, with: .color(ink))
         }
 
@@ -132,15 +167,21 @@ struct WatchRundownChart: View {
                 forecast,
                 with: .color(ink),
                 style: StrokeStyle(
-                    lineWidth: leading ? 1.6 : 1,
+                    lineWidth: leading
+                        ? Ink.projectedLead : Ink.projectedContext,
                     lineJoin: .round,
-                    dash: leading ? [4, 2] : [2, 2]
+                    // Longer dashes than the widget's. On a heavier stroke a
+                    // tight pattern closes up and the forecast stops reading
+                    // as a forecast.
+                    dash: leading ? [5, 2.5] : [3, 2.5]
                 )
             )
             // Running out inside the week is the one event on this chart that
             // earns a mark of its own at this size.
             if let hit = projected.last, hit.count >= 2, hit[1] <= 0,
-               let mark = plot.dot(hit, diameter: leading ? 5.5 : 3.5) {
+               let mark = plot.dot(
+                   hit, diameter: leading ? Ink.emptyLead : Ink.emptyContext
+               ) {
                 context.fill(mark, with: .color(ink))
             }
         }
@@ -152,42 +193,8 @@ struct WatchRundownChart: View {
             context.stroke(
                 plot.rule(at: renew),
                 with: .color(ink.opacity(0.7)),
-                style: StrokeStyle(lineWidth: 1.2, dash: [1.5, 2.5])
+                style: StrokeStyle(lineWidth: Ink.renewalRule, dash: [2, 2.5])
             )
-        }
-    }
-}
-
-// MARK: - Headline
-
-/// The line above the chart: how much is left, on which source, and the date
-/// that matters — empty if the forecast runs dry inside the week, otherwise
-/// the renewal.
-struct WatchRundownHeadline: View {
-    let snapshot: HeadroomWidgetSnapshot
-
-    var body: some View {
-        if let provider = snapshot.bindingProvider {
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text("\(Int((100 - provider.percent).rounded()))%")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .widgetAccentable()
-                Text("left · \(provider.title)")
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 2)
-                if let deadline = WatchRundownDeadline.label(for: provider) {
-                    Text(deadline)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        } else {
-            Text(snapshot.attentionSummary ?? HeadroomCopy.openOnPhone)
-                .font(.system(size: 12))
-                .lineLimit(2)
         }
     }
 }

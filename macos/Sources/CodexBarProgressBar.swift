@@ -31,25 +31,17 @@ extension Color {
 }
 
 /// Adapted from the MIT-licensed `UsageProgressBar` in steipete/CodexBar.
-/// Geometry intentionally matches its 6pt capsule and punched pace stripe.
+/// Geometry matches its 6pt capsule; the pace mark is Headroom's ring-style
+/// dot rather than CodexBar's punched stripe.
 struct CodexBarProgressBar: View {
     let percent: Double
     let tint: Color
     let pacePercent: Double?
     let accessibilityLabel: String
 
-    @Environment(\.displayScale) private var displayScale
-
     var body: some View {
         Canvas { context, size in
-            let scale = max(displayScale, 1)
             let fillWidth = size.width * renderedFillPercent / 100
-            let paceWidth = size.width * clamped(pacePercent) / 100
-            let tipWidth = max(25, size.height * 6.5)
-            let stripeWidth: CGFloat = 2
-            let stripeSpan = stripeWidth * 3
-            let stripeInset = 1 / scale
-            let tipOffset = paceWidth - tipWidth + stripeSpan / 2 + stripeInset
             let cornerRadius = size.height / 2
             let cornerSize = CGSize(width: cornerRadius, height: cornerRadius)
             let rect = CGRect(origin: .zero, size: size)
@@ -77,22 +69,25 @@ struct CodexBarProgressBar: View {
                 context.fill(fill, with: .color(fillTint))
             }
 
-            if pacePercent != nil {
-                let stripes = paceStripePaths(
-                    size: CGSize(width: tipWidth, height: size.height),
-                    scale: scale
+            if let pacePercent {
+                let paceX = size.width * clamped(pacePercent) / 100
+                let diameter = HeadroomRingStyle.paceDotDiameter(
+                    for: size.height
                 )
-                let shift = CGAffineTransform(translationX: tipOffset, y: 0)
-
-                context.blendMode = .destinationOut
-                context.fill(
-                    stripes.punched.applying(shift),
-                    with: .color(.white.opacity(0.9))
+                let radius = diameter / 2
+                let cx = min(
+                    max(paceX, radius),
+                    size.width - radius
                 )
-                context.blendMode = .normal
+                let cy = size.height / 2
                 context.fill(
-                    stripes.center.applying(shift),
-                    // Match the neutral pace line used by quota rings.
+                    Path(ellipseIn: CGRect(
+                        x: cx - radius,
+                        y: cy - radius,
+                        width: diameter,
+                        height: diameter
+                    )),
+                    // Same neutral pace mark the quota rings use.
                     with: .color(.primary)
                 )
             }
@@ -113,45 +108,7 @@ struct CodexBarProgressBar: View {
         return clampedPercent
     }
 
-    private func clamped(_ value: Double?) -> Double {
-        guard let value else { return 0 }
-        return min(100, max(0, value))
-    }
-
-    private func paceStripePaths(
-        size: CGSize,
-        scale: CGFloat
-    ) -> (punched: Path, center: Path) {
-        let extend = size.height * 2
-        let align: (CGFloat) -> CGFloat = {
-            ($0 * scale).rounded() / scale
-        }
-        let stripeWidth: CGFloat = 2
-        let punchWidth = stripeWidth * 3
-        let anchorX = align(size.width - 1 / scale)
-        let minY = align(-extend)
-        let maxY = align(size.height + extend)
-        let punchLeft = anchorX - punchWidth
-
-        var punched = Path()
-        punched.addRect(
-            CGRect(
-                x: punchLeft,
-                y: minY,
-                width: punchWidth,
-                height: maxY - minY
-            )
-        )
-
-        var center = Path()
-        center.addRect(
-            CGRect(
-                x: align(punchLeft + (punchWidth - stripeWidth) / 2),
-                y: minY,
-                width: stripeWidth,
-                height: maxY - minY
-            )
-        )
-        return (punched, center)
+    private func clamped(_ value: Double) -> Double {
+        min(100, max(0, value))
     }
 }

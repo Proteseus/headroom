@@ -214,7 +214,12 @@ private struct ProviderQuotaDetail: View {
                 .headroomCard()
 
                 ForEach(burndown) { pool in
-                    BurndownChart(pool: pool, tint: provider.tint)
+                    BurndownChart(
+                        pool: pool,
+                        tint: provider.tint,
+                        resetNoteURL: provider.resetNoteURL
+                            .flatMap(URL.init(string:))
+                    )
                 }
             }
             .padding()
@@ -235,6 +240,13 @@ private struct BurndownPoint: Identifiable {
 private struct BurndownChart: View {
     let pool: Burndown
     let tint: Color
+    /// Codex mid-window grant note. Nil → plain caption, no link.
+    var resetNoteURL: URL? = nil
+
+    /// Newest mid-window grant — names the solid rule on this provider chart.
+    private var latestGrantedReset: BurndownReset? {
+        (pool.resets ?? []).max { ($0.t ?? 0) < ($1.t ?? 0) }
+    }
 
     private var axisDomain: BurndownChartAxis.Domain? {
         guard let start = pool.windowStart, let end = pool.windowEnd else {
@@ -348,18 +360,39 @@ private struct BurndownChart: View {
                     start: domain.start, end: domain.end
                 )
 
-                Chart(points) { point in
-                    LineMark(
-                        x: .value("Time", point.date),
-                        y: .value("Remaining", point.remaining)
-                    )
-                    .foregroundStyle(by: .value("Series", point.series))
-                    .lineStyle(
-                        StrokeStyle(
-                            lineWidth: point.series == "Actual" ? 3 : 1.5,
-                            dash: point.series == "Projected" ? [6, 2] : []
+                Chart {
+                    ForEach(points) { point in
+                        LineMark(
+                            x: .value("Time", point.date),
+                            y: .value("Remaining", point.remaining)
                         )
-                    )
+                        .foregroundStyle(by: .value("Series", point.series))
+                        .lineStyle(
+                            StrokeStyle(
+                                lineWidth: point.series == "Actual" ? 3 : 1.5,
+                                dash: point.series == "Projected" ? [6, 2] : []
+                            )
+                        )
+                    }
+                    // Solid rule where a mid-window grant restarted the curve.
+                    ForEach(
+                        OverallBurndownChartMath.preparedResets(
+                            pool.resets?.compactMap(\.t),
+                            domain: OverallBurndownChartMath.Domain(
+                                start: domain.start,
+                                end: domain.end,
+                                now: nowDate
+                            )
+                        ),
+                        id: \.self
+                    ) { granted in
+                        RuleMark(x: .value(
+                            "Reset granted",
+                            Date(timeIntervalSince1970: granted)
+                        ))
+                        .foregroundStyle(tint.opacity(0.55))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                    }
                 }
                 .chartForegroundStyleScale([
                     "Budget": Color.secondary.opacity(0.45),
@@ -409,6 +442,21 @@ private struct BurndownChart: View {
                     }
                 }
                 .frame(height: 190)
+
+                if let granted = latestGrantedReset {
+                    let caption = HeadroomCopy.resetGranted(
+                        forgivenPct: granted.forgivenPct)
+                    if let note = resetNoteURL {
+                        Link(caption, destination: note)
+                            .font(.caption)
+                            .monospacedDigit()
+                    } else {
+                        Text(caption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
             }
         }
         .headroomCard()
@@ -428,29 +476,7 @@ private struct OverallBurndownSeries: Identifiable {
     let actual: [OverallBurndownPoint]
     let projected: [OverallBurndownPoint]
     let forgiven: [OverallBurndownPoint]
-    let renewsAt: Date?
     let resetsIn: String?
-    let resetCreditExpiries: [Double]
-
-    /// Newest grant the chart is actually showing, for the caption that names
-    /// the rule.
-    func latestReset(
-        in domain: OverallBurndownChartMath.Domain
-    ) -> BurndownReset? {
-        let visible = Set(OverallBurndownChartMath.preparedResets(
-            pool.resets?.compactMap(\.t), domain: domain))
-        return (pool.resets ?? [])
-            .filter { $0.t.map(visible.contains) ?? false }
-            .max { ($0.t ?? 0) < ($1.t ?? 0) }
-    }
-
-    func nextResetCreditExpiry(
-        in domain: OverallBurndownChartMath.Domain
-    ) -> Double? {
-        OverallBurndownChartMath.preparedUpcomingEvents(
-            resetCreditExpiries, domain: domain
-        ).first
-    }
 }
 
 struct OverallBurndownChart: View {
@@ -488,14 +514,7 @@ struct OverallBurndownChart: View {
                 actual: actual,
                 projected: points(pool.projected, kind: "projected"),
                 forgiven: points(pool.forgiven, kind: "forgiven"),
-                renewsAt: pool.windowEnd.map {
-                    Date(timeIntervalSince1970: $0)
-                },
-                resetsIn: pool.resetsIn,
-                resetCreditExpiries:
-                    provider.id == UsageProvider.codex.rawValue
-                        ? snapshot.codex?.resetCreditsExpireAt ?? []
-                        : []
+                resetsIn: pool.resetsIn
             )
         }
     }
@@ -551,9 +570,7 @@ struct OverallBurndownChart: View {
                     ),
                     idPrefix: "\(entry.id)-f"
                 ),
-                renewsAt: entry.renewsAt,
-                resetsIn: entry.resetsIn,
-                resetCreditExpiries: entry.resetCreditExpiries
+                resetsIn: entry.resetsIn
             )
         }
     }
@@ -644,54 +661,10 @@ struct OverallBurndownChart: View {
                             .symbolSize(last.remaining <= 0 ? 36 : 22)
                         }
 
-                        // Resets already granted: solid, because this one
-                        // happened. Without the mark the curve just restarts
-                        // and a forgiven week reads as missing data.
-                        ForEach(
-                            OverallBurndownChartMath.preparedResets(
-                                entry.pool.resets?.compactMap(\.t),
-                                domain: domain
-                            ),
-                            id: \.self
-                        ) { granted in
-                            RuleMark(x: .value(
-                                "Reset granted",
-                                Date(timeIntervalSince1970: granted)
-                            ))
-                            .foregroundStyle(entry.provider.tint.opacity(0.55))
-                            .lineStyle(StrokeStyle(lineWidth: 1))
-                        }
-
-                        // Reset rules last so they sit on top of the strokes.
-                        if let renew = entry.renewsAt,
-                           renew > nowDate,
-                           renew >= range.lowerBound,
-                           renew <= range.upperBound {
-                            RuleMark(x: .value("Reset", renew))
-                                .foregroundStyle(entry.provider.tint)
-                                .lineStyle(StrokeStyle(
-                                    lineWidth: 1.5,
-                                    dash: [1.5, 2.5]
-                                ))
-                        }
-
-                        // A banked credit expiring is not a quota renewal.
-                        // The longer dash keeps both deadlines distinct.
-                        ForEach(
-                            OverallBurndownChartMath.preparedUpcomingEvents(
-                                entry.resetCreditExpiries, domain: domain
-                            ),
-                            id: \.self
-                        ) { expiry in
-                            RuleMark(x: .value(
-                                "Reset credit expires",
-                                Date(timeIntervalSince1970: expiry)
-                            ))
-                            .foregroundStyle(entry.provider.tint.opacity(0.7))
-                            .lineStyle(StrokeStyle(
-                                lineWidth: 1.25, dash: [5, 3]
-                            ))
-                        }
+                        // Forgiven ghost (above) is enough on the overview:
+                        // granted-reset marks, upcoming-reset rules, and
+                        // their captions live on the provider burndown, where
+                        // one curve has room to explain them.
                     }
                 }
                 .chartXScale(domain: range)
@@ -744,42 +717,6 @@ struct OverallBurndownChart: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
-                            }
-                            // Names the solid rule. Newest only — the legend
-                            // has one line to spare, not a history list.
-                            if let granted = entry.latestReset(in: domain) {
-                                let caption = HeadroomCopy.resetGranted(
-                                    forgivenPct: granted.forgivenPct)
-                                // A link only where the provider announces its
-                                // grants somewhere. Opening it is the whole
-                                // integration — nothing reads that page.
-                                if let note = entry.provider.resetNoteURL
-                                    .flatMap(URL.init(string:)) {
-                                    Link(caption, destination: note)
-                                        .font(.caption2)
-                                        .monospacedDigit()
-                                } else {
-                                    Text(caption)
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                        .monospacedDigit()
-                                }
-                            }
-                            if let expiry = entry.nextResetCreditExpiry(
-                                in: domain
-                            ) {
-                                Text(HeadroomCopy.resetCreditExpires(
-                                    Date(timeIntervalSince1970: expiry)
-                                        .formatted(
-                                            .dateTime
-                                                .weekday(.abbreviated)
-                                                .hour()
-                                                .minute()
-                                        )
-                                ))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .monospacedDigit()
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

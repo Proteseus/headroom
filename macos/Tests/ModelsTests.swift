@@ -485,4 +485,14 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(clipped[1][0], 75, accuracy: 0.01)
         XCTAssertEqual(clipped[1][1], 25, accuracy: 0.01)
     }
+
+    func testOlderMobilePermissionsDefaultAgentControlOff() throws {
+        let data = Data("""
+        {"read":true,"refresh":true,"sources":true,"servers":true}
+        """.utf8)
+        let permissions = try JSONDecoder().decode(
+            MobilePermissions.self, from: data)
+        XCTAssertTrue(permissions.read)
+        XCTAssertFalse(permissions.agents)
+    }
 }

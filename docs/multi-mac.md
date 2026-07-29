@@ -44,39 +44,129 @@ decision that was theirs. It is one switch, and the second Mac is the moment
 you go looking for it.
 
 The switch is `icloud_sync` in `~/.headroom/config.json` if you would rather
-edit it directly. `icloud_dir` overrides where the machines meet; empty means
-`~/Library/Mobile Documents/com~apple~CloudDocs/Headroom`. Nothing in the
-implementation is iCloud-specific but that default path — point it at Dropbox,
-Syncthing, or a shared volume and the rest works unchanged.
+edit it directly. Leave `icloud_dir` empty for CloudKit; set it to a path to
+use the folder transport instead.
 
-Turning it **off** stops this Mac publishing. It does not delete the folder or
-the file: the other Macs are still reading it, and reaching into iCloud to
-remove a record on their behalf is not what a local toggle should mean.
+Turning it **off** stops this Mac publishing. It does not delete the record:
+the other Macs are still reading it, and reaching into iCloud to remove
+something on their behalf is not what a local toggle should mean.
 
-## Why a folder and not CloudKit
+**It needs a signed build.** CloudKit answers entitlements, and entitlements
+need a provisioning profile, so a local `CODE_SIGNING_ALLOWED=NO` build
+compiles the code but cannot reach the container. Settings says so on a build
+that cannot, rather than leaving the toggle looking broken.
 
-The data lives in the Python host, not the Swift app. CloudKit would mean
-mirroring it up into the app, out to iCloud, back down and into the host again:
-a sync daemon written twice, plus a Developer ID provisioning profile in a
-signing pipeline that does not have one. `NSUbiquitousKeyValueStore` is
-documented as App Store distribution only, and Headroom ships notarized off
-GitHub Releases. A folder both machines can see costs neither, and keeps the
-host stdlib-only.
+## Turning it on for the first time, once
+
+Three manual steps, none of which anything here can do for you:
+
+1. **Create the CloudKit container** `iCloud.com.centaur-labs.headroom` in the
+   Apple Developer portal, under the same team that signs the app.
+2. **Create a Developer ID provisioning profile** for
+   `com.centaur-labs.headroom.macos` with the iCloud capability, and download
+   it.
+3. **Point the build at it**: `HEADROOM_PROVISION_PROFILE=/path/to.profile`.
+   `scripts/build-app.sh` then copies it to `Contents/embedded.provisionprofile`
+   and merges `Headroom-iCloud.entitlements` into the signature. For releases,
+   the workflow needs the profile as a secret and that variable set.
+
+Without step 3 the build signs exactly as it did before multi-Mac existed. That
+is deliberate — see below.
+
+## The trap this is arranged around
+
+`com.apple.developer.*` entitlements are the restricted family, and `codesign`
+does not validate them against anything. An app that carries them with no
+provisioning profile to authorize them **signs cleanly, notarizes, downloads,
+and is killed the moment it launches.**
+
+So the iCloud keys live in their own file and are merged in only when a profile
+is supplied. A build with no profile is byte-for-byte the build that shipped
+before this feature, minus the feature.
+
+There is a matching trap on the app's side: `CKContainer(identifier:)` on a
+binary whose signature lacks the entitlement raises an Objective-C exception,
+which Swift cannot catch. Not a failed call that degrades — the process dies.
+`MachineCloudSync.isAvailable` reads the entitlement off our own signature with
+`SecTaskCopyValueForEntitlement` and is checked before a container is ever
+constructed. Removing that check turns every development build into one that
+crashes on launch.
+
+## Why CloudKit, and not a folder in iCloud Drive
+
+A folder looks like the simpler answer and is not, for a reason that is
+invisible until you try it.
+
+**`~/Library/Mobile Documents` is TCC-protected.** The Python host runs as a
+LaunchAgent, and a daemon in that position can create and write files inside
+iCloud Drive quite happily while being refused `listdir` on the same directory.
+So every Mac publishes its record successfully, none of them can enumerate the
+folder, and all of them report no peers. The publish half working is what makes
+it so convincing: nothing errors anywhere.
+
+```
+$ python3 -c "import os; os.listdir(os.path.expanduser(
+    '~/Library/Mobile Documents/com~apple~CloudDocs/Headroom'))"
+PermissionError: [Errno 1] Operation not permitted
+$ # ...while creating a file in that same folder succeeds.
+```
+
+Full Disk Access would fix it and is not shippable: granting it to
+`/usr/bin/python3` grants it to every Python script on the machine.
+
+CloudKit is reached through an **entitlement**, and entitlements are not subject
+to TCC. That is the whole argument. The app is the only half of Headroom that
+can hold one, so the app owns the transport. Everything else follows:
+
+- No Full Disk Access prompt, and no folder permissions at all.
+- Push instead of polling. A colour changed on the laptop lands on the desktop
+  in seconds rather than at the next interval.
+- The same container reaches iPhone and Watch, which a Mac-local folder never
+  could.
+- No `.icloud` placeholders, no eviction, no conflict copies.
+
+The cost is a **Developer ID provisioning profile** embedded in the .app, and a
+CloudKit container. A local build with `CODE_SIGNING_ALLOWED=NO` compiles
+without one; CloudKit only answers a properly signed copy.
+
+`NSUbiquitousKeyValueStore` was never an option: documented as App Store
+distribution only, and Headroom ships notarized off GitHub Releases.
+
+## The folder transport still exists
+
+Set `icloud_dir` and the folder path is used instead. That is the right answer
+for a directory that is **not** TCC-protected — Dropbox, Syncthing, a mounted
+share — and it is what the tests exercise, because it needs no entitlement.
+
+Pointing `icloud_dir` at something inside iCloud Drive is the one combination
+that will disappoint, and `probe()` detects it and says so rather than letting
+it look fine.
 
 ## Why it never conflicts
 
-**A machine writes only its own file and only ever reads the others.**
+**A machine writes only its own record and only ever reads the others.** One
+CloudKit record per machine, `recordName` = machine id, in the private
+database; or one file per machine in folder mode. Same shape either way.
 
-```
-Headroom/machines/<machine-id>.json
-```
-
-No file has two writers, so iCloud has nothing to make a conflict copy of.
+No record has two writers, so there is nothing to make a conflict copy of.
 There is no shared document to reconcile, no merge on the write path, and no
 ordering problem. Each Mac derives its own view at read time and is allowed to
 reach a different one — which is also the answer to a Mac that has been asleep
 for a week. It is not "behind", it just knows less, and it says so with a
 timestamp instead of pretending otherwise.
+
+## Where the line is drawn
+
+The Swift side carries bytes and holds no opinion about them. It fetches
+records, posts them to `POST /machines/sync`, and saves back the one record the
+host says to publish. The record stays a raw JSON string in Swift — not a
+decoded dictionary — because that states the contract the type system can
+enforce.
+
+Everything that decides *what* travels and *who wins* stays in Python, where it
+is tested. Two implementations of last-writer-wins would eventually disagree,
+and the bug would surface as settings quietly reverting on one Mac, which is
+about the worst failure this feature could have.
 
 ## How settings pick a winner
 
@@ -135,9 +225,21 @@ token, local servers, git commits, the Claude token log, attention events.
 |---|---|
 | `host/machine_identity.py` | stable id, live display name |
 | `host/shared_prefs.py` | the flat keyspace, and applying it back |
-| `host/icloud_sync.py` | transport, merge, peer list |
+| `host/icloud_sync.py` | merge, peer list, folder transport |
+| `macos/Sources/MachineCloudSync.swift` | CloudKit transport, nothing else |
 | `Shared/HeadroomModels.swift` | `MachineSummary` off `machines[]` |
 | `macos/Sources/MachinesSection.swift` | the popover rows |
+
+Two endpoints, both loopback-only:
+
+| Route | Job |
+|---|---|
+| `GET`/`POST /machines/config` | the switch, the mode, who is out there |
+| `POST /machines/sync` | peer records in, this Mac's record out |
+
+`/machines/sync` bodies clear the handler's usual 4 KB POST cap — one machine
+record is already a few KB of prefs and stamps — so it shares the 128 KB
+ceiling with the hook payloads.
 
 `machines[]` is always in `/usage` with at least this Mac's own row, so a
 single-Mac install has the same shape as a synced one and no client needs a

@@ -7,6 +7,37 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.6 — 2026-07-29
+
+### Added
+
+- Coding agents can ask you things through Headroom. When Codex wants to run a
+  command or change a file, the approval becomes an item you can answer from
+  the Mac or the phone rather than a terminal you are not sitting in front of.
+  Each request is held until it is answered or expires, so a question does not
+  disappear when the session behind it drops. Codex is the first provider, and
+  the feed does not care which agent a request came from.
+
+### Changed
+
+- Other Macs sync over iCloud instead of a shared folder, so there is no
+  directory to agree on: turn it on and the Macs find each other. Setting
+  `icloud_dir` to a path still uses the folder transport.
+- Settings is organised around what you are looking for rather than which part
+  of the app happens to own it.
+- The watch tile drops its headline at small sizes. Around 160 by 72 points the
+  legend, the percent gutter and the weekday labels all stop being readable, so
+  the chart takes the whole tile instead of competing with text.
+- A full ring keeps a visible seam at 12 o'clock where its two caps meet,
+  rather than closing into a solid circle you cannot read a value off.
+
+### Fixed
+
+- A weekly countdown that briefly sampled under the wrong Claude login no
+  longer sticks for the rest of the week. The held reset re-anchors when the
+  live reading points at an earlier instant, so one account stops showing
+  another's "6d 19h".
+
 ## 1.1.5 — 2026-07-29
 
 ### Fixed

@@ -18,9 +18,7 @@ struct AboutHeadroomView: View {
                 .interpolation(.high)
                 .scaledToFit()
                 .frame(width: 64, height: 64)
-                #if os(iOS)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                #endif
                 .accessibilityHidden(true)
 
             Text(HeadroomCopy.product)
@@ -48,15 +46,24 @@ struct AboutHeadroomView: View {
         let short =
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
             as? String ?? "?"
-        return "Version \(short)"
+        let build =
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
+            as? String ?? "?"
+        return "Version \(short) (\(build))"
     }
 
     private var appIcon: Image {
+        // AppIcon.appiconset is not loadable as a named image, and on an
+        // LSUIElement menu-bar app `applicationIconImage` is the generic
+        // "no icon" placeholder. AboutAppIcon is the same artwork kept for
+        // in-app display on both Mac and iPhone.
         #if os(macOS)
-        Image(nsImage: NSApplication.shared.applicationIconImage)
+        if let image = NSImage(named: "AboutAppIcon") {
+            Image(nsImage: image)
+        } else {
+            Image(systemName: "app.fill")
+        }
         #elseif os(iOS)
-        // AppIcon.appiconset is not loadable as a named image; AboutAppIcon is
-        // the same artwork kept for in-app display.
         if let image = UIImage(named: "AboutAppIcon") {
             Image(uiImage: image)
         } else {

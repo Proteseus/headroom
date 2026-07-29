@@ -8,18 +8,17 @@ import SwiftUI
 /// Cursor as concentric bands, each filled to the pool that binds it. Position
 /// identifies the source, exactly as it does on Activity.
 ///
-/// It draws in two passes on purpose. A complication renders `.accented`,
-/// where the system flattens the view to a single tint unless part of it is
-/// moved into a second group — so the bands take the accent and the pace dots
-/// keep the contrasting colour. Collapsed into one pass, the dot would land on
-/// an arc of its own colour and the gap between them, which is the whole
-/// reading, would disappear.
+/// A complication renders `.accented` by default: the system throws the view's
+/// own colours away and repaints it in whatever tint the watch face wears.
+/// `.widgetAccentable(false)` opts out of that, so the brand hues reach the
+/// face intact and a source is identified by colour as well as by position —
+/// the same reading the app, the widgets and the Mac give it.
+///
+/// That is also why this draws in one pass. The two-pass split it used to need
+/// existed only to keep the pace dot out of the tint group; with real colour
+/// the dot contrasts against its band on its own.
 struct WatchRingsGlyph: View {
     let providers: [HeadroomWidgetSnapshot.Provider]
-    /// Off inside a complication, where a second tone is all the system gives
-    /// us and the bands have first claim on it. On in the app, which renders
-    /// full colour and can afford the brand hues.
-    var tinted = false
 
     private var layers: [HeadroomRingLayer] {
         let ordered = providers.sorted { $0.percent > $1.percent }
@@ -34,29 +33,19 @@ struct WatchRingsGlyph: View {
                 // filled to. Falls back to the provider's own layers when the
                 // wire carried them.
                 pacePercent: provider.pace,
-                tint: tinted ? provider.tint : nil
+                tint: provider.watchTint
             )
         }
     }
 
     var body: some View {
-        ZStack {
-            HeadroomRings(
-                layers: layers,
-                tint: tinted ? .primary : .white,
-                profile: .watch,
-                pass: .bands
-            )
-            .widgetAccentable()
-
-            HeadroomRings(
-                layers: layers,
-                tint: .clear,
-                indicatorColor: .primary,
-                profile: .watch,
-                pass: .pace
-            )
-        }
+        HeadroomRings(
+            layers: layers,
+            tint: .primary,
+            indicatorColor: .primary,
+            profile: .watch
+        )
+        .widgetAccentable(false)
     }
 }
 

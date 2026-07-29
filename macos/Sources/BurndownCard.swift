@@ -12,6 +12,9 @@ struct BurndownCard: View {
     let providerID: String
     let rings: [Burndown]
     var tint: Color? = nil
+    /// Where this provider explains mid-window grants. Codex only; opened on
+    /// click, never fetched. Nil keeps the caption as plain text.
+    var resetNoteURL: URL? = nil
 
     private var brand: Color {
         tint
@@ -44,7 +47,11 @@ struct BurndownCard: View {
                     MultiBurndownPlot(pools: overlayPools, tint: brand)
                 } else {
                     ForEach(charted) { pool in
-                        BurndownPlot(pool: pool, tint: brand)
+                        BurndownPlot(
+                            pool: pool,
+                            tint: brand,
+                            resetNoteURL: resetNoteURL
+                        )
                     }
                 }
             }
@@ -71,31 +78,6 @@ struct OverviewBurndownCard: View {
         let providerID: String
         let title: String
         let pool: Burndown
-        let renewsAt: Double?
-        let resetCreditExpiries: [Double]
-        /// Where this provider explains its grants, when it explains them
-        /// anywhere. Opened on click; never fetched.
-        let resetNoteURL: URL?
-
-        /// Newest grant the chart is actually showing, for the caption that
-        /// names the rule.
-        func latestReset(
-            in domain: OverallBurndownChartMath.Domain
-        ) -> BurndownReset? {
-            let visible = Set(OverallBurndownChartMath.preparedResets(
-                pool.resets?.compactMap(\.t), domain: domain))
-            return (pool.resets ?? [])
-                .filter { $0.t.map(visible.contains) ?? false }
-                .max { ($0.t ?? 0) < ($1.t ?? 0) }
-        }
-
-        func nextResetCreditExpiry(
-            in domain: OverallBurndownChartMath.Domain
-        ) -> Double? {
-            OverallBurndownChartMath.preparedUpcomingEvents(
-                resetCreditExpiries, domain: domain
-            ).first
-        }
     }
 
     /// One pool per provider — `UsageSnapshot.overviewBurndown` makes that
@@ -108,12 +90,7 @@ struct OverviewBurndownCard: View {
                 id: provider.id,
                 providerID: provider.id,
                 title: provider.displayTitle,
-                pool: pool,
-                renewsAt: pool.windowEnd,
-                resetCreditExpiries: provider.id == UsageProvider.codex.rawValue
-                    ? snapshot.codex?.resetCreditsExpireAt ?? []
-                    : [],
-                resetNoteURL: provider.resetNoteURL.flatMap(URL.init(string:))
+                pool: pool
             )
         }
     }
@@ -282,74 +259,10 @@ struct OverviewBurndownCard: View {
                             }
                         }
 
-                        // Resets already granted, drawn under the upcoming
-                        // one: solid rather than dotted, because this one
-                        // happened. Without it the curve just restarts and
-                        // the week that was forgiven reads as missing data.
-                        for granted in OverallBurndownChartMath.preparedResets(
-                            entry.pool.resets?.compactMap(\.t), domain: domain
-                        ) {
-                            var mark = Path()
-                            mark.move(to: CGPoint(x: x(granted), y: plot.minY))
-                            mark.addLine(to: CGPoint(
-                                x: x(granted), y: plot.maxY))
-                            context.stroke(
-                                mark,
-                                with: .color(tint.opacity(0.55)),
-                                lineWidth: 1
-                            )
-                            let cap = Path(ellipseIn: CGRect(
-                                x: x(granted) - 2.5, y: plot.minY - 2.5,
-                                width: 5, height: 5))
-                            context.fill(cap, with: .color(tint))
-                        }
-
-                        // Accent dotted reset on top of the strokes.
-                        if let renew = entry.renewsAt,
-                           renew > domain.nowEpoch,
-                           renew >= domain.startEpoch,
-                           renew <= domain.endEpoch {
-                            var renewMarker = Path()
-                            renewMarker.move(to: CGPoint(
-                                x: x(renew), y: plot.minY))
-                            renewMarker.addLine(to: CGPoint(
-                                x: x(renew), y: plot.maxY))
-                            context.stroke(
-                                renewMarker,
-                                with: .color(tint),
-                                style: StrokeStyle(
-                                    lineWidth: 1.5, dash: [1.5, 2.5])
-                            )
-                        }
-
-                        // A banked reset credit does not refill the pool by
-                        // itself. Its expiry is a deadline, so use a longer
-                        // dash and a pointed cap rather than a reset dot.
-                        for expiry in
-                            OverallBurndownChartMath.preparedUpcomingEvents(
-                                entry.resetCreditExpiries, domain: domain
-                            ) {
-                            var expiryMarker = Path()
-                            expiryMarker.move(to: CGPoint(
-                                x: x(expiry), y: plot.minY))
-                            expiryMarker.addLine(to: CGPoint(
-                                x: x(expiry), y: plot.maxY))
-                            context.stroke(
-                                expiryMarker,
-                                with: .color(tint.opacity(0.7)),
-                                style: StrokeStyle(
-                                    lineWidth: 1.25, dash: [5, 3])
-                            )
-                            var cap = Path()
-                            cap.move(to: CGPoint(
-                                x: x(expiry) - 3, y: plot.minY - 3))
-                            cap.addLine(to: CGPoint(
-                                x: x(expiry) + 3, y: plot.minY - 3))
-                            cap.addLine(to: CGPoint(
-                                x: x(expiry), y: plot.minY + 2))
-                            cap.closeSubpath()
-                            context.fill(cap, with: .color(tint))
-                        }
+                        // Forgiven ghost (above) is enough on the overview:
+                        // granted-reset marks, upcoming-reset rules, and
+                        // their captions live on the provider burndown, where
+                        // one curve has room to explain them.
                     }
                 }
                 .frame(height: 118)
@@ -384,48 +297,6 @@ struct OverviewBurndownCard: View {
                                 .monospacedDigit()
                                 .lineLimit(2)
                                 .foregroundStyle(.secondary)
-                            // Names the solid rule on the chart. Only the
-                            // newest grant: two lines of history would push
-                            // the verdict, which is the actionable one, off
-                            // the bottom of the legend.
-                            if let granted = entry.latestReset(in: domain) {
-                                let caption = HeadroomCopy.resetGranted(
-                                    forgivenPct: granted.forgivenPct)
-                                // A link only where the provider actually
-                                // announces its grants somewhere. Opening it
-                                // is the whole integration — Headroom never
-                                // reads that page, so nothing here can break
-                                // when it changes.
-                                if let note = entry.resetNoteURL {
-                                    Link(caption, destination: note)
-                                        .font(.caption2)
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                } else {
-                                    Text(caption)
-                                        .font(.caption2)
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            if let expiry = entry.nextResetCreditExpiry(
-                                in: domain
-                            ) {
-                                Text(HeadroomCopy.resetCreditExpires(
-                                    Date(timeIntervalSince1970: expiry)
-                                        .formatted(
-                                            .dateTime
-                                                .weekday(.abbreviated)
-                                                .hour()
-                                                .minute()
-                                        )
-                                ))
-                                .font(.caption2)
-                                .monospacedDigit()
-                                .lineLimit(1)
-                                .foregroundStyle(.tertiary)
-                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -610,6 +481,8 @@ struct MultiBurndownPlot: View {
 struct BurndownPlot: View {
     let pool: Burndown
     let tint: Color
+    /// Codex mid-window grant note. Nil → plain caption, no link.
+    var resetNoteURL: URL? = nil
 
     /// Only exhaustion changes the colour, and it desaturates rather than
     /// warns. Burning ahead of budget is a reading, not a verdict: the gap
@@ -617,6 +490,12 @@ struct BurndownPlot: View {
     /// headline already says it.
     private var statusTint: Color {
         pool.kind == .exhausted ? tint.drained() : tint
+    }
+
+    /// Newest mid-window grant on this pool — names the solid rule the canvas
+    /// already draws. Overview leaves this to the Codex tab.
+    private var latestGrantedReset: BurndownReset? {
+        (pool.resets ?? []).max { ($0.t ?? 0) < ($1.t ?? 0) }
     }
 
     /// Sample count is a confidence signal, not a user fact, so it lives in
@@ -647,6 +526,20 @@ struct BurndownPlot: View {
                 .frame(height: 100)
 
             BurndownVerdict(pool: pool, tint: statusTint)
+            if let granted = latestGrantedReset {
+                let caption = HeadroomCopy.resetGranted(
+                    forgivenPct: granted.forgivenPct)
+                if let note = resetNoteURL {
+                    Link(caption, destination: note)
+                        .font(.caption)
+                        .monospacedDigit()
+                } else {
+                    Text(caption)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
             BurndownStats(pool: pool)
         }
         .help(help)

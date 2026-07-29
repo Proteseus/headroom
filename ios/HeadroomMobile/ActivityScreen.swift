@@ -18,6 +18,11 @@ struct ActivityScreen: View {
         }
         List {
             ArchivedDataNotice(store: store)
+            if !store.agentAttentionEvents.isEmpty {
+                Section(HeadroomCopy.answerCodingAgents) {
+                    ForEach(store.agentAttentionEvents) { agentRow($0) }
+                }
+            }
             // One list, failures first, uniform rows — same reading order as
             // the Mac card. Splitting it into sections put a gap in the middle
             // of what is really one timeline.
@@ -48,6 +53,38 @@ struct ActivityScreen: View {
         }
         .navigationTitle(HeadroomCopy.activity)
         .refreshable { await store.refresh(forceServerSync: true) }
+    }
+
+    private func agentRow(_ event: AgentAttentionEvent) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(event.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                .font(.headline)
+            Text(event.summary)
+                .font(.subheadline)
+            if let command = event.detail.command {
+                Text(command)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+            }
+            HStack {
+                ForEach(event.actions) { action in
+                    Button(action.label) {
+                        Task { await store.answer(event, with: action) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(
+                        !store.mobilePermissions.agents
+                        || store.respondingAgentEventID != nil
+                    )
+                }
+                if store.respondingAgentEventID == event.id {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder

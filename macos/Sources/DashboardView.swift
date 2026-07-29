@@ -46,16 +46,17 @@ struct DashboardView: View {
                         if let skew = store.hostSkew {
                             HostSkewBanner(skew: skew, store: store)
                         }
-                        providerSwitcher
-                        // Warnings first: failed deploys / Actions / etc. stay
-                        // visible without scrolling past quota charts. On
-                        // provider tabs, only show the card while something
-                        // needs attention.
+                        // Warnings first, above the provider switcher: failed
+                        // deploys / Actions / etc. stay visible without
+                        // scrolling past quota charts, and don't read as part
+                        // of a provider tab. On provider tabs, only show the
+                        // card while something needs attention.
                         let hasAttentionWarning =
                             store.snapshot.attention?.isWarning == true
                         if isOverview || hasAttentionWarning {
                             AttentionCard(store: store)
                         }
+                        providerSwitcher
                         if isOverview {
                             QuotaOverviewCard(snapshot: store.snapshot) { providerID in
                                 selectedProviderRaw = providerID
@@ -80,7 +81,12 @@ struct DashboardView: View {
                                 rings: store.snapshot.burndownRings(
                                     forProviderID: selectedDashboardRaw),
                                 tint: store.snapshot.tint(
-                                    forProviderID: selectedDashboardRaw)
+                                    forProviderID: selectedDashboardRaw),
+                                resetNoteURL: store.snapshot
+                                    .visibleQuotaProviders
+                                    .first { $0.id == selectedDashboardRaw }?
+                                    .resetNoteURL
+                                    .flatMap(URL.init(string:))
                             )
                         }
                         ActivitySection(items: store.snapshot.activity ?? [])
@@ -143,24 +149,10 @@ struct DashboardView: View {
         return HeadroomPalette.green
     }
 
-    /// The popover is a fixed width, so past four or five providers the tab
-    /// names have to give way to the marks rather than wrap and spill out of
-    /// it. Widest layout that fits wins; the last one always fits.
+    /// Always icon + label. Extra providers share the fixed popover width and
+    /// truncate rather than dropping names (which left friend setups looking
+    /// like icon-only chrome).
     private var providerSwitcher: some View {
-        ViewThatFits(in: .horizontal) {
-            switcherRow(labels: .all)
-            switcherRow(labels: .selectedOnly)
-            switcherRow(labels: .none)
-        }
-        .onChange(of: visibleProviders.map(\.id)) { _, ids in
-            // Drop onto Overview if the selected provider was disabled.
-            if !isOverview, !ids.contains(selectedDashboardRaw) {
-                selectedDashboardRaw = DashboardSelection.overview
-            }
-        }
-    }
-
-    private func switcherRow(labels: DashboardTabLabels) -> some View {
         let tabs = DashboardSelection.tabs(for: visibleProviders)
         return HStack(spacing: 2) {
             ForEach(tabs, id: \.self) { tabID in
@@ -169,8 +161,7 @@ struct DashboardView: View {
                     tabID: tabID,
                     title: DashboardSelection.title(
                         for: tabID, providers: visibleProviders),
-                    isSelected: isSelected,
-                    showsTitle: labels.showsTitle(isSelected: isSelected)
+                    isSelected: isSelected
                 ) {
                     selectedDashboardRaw = tabID
                     if tabID != DashboardSelection.overview {
@@ -186,6 +177,12 @@ struct DashboardView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dashboard")
+        .onChange(of: visibleProviders.map(\.id)) { _, ids in
+            // Drop onto Overview if the selected provider was disabled.
+            if !isOverview, !ids.contains(selectedDashboardRaw) {
+                selectedDashboardRaw = DashboardSelection.overview
+            }
+        }
     }
 
     private var footer: some View {
@@ -255,30 +252,12 @@ struct DashboardView: View {
     }
 }
 
-/// How much of each tab's name the switcher can afford to draw.
-enum DashboardTabLabels {
-    case all
-    case selectedOnly
-    case none
-
-    func showsTitle(isSelected: Bool) -> Bool {
-        switch self {
-        case .all: true
-        case .selectedOnly: isSelected
-        case .none: false
-        }
-    }
-}
-
 /// Segment in the overview/provider switcher. Plain buttons on macOS only
 /// hit-test their text unless the padded capsule is an explicit content shape.
 private struct DashboardTabButton: View {
     let tabID: String
     let title: String
     let isSelected: Bool
-    /// False once the row can only fit the marks. The name still reaches
-    /// VoiceOver and the tooltip, so a mark-only tab is never unlabelled.
-    var showsTitle = true
     let action: () -> Void
 
     @State private var hovering = false
@@ -292,14 +271,9 @@ private struct DashboardTabButton: View {
                 } else {
                     ProviderMark(providerID: tabID, size: 11)
                 }
-                if showsTitle {
-                    // Fixed, so the row measures at its untruncated width —
-                    // that measurement is what ViewThatFits rejects when it
-                    // falls through to the next layout.
-                    Text(title)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
+                Text(title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             .font(.caption.weight(isSelected ? .semibold : .medium))
             .foregroundStyle(isSelected ? .primary : .secondary)

@@ -72,6 +72,19 @@ FORGET_S = 30 * 24 * 3600
 # A beacon is a few KB. Anything this size is not one of ours.
 MAX_FILE_BYTES = 512 * 1024
 
+# What `probe()` found, in words a person can act on. `denied` is the one that
+# matters: it is what a folder inside iCloud Drive gives a host that has not
+# been granted Full Disk Access, and it is invisible from the publish side —
+# writing the beacon keeps working, so every Mac looks like it is syncing.
+TROUBLE_DETAIL = {
+    "denied": (
+        "macOS is blocking the host from reading this folder. Folders inside "
+        "iCloud Drive need Full Disk Access. Choose a folder outside iCloud "
+        "Drive, or grant the host Full Disk Access."
+    ),
+    "unreadable": "The host could not read this folder.",
+}
+
 _lock = threading.Lock()
 _peers = []          # last successful read, for the /usage document
 _last_write = {"payload": None, "at": 0.0}
@@ -80,9 +93,27 @@ _last_write = {"payload": None, "at": 0.0}
 # ----------------------------------------------------------------- paths
 
 
-def root_dir():
-    """The sync folder, or None when the feature is off."""
+def mode():
+    """Which transport carries this Mac's record.
+
+    CloudKit by default, because the obvious-looking alternative does not work:
+    a folder in iCloud Drive lives under `~/Library/Mobile Documents`, which is
+    TCC-protected, and a LaunchAgent host can create files there but is refused
+    `listdir`. Every Mac publishes, none can enumerate, and all report no peers.
+
+    `icloud_dir` opts into the folder anyway, which is the right answer for a
+    directory that is *not* TCC-protected — Dropbox, Syncthing, a mounted
+    share. Setting it to a path inside iCloud Drive is the one combination that
+    will disappoint, and `probe()` says so rather than letting it look fine.
+    """
     if not app_config.icloud_sync_enabled():
+        return "off"
+    return "folder" if app_config.icloud_dir() else "cloudkit"
+
+
+def root_dir():
+    """The sync folder, or None unless this Mac is in folder mode."""
+    if mode() != "folder":
         return None
     return app_config.icloud_dir() or DEFAULT_DIR
 
@@ -159,10 +190,34 @@ def _read_peer(path):
     return data
 
 
+def probe(folder=None):
+    """Why the peer folder cannot be read, or None when it can.
+
+    Worth its own function because the failure this exists to catch is not one
+    a caller can infer. `~/Library/Mobile Documents` is TCC-protected: a host
+    without Full Disk Access may create and write files there quite happily and
+    still be refused `listdir`. Every Mac then publishes into a folder none of
+    them can enumerate, each reports zero peers, and "sync is on and finding
+    nobody" looks exactly like "the other Mac has not synced yet".
+    """
+    folder = folder or machines_dir()
+    if not folder:
+        return "off"
+    if not os.path.isdir(folder):
+        # Nothing has published here yet, including us. Not an error.
+        return None
+    try:
+        os.listdir(folder)
+    except PermissionError:
+        return "denied"
+    except OSError:
+        return "unreadable"
+    return None
+
+
 def _read_peers(now):
-    """Every machine file but this one, newest-seen first."""
+    """Every machine file in the folder. Filtering and ages are `_dated`'s job."""
     folder = machines_dir()
-    own = machine_identity.machine_id()
     if not folder or not os.path.isdir(folder):
         return []
     out = []
@@ -174,17 +229,8 @@ def _read_peers(now):
         if not name.endswith(".json") or name.startswith("."):
             continue
         data = _read_peer(os.path.join(folder, name))
-        if data is None or data["id"] == own:
-            continue
-        try:
-            updated = float(data.get("updated") or 0.0)
-        except (TypeError, ValueError):
-            updated = 0.0
-        if updated <= 0 or now - updated > FORGET_S:
-            continue
-        data["_age_s"] = max(0.0, now - updated)
-        out.append(data)
-    out.sort(key=lambda row: row["_age_s"])
+        if data is not None:
+            out.append(data)
     return out
 
 
@@ -257,25 +303,23 @@ def _reconcile(local, state, peers, now):
 # ------------------------------------------------------------------ write
 
 
-def _write_own(beacon, prefs, stamps, now):
+def _write_own(record, now):
     """Publish this machine's file, skipping the write when nothing changed.
 
-    iCloud syncs on close, so rewriting an identical file once a minute would
-    be a minute of upload traffic for nothing. `updated` is excluded from the
-    comparison precisely so an idle Mac goes quiet — a peer's age is then real
-    rather than a heartbeat, and staleness in the UI means what it says.
+    A sync-on-close folder would otherwise see an identical file rewritten
+    every minute, which is a minute of upload traffic for nothing. `updated` is
+    excluded from the comparison precisely so an idle Mac goes quiet — a peer's
+    age is then real rather than a heartbeat, and staleness in the UI means
+    what it says.
     """
     path = _own_path()
     if not path:
         return False
-    payload = dict(beacon or {})
-    payload.update(machine_identity.describe())
-    payload["prefs"] = prefs
-    payload["stamps"] = stamps
-    body = json.dumps(payload, sort_keys=True)
+    payload = dict(record)
+    body = json.dumps(
+        {k: v for k, v in payload.items() if k != "updated"}, sort_keys=True)
     if body == _last_write["payload"]:
         return False
-    payload["updated"] = now
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
@@ -290,22 +334,35 @@ def _write_own(beacon, prefs, stamps, now):
     return True
 
 
-# ------------------------------------------------------------------- tick
+# ------------------------------------------------------------------- round
 
 
-def tick(beacon=None, now=None):
-    """Run one sync round. Returns a short summary for the log.
+def _own_record(beacon, prefs, stamps, now):
+    """This machine's published record. The same shape down either transport.
 
-    Safe to call when the feature is off, when the folder does not exist, and
-    when this is the only Mac — each of those is a no-op, not an error.
+    A CloudKit record and a file on disk carry identical bytes on purpose: the
+    merge cannot tell which one it came from, and neither can a peer.
+    """
+    payload = dict(beacon or {})
+    payload.update(machine_identity.describe())
+    payload["prefs"] = prefs
+    payload["stamps"] = stamps
+    payload["updated"] = now
+    return payload
+
+
+def sync(peers, beacon=None, now=None):
+    """One merge round against `peers`. Transport-neutral.
+
+    Both transports land here. The folder reads its peers off disk; CloudKit
+    hands over what the Mac app fetched from the private database. Everything
+    that decides *what* travels and *who wins* lives on this side of that line,
+    so choosing a transport never means re-proving the merge.
+
+    Returns the record this machine should publish, plus what it adopted.
     """
     now = time.time() if now is None else now
-    if root_dir() is None:
-        with _lock:
-            _peers.clear()
-        return {"enabled": False, "peers": 0, "adopted": []}
-
-    peers = _read_peers(now)
+    peers = _dated(peers or [], now)
     state = _load_state()
     local = shared_prefs.read()
     updates, winners, stamps = _reconcile(local, state, peers, now)
@@ -323,14 +380,72 @@ def tick(beacon=None, now=None):
     reconciled = {"mirror": local, "stamps": stamps}
     if reconciled != state:
         _save_state(reconciled)
-    wrote = _write_own(beacon, local, stamps, now)
 
     with _lock:
         _peers[:] = peers
     return {
-        "enabled": True,
-        "peers": len(peers),
         "adopted": adopted,
+        "peers": [_peer_view(peer, now) for peer in peers],
+        "record": _own_record(beacon, local, stamps, now),
+    }
+
+
+def _dated(peers, now):
+    """Drop peers that are junk or long gone, and stamp each with its age."""
+    out = []
+    own = machine_identity.machine_id()
+    for peer in peers:
+        if not isinstance(peer, dict) or not isinstance(peer.get("id"), str):
+            continue
+        if peer["id"] == own:
+            continue
+        try:
+            updated = float(peer.get("updated") or 0.0)
+        except (TypeError, ValueError):
+            updated = 0.0
+        if updated <= 0 or now - updated > FORGET_S:
+            continue
+        peer = dict(peer)
+        peer["_age_s"] = max(0.0, now - updated)
+        out.append(peer)
+    out.sort(key=lambda row: row["_age_s"])
+    return out
+
+
+def cloud_round(records, beacon=None, now=None):
+    """CloudKit round: peers in, this machine's record out.
+
+    The Mac app owns the CloudKit half because only an entitled process can
+    reach it — `~/Library/Mobile Documents` is TCC-protected and a LaunchAgent
+    daemon cannot get a grant for it, which is the whole reason this transport
+    exists. So the app fetches changed records, posts them here, and saves back
+    whatever this returns. It carries bytes and holds no opinion about them.
+    """
+    result = sync(records, beacon=beacon, now=now)
+    result["ok"] = True
+    return result
+
+
+def tick(beacon=None, now=None):
+    """Folder round, driven by the host's own loop.
+
+    A no-op in CloudKit mode: there the app drives the schedule, because it is
+    the half that can hear a push.
+    """
+    now = time.time() if now is None else now
+    if root_dir() is None or mode() != "folder":
+        if not app_config.icloud_sync_enabled():
+            with _lock:
+                _peers.clear()
+        return {"enabled": False, "peers": 0, "adopted": []}
+
+    result = sync(_read_peers(now), beacon=beacon, now=now)
+    record = result["record"]
+    wrote = _write_own(record, now)
+    return {
+        "enabled": True,
+        "peers": len(result["peers"]),
+        "adopted": result["adopted"],
         "wrote": wrote,
     }
 
@@ -364,17 +479,22 @@ def configuration(now=None):
     looks like a bug.
     """
     now = time.time() if now is None else now
-    enabled = app_config.icloud_sync_enabled()
-    folder = root_dir() or (app_config.icloud_dir() or DEFAULT_DIR)
+    how = mode()
+    enabled = how != "off"
+    folder = app_config.icloud_dir() or ""
     with _lock:
         peers = list(_peers)
+    trouble = probe() if how == "folder" else None
     return {
         "ok": True,
         "enabled": enabled,
+        "mode": how,
         "directory": folder,
-        "available": os.path.isdir(os.path.dirname(folder)),
+        "available": not folder or os.path.isdir(os.path.dirname(folder)),
         "machine": machine_identity.describe(),
         "peers": [_peer_view(peer, now) for peer in peers],
+        "trouble": trouble,
+        "trouble_detail": TROUBLE_DETAIL.get(trouble),
     }
 
 

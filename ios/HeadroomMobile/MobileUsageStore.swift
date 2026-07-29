@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 
 @MainActor
 final class MobileUsageStore: ObservableObject {
@@ -7,6 +8,8 @@ final class MobileUsageStore: ObservableObject {
     @Published private(set) var stoppingServerID: String?
     @Published private(set) var changingSourceID: String?
     @Published private(set) var mobilePermissions = MobilePermissions.allDisabled
+    @Published private(set) var agentAttentionEvents: [AgentAttentionEvent] = []
+    @Published private(set) var respondingAgentEventID: String?
     @Published private(set) var errorMessage: String?
     /// When the Mac handed us the snapshot on screen — live this session, or
     /// read back from the archive on a cold launch.
@@ -98,6 +101,11 @@ final class MobileUsageStore: ObservableObject {
             if let permissions = try? await client.fetchMobilePermissions() {
                 mobilePermissions = permissions
             }
+            if mobilePermissions.read,
+               let events = try? await client.fetchAgentAttentionEvents() {
+                agentAttentionEvents = events
+                await MobileNotifications.notifyIfNeeded(events)
+            }
             if forceServerSync || recovering {
                 if mobilePermissions.refresh {
                     try await client.requestRefresh()
@@ -127,6 +135,43 @@ final class MobileUsageStore: ObservableObject {
         // poll; the one at launch bailed on `isConfigured`.
         startLiveUpdates()
         await refresh()
+    }
+
+    func answer(
+        _ event: AgentAttentionEvent,
+        with action: AgentAttentionAction
+    ) async {
+        guard mobilePermissions.agents, respondingAgentEventID == nil else { return }
+        respondingAgentEventID = event.id
+        defer { respondingAgentEventID = nil }
+        do {
+            if action.requiresBiometric == true {
+                let context = LAContext()
+                try await context.evaluatePolicy(
+                    .deviceOwnerAuthentication,
+                    localizedReason: "\(action.label): \(event.summary)"
+                )
+            }
+            let client = MobileHeadroomClient(
+                endpoint: MobileConnection.endpoint,
+                token: MobileTokenStore.read() ?? ""
+            )
+            let updated = try await client.respond(
+                to: event,
+                action: action,
+                idempotencyKey: UUID().uuidString
+            )
+            agentAttentionEvents.removeAll { $0.id == updated.id }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            if let events = try? await MobileHeadroomClient(
+                endpoint: MobileConnection.endpoint,
+                token: MobileTokenStore.read() ?? ""
+            ).fetchAgentAttentionEvents() {
+                agentAttentionEvents = events
+            }
+        }
     }
 
     /// Fixture path for README / marketing screenshots (no network).

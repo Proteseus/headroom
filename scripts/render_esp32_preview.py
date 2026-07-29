@@ -117,11 +117,10 @@ def draw_pace_ring(draw, cx, cy, r, thick, pct, pace_pct, accent):
         sweep = p * 3.6
         if p > 0 and sweep < 2:
             sweep = 2
-        if p >= 100 or sweep >= 359:
-            draw_arc(draw, cx, cy, r, thick, -90, 270, accent, steps=90)
-        else:
-            draw_round_arc(draw, cx, cy, r, thick, -90, sweep, accent,
-                           steps=max(8, int(sweep)))
+        # Round-cap even at 100% so the two ends meet as a ")(" seam at 12
+        # o'clock — same as SwiftUI StrokeStyle(.round), not a solid fill.
+        draw_round_arc(draw, cx, cy, r, thick, -90, sweep, accent,
+                       steps=max(8, int(sweep)))
     if pace_pct is not None and pace_pct >= 0:
         pp = min(100.0, float(pace_pct))
         a = math.radians(-90 + pp * 3.6)
@@ -288,7 +287,7 @@ def draw_overall_series(draw, burn, accent, x, y, w, h, t_lo, t_hi):
         remaining = max(0.0, min(100.0, float(remaining)))
         return y + h - 1 - int(remaining * (h - 1) / 100.0)
 
-    line = COL_DIM if burn.get("status") == "exhausted" else accent
+    line = accent
     for a, b in zip(points, points[1:]):
         clipped = clip_burn_segment(
             int(a[0]), float(a[1]), int(b[0]), float(b[1]), t_lo, t_hi
@@ -428,10 +427,9 @@ def draw_glance_burndown(draw, providers, burns, updated, mid_y, low_bottom):
         row_y = legend_y + index * row_h
         burn = burns.get(provider.get("id"), {})
         accent = parse_accent(provider.get("accent"))
-        dot = COL_DIM if burn.get("status") == "exhausted" else accent
         draw.ellipse(
             [PAD, row_y + 3, PAD + 6, row_y + 9],
-            fill=dot if burn.get("pts") else COL_DIM,
+            fill=accent if burn.get("pts") else COL_DIM,
         )
         verdict = burn.get("verdict")
         if verdict:
@@ -553,11 +551,16 @@ def draw_link_glyph(
         )
 
     if link_via == "usb":
-        draw.rectangle([gx + 5, gy + 1, gx + 6, gy + 4], fill=color)
-        draw.rectangle([gx + 11, gy + 1, gx + 12, gy + 4], fill=color)
-        draw.rounded_rectangle([gx + 3, gy + 5, gx + 14, gy + 11],
+        # SF Symbol-style cable.connector: tip, housing, cable.
+        cx = gx + glyph_w // 2
+        tip = tuple(int(c + (w - c) * 0.55 + 0.5)
+                    for c, w in zip(color, COL_WHITE))
+        draw.rounded_rectangle([cx - 4, gy, cx + 3, gy + 2],
+                               radius=1, fill=tip)
+        draw.rounded_rectangle([cx - 5, gy + 3, cx + 4, gy + 9],
                                radius=2, fill=color)
-        draw.rectangle([gx + 7, gy + 12, gx + 10, gy + 14], fill=color)
+        draw.rounded_rectangle([cx - 1, gy + 10, cx, gy + 14],
+                               radius=1, fill=color)
         return
 
     cx = gx + glyph_w // 2

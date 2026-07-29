@@ -121,23 +121,30 @@ struct HeadroomRundownComplicationView: View {
         switch family {
         case .accessoryInline:
             Text(inlineLabel)
+        case _ where entry.snapshot.charted.isEmpty:
+            // Nothing to draw. The one case that still gets words, because a
+            // blank tile and a flat week look identical.
+            Text(emptyLabel)
+                .font(.system(size: 12))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: .leading)
         default:
-            VStack(alignment: .leading, spacing: 1) {
-                WatchRundownHeadline(snapshot: entry.snapshot)
-                if entry.snapshot.charted.isEmpty {
-                    // No week to draw yet. Say so once, quietly, rather than
-                    // leaving a third of the complication blank.
-                    Text(HeadroomCopy.noHistoryYet)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity,
-                               alignment: .leading)
-                } else {
-                    WatchRundownChart(snapshot: entry.snapshot)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
+            // The chart takes the whole tile. What it used to say in a headline
+            // is what the inline and corner families say already.
+            WatchRundownChart(snapshot: entry.snapshot)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// A watch that has never heard from the phone is a different problem from
+    /// one waiting on its first week of history, and only the first is
+    /// something the wearer can act on.
+    private var emptyLabel: String {
+        guard entry.snapshot.bindingProvider != nil else {
+            return entry.snapshot.attentionSummary ?? HeadroomCopy.openOnPhone
+        }
+        return HeadroomCopy.noHistoryYet
     }
 
     /// One line, no glyph — inline is a single run of system-styled text.

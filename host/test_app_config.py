@@ -39,6 +39,8 @@ class AppConfigTests(unittest.TestCase):
             app_config.mobile_permissions(),
             {"read", "refresh", "sources", "servers"},
         )
+        self.assertFalse(app_config.agent_gateway_enabled())
+        self.assertEqual(app_config.codex_binary(), "codex")
 
     def test_overrides_from_file(self):
         with open(self.path, "w") as handle:
@@ -53,7 +55,9 @@ class AppConfigTests(unittest.TestCase):
                 "plausible_sites": ["acme.dev"],
                 "plausible_host": "https://analytics.example.com/",
                 "plausible_range": "7d",
-                "mobile_permissions": ["read", "sources", "unknown"],
+                "mobile_permissions": ["read", "sources", "agents", "unknown"],
+                "agent_gateway_enabled": True,
+                "codex_binary": "/opt/codex",
             }, handle)
         app_config.reload()
         self.assertEqual(app_config.timezone_name(), "America/Los_Angeles")
@@ -68,7 +72,10 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(
             app_config.plausible_host(), "https://analytics.example.com")
         self.assertEqual(app_config.plausible_range(), "7d")
-        self.assertEqual(app_config.mobile_permissions(), {"read", "sources"})
+        self.assertEqual(
+            app_config.mobile_permissions(), {"read", "sources", "agents"})
+        self.assertTrue(app_config.agent_gateway_enabled())
+        self.assertEqual(app_config.codex_binary(), "/opt/codex")
 
     def test_a_bare_org_prefix_string_still_works(self):
         """Configs written before the key took a list must keep working."""
@@ -117,6 +124,13 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(granted, {"read", "refresh"})
         self.assertEqual(app_config.mobile_permissions(), {"read", "refresh"})
         self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
+
+    def test_persists_agent_gateway_configuration(self):
+        result = app_config.set_agent_gateway(
+            enabled=True, codex_binary_value="~/bin/codex")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["codex_binary"].endswith("/bin/codex"))
+        self.assertTrue(app_config.agent_gateway_enabled())
 
     def test_persists_attention_ack_without_losing_other_config(self):
         with open(self.path, "w") as handle:

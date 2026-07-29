@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Multi-Mac over CloudKit. Merged into Headroom.entitlements by
+	     scripts/build-app.sh, and only when HEADROOM_PROVISION_PROFILE names a
+	     Developer ID profile to embed.
+
+	     Kept apart rather than in the main file because these are restricted
+	     entitlements: codesign will happily stamp them on, and the app is then
+	     killed at launch because nothing authorizes them. A build with no
+	     profile must be byte-for-byte the build that shipped before multi-Mac
+	     existed, minus the feature.
+
+	     CloudKit rather than a folder in iCloud Drive because
+	     ~/Library/Mobile Documents is TCC-protected and the Python host is a
+	     LaunchAgent: it can create and write files there while being refused
+	     listdir on the same directory, so every Mac publishes and none can
+	     enumerate. An entitlement is not subject to TCC, and a daemon cannot
+	     hold one — which is why the app owns this half. -->
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.centaur-labs.headroom</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+</dict>
+</plist>

@@ -40,22 +40,60 @@ wasted.
 | **Overall burndown** | `accessoryRectangular`, `accessoryInline` | The week, redrawn for the wrist |
 
 The rectangular one is a deliberate reduction of the Mac card, not a shrunk
-copy. At roughly 160×72 points, rendered `.accented` — where the system
-flattens everything to one tint and colour cannot carry identity at all — the
-legend, the percent gutter, the weekday labels, and the per-source hues all
-stop working. What replaces them:
+copy. At roughly 160×72 points the legend, the percent gutter and the weekday
+labels all stop working. What replaces them:
 
-- One source is **named in words** above the chart: whichever runs dry first,
-  with how much is left and **Empty Thu** / **Resets Thu**. That is the
-  question a glance is asking, and text answers it where an 8pt legend cannot.
-- **Its line is the accented one, and the only thick one.** The rest stay in
-  the base tone as context — the shape of the week, not a key to decode.
+- **No text.** The chart takes the whole tile. It used to carry a headline —
+  the percent, the source, **Empty Thu** / **Resets Thu** — but that is the
+  same sentence the inline and corner families already say, and it cost a fifth
+  of the height that makes the lines readable.
+- **The binding source's line is the only thick one.** The rest keep their
+  colours at lower opacity as context — the shape of the week, not a key to
+  decode.
 - **The axis goes, the rhythm stays.** Day boundaries keep their rules and lose
   their labels; the scale keeps its lines and loses "100%".
 
-Splitting a view across the two tones needs two stacked `Canvas` layers —
-`.widgetAccentable()` groups views and cannot reach inside one. Both build
-their geometry from the same `BurndownGeometry`, so the layers register.
+Words come back for exactly one case: nothing to draw. A blank tile and a flat
+week look identical, so an empty chart says **Nothing yet** — or **Open
+Headroom on iPhone** when the watch has never heard from the phone, which is
+the one of the two the wearer can act on.
+
+### Colour on the face
+
+A complication renders `.accented` by default: the system discards the view's
+own colours and repaints it in whatever tint the watch face is wearing. That is
+opt-out, not mandatory. **`.widgetAccentable(false)` keeps a subtree's real
+colours**, which is how the rings and the burndown lines wear the same brand
+hues here that they wear in the app, on the widgets and on the Mac.
+
+Both complications apply it to their drawn content. Anything left outside it —
+the corner's curved `widgetLabel`, the `accessoryInline` string — is system
+text the face styles regardless, and is meant to be.
+
+### Why the watch draws in Display P3
+
+The board and the Apple surfaces paint identical numbers: `COL_CLAUDE` in
+`firmware/src/main.cpp` and `claudeRGB` in `Shared/HeadroomPalette.swift` are
+both `217, 119, 87`. They do not look identical, and the gap is colour
+management, not the palette.
+
+`Color(red:green:blue:)` is sRGB, and the system renders it accurately —
+meaning inside sRGB's gamut. An ESP32 panel has no colour management at all:
+the RGB565 value drives the OLED subpixels directly, against primaries much
+wider than sRGB. Same coordinates, wider primaries, visibly more saturation.
+
+So `watch/Shared/WatchPalette.swift` reads the same triples as **Display P3**
+coordinates, which is close to what the unmanaged panel does, and every watch
+surface uses `provider.watchTint` instead of `provider.tint`. The numbers are
+never duplicated — `HeadroomPalette` keeps the triples and both spellings are
+derived from them.
+
+This is watch-only on purpose. The Mac would overshoot on any external sRGB
+monitor, and it is not trying to match a board across the room.
+
+Two things it does not fix: RGB565 quantisation, which costs the board up to 7
+of 255 per channel (`(r & 0xF8, g & 0xFC, b >> 3)`), and the fact that a 30pt
+patch of colour simply reads less saturated than a 448×368 one.
 
 ## Freshness
 

@@ -24,6 +24,7 @@ class MobileControlTests(unittest.TestCase):
         self.assertTrue(handler._mobile_permission_allowed("refresh"))
         self.assertTrue(handler._mobile_permission_allowed("sources"))
         self.assertTrue(handler._mobile_permission_allowed("servers"))
+        self.assertFalse(handler._mobile_permission_allowed("agents"))
         self.assertTrue(
             self.handler(address="100.101.102.103")
                 ._mobile_permission_allowed("sources")

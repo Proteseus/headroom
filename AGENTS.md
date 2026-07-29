@@ -227,13 +227,34 @@ its constants. Changing one means changing all of them.
 
 ## Multi-Mac
 
-Settings sync between Macs through a folder, one file per machine, written by
+Settings sync between Macs over CloudKit, one record per machine, written by
 its owner and read by everyone else ([docs/multi-mac.md](docs/multi-mac.md)).
-Two rules are load-bearing if you touch it:
+Four rules are load-bearing if you touch it:
 
-- **A machine writes only its own file.** That is the entire reason there are
-  no conflict copies. Anything that writes a peer's file, or a shared one,
+- **The folder transport cannot live in iCloud Drive.**
+  `~/Library/Mobile Documents` is TCC-protected, and the host is a LaunchAgent:
+  it can create and write files there and is refused `listdir` on the same
+  directory. Every Mac publishes, none can enumerate, nothing errors. This is
+  why the transport is CloudKit and why the app owns it — an entitlement is not
+  subject to TCC and a daemon cannot hold one. `icloud_dir` still selects the
+  folder, which is correct for Dropbox or Syncthing and wrong for iCloud Drive.
+- **A machine writes only its own record.** That is the entire reason there are
+  no conflicts. Anything that writes a peer's record, or a shared one,
   reintroduces the problem the design exists to avoid.
+- **Never construct a `CKContainer` without checking
+  `MachineCloudSync.isAvailable` first.** On a binary whose signature lacks the
+  entitlement — which is every local build — the initializer raises an
+  Objective-C exception that Swift cannot catch, so the app dies at launch
+  instead of degrading. The check reads the entitlement off our own signature.
+- **The iCloud entitlements are not in `Headroom.entitlements`.** They are
+  restricted, `codesign` does not validate them, and an app carrying them with
+  no provisioning profile signs, notarizes, downloads and is killed on launch.
+  `Headroom-iCloud.entitlements` is merged in by `scripts/build-app.sh` only
+  when `HEADROOM_PROVISION_PROFILE` supplies one. No profile, no keys, and the
+  artifact matches what shipped before the feature.
+- **The merge stays in Python.** `MachineCloudSync.swift` carries bytes and
+  holds no opinion about them. A second implementation of last-writer-wins
+  would drift, and the symptom would be settings quietly reverting on one Mac.
 - **`app_config.SHARED_CONFIG_KEYS` is a whitelist, not a blocklist.** The file
   it reads holds the host token. A new config key is local until someone adds
   it there on purpose.
@@ -241,6 +262,11 @@ Two rules are load-bearing if you touch it:
 Per-machine facts — local servers, git commits, attention events — are
 *reported* with an owner and never merged. A merged list would describe a
 computer that does not exist.
+
+Testing note: the folder transport is what the suite exercises, because it
+needs no entitlement. CloudKit itself is only reachable from a signed build, so
+a green `xcodebuild` says the code compiles and nothing about whether the
+container answers.
 
 ## Layout
 

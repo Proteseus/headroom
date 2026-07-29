@@ -23,7 +23,7 @@ struct WatchRootView: View {
     @ViewBuilder
     private func content(_ snapshot: HeadroomWidgetSnapshot) -> some View {
         VStack(spacing: 12) {
-            WatchRingsGlyph(providers: snapshot.providers, tinted: true)
+            WatchRingsGlyph(providers: snapshot.providers)
                 .frame(width: 110, height: 110)
 
             VStack(spacing: 6) {
@@ -57,7 +57,7 @@ struct WatchRootView: View {
     private func row(_ provider: HeadroomWidgetSnapshot.Provider) -> some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(provider.tint)
+                .fill(provider.watchTint)
                 .frame(width: 7, height: 7)
             Text(provider.title)
                 .font(.caption)
@@ -71,7 +71,7 @@ struct WatchRootView: View {
 
     private var empty: some View {
         VStack(spacing: 8) {
-            WatchRingsGlyph(providers: [], tinted: true)
+            WatchRingsGlyph(providers: [])
                 .frame(width: 88, height: 88)
                 .opacity(0.5)
             Text(link.snapshot?.attentionSummary ?? HeadroomCopy.openOnPhone)

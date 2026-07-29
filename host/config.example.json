@@ -10,6 +10,8 @@
   "plausible_host": "https://plausible.io",
   "plausible_range": "24h",
   "mobile_permissions": ["read", "refresh", "sources", "servers"],
+  "agent_gateway_enabled": false,
+  "codex_binary": "codex",
   "icloud_sync": false,
   "icloud_dir": ""
 }

@@ -122,6 +122,32 @@ expanded_entitlements() {
   printf '%s' "$out"
 }
 
+# Multi-Mac's CloudKit entitlements, but only when a profile authorizes them.
+#
+# `com.apple.developer.*` is the restricted family. codesign does not check
+# them against anything, so a build that stamps them on with no embedded
+# provisioning profile signs cleanly, notarizes, downloads — and is killed the
+# moment it launches. Silent until it is in someone's Applications folder.
+#
+# So the rule is: no profile, no iCloud keys, and the artifact is exactly the
+# one that shipped before this feature existed.
+embed_icloud_profile() {
+  local app_ents="$1"
+  local profile="${HEADROOM_PROVISION_PROFILE:-}"
+  if [[ -z "$profile" ]]; then
+    echo "note: no HEADROOM_PROVISION_PROFILE — multi-Mac CloudKit is off in this build" >&2
+    return 0
+  fi
+  if [[ ! -f "$profile" ]]; then
+    echo "error: HEADROOM_PROVISION_PROFILE is set but $profile does not exist" >&2
+    exit 1
+  fi
+  cp "$profile" "$APP/Contents/embedded.provisionprofile"
+  /usr/libexec/PlistBuddy -c "Merge $ROOT/macos/Headroom-iCloud.entitlements" \
+    "$app_ents" >/dev/null
+  echo "note: embedded $(basename "$profile") — multi-Mac CloudKit is on" >&2
+}
+
 # The team that will actually be on the signature. Prefer the one inside the
 # identity — "Developer ID Application: Name (TEAMID)" — because an entitlement
 # claiming a different team than the certificate is a group that grants nothing.
@@ -174,6 +200,9 @@ sign_developer_id() {
   team="$(signing_team "$identity")"
   widget_ents="$(expanded_entitlements "$WIDGET_ENTITLEMENTS" "$team")"
   app_ents="$(expanded_entitlements "$ENTITLEMENTS" "$team")"
+  # Before any codesign call: the profile lands inside the bundle, so it has to
+  # be there when the bundle is sealed.
+  embed_icloud_profile "$app_ents"
 
   if [[ -d "$WIDGET" ]]; then
     codesign --force --options runtime --timestamp \

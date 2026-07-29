@@ -214,6 +214,11 @@ targets:
     dependencies:
       - target: HeadroomWatchComplication
         embed: true
+    # Without this the target gets no scheme, so the watch app never appears in
+    # Xcode's scheme picker and cannot be run on a paired Watch by hand. It
+    # still builds — `xcodebuild -scheme HeadroomWatch` autocreates one — which
+    # is why the gap only shows up in the UI.
+    scheme: {}
   HeadroomWatchComplication:
     type: app-extension
     platform: watchOS

@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// iOS Settings tab — same destination taxonomy as Mac (`SettingsDestination`).
 struct MobileSettingsScreen: View {
     @ObservedObject var store: MobileUsageStore
     @Binding var showsConnection: Bool
@@ -7,15 +8,65 @@ struct MobileSettingsScreen: View {
     @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
 
     var body: some View {
+        NavigationStack {
+            List {
+                ForEach(SettingsDestination.iOSRoots, id: \.self) { dest in
+                    NavigationLink(value: dest) {
+                        Label(dest.title, systemImage: dest.symbol)
+                    }
+                }
+            }
+            .navigationTitle(HeadroomCopy.settings)
+            .navigationDestination(for: SettingsDestination.self) { dest in
+                pane(for: dest)
+                    .navigationTitle(dest.title)
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pane(for dest: SettingsDestination) -> some View {
+        switch dest {
+        case .connection:
+            connectionPane
+        case .permissions:
+            permissionsPane
+        case .sources:
+            sourcesPane
+        case .iPhone:
+            iPhonePane
+        case .about:
+            aboutPane
+        default:
+            EmptyView()
+        }
+    }
+
+    private var connectionPane: some View {
         Form {
-            Section("Connection") {
+            Section {
                 LabeledContent("Mac", value: connectionName)
                 Button("Change connection", systemImage: "network") {
                     showsConnection = true
                 }
             }
+            Section {
+                NavigationLink(value: SettingsDestination.permissions) {
+                    Label(
+                        HeadroomCopy.settingsPermissions,
+                        systemImage: SettingsDestination.permissions.symbol
+                    )
+                }
+            } footer: {
+                Text("Grants are set on the Mac under Settings → \(HeadroomCopy.settingsiPhone).")
+            }
+        }
+    }
 
-            Section("Permissions from Mac") {
+    private var permissionsPane: some View {
+        Form {
+            Section {
                 ForEach(MobilePermission.allCases, id: \.rawValue) { permission in
                     LabeledContent(permission.title) {
                         Label(
@@ -31,8 +82,14 @@ struct MobileSettingsScreen: View {
                         )
                     }
                 }
+            } footer: {
+                Text("Read-only here. Change them on the Mac.")
             }
+        }
+    }
 
+    private var sourcesPane: some View {
+        Form {
             ForEach(groupedSources, id: \.group) { section in
                 Section {
                     ForEach(section.sources) { source in
@@ -42,12 +99,24 @@ struct MobileSettingsScreen: View {
                     Text(section.group.title)
                 } footer: {
                     Text(section.group == .devtools
-                         ? "\(section.group.subtitle) Add keys on the Mac."
+                         ? "\(section.group.subtitle) Add keys on the Mac under Settings → \(HeadroomCopy.settingsIntegrations)."
                          : section.group.subtitle)
                 }
             }
+            Section {
+                Button(HeadroomCopy.refreshAll, systemImage: "arrow.clockwise") {
+                    Task { await store.refresh(forceServerSync: true) }
+                }
+                .disabled(store.isLoading || !store.mobilePermissions.refresh)
+            } footer: {
+                Text("Same list as Mac Settings → \(HeadroomCopy.settingsSources).")
+            }
+        }
+    }
 
-            Section("iPhone") {
+    private var iPhonePane: some View {
+        Form {
+            Section {
                 Toggle("Attention notifications", isOn: $notificationsEnabled)
                     .onChange(of: notificationsEnabled) { _, enabled in
                         if enabled {
@@ -57,29 +126,21 @@ struct MobileSettingsScreen: View {
                 Toggle("Background refresh", isOn: $backgroundRefreshEnabled)
                 LabeledContent("Server controls", value: "Face ID protected")
             }
+        }
+    }
 
-            Section {
-                Button(HeadroomCopy.refreshAll, systemImage: "arrow.clockwise") {
-                    Task { await store.refresh(forceServerSync: true) }
-                }
-                .disabled(store.isLoading || !store.mobilePermissions.refresh)
-            }
-
+    private var aboutPane: some View {
+        Form {
             Section {
                 AboutHeadroomView()
-            } header: {
-                Text(HeadroomCopy.about)
             }
         }
-        .navigationTitle(HeadroomCopy.settings)
     }
 
     private var connectionName: String {
         URL(string: MobileConnection.endpoint)?.host() ?? MobileConnection.endpoint
     }
 
-    /// AI coding tools and dev tools answer different questions, so they get
-    /// their own sections here the same way they do on the Mac.
     private var groupedSources: [(group: SourceGroup, sources: [SyncSource])] {
         (store.snapshot.sources ?? []).groupedBySourceGroup()
     }
@@ -99,11 +160,12 @@ struct MobileSettingsScreen: View {
             Spacer()
             if store.changingSourceID == source.id {
                 ProgressView()
+                    .controlSize(.small)
             } else {
                 Toggle(
-                    source.title ?? source.id,
+                    "Enabled",
                     isOn: Binding(
-                        get: { source.enabled != false },
+                        get: { source.enabled ?? true },
                         set: { enabled in
                             Task { await store.setSource(source.id, enabled: enabled) }
                         }
@@ -116,10 +178,12 @@ struct MobileSettingsScreen: View {
     }
 
     private func sourceStatus(_ source: SyncSource) -> String {
-        if source.enabled == false { return "Off" }
-        if let detail = source.detail { return detail }
-        if let error = source.error { return error }
-        if source.stale == true { return "Stale" }
-        return source.ok == true ? "Healthy" : "Waiting"
+        if source.ok == false {
+            return source.error ?? source.detail ?? "Error"
+        }
+        if let detail = source.detail ?? source.hint {
+            return detail
+        }
+        return source.enabled == false ? "Off" : "OK"
     }
 }

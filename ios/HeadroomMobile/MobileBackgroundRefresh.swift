@@ -37,6 +37,11 @@ enum MobileBackgroundRefresh {
                 let snapshot = try await client.fetchAndArchiveUsage()
                 HeadroomWidgetCache.save(snapshot)
                 await MobileNotifications.notifyIfNeeded(snapshot.attention)
+                if let permissions = try? await client.fetchMobilePermissions(),
+                   permissions.read,
+                   let events = try? await client.fetchAgentAttentionEvents() {
+                    await MobileNotifications.notifyIfNeeded(events)
+                }
                 boxedTask.value.setTaskCompleted(success: true)
             } catch {
                 boxedTask.value.setTaskCompleted(success: false)
@@ -55,4 +60,3 @@ private final class SendableRefreshTask: @unchecked Sendable {
         self.value = value
     }
 }
-

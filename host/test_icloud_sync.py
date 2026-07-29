@@ -195,6 +195,85 @@ class KeyspaceTests(unittest.TestCase):
         self.assertNotIn("hunter2", json.dumps(prefs))
 
 
+class CloudKitRoundTests(unittest.TestCase):
+    """The transport the Mac app drives: records in, this Mac's record out.
+
+    No folder is involved, which is the point — these assert that the merge is
+    reachable without touching the filesystem, so CloudKit and the folder share
+    one implementation rather than two that drift.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        # No icloud_dir → cloudkit mode.
+        self.machine = _Machine(self.tmp.name, "", "laptop").__enter__()
+        app_config._persist(icloud_sync=True)
+
+    def tearDown(self):
+        self.machine.__exit__()
+        self.tmp.cleanup()
+        app_config.reload()
+        sources_config._state = None
+
+    def test_mode_is_cloudkit_without_a_directory(self):
+        self.assertEqual(icloud_sync.mode(), "cloudkit")
+        self.assertIsNone(icloud_sync.root_dir())
+
+    def test_folder_tick_is_a_no_op_in_cloudkit_mode(self):
+        """The app drives the schedule there — the host must not also write."""
+        result = icloud_sync.tick(now=1_000.0)
+        self.assertFalse(result["enabled"])
+
+    def test_round_returns_a_publishable_record(self):
+        result = icloud_sync.cloud_round([], beacon={"servers": 2}, now=1_000.0)
+        record = result["record"]
+        self.assertTrue(result["ok"])
+        self.assertEqual(record["servers"], 2)
+        self.assertEqual(record["updated"], 1_000.0)
+        self.assertIn("prefs", record)
+        self.assertIn("stamps", record)
+        self.assertEqual(record["id"], machine_identity.machine_id())
+
+    def test_round_adopts_from_a_peer_record(self):
+        peer = {
+            "id": "peer-machine",
+            "name": "Studio",
+            "updated": 1_000.0,
+            "prefs": {"sources.accent.claude": "#0F0F0F"},
+            "stamps": {"sources.accent.claude": 999.0},
+        }
+        result = icloud_sync.cloud_round([peer], now=1_010.0)
+        self.assertIn("sources.accent.claude", result["adopted"])
+        self.assertEqual(
+            sources_config.accent_overrides()["claude"], "#0F0F0F")
+        self.assertEqual(len(result["peers"]), 1)
+        self.assertEqual(result["peers"][0]["name"], "Studio")
+
+    def test_round_ignores_a_record_claiming_to_be_us(self):
+        """A stale copy of our own record must not merge back over us."""
+        mine = {
+            "id": machine_identity.machine_id(),
+            "updated": 1_000.0,
+            "prefs": {"sources.accent.claude": "#AAAAAA"},
+            "stamps": {"sources.accent.claude": 9_999.0},
+        }
+        result = icloud_sync.cloud_round([mine], now=1_010.0)
+        self.assertEqual(result["peers"], [])
+        self.assertEqual(result["adopted"], [])
+
+    def test_round_survives_junk_records(self):
+        result = icloud_sync.cloud_round(
+            ["not a dict", {}, {"id": 7}, None], now=1_000.0)
+        self.assertEqual(result["peers"], [])
+
+    def test_record_fits_the_post_ceiling(self):
+        """A full round of records must clear the handler's body limit."""
+        record = icloud_sync.cloud_round([], now=1_000.0)["record"]
+        one = len(json.dumps(record))
+        # Six Macs of headroom against the 128 KB the handler now allows.
+        self.assertLess(one * 6, 128 * 1024)
+
+
 class TwoMachineTests(unittest.TestCase):
     """The real thing: two Macs, one folder, several rounds."""
 
@@ -343,6 +422,37 @@ class TwoMachineTests(unittest.TestCase):
             # Long enough and the Mac drops off the list on its own.
             laptop.tick(now=1_000.0 + icloud_sync.FORGET_S + 60)
             self.assertEqual(len(icloud_sync.machines_payload()), 1)
+
+    def test_unreadable_folder_is_reported_not_swallowed(self):
+        """A folder we can write but not list must not read as "no peers".
+
+        This is the real-world iCloud Drive failure: TCC lets the host create
+        and write its own beacon and refuses `listdir`, so every Mac publishes
+        happily into a folder none of them can enumerate and all of them report
+        zero peers. Indistinguishable from success unless it is said out loud.
+        """
+        with self.machine("studio") as studio:
+            studio.enable_sync()
+            studio.tick(now=1_000.0)
+            folder = os.path.join(self.share, icloud_sync.MACHINES_SUBDIR)
+            self.assertIsNone(icloud_sync.probe())
+
+            with mock.patch.object(
+                    icloud_sync.os, "listdir",
+                    side_effect=PermissionError(1, "Operation not permitted")):
+                self.assertEqual(icloud_sync.probe(), "denied")
+                config = icloud_sync.configuration(now=1_010.0)
+            self.assertEqual(config["trouble"], "denied")
+            self.assertIn("Full Disk Access", config["trouble_detail"])
+            self.assertTrue(os.path.isdir(folder))
+
+    def test_healthy_folder_reports_no_trouble(self):
+        with self.machine("studio") as studio:
+            studio.enable_sync()
+            studio.tick(now=1_000.0)
+            config = icloud_sync.configuration(now=1_010.0)
+            self.assertIsNone(config["trouble"])
+            self.assertIsNone(config["trouble_detail"])
 
     def test_off_by_default(self):
         with self.machine("solo") as solo:

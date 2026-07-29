@@ -1580,6 +1580,7 @@ enum MobilePermission: String, CaseIterable, Codable, Sendable {
     case refresh
     case sources
     case servers
+    case agents
 
     var title: String {
         switch self {
@@ -1587,6 +1588,7 @@ enum MobilePermission: String, CaseIterable, Codable, Sendable {
         case .refresh: "Refresh data"
         case .sources: "Manage sources"
         case .servers: "Stop local servers"
+        case .agents: HeadroomCopy.answerCodingAgents
         }
     }
 }
@@ -1596,10 +1598,47 @@ struct MobilePermissions: Codable, Sendable, Equatable {
     var refresh = false
     var sources = false
     var servers = false
+    var agents = false
 
     static let allEnabled = MobilePermissions(
-        read: true, refresh: true, sources: true, servers: true)
+        read: true, refresh: true, sources: true, servers: true, agents: true)
     static let allDisabled = MobilePermissions()
+
+    init(
+        read: Bool = false,
+        refresh: Bool = false,
+        sources: Bool = false,
+        servers: Bool = false,
+        agents: Bool = false
+    ) {
+        self.read = read
+        self.refresh = refresh
+        self.sources = sources
+        self.servers = servers
+        self.agents = agents
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        read = try values.decodeIfPresent(Bool.self, forKey: .read) ?? false
+        refresh = try values.decodeIfPresent(Bool.self, forKey: .refresh) ?? false
+        sources = try values.decodeIfPresent(Bool.self, forKey: .sources) ?? false
+        servers = try values.decodeIfPresent(Bool.self, forKey: .servers) ?? false
+        agents = try values.decodeIfPresent(Bool.self, forKey: .agents) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(read, forKey: .read)
+        try values.encode(refresh, forKey: .refresh)
+        try values.encode(sources, forKey: .sources)
+        try values.encode(servers, forKey: .servers)
+        try values.encode(agents, forKey: .agents)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case read, refresh, sources, servers, agents
+    }
 
     subscript(_ permission: MobilePermission) -> Bool {
         get {
@@ -1608,6 +1647,7 @@ struct MobilePermissions: Codable, Sendable, Equatable {
             case .refresh: refresh
             case .sources: sources
             case .servers: servers
+            case .agents: agents
             }
         }
         set {
@@ -1616,6 +1656,7 @@ struct MobilePermissions: Codable, Sendable, Equatable {
             case .refresh: refresh = newValue
             case .sources: sources = newValue
             case .servers: servers = newValue
+            case .agents: agents = newValue
             }
         }
     }
@@ -1630,4 +1671,88 @@ struct MobilePermissions: Codable, Sendable, Equatable {
 struct MobilePermissionsResponse: Codable, Sendable {
     var ok: Bool
     var permissions: MobilePermissions
+}
+
+struct AgentAttentionAction: Codable, Sendable, Equatable, Identifiable {
+    var id: String
+    var label: String
+    var risk: String
+    var requiresForeground: Bool?
+    var requiresBiometric: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, risk
+        case requiresForeground = "requires_foreground"
+        case requiresBiometric = "requires_biometric"
+    }
+}
+
+struct AgentAttentionDetail: Codable, Sendable, Equatable {
+    var reason: String?
+    var command: String?
+    var cwd: String?
+    var grantRoot: String?
+
+    enum CodingKeys: String, CodingKey {
+        case reason, command, cwd
+        case grantRoot = "grant_root"
+    }
+}
+
+struct AgentAttentionEvent: Codable, Sendable, Equatable, Identifiable {
+    var id: String
+    var provider: String
+    var adapter: String
+    var sessionID: String
+    var turnID: String?
+    var itemID: String?
+    var kind: String
+    var state: String
+    var revision: Int
+    var title: String
+    var summary: String
+    var detail: AgentAttentionDetail
+    var actions: [AgentAttentionAction]
+    var createdAtMS: Int64
+    var updatedAtMS: Int64
+    var expiresAtMS: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case id, provider, adapter, kind, state, revision, title, summary
+        case detail, actions
+        case sessionID = "session_id"
+        case turnID = "turn_id"
+        case itemID = "item_id"
+        case createdAtMS = "created_at_ms"
+        case updatedAtMS = "updated_at_ms"
+        case expiresAtMS = "expires_at_ms"
+    }
+}
+
+struct AgentAttentionEventsResponse: Codable, Sendable {
+    var ok: Bool
+    var events: [AgentAttentionEvent]
+    var nextAfterMS: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, events
+        case nextAfterMS = "next_after_ms"
+    }
+}
+
+struct AgentAttentionResponseRequest: Codable, Sendable {
+    var revision: Int
+    var action: String
+    var idempotencyKey: String
+
+    enum CodingKeys: String, CodingKey {
+        case revision, action
+        case idempotencyKey = "idempotency_key"
+    }
+}
+
+struct AgentAttentionResponse: Codable, Sendable {
+    var ok: Bool
+    var duplicate: Bool
+    var event: AgentAttentionEvent
 }

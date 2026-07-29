@@ -8,19 +8,38 @@ import SwiftUI
 /// status green on the device. Platform-specific bridging (AppKit `NSColor`
 /// for the menu bar) extends this enum next to the code that needs it.
 enum HeadroomPalette {
-    static let claude = rgb(217, 119, 87)   // COL_CLAUDE #D97757
-    static let openai = rgb(16, 163, 127)   // COL_OPENAI #10A37F
-    static let cursor = rgb(120, 155, 200)  // COL_CURSOR #789BC8
+    /// A 0-255 triple, before any colour space is chosen for it.
+    typealias RGB = (r: CGFloat, g: CGFloat, b: CGFloat)
+
+    /// The provider triples, kept as numbers rather than only as `Color`.
+    ///
+    /// The watch renders these same numbers in Display P3 to sit closer to the
+    /// board, whose panel is unmanaged and therefore paints them against much
+    /// wider primaries (`watch/Shared/WatchPalette.swift`). Two spellings of
+    /// one colour is exactly the drift this file exists to prevent, so the
+    /// triple is the source and both spellings are derived from it.
+    static let claudeRGB: RGB = (217, 119, 87)   // COL_CLAUDE #D97757
+    static let openaiRGB: RGB = (16, 163, 127)   // COL_OPENAI #10A37F
+    static let cursorRGB: RGB = (120, 155, 200)  // COL_CURSOR #789BC8
+    static let dimRGB: RGB = (120, 116, 110)     // COL_DIM
+
+    static let claude = rgb(claudeRGB)
+    static let openai = rgb(openaiRGB)
+    static let cursor = rgb(cursorRGB)
+    static let dim = rgb(dimRGB)
     static let vercel = rgb(240, 238, 234)  // COL_VERCEL
     static let git = rgb(155, 85, 200)      // COL_GIT
     static let local = rgb(70, 175, 165)    // COL_LOCAL
-    static let dim = rgb(120, 116, 110)     // COL_DIM
     static let green = rgb(95, 155, 115)    // COL_GREEN
     static let amber = rgb(195, 155, 85)    // COL_AMBER
     static let red = rgb(175, 105, 100)     // COL_RED
 
     static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Color {
         Color(red: r / 255, green: g / 255, blue: b / 255)
+    }
+
+    static func rgb(_ triple: RGB) -> Color {
+        rgb(triple.r, triple.g, triple.b)
     }
 
     /// Split a host `#RRGGBB` / `RRGGBB` accent into 0-255 components.
@@ -67,10 +86,14 @@ enum HeadroomPalette {
     /// enum so the widget, which does not compile the full model layer, can
     /// still resolve one.
     static func builtinTint(id: String) -> Color? {
+        builtinComponents(id: id).map(rgb)
+    }
+
+    static func builtinComponents(id: String) -> RGB? {
         switch id {
-        case "claude": claude
-        case "codex": openai
-        case "cursor": cursor
+        case "claude": claudeRGB
+        case "codex": openaiRGB
+        case "cursor": cursorRGB
         default: nil
         }
     }
@@ -78,7 +101,16 @@ enum HeadroomPalette {
     /// Provider brand color: the host registry accent when it sent one,
     /// otherwise the built-in firmware triple, otherwise dim.
     static func providerTint(id: String, accent: String? = nil) -> Color {
-        color(hex: accent) ?? builtinTint(id: id) ?? dim
+        rgb(providerComponents(id: id, accent: accent))
+    }
+
+    /// The same resolution as `providerTint`, stopping at the numbers.
+    ///
+    /// For surfaces that have to render the triple in a colour space of their
+    /// own choosing instead of taking the sRGB `Color` — which today means the
+    /// watch, and nothing else.
+    static func providerComponents(id: String, accent: String? = nil) -> RGB {
+        components(hex: accent) ?? builtinComponents(id: id) ?? dimRGB
     }
 
     /// One swatch in the Settings color grid.

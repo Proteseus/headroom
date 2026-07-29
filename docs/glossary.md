@@ -25,10 +25,25 @@ any hardcoded chrome that still bypasses them.
 | **Services** | Supabase, Plausible, local servers | iOS tab (Mac stacks the same panels without a tab) |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
+| **General** | Host endpoint, dashboard density, welcome, Other Macs | macOS Settings |
+| **Sources** | What to watch — AI tools, extra accounts, dev tools | macOS Settings, iOS Settings, Welcome |
+| **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
+| **Integrations** | Hub for Supabase / Plausible / GitHub keys | macOS Settings |
+| **Connection** | Which Mac the phone talks to | iOS Settings |
+| **Permissions** | Mac-granted phone capabilities (read-only on iOS) | iOS Settings |
+| **iPhone** | Pairing + grants on Mac; notifications on iOS | macOS Settings, iOS Settings, Welcome |
+| **On your phone** | Welcome rail title for the iPhone step | macOS Welcome |
 | **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
 | **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
 | **Attention** | Warning / status card | macOS, iOS |
+| **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
+| **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
+| **Coding agents** | Provider setup and attention gateway settings | macOS |
+| **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
+| **Install hooks** / **Reinstall hooks** / **Remove hooks** | Manage only Headroom-owned entries in Claude settings | macOS |
+| **Send test attention** | Add a harmless Claude test row to the common feed | macOS |
+| **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |
 
 Do not title the activity feed **GitHub**. That word is reserved for the
 **GitHub Actions** source.
@@ -81,14 +96,14 @@ empty); each in-range reset is an accent dotted vertical rule, and the legend
 shows **Resets …**.
 
 A reset the provider hands out early — Codex clearing a week you had already
-spent — is a **granted** reset: a solid accent rule where an upcoming one is
-dotted, captioned **Reset granted · N pts back**. Scheduled rolls get no mark;
-the axis already ends on those. The host detects them in the sample log
-(`burndown[].resets`), so the mark and the history agree by construction.
+spent — is a **granted** reset. On the **Codex** burndown (not Overview) it is a
+solid accent rule where an upcoming one is dotted, captioned **Reset granted · N
+pts back**. Scheduled rolls get no mark; the axis already ends on those. The
+host detects them in the sample log (`burndown[].resets`), so the mark and the
+history agree by construction.
 
-A banked Codex reset credit has its own deadline. Once that deadline enters
-the fixed week it is a longer-dashed rule, captioned **Reset credit expires
-Thu 14:00**. It is not drawn as a renewal: expiry does not refill the pool.
+A banked Codex reset credit has its own deadline, shown on the Codex quota card
+as **N reset credits** with expiry labels — not as a renewal mark on Overview.
 
 Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown`).
 Provider charts share one X-axis rule across Mac / iOS / ESP32: at most **seven

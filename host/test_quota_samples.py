@@ -104,6 +104,24 @@ class WindowTests(unittest.TestCase):
             NOW, WEEK_S, 3 * 24 * 3600 + 16 * 3600, pct=40.0, previous=first)
         self.assertEqual(end, first["window_end"])
 
+    def test_an_earlier_reset_reanchors(self):
+        # A named account briefly sampled under another login's credentials
+        # lands the other account's weekly end here. Once the right token is
+        # in place the live countdown is days earlier, with usage unchanged —
+        # not a grant, not a full-window roll. Holding would print the wrong
+        # account's "6d 19h" for the rest of the week.
+        first = row_at(NOW, 31.0, 6 * 24 * 3600 + 19 * 3600)
+        _, end = quota_samples.window_for(
+            NOW + 300, WEEK_S, 3 * 3600, pct=31.0, previous=first)
+        self.assertEqual(end, int(NOW + 300 + 3 * 3600))
+        self.assertNotEqual(end, first["window_end"])
+
+    def test_slightly_earlier_within_tolerance_still_holds(self):
+        first = row_at(NOW, 40.0, 3 * 24 * 3600)
+        _, end = quota_samples.window_for(
+            NOW + 60, WEEK_S, 3 * 24 * 3600 - 180, pct=40.0, previous=first)
+        self.assertEqual(end, first["window_end"])
+
     def test_reset_observed_slightly_early_still_rolls(self):
         first = row_at(NOW, 99.0, 60)
         _, end = quota_samples.window_for(

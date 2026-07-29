@@ -80,11 +80,10 @@ struct HeadroomRingProfile: Sendable {
 
 /// Which half of the glyph to paint.
 ///
-/// A watch complication renders in `.accented`: the system flattens the whole
-/// view to one tint unless part of it is moved into a second group with
-/// `.widgetAccentable()`. Drawing bands and pace dots as two stacked canvases
-/// is what keeps the gap between arc and dot — the entire point of the glyph —
-/// readable there. Every other surface draws `.all` in one pass.
+/// Every surface draws `.all` in one pass. The split exists for a caller that
+/// has to spread the glyph across two tint groups — the watch complication did
+/// until it opted out of face tinting with `.widgetAccentable(false)` and got
+/// its real colours back (`docs/watch.md`).
 enum HeadroomRingPass: Sendable {
     case all
     case bands

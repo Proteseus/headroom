@@ -15,5 +15,16 @@
 	<array>
 		<string>$(TeamIdentifierPrefix)group.com.centaur-labs.headroom</string>
 	</array>
+
+	<!-- Multi-Mac CloudKit entitlements are deliberately NOT here. They are
+	     `com.apple.developer.*`, which is the restricted family: a signature
+	     carrying one without a provisioning profile that authorizes it is
+	     rejected at launch. This app is signed by scripts/build-app.sh with a
+	     bare Developer ID identity and no embedded profile, so adding them
+	     here would break every shipped build to enable a feature that still
+	     would not work.
+
+	     They live in Headroom-iCloud.entitlements and are merged in only when
+	     HEADROOM_PROVISION_PROFILE supplies a profile. See docs/multi-mac.md. -->
 </dict>
 </plist>

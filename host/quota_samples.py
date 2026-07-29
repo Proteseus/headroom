@@ -24,9 +24,14 @@ chart's axis and its "6d 23h to reset" caption from disagreeing; anchoring the
 other way round lets them drift apart by days.
 
 In practice the sources report `resets_in_s` loosely enough that a fresh
-reading is not stable at all, so a derived end only replaces the held one once
-a full window has passed — see `window_for`. The exception is a reset granted
-out of band (Codex handing everyone a fresh week mid-window), which no
+reading is not stable at all, so a derived end that lands *later* than the
+held one only replaces it once a full window has passed — see `window_for`.
+Wake-cache freezes walk the derived end forward a poll at a time; holding
+against those is what keeps the axis from forking. An end that lands
+*earlier* is not that failure mode, so it re-anchors: otherwise a sample
+written under the wrong login (or any other briefly-wrong long countdown)
+sticks for the rest of the week. The other exception is a reset granted out
+of band (Codex handing everyone a fresh week mid-window), which no
 elapsed-time rule can ever recognise; `rolled_window` detects those from the
 reading itself, and `rolls` reads them back out of the stored labels so the
 chart can mark the moment instead of silently starting a new line. Reads then
@@ -242,16 +247,24 @@ def window_for(now, window_s, resets_in_s, *, pct=None, previous=None):
     """Derive `(start, end)` for one reading, holding the end against jitter.
 
     A window that rolled on time puts its reset a full window after the held
-    one, so that is the bar a fresh reading has to clear. Anything short of it
-    is the source misreporting `resets_in_s` — most often a cached response
-    served after the machine wakes, which freezes `resets_in_s` while `now`
-    keeps moving and walks the derived window forward a poll at a time.
+    one, so that is the bar a fresh reading has to clear. A derived end that
+    lands later but short of that bar is the source misreporting
+    `resets_in_s` — most often a cached response served after the machine
+    wakes, which freezes `resets_in_s` while `now` keeps moving and walks the
+    derived window forward a poll at a time. Those stay held.
 
-    Holding rather than snapping matters because a fork is not cosmetic: every
-    sample collected before it belongs to a window nothing queries again, which
-    is enough to starve the burndown fit of the history it needs. But holding
-    against *everything* is how a reset granted early stays invisible for days,
-    so `rolled_window` gets a say too.
+    A derived end that lands earlier than the held one is not that failure
+    mode: wake-cache freezes only walk forward. Holding against an earlier
+    reading is how a wrong login's weekly countdown, once sampled under this
+    pool, keeps printing on the right account for the rest of the week. Past
+    tolerance, the earlier end wins.
+
+    Holding rather than snapping still matters because a fork is not
+    cosmetic: every sample collected before it belongs to a window nothing
+    queries again, which is enough to starve the burndown fit of the history
+    it needs. But holding against *every* later reading is how a reset
+    granted early stays invisible for days, so `rolled_window` gets a say
+    too.
     """
     window_s = int(window_s)
     resets_in_s = max(0, min(int(resets_in_s), window_s))
@@ -261,7 +274,15 @@ def window_for(now, window_s, resets_in_s, *, pct=None, previous=None):
         on_time = end >= previous_end + window_s - WINDOW_TOLERANCE_S
         early = pct is not None and rolled_window(
             previous, pct, resets_in_s, now)
-        if not (on_time or early):
+        if on_time or early:
+            pass
+        elif abs(end - previous_end) <= WINDOW_TOLERANCE_S:
+            end = previous_end
+        elif end < previous_end:
+            # Corrected identity / cleared bad sample: adopt the earlier end.
+            pass
+        else:
+            # Later but short of a full window — wake-cache freeze / jitter.
             end = previous_end
     return end - window_s, end
 

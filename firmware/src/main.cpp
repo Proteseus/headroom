@@ -1807,8 +1807,10 @@ static void bootProgress(const char *label, uint8_t step) {
   bootFlush();
 }
 
-// CodexBar-style pill progress bar + optional pace marker (where a linear
-// burn would be right now in the window). Keep provider accent even at 100%.
+// Pill progress bar + optional pace dot (where a linear burn would be right
+// now in the window). Same mark as drawPaceRing — white disc sized off the
+// bar height — so bars and rings read as one system. Keep provider accent
+// even at 100%.
 static void drawBar(int16_t x, int16_t y, int16_t w, int16_t h,
                     float pct, float pacePct, uint16_t accent) {
   gfx->fillRoundRect(x, y, w, h, h / 2, COL_BAR);
@@ -1821,11 +1823,12 @@ static void drawBar(int16_t x, int16_t y, int16_t w, int16_t h,
   }
   if (pacePct >= 0) {
     float pp = pacePct > 100 ? 100 : pacePct;
+    // Radius matches drawPaceDot: thick * 5/14 → diameter thick * 5/7.
+    const int16_t dot = (int16_t)lroundf(h * 5.0f / 14.0f);
     int16_t cx = x + (int16_t)((w * pp) / 100.0f + 0.5f);
-    if (cx < x + 3) cx = x + 3;
-    if (cx > x + w - 4) cx = x + w - 4;
-    // White tick (CodexBar) — slightly taller than the bar so it reads as a mark.
-    gfx->fillRect(cx - 1, y - 2, 3, h + 4, COL_WHITE);
+    if (cx < x + dot) cx = x + dot;
+    if (cx > x + w - 1 - dot) cx = x + w - 1 - dot;
+    gfx->fillCircle(cx, (int16_t)(y + h / 2), dot, COL_WHITE);
   }
 }
 
@@ -2014,6 +2017,9 @@ static void drawHostErrorBorder() {
   gfx->drawRect(1, 1, (int16_t)(W - 2), (int16_t)(H - 2), COL_RED);
 }
 
+// Blend a colour toward the background. RGB565 has to be unpacked to do it.
+static uint16_t dimToward(uint16_t color, uint16_t bg, float factor);
+
 // Footprint the home page reserves for the link glyph, bottom-right.
 static const int16_t LINK_GLYPH_W = 18;
 static const int16_t LINK_GLYPH_H = 15;
@@ -2027,7 +2033,7 @@ static void formatLastLinkAge(char *buf, size_t n) {
   snprintf(buf, n, "%lum", (unsigned long)minutes);
 }
 
-// Which pipe fed the numbers above: Wi-Fi arcs, or a plug for the cable.
+// Which pipe fed the numbers above: Wi-Fi arcs, or a cable.connector for USB.
 // (rightX, bottomY) is the bottom-right corner the glyph is tucked into.
 static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
   const uint16_t col = hostOk ? COL_DIM : COL_CRT_YELLOW;
@@ -2041,12 +2047,13 @@ static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
   }
 
   if (linkVia == LINK_USB) {
-    // Plug: two prongs, a body, and a stub of cable. The real USB trident
-    // turns to mush below ~20px; a plug still reads at 15.
-    gfx->fillRect((int16_t)(gx + 5), (int16_t)(gy + 1), 2, 4, col);
-    gfx->fillRect((int16_t)(gx + 11), (int16_t)(gy + 1), 2, 4, col);
-    gfx->fillRoundRect((int16_t)(gx + 3), (int16_t)(gy + 5), 12, 7, 2, col);
-    gfx->fillRect((int16_t)(gx + 7), (int16_t)(gy + 12), 4, 3, col);
+    // SF Symbol-style cable.connector: tip, housing, cable. Tip is lighter so
+    // the metal insert reads against the grip, same hierarchy as the symbol.
+    const int16_t cx = (int16_t)(gx + LINK_GLYPH_W / 2);
+    const uint16_t tip = dimToward(COL_WHITE, col, 0.55f);
+    gfx->fillRoundRect((int16_t)(cx - 4), gy, 8, 3, 1, tip);
+    gfx->fillRoundRect((int16_t)(cx - 5), (int16_t)(gy + 3), 10, 7, 2, col);
+    gfx->fillRoundRect((int16_t)(cx - 1), (int16_t)(gy + 10), 2, 5, 1, col);
     return;
   }
 
@@ -2144,11 +2151,10 @@ static void drawPaceRing(int16_t cx, int16_t cy, int16_t r, int16_t thick,
     float p = pct > 100 ? 100 : pct;
     float sweep = p * 3.6f;
     if (p > 0 && sweep < 2.0f) sweep = 2.0f;
-    if (p >= 100 || sweep >= 359.0f) {
-      gfx->fillArc(cx, cy, r, inner, 0, 360, accent);
-    } else {
-      fillRoundArc(cx, cy, r, thick, -90.0f, sweep, accent);
-    }
+    // Always round-cap, including at 100%: the two caps meet at 12 o'clock
+    // and leave the same ")(" seam SwiftUI's StrokeStyle(.round) does. A solid
+    // 360° fill would erase it.
+    fillRoundArc(cx, cy, r, thick, -90.0f, sweep, accent);
   }
   if (pacePct >= 0) {
     float pp = pacePct > 100 ? 100 : pacePct;
@@ -2425,10 +2431,10 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   }
 
   // Cursor API under Total so the headline pool sits on top when they share
-  // an accent. Dimmed so the two stay distinguishable.
+  // an accent. Dimmed so the two stay distinguishable. Exhaustion does not
+  // gray the series out — same rule as the primary curve and the quota bars.
   if (b.n2 > 1) {
-    const uint16_t line2 = b.exhausted2 ? COL_DIM
-                         : dimToward(accent, COL_BG, 0.70f);
+    const uint16_t line2 = dimToward(accent, COL_BG, 0.70f);
     for (uint8_t i = 1; i < b.n2; i++) {
       stroke(px(b.t2[i - 1]), py(b.remaining2[i - 1]),
              px(b.t2[i]), py(b.remaining2[i]), line2);
@@ -2449,13 +2455,12 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
     }
   }
 
-  // Actual curve (primary / Total). Only exhaustion changes the colour, and it
-  // desaturates rather than warns — same rule the Mac card follows. Running out
-  // early is a reading, not a verdict: the curve's distance below the budget
-  // diagonal already shows it, the dot marks where it hits zero, and the
-  // caption says it in words. Painting all three plus the line itself red
-  // spends the loudest colour on the thing least able to be precise about it.
-  const uint16_t line = b.exhausted ? COL_DIM : accent;
+  // Actual curve (primary / Total). Keep the provider accent even when the
+  // pool is spent — exhaustion is already in the curve hitting zero, the warn
+  // dot, and the caption. Graying the line out read as a dead series; painting
+  // it red would spend the loudest colour on the thing least able to be precise
+  // about it (settled for Mac in drained(), for the board as keep-accent).
+  const uint16_t line = accent;
   for (uint8_t i = 1; i < b.n; i++) {
     stroke(px(b.t[i - 1]), py(b.remaining[i - 1]),
            px(b.t[i]), py(b.remaining[i]), line);
@@ -2684,7 +2689,7 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
     }
   };
 
-  const uint16_t line = b.exhausted ? COL_DIM : accent;
+  const uint16_t line = accent;
   for (uint8_t i = 1; i < b.n; i++) {
     uint32_t ta, tb; float ra, rb;
     if (!clipBurnSeg(b.t[i - 1], b.remaining[i - 1], b.t[i], b.remaining[i],
@@ -2850,8 +2855,7 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
     const int16_t y = (int16_t)(legY + (int16_t)i * rowH);
     glanceAddHit(padX, y, span, rowH, slotPage(i));
     const Burndown &b = slots[i].burn;
-    const uint16_t dot =
-        b.ok ? (b.exhausted ? COL_DIM : slots[i].accent) : COL_DIM;
+    const uint16_t dot = b.ok ? slots[i].accent : COL_DIM;
     gfx->fillCircle((int16_t)(padX + dotR), (int16_t)(y + 6), dotR, dot);
     if (b.ok && b.verdict.length()) {
       drawTextAt(truncFit(b.verdict, textW, 2), textX, y, 2, COL_DIM);

@@ -20,13 +20,19 @@ struct WelcomePane: Identifiable, Hashable {
     static let find = WelcomePane(
         id: "find", railTitle: "Where it lives", symbol: "menubar.arrow.up.rectangle")
     static let helper = WelcomePane(
-        id: "helper", railTitle: "Background helper", symbol: "gearshape.2")
+        id: "helper",
+        railTitle: "Background helper",
+        symbol: SettingsDestination.general.symbol)
     static let privacy = WelcomePane(
         id: "privacy", railTitle: "Your data", symbol: "lock")
     static let sources = WelcomePane(
-        id: "sources", railTitle: "What to watch", symbol: "checklist")
+        id: "sources",
+        railTitle: HeadroomCopy.welcomeWhatToWatch,
+        symbol: SettingsDestination.sources.symbol)
     static let phone = WelcomePane(
-        id: "phone", railTitle: "On your phone", symbol: "iphone")
+        id: "phone",
+        railTitle: HeadroomCopy.welcomeOnYourPhone,
+        symbol: SettingsDestination.iPhone.symbol)
     static let board = WelcomePane(
         id: "board", railTitle: "On your desk", symbol: "square.split.bottomrightquarter")
     static let done = WelcomePane(
@@ -95,7 +101,7 @@ struct WelcomeView: View {
     private var rail: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                if let icon = NSApp.applicationIconImage {
+                if let icon = NSImage(named: "AboutAppIcon") {
                     Image(nsImage: icon)
                         .resizable()
                         .frame(width: 36, height: 36)
@@ -363,7 +369,10 @@ struct WelcomeView: View {
     private var sourcesPane: some View {
         paneBody(
             title: "What should it watch?",
-            lead: "Everything here was found on this Mac. Change it any time in Settings."
+            lead: """
+                Everything here was found on this Mac. Change it any time in \
+                Settings → \(HeadroomCopy.settingsSources).
+                """
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 if let sourcesError {
@@ -413,8 +422,8 @@ struct WelcomeView: View {
                 numbered([
                     "Install the iPhone app from TestFlight.",
                     """
-                    Here on the Mac, open Settings, find iPhone pairing, and \
-                    click Copy mobile token.
+                    Here on the Mac, open Settings → \(HeadroomCopy.settingsiPhone) \
+                    and click Copy mobile token.
                     """,
                     "On the phone, pick this Mac under Nearby Macs and paste the token.",
                 ])

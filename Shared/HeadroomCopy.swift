@@ -21,6 +21,22 @@ enum HeadroomCopy {
     static let about = "About"
     static let attention = "Attention"
 
+    // MARK: Settings panes
+    //
+    // Shared taxonomy for the Mac sidebar / iOS Settings stack. Welcome uses
+    // friendlier rail titles for the same ideas (see `SettingsDestination`).
+
+    static let settingsGeneral = "General"
+    static let settingsSources = "Sources"
+    static let settingsiPhone = "iPhone"
+    static let settingsIntegrations = "Integrations"
+    static let settingsConnection = "Connection"
+    static let settingsPermissions = "Permissions"
+    /// Welcome rail / first-run heading for the Sources step.
+    static let welcomeWhatToWatch = "What to watch"
+    /// Welcome rail for the iPhone step — Settings keeps the short “iPhone”.
+    static let welcomeOnYourPhone = "On your phone"
+
     /// Person who made it (LICENSE copyright holder).
     static let createdBy = "Created by Michell Zappa"
     /// App Store / signing entity — secondary to the personal credit.
@@ -66,8 +82,8 @@ enum HeadroomCopy {
         "\(poolTitle) burndown"
     }
 
-    /// "Reset granted · 42 pts back" — the caption under a chart whose curve
-    /// restarts mid-week because the provider handed the budget back.
+    /// "Reset granted · 42 pts back" — caption on the Codex burndown when a
+    /// mid-window grant restarted the curve. Not shown on Overview.
     static let resetGranted = "Reset granted"
 
     static func resetGranted(forgivenPct: Double?) -> String {
@@ -94,6 +110,16 @@ enum HeadroomCopy {
     static let refreshing = "Refreshing…"
     static let clearAttention = "Clear"
     static let refreshAll = "Refresh all"
+    static let answerCodingAgents = "Answer coding agents"
+    static let codingAgents = "Coding agents"
+    static let claudeCodeHooks = "Claude Code hooks"
+    static let installHooks = "Install hooks"
+    static let reinstallHooks = "Reinstall hooks"
+    static let removeHooks = "Remove hooks"
+    static let sendTestAttention = "Send test attention"
+    static func usingCodex(at path: String) -> String {
+        "Using Codex at \(path)"
+    }
 
     /// Shown when the phone is drawing its last saved payload because the Mac
     /// is not answering. The numbers are real, they are just not current, and

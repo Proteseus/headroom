@@ -29,6 +29,11 @@ DEFAULTS = {
     # Authenticated iOS clients may use only these capabilities, and only from
     # a private/Tailscale address. Credential management remains Mac-local.
     "mobile_permissions": ["read", "refresh", "sources", "servers"],
+    # The agent gateway is opt-in while its protocol and remote-control
+    # surfaces are being introduced. Merely installing/updating Headroom must
+    # never launch a coding agent behind the user's back.
+    "agent_gateway_enabled": False,
+    "codex_binary": "codex",
     # Multi-Mac. Off until asked for: sync writes usage data to a folder that
     # leaves the machine, and installing Headroom must not start doing that on
     # its own. See icloud_sync.py and docs/multi-mac.md.
@@ -274,7 +279,7 @@ def set_plausible_range(value):
     return rid
 
 
-MOBILE_PERMISSION_ORDER = ("read", "refresh", "sources", "servers")
+MOBILE_PERMISSION_ORDER = ("read", "refresh", "sources", "servers", "agents")
 
 
 def mobile_permissions():
@@ -294,6 +299,39 @@ def set_mobile_permissions(values):
     ordered = [item for item in MOBILE_PERMISSION_ORDER if item in selected]
     _persist(mobile_permissions=ordered)
     return frozenset(ordered)
+
+
+def agent_gateway_enabled():
+    """Whether Headroom may launch its supervised coding-agent adapter."""
+    return get("agent_gateway_enabled") is True
+
+
+def codex_binary():
+    """Executable used for the Codex App Server child process."""
+    value = str(get("codex_binary") or DEFAULTS["codex_binary"]).strip()
+    return os.path.expanduser(value or DEFAULTS["codex_binary"])
+
+
+def set_agent_gateway(enabled=None, codex_binary_value=None):
+    """Persist the Mac-owned Codex gateway settings."""
+    updates = {}
+    if enabled is not None:
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be true or false")
+        updates["agent_gateway_enabled"] = enabled
+    if codex_binary_value is not None:
+        if not isinstance(codex_binary_value, str):
+            raise ValueError("codex_binary must be a string")
+        binary = codex_binary_value.strip()
+        if not binary or len(binary) > 4096 or "\x00" in binary:
+            raise ValueError("invalid codex_binary")
+        updates["codex_binary"] = binary
+    if updates:
+        _persist(**updates)
+    return {
+        "enabled": agent_gateway_enabled(),
+        "codex_binary": codex_binary(),
+    }
 
 
 def icloud_sync_enabled():
