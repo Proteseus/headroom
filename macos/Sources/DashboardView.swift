@@ -155,20 +155,34 @@ struct DashboardView: View {
                         selectedProviderRaw = tabID
                     }
                 } label: {
-                    Text(DashboardSelection.title(
-                        for: tabID, providers: visibleProviders))
-                        .font(.caption.weight(isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? .primary : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 4)
-                        .background {
-                            if isSelected {
-                                Capsule(style: .continuous)
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                                    .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
-                            }
+                    HStack(spacing: 4) {
+                        if tabID == DashboardSelection.overview {
+                            Image(systemName: "rectangle.grid.2x2")
+                                .font(.system(size: 10.5, weight: .medium))
+                        } else if let iconName =
+                            DashboardSelection.iconAssetName(for: tabID)
+                        {
+                            Image(iconName)
+                                .resizable()
+                                .renderingMode(.template)
+                                .scaledToFit()
+                                .frame(width: 11, height: 11)
                         }
+                        Text(DashboardSelection.title(
+                            for: tabID, providers: visibleProviders))
+                    }
+                    .font(.caption.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 4)
+                    .background {
+                        if isSelected {
+                            Capsule(style: .continuous)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                                .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])

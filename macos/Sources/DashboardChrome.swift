@@ -9,6 +9,18 @@ import SwiftUI
 enum DashboardSelection {
     static let overview = "overview"
 
+    /// Provider marks bundled in the Mac asset catalog. Account ids retain the
+    /// base provider before `:`, so Claude · Work still gets the Claude mark.
+    static func iconAssetName(for id: String) -> String? {
+        let providerID = String(id.split(separator: ":", maxSplits: 1).first ?? "")
+        return switch providerID {
+        case "claude": "ProviderClaude"
+        case "codex": "ProviderCodex"
+        case "cursor": "ProviderCursor"
+        default: nil
+        }
+    }
+
     static func title(for id: String, providers: [QuotaProviderInfo]) -> String {
         if id == overview { return HeadroomCopy.overview }
         if let match = providers.first(where: { $0.id == id }) {
