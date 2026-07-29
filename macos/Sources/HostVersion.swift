@@ -34,6 +34,14 @@ enum HostVersion {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Does this name count toward the fingerprint? The one place that rule
+    /// lives on this side — the staleness check reuses it to decide which
+    /// files it has to watch.
+    static func isShipped(_ name: String) -> Bool {
+        if name == "VERSION" { return true }
+        return name.hasSuffix(".py") && !name.hasPrefix("test_")
+    }
+
     /// The files that define a build: flat, no tests, no __pycache__.
     static func shippedFiles(in directory: URL) -> [String] {
         let fm = FileManager.default
@@ -45,8 +53,7 @@ enum HostVersion {
             let path = directory.appendingPathComponent(name).path
             guard fm.fileExists(atPath: path, isDirectory: &isDir),
                   !isDir.boolValue else { return false }
-            if name == "VERSION" { return true }
-            return name.hasSuffix(".py") && !name.hasPrefix("test_")
+            return isShipped(name)
         }
         // Byte-wise, to match Python's sort. Swift's default String `<` is
         // Unicode-canonical and would order differently for non-ASCII names.
@@ -72,6 +79,62 @@ enum HostVersion {
         let hex = digest.finalize().map { String(format: "%02x", $0) }.joined()
         return String(hex.prefix(12))
     }
+
+    /// Cheap stand-in for the contents of a host directory: every shipped file's
+    /// name, size and mtime. Two identical stamps mean the digest would come out
+    /// identical too, so it can be cached against this instead of recomputed —
+    /// and a directory rewritten underneath a running process changes it.
+    ///
+    /// Not the directory's own mtime: overwriting a file in place leaves that
+    /// untouched, which is exactly how a build lands on top of a running app.
+    static func stamp(of directory: URL) -> String {
+        let keys: Set<URLResourceKey> = [
+            .fileSizeKey, .contentModificationDateKey, .isDirectoryKey,
+        ]
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsSubdirectoryDescendants]
+        ) else { return "" }
+        var parts: [String] = []
+        for url in entries {
+            let name = url.lastPathComponent
+            guard isShipped(name) else { continue }
+            let values = try? url.resourceValues(forKeys: keys)
+            guard values?.isDirectory != true else { continue }
+            let size = values?.fileSize ?? -1
+            let modified = values?.contentModificationDate?
+                .timeIntervalSince1970 ?? -1
+            parts.append("\(name):\(size):\(modified)")
+        }
+        return parts.sorted().joined(separator: "|")
+    }
+
+    /// True when `candidate` is a strictly newer release line than `reference`.
+    ///
+    /// nil when either side isn't dotted-numeric. Guessing the direction of a
+    /// downgrade is worse than declining to offer one — see `HostSkew`.
+    static func isNewer(_ candidate: String, than reference: String) -> Bool? {
+        guard let left = numericComponents(candidate),
+              let right = numericComponents(reference) else { return nil }
+        for index in 0..<max(left.count, right.count) {
+            let lhs = index < left.count ? left[index] : 0
+            let rhs = index < right.count ? right[index] : 0
+            if lhs != rhs { return lhs > rhs }
+        }
+        return false
+    }
+
+    private static func numericComponents(_ version: String) -> [Int]? {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard !parts.isEmpty else { return nil }
+        var values: [Int] = []
+        for part in parts {
+            guard let value = Int(part), value >= 0 else { return nil }
+            values.append(value)
+        }
+        return values
+    }
 }
 
 /// A running host that isn't the one this app ships.
@@ -81,6 +144,10 @@ struct HostSkew: Equatable, Sendable {
     var runningBuild: String?
     var bundledVersion: String
     var bundledBuild: String
+    /// The running host reports a newer release line than this .app carries, so
+    /// the stale half is the app. Replacing the host would be a downgrade, and
+    /// nothing the app installs can fix it — only a newer .app can.
+    var hostIsNewer = false
 
     var runningLabel: String {
         guard let runningVersion else { return "pre-1.0" }
@@ -93,6 +160,10 @@ struct HostSkew: Equatable, Sendable {
     var summary: String {
         "Running \(runningLabel) · this app ships \(bundledLabel)"
     }
+
+    var title: String {
+        hostIsNewer ? "Headroom is out of date" : "Host is out of date"
+    }
 }
 
 /// Shown in the popover when launchd is serving a host this app didn't ship.
@@ -102,6 +173,9 @@ struct HostSkew: Equatable, Sendable {
 /// didn't take — a clone's LaunchAgent that keeps winning :8737, a launchctl
 /// that refused. The button is the manual retry for that case, not the only
 /// way out of skew.
+///
+/// When the running host is the *newer* half there is no button: installing
+/// this app's copy over it is a downgrade, and the app is what needs replacing.
 struct HostSkewBanner: View {
     let skew: HostSkew
     @ObservedObject var store: UsageStore
@@ -111,7 +185,7 @@ struct HostSkewBanner: View {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .foregroundStyle(HeadroomPalette.amber)
-                Text("Host is out of date")
+                Text(skew.title)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
             }
@@ -119,20 +193,27 @@ struct HostSkewBanner: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Button {
-                    Task { await store.updateHost() }
-                } label: {
-                    if store.isUpdatingHost {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Update host")
+            if skew.hostIsNewer {
+                Text("Quit and reopen Headroom, or install the matching build.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await store.updateHost() }
+                    } label: {
+                        if store.isUpdatingHost {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Update host")
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(store.isUpdatingHost)
+                    Spacer()
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(store.isUpdatingHost)
-                Spacer()
             }
         }
         .cardStyle()

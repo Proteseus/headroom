@@ -22,8 +22,12 @@ struct DashboardView: View {
         selectedDashboardRaw == DashboardSelection.overview
     }
 
+    /// Onboarding is for "there is no host to talk to", not "the last call
+    /// failed". `errorMessage` collects every failure in the app — a refused
+    /// server stop, one flaky poll — and keying off it threw the whole
+    /// dashboard back to the setup sheet over things the host was fine for.
     private var needsSetup: Bool {
-        !setupCompleted || store.errorMessage != nil
+        !setupCompleted || !store.hostReachable
     }
 
     var body: some View {

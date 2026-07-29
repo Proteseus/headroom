@@ -51,13 +51,57 @@ enum HostController {
 
     static var isBundled: Bool { bundledServer != nil }
 
-    /// Fingerprint of the host this .app ships. Computed once — the bundle is
-    /// read-only for the life of the process, and it's ~45 file reads.
-    static let bundledBuild: String? = bundledHostDirectory
-        .flatMap { HostVersion.build(in: $0) }
+    /// Fingerprint of the host this .app ships.
+    ///
+    /// Cached, but against the directory's stamp rather than for the life of the
+    /// process. `Bundle.main` keeps pointing at the same path when the .app is
+    /// replaced underneath a running copy — every rebuild during development,
+    /// and a Finder copy over /Applications while the menu bar app is up. A
+    /// value computed at launch outlives the bundle it described, and the app
+    /// then reports its own staleness as the host's: a permanent "out of date"
+    /// banner offering an update that reinstalls the very host already running.
+    static var bundledBuild: String? { fingerprint()?.build }
 
-    static let bundledVersion: String? = bundledHostDirectory
-        .flatMap { HostVersion.version(in: $0) }
+    static var bundledVersion: String? { fingerprint()?.version }
+
+    private static let fingerprints = FingerprintCache()
+
+    private static func fingerprint() -> FingerprintCache.Entry? {
+        guard let directory = bundledHostDirectory else { return nil }
+        return fingerprints.entry(for: directory)
+    }
+
+    /// Version + build of a host directory, recomputed only when its files move.
+    private final class FingerprintCache: @unchecked Sendable {
+        struct Entry {
+            var version: String?
+            var build: String?
+        }
+
+        private let lock = NSLock()
+        private var stamp: String?
+        private var cached: Entry?
+
+        func entry(for directory: URL) -> Entry? {
+            let current = HostVersion.stamp(of: directory)
+            lock.lock()
+            if stamp == current, let cached {
+                lock.unlock()
+                return cached
+            }
+            lock.unlock()
+
+            let fresh = Entry(
+                version: HostVersion.version(in: directory),
+                build: HostVersion.build(in: directory)
+            )
+            lock.lock()
+            stamp = current
+            cached = fresh
+            lock.unlock()
+            return fresh
+        }
+    }
 
     /// What's running vs. what this .app ships, or nil when they agree.
     ///
@@ -67,11 +111,16 @@ enum HostController {
     static func skew(against report: HealthReport) -> HostSkew? {
         guard let bundledBuild, let bundledVersion else { return nil }
         guard report.build != bundledBuild else { return nil }
+        // Equal or unreadable release lines say nothing about direction; only a
+        // strictly higher one proves the app is the stale half.
+        let hostIsNewer = report.version
+            .flatMap { HostVersion.isNewer($0, than: bundledVersion) } ?? false
         return HostSkew(
             runningVersion: report.version,
             runningBuild: report.build,
             bundledVersion: bundledVersion,
-            bundledBuild: bundledBuild
+            bundledBuild: bundledBuild,
+            hostIsNewer: hostIsNewer
         )
     }
 
@@ -80,14 +129,27 @@ enum HostController {
     }
 
     static func isReachable(port: Int = defaultPort) async -> Bool {
+        await probe(port: port) != nil
+    }
+
+    /// One loopback /health read, or nil when nothing answered.
+    private static func probe(port: Int = defaultPort) async -> HealthReport? {
         var request = URLRequest(url: healthURL(port: port))
         request.timeoutInterval = 1.5
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                return nil
+            }
+            // A body we can't read is still a host answering. Reachability must
+            // not start depending on keys the oldest hosts never emitted.
+            return (try? JSONDecoder().decode(HealthReport.self, from: data))
+                ?? HealthReport(
+                    ok: true, uptimeS: nil, updated: nil, sources: [:],
+                    version: nil, build: nil)
         } catch {
-            return false
+            return nil
         }
     }
 
@@ -122,8 +184,16 @@ enum HostController {
           <string>\(hostDir.path)</string>
           <key>RunAtLoad</key>
           <true/>
+          <!-- Not a plain <true/>. The host exits 0 on purpose when a foreign
+               process already serves /health on this port; an unconditional
+               KeepAlive respawns it every ThrottleInterval forever, each
+               respawn rescanning a week of logs. Non-zero and signal deaths
+               still come back. -->
           <key>KeepAlive</key>
-          <true/>
+          <dict>
+            <key>SuccessfulExit</key>
+            <false/>
+          </dict>
           <key>ThrottleInterval</key>
           <integer>5</integer>
           <key>StandardOutPath</key>
@@ -161,13 +231,43 @@ enum HostController {
         return launchAgentURL.path
     }
 
-    /// Wait until /health answers (or timeout).
-    static func waitUntilReady(port: Int = defaultPort, attempts: Int = 40) async -> Bool {
+    /// How a start attempt actually landed.
+    enum Readiness: Equatable, Sendable {
+        /// The host we just installed is the one answering.
+        case ready
+        /// Something owns :8737, but it isn't ours and it isn't going away.
+        case foreign(build: String?)
+        /// Nothing answered before the timeout.
+        case silent
+    }
+
+    /// Wait until the host *we just started* is the one answering.
+    ///
+    /// A plain 200 proves nothing here. The outgoing process keeps answering
+    /// through bootout, so the first poll after a restart routinely describes
+    /// the host being replaced. And when a foreign host owns the port — one run
+    /// by hand from a clone, or an agent launchd lost track of — ours hits
+    /// EADDRINUSE and exits 0 on purpose (see headroom_server.py), leaving the
+    /// old one serving while every check says "up".
+    ///
+    /// With `expecting` nil there is no fingerprint to match — a build with no
+    /// bundled host — and any 200 has to do.
+    static func waitUntilReady(
+        port: Int = defaultPort,
+        expecting build: String? = nil,
+        attempts: Int = 40
+    ) async -> Readiness {
+        var lastSeen: HealthReport?
         for _ in 0..<attempts {
-            if await isReachable(port: port) { return true }
+            if let report = await probe(port: port) {
+                guard let build else { return .ready }
+                if report.build == build { return .ready }
+                lastSeen = report
+            }
             try? await Task.sleep(for: .milliseconds(250))
         }
-        return false
+        guard let lastSeen else { return .silent }
+        return .foreign(build: lastSeen.build)
     }
 
     static func uninstall() {

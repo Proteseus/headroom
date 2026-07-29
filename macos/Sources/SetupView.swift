@@ -77,7 +77,11 @@ struct SetupView: View {
                 Spacer()
             }
             if let skew = store.hostSkew {
-                Text("Out of date — \(skew.summary). Restart to install.")
+                // The store already reinstalls on sight, so this reports what
+                // is happening rather than asking for a restart that ran.
+                Text(skew.hostIsNewer
+                     ? "\(skew.title). \(skew.summary). Quit and reopen Headroom."
+                     : "\(skew.title). \(skew.summary). Replacing it now.")
                     .font(.caption2)
                     .foregroundStyle(HeadroomPalette.amber)
                     .fixedSize(horizontal: false, vertical: true)
@@ -198,41 +202,66 @@ struct SetupView: View {
         await refreshHostStatus()
         if !hostReady, HostController.isBundled {
             await startHost()
-        } else if hostReady {
-            await loadSetup()
+        }
+        // Everything under this card moves on its own: launchd restarts the
+        // host, the store's poll loop recovers, an update lands underneath.
+        // Read once and the three lines here are three different moments —
+        // "Host is up" stacked over "Could not connect to the server."
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, !hostBusy else { continue }
+            await refreshHostStatus()
         }
     }
 
     private func refreshHostStatus() async {
-        hostReady = await HostController.isReachable()
-        if hostReady {
-            hostMessage = "http://127.0.0.1:8737"
+        let ready = await HostController.isReachable()
+        let changed = ready != hostReady
+        hostReady = ready
+        guard ready else {
+            hostMessage = HostController.isBundled
+                ? "Nothing is answering on :8737 yet."
+                : store.errorMessage
+            return
+        }
+        hostMessage = "Host is up on http://127.0.0.1:8737"
+        // The sources list costs a fetch; only re-read it when the host came
+        // back, or when we never got one.
+        if changed || setupRows.isEmpty {
             await store.checkHostVersion()
             await loadSetup()
-        } else if hostMessage == nil {
-            hostMessage = store.errorMessage
         }
     }
 
+    /// Install the LaunchAgent and start the bundled host. Routed through the
+    /// store so this can't race the automatic update the poll loop may already
+    /// be running — both end up awaiting the same install.
     private func startHost() async {
         hostBusy = true
         defer { hostBusy = false }
-        do {
-            let path = try HostController.installAndStart()
-            hostMessage = "Installed login item → \(path)"
-            let ok = await HostController.waitUntilReady()
-            hostReady = ok
-            if ok {
-                hostMessage = "Host is up on http://127.0.0.1:8737"
-                await store.checkHostVersion()
-                await loadSetup()
-                await store.refresh()
-            } else {
-                hostMessage = "Started, but /health didn’t answer yet. Check ~/.headroom/logs/headroom.err"
-            }
-        } catch {
-            hostMessage = error.localizedDescription
+        guard HostController.isBundled else {
+            hostMessage = HostController.HostError.notBundled.errorDescription
             hostReady = false
+            return
+        }
+        switch await store.updateHost() {
+        case .ready:
+            hostReady = true
+            hostMessage = "Host is up on http://127.0.0.1:8737"
+            await loadSetup()
+        case let .foreign(build):
+            // Ours started and stood down: something else owns the port. Saying
+            // "up" here is how the card ends up contradicting itself.
+            hostReady = true
+            hostMessage = """
+                Another host already owns :8737\(build.map { " (\($0))" } ?? "").
+                Quit it, or run ./scripts/uninstall-host.sh, then try again.
+                """
+            await loadSetup()
+        case .silent:
+            hostReady = false
+            hostMessage = store.errorMessage
+                ?? "Started, but /health didn’t answer yet. Check ~/.headroom/logs/headroom.err"
         }
     }
 

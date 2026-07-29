@@ -43,6 +43,36 @@ tag a version that has no entry.
   last-known numbers from current ones without inferring it from an absent
   countdown.
 
+### Fixed
+
+- The app no longer reports its own staleness as the host's. It fingerprinted
+  the host it bundles once per launch, on the premise that a running .app owns
+  a read-only bundle — false every time a build lands on top of a running copy.
+  The app then compared a dead fingerprint against a live host and offered an
+  update that reinstalled the host already running, for ever. The fingerprint
+  now recomputes when the files under `Resources/host` move.
+- Skew has a direction. A host reporting a newer release line than the .app is
+  no longer replaced with an older copy; the banner names the app as the half
+  that needs updating and drops the button.
+- Starting the host waits for the host it started. A 200 on :8737 was taken as
+  success, which the process being replaced answers on its way out — and which
+  a foreign host answers for ever, since ours stands down by design when the
+  port is taken. Startup now waits for the fingerprint it installed, and says
+  so when something else owns the port instead of reporting success.
+- One install at a time. Launch, the poll loop, the setup card and the skew
+  banner each ran their own bootout/bootstrap; whoever lost the race read
+  `/usage` from a host mid-restart, which is how "Host is up" and "Could not
+  connect to the server" ended up on screen together.
+- The LaunchAgent asks for `KeepAlive/SuccessfulExit=false`. The host exits 0
+  on purpose when another process owns the port, but an unconditional
+  `KeepAlive` ignores exit status and respawned it every 5 seconds for ever,
+  each respawn rescanning a week of logs.
+- One failed call no longer counts as "no host". A refused server stop or a
+  single flaky poll replaced the whole dashboard with the onboarding sheet;
+  that now keys on whether `/health` answers.
+- The setup card re-checks while it is open, instead of showing three lines
+  captured at three different moments.
+
 ## 1.0.11 — 2026-07-29
 
 ### Added

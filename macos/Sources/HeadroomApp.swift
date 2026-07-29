@@ -76,15 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         guard HostController.isBundled else { return }
-        do {
-            _ = try HostController.installAndStart()
-            if await HostController.waitUntilReady() {
-                await store.refresh()
-                await store.checkHostVersion()
-            }
-        } catch {
-            // SetupView surfaces the error; don't crash launch.
-        }
+        // Through the store: `store.start()` is already ticking, and its own
+        // version check can reach for the same bootout/bootstrap. One install,
+        // both callers awaiting it. Failures land in SetupView, not a crash.
+        await store.updateHost()
     }
 
     private static func argValue(_ flag: String) -> String? {

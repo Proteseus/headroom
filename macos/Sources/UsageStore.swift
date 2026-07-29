@@ -12,6 +12,13 @@ final class UsageStore: ObservableObject {
     /// What the running host calls itself, for the Setup card.
     @Published private(set) var hostVersionLabel: String?
     @Published private(set) var isUpdatingHost = false
+    /// Did /health answer on the last check?
+    ///
+    /// Separate from `errorMessage` on purpose. That one is the bucket every
+    /// failed call empties into — a refused server stop, one flaky poll — and
+    /// keying "show onboarding" off it swapped the whole dashboard for the
+    /// setup sheet over things that had nothing to do with the host being down.
+    @Published private(set) var hostReachable = true
 
     var onSnapshotChange: ((UsageSnapshot, Bool) -> Void)?
 
@@ -40,6 +47,12 @@ final class UsageStore: ObservableObject {
     /// take — a clone's LaunchAgent that keeps winning the port — this must not
     /// become a bootout/bootstrap loop every minute.
     private var autoUpdatedBuilds: Set<String> = []
+
+    /// The one install in flight, if any. Launch, the poll loop, the setup card
+    /// and the skew banner all reach for the same bootout/bootstrap; without a
+    /// shared handle two of them tear down each other's host and whoever loses
+    /// reads /usage from a process that is mid-restart.
+    private var hostInstall: Task<HostController.Readiness, Never>?
 
     init() {}
 
@@ -113,6 +126,8 @@ final class UsageStore: ObservableObject {
             var value = try await client.fetchUsage()
             snapshot = value
             errorMessage = nil
+            // A served document is proof the host is up, without a second GET.
+            hostReachable = true
             onSnapshotChange?(value, true)
 
             if recovering || forceSync {
@@ -161,7 +176,11 @@ final class UsageStore: ObservableObject {
     ///   update and must not stack a second install on the same skew.
     @discardableResult
     func checkHostVersion(autoUpdate: Bool = true) async -> Bool {
-        guard let report = try? await client.health() else { return false }
+        guard let report = try? await client.health() else {
+            hostReachable = false
+            return false
+        }
+        hostReachable = true
 
         let restarted = (lastHostBuild != nil && report.build != lastHostBuild)
             || (lastHostUptime.map { (report.uptimeS ?? 0) < $0 } ?? false)
@@ -185,30 +204,57 @@ final class UsageStore: ObservableObject {
     /// on sight rather than parking an offer behind a button: until someone
     /// clicks, every number on screen came out of a host this app can't fully
     /// decode. Once per running build — see `autoUpdatedBuilds`.
+    ///
+    /// Except when the running host is the newer half. Then this .app is what's
+    /// behind, installing its copy would be a downgrade, and the banner says so
+    /// instead.
     private func installBundledHost(replacing skew: HostSkew) async {
+        guard !skew.hostIsNewer else { return }
         let key = skew.runningBuild ?? "pre-1.0"
         guard !autoUpdatedBuilds.contains(key) else { return }
         autoUpdatedBuilds.insert(key)
         await updateHost()
     }
 
-    /// Point the LaunchAgent back at the host bundled in this .app and restart
-    /// it. Same call as first-run setup — launchctl bootout/bootstrap replaces
+    /// Point the LaunchAgent at the host bundled in this .app and restart it.
+    /// Same call as first-run setup — launchctl bootout/bootstrap replaces
     /// whatever job was there, including one installed from a clone.
-    func updateHost() async {
-        guard !isUpdatingHost else { return }
+    ///
+    /// Serialized: a second caller awaits the install already running rather
+    /// than starting its own or, worse, returning early and reading /usage
+    /// from a host the first one is still restarting.
+    @discardableResult
+    func updateHost() async -> HostController.Readiness {
+        if let hostInstall { return await hostInstall.value }
+        let install = Task { await performHostInstall() }
+        hostInstall = install
+        let readiness = await install.value
+        hostInstall = nil
+        return readiness
+    }
+
+    private func performHostInstall() async -> HostController.Readiness {
         isUpdatingHost = true
         defer { isUpdatingHost = false }
         do {
             _ = try HostController.installAndStart()
-            _ = await HostController.waitUntilReady()
+        } catch {
+            errorMessage = error.localizedDescription
+            return .silent
+        }
+        // Wait for the host we just installed, not for anything that answers.
+        let readiness = await HostController.waitUntilReady(
+            expecting: HostController.bundledBuild)
+        switch readiness {
+        case .ready, .foreign:
             await checkHostVersion(autoUpdate: false)
             // The host it replaced published a document; a plain GET would hand
             // us that one back with its pre-restart ages.
             await refresh(forceSync: true)
-        } catch {
-            errorMessage = error.localizedDescription
+        case .silent:
+            hostReachable = false
         }
+        return readiness
     }
 
     func stopServer(_ server: LocalServer) async {

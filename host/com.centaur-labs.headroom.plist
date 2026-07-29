@@ -27,8 +27,15 @@
   </array>
   <key>RunAtLoad</key>
   <true/>
+  <!-- Not a plain <true/>. The host exits 0 on purpose when a foreign process
+       already serves /health on this port; an unconditional KeepAlive respawns
+       it every ThrottleInterval forever, each respawn rescanning a week of
+       logs. Non-zero and signal deaths still come back. -->
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>ThrottleInterval</key>
   <integer>5</integer>
   <key>StandardOutPath</key>
