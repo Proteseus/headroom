@@ -28,6 +28,7 @@
 
 #include "pin_config.h"
 #include "boot_max.h"  // generated — see scripts/render_esp32_boot.py
+#include "provider_marks.h"
 #include "config.h"   // copy config_example.h -> config.h
 
 // Older config.h files predate these — keep them building.
@@ -1299,6 +1300,32 @@ static void drawTextAt(const String &s, int x, int y, uint8_t size, uint16_t col
 static void drawRightAt(const String &s, int rightX, int y, uint8_t size,
                         uint16_t col) {
   drawRightAt(s.c_str(), rightX, y, size, col);
+}
+
+static bool providerBaseIs(const String &id, const char *base) {
+  const size_t n = strlen(base);
+  return id.length() >= n && strncmp(id.c_str(), base, n) == 0
+      && (id.length() == n || id[n] == ':');
+}
+
+static const uint8_t *providerMark(const String &id) {
+  if (providerBaseIs(id, "claude")) return MARK_CLAUDE;
+  if (providerBaseIs(id, "codex")) return MARK_CODEX;
+  if (providerBaseIs(id, "cursor")) return MARK_CURSOR;
+  if (providerBaseIs(id, "copilot")) return MARK_COPILOT;
+  if (providerBaseIs(id, "gemini")) return MARK_GEMINI;
+  if (providerBaseIs(id, "windsurf")) return MARK_WINDSURF;
+  if (providerBaseIs(id, "jetbrains")) return MARK_JETBRAINS;
+  if (providerBaseIs(id, "zed")) return MARK_ZED;
+  return nullptr;
+}
+
+static bool drawProviderMark(const String &id, int16_t x, int16_t y,
+                             uint16_t color) {
+  const uint8_t *bits = providerMark(id);
+  if (!bits) return false;
+  gfx->drawBitmap(x, y, bits, PROVIDER_MARK_W, PROVIDER_MARK_H, color);
+  return true;
 }
 
 // Shared page inset — keep boot chrome + dashboards clear of the corner radius.
@@ -2898,10 +2925,16 @@ static void drawQuotaPage() {
   const uint16_t accent = s.accent;
   const char *brand = s.title.length() ? s.title.c_str() : "-";
 
-  // Header — provider name in its color + plan
+  // Header — provider name in its color, with a crisp white provider mark
+  // owning the top-right corner. Plan copy ends before it so neither collides.
   drawTextAt(brand, padX, top, 3, accent);
+  const int16_t markX = (int16_t)(W - padX - PROVIDER_MARK_W);
+  const bool hasMark = drawProviderMark(
+      s.id, markX, top, COL_WHITE);
   if (q.plan.length()) {
-    drawRightAt(q.plan.c_str(), W - padX, top + 6, 2, COL_DIM);
+    drawRightAt(q.plan.c_str(),
+                hasMark ? (int16_t)(markX - 8) : (int16_t)(W - padX),
+                top + 6, 2, COL_DIM);
   }
   char when[8], updatedLine[20];
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",

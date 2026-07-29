@@ -7,6 +7,13 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.1 — 2026-07-29
+
+### Added
+
+- Provider marks now identify every coding quota across the Mac, iPhone, and
+  ESP32 dashboards, including named accounts under each provider.
+
 ## 1.1.0 — 2026-07-29
 
 ### Added
@@ -23,8 +30,8 @@ tag a version that has no entry.
   diagnosis that distinguishes Wi-Fi, host resolution, token, HTTP, and USB
   failures. The new flashing helper refuses to race another process for the
   serial port.
-- Monochrome provider marks now identify every coding quota across the Mac and
-  iPhone dashboards, including named accounts under each provider.
+- Claude, Codex, and Cursor marks now identify their tabs in the Mac
+  dashboard, including named accounts under each provider.
 
 ### Fixed
 
