@@ -30,6 +30,29 @@ any hardcoded chrome that still bypasses them.
 Do not title the activity feed **GitHub**. That word is reserved for the
 **GitHub Actions** source.
 
+### Activity row states
+
+Every row says its state in a word as well as a colour and a glyph, so the
+feed still reads in greyscale. Host status string → word, mapped once in
+`Shared/ActivityStatus.swift`:
+
+| Host status | Word | Reads as |
+|---|---|---|
+| `error`, `failure` | **Failed** | Red, and sorted above the rest under **N need attention**. Tinted per row — the feed is one list of equal items, not a box stacked on a list |
+| `building`, `initializing` | **Building** | Amber. In flight |
+| `running` | **Running** | Amber. In flight |
+| `queued`, `pending` | **Queued** | Amber. In flight |
+| `ready` | **Deployed** | Green. Finished well |
+| `success`, `completed` | **Passed** | Green. Finished well |
+| `canceled` | **Canceled** | Grey — nobody has to go look at it, so it is not red |
+| `pushed` | **Pushed** | Grey. Routine |
+| `local` | **Local** | Grey. Committed, not pushed |
+| `committed` | **Committed** | Grey. Routine |
+
+Green means *finished well*, never *happened*. A pushed commit is grey; if
+push turned green, the word would stop distinguishing a shipped deploy from a
+`git push`.
+
 ## Charts & meters
 
 | Term | Meaning | API / id |
@@ -74,8 +97,8 @@ blank axis.
 | **Mac unavailable** | iOS cannot reach the host |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |
-| **All clear** | Healthy attention summary (host default + Attention card) |
-| **Needs attention** | Warning fallback when a reason has no summary |
+| **All clear** | Healthy summary — host default, Attention card, and the Activity feed with nothing failing |
+| **Needs attention** | Warning fallback when a reason has no summary; counted as **N need attention** above the Activity feed |
 | **Collecting history** | Burndown empty / early verdict |
 | **Clear** | Dismiss attention on every surface |
 | **Refresh all** | Force-sync every source |
@@ -154,7 +177,7 @@ Colour carries one meaning per surface. Don't borrow it for emphasis.
 | Where | Rule |
 |---|---|
 | **Quota meters, burndown** | Provider accent only. Exhaustion desaturates (`tint.drained()`); nothing turns red or orange |
-| **Attention card, source health dots** | Green / amber / red — this is the *only* place alarm colour belongs |
+| **Attention card, source health dots, Activity rows** | Green / amber / red — this is the *only* place alarm colour belongs, and never alone: the row carries a glyph and a word too |
 | **Provider accent** | `sources_config.Source.accent` → `providers[].accent` / `sources[].accent`, mirrored by firmware `COL_*` and `UsageProvider.tint` |
 
 **The burndown card never alarms.** "Runs out tomorrow 04:18" is a reading, and

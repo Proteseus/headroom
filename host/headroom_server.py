@@ -124,6 +124,21 @@ def _build_activity(vercel, git, supabase=None, github=None):
     deployed_shas = {d.get("sha") for d in deployments if d.get("sha")}
     items = []
 
+    # Picked before the commits loop so a commit whose workflow is already in
+    # the feed doesn't also get its own row. The run carries the same subject
+    # line plus how CI went, so the pair read as two events when it was one.
+    github = github or {}
+    runs = []
+    for run in (github.get("runs") or [])[:8]:
+        status = run.get("status") or "failure"
+        # Same 24h gate as Attention: day-old red CI shouldn't crowd the feed.
+        if status == "failure" and not github_actions._is_fresh_failure(run):
+            continue
+        if status not in ("failure", "running"):
+            continue
+        runs.append((run, status))
+    run_shas = {run.get("sha") for run, _ in runs if run.get("sha")}
+
     for deployment in deployments:
         state = deployment.get("status") or "unknown"
         items.append({
@@ -151,7 +166,7 @@ def _build_activity(vercel, git, supabase=None, github=None):
         })
 
     for commit in commits:
-        if commit.get("sha") in deployed_shas:
+        if commit.get("sha") in deployed_shas or commit.get("sha") in run_shas:
             continue
         pushed = commit.get("pushed")
         status = "pushed" if pushed is True else (
@@ -178,14 +193,7 @@ def _build_activity(vercel, git, supabase=None, github=None):
             "inspector_url": None,
         })
 
-    github = github or {}
-    for run in (github.get("runs") or [])[:8]:
-        status = run.get("status") or "failure"
-        # Same 24h gate as Attention: day-old red CI shouldn't crowd the feed.
-        if status == "failure" and not github_actions._is_fresh_failure(run):
-            continue
-        if status not in ("failure", "running"):
-            continue
+    for run, status in runs:
         subject = run.get("display_title") or run.get("name") or "Workflow"
         items.append({
             "id": f"github:{run.get('id')}",
@@ -200,10 +208,10 @@ def _build_activity(vercel, git, supabase=None, github=None):
             "target": None,
             "created_at": _unix_seconds(run.get("created_at")),
             "ago": run.get("ago"),
-            "error_message": (
-                f"{run.get('repo')} · {status}"
-                if run.get("repo") else status
-            ),
+            # Nothing to add: the row's own caption already prints the repo,
+            # the workflow, and the status in words. This line used to repeat
+            # all three under it.
+            "error_message": None,
             "url": run.get("url"),
             "inspector_url": run.get("url"),
         })

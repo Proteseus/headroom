@@ -108,6 +108,31 @@ enum HeadroomCopy {
         return days == 1 ? "1 day ago" : "\(days) days ago"
     }
 
+    // MARK: Activity feed
+
+    /// What a feed row's host status (`failure`, `ready`, `pushed`, …) is
+    /// called out loud. Every row says its state in words as well as colour,
+    /// so a red dot is never carrying the fact on its own.
+    /// `Shared/ActivityStatus.swift` owns the mapping.
+    static let activityFailed = "Failed"
+    static let activityBuilding = "Building"
+    static let activityRunning = "Running"
+    static let activityQueued = "Queued"
+    static let activityDeployed = "Deployed"
+    static let activityPassed = "Passed"
+    static let activityCanceled = "Canceled"
+    /// Feed label for a quota the provider handed back early.
+    static let activityReset = "Reset"
+    static let activityPushed = "Pushed"
+    static let activityLocal = "Local"
+    static let activityCommitted = "Committed"
+
+    /// "2 need attention" — the feed's own count, above the rows, so the
+    /// answer to "is anything broken" doesn't depend on scanning dots.
+    static func needsAttention(count: Int) -> String {
+        count == 1 ? "1 needs attention" : "\(count) need attention"
+    }
+
     // MARK: Empty states
 
     static let noHistoryYet = "No history yet"
