@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The quota half of the popover: the three-ring overview, the single-provider
+/// The quota half of the popover: the ring overview, the single-provider
 /// detail card, and the attention summary.
 
 struct QuotaOverviewCard: View {
@@ -8,7 +8,47 @@ struct QuotaOverviewCard: View {
     /// Tapping a ring jumps to that provider's detail tab.
     let onSelect: (String) -> Void
 
+    /// Width of the ring area, measured rather than assumed: the popover is
+    /// fixed at 390 but the screenshot renderer and the settings preview are
+    /// not, and a row of fixed-size rings overflows a narrower host silently.
+    /// Seeded with the popover's card interior (390 less the 16pt scroll
+    /// inset and 14pt card padding on each side) so the first frame is already
+    /// right in the common case instead of laying out wide and snapping back.
+    @State private var rowWidth: CGFloat = 330
+
+    private static let ringSpacing: CGFloat = 10
+    private static let maximumRingDiameter: CGFloat = 72
+    /// Below this a ring stops reading as two bands with a pace dot, so the
+    /// row wraps instead of shrinking further.
+    private static let minimumRingCell: CGFloat = 54
+
     private var providers: [QuotaProviderInfo] { snapshot.visibleQuotaProviders }
+
+    /// Columns that fit the measured width, balanced across however many rows
+    /// that takes — six providers read as 3+3, not 5+1.
+    private var ringColumns: Int {
+        let count = providers.count
+        guard count > 1, rowWidth > 0 else { return max(1, count) }
+        let cellStride = Self.minimumRingCell + Self.ringSpacing
+        let fits = max(1, Int((rowWidth + Self.ringSpacing) / cellStride))
+        let perRow = min(count, fits)
+        let rows = Int((Double(count) / Double(perRow)).rounded(.up))
+        return Int((Double(count) / Double(max(1, rows))).rounded(.up))
+    }
+
+    private var ringDiameter: CGFloat {
+        guard rowWidth > 0 else { return Self.maximumRingDiameter }
+        let columns = CGFloat(ringColumns)
+        let cell = (rowWidth - Self.ringSpacing * (columns - 1)) / columns
+        return min(Self.maximumRingDiameter, max(24, cell))
+    }
+
+    private var gridColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 24), spacing: Self.ringSpacing),
+            count: ringColumns
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -21,19 +61,21 @@ struct QuotaOverviewCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 12)
             } else {
-                HStack(spacing: 10) {
+                LazyVGrid(columns: gridColumns, spacing: 14) {
                     ForEach(providers) { provider in
                         ProviderQuotaRing(
                             provider: provider,
                             meter: snapshot.meter(for: provider),
                             rings: snapshot.burndownRings(forProviderID: provider.id),
-                            tint: snapshot.tint(forProviderID: provider.id)
+                            tint: snapshot.tint(forProviderID: provider.id),
+                            diameter: ringDiameter
                         )
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
                         .onTapGesture { onSelect(provider.id) }
                     }
                 }
+                .measuredWidth($rowWidth)
             }
             if let primary = snapshot.burndownPrimary, let headline = primary.headline {
                 Text(headline)
@@ -208,6 +250,9 @@ struct ProviderQuotaRing: View {
     /// until the host has sampled, when the pools' own pace stands in.
     var rings: [Burndown] = []
     let tint: Color
+    /// Set by the overview grid, which shrinks the glyph rather than let a
+    /// row of them push past the popover.
+    var diameter: CGFloat = 72
 
     private var headline: MeterWindow { meter.headline }
 
@@ -240,13 +285,15 @@ struct ProviderQuotaRing: View {
     var body: some View {
         VStack(spacing: 7) {
             HeadroomRings(layers: ringLayers, tint: tint)
-            .frame(width: 72, height: 72)
+            .frame(width: diameter, height: diameter)
             // Drained of colour, because the gap between arc and pace dot is
             // the reading, and on frozen numbers that reading is fiction.
             .opacity(provider.isStale ? 0.4 : 1)
             Text(meter.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(windowCaption)
                 .font(.caption2)
                 .foregroundStyle(provider.isStale ? HeadroomPalette.amber : .secondary)

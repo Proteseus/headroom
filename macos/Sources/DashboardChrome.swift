@@ -69,6 +69,27 @@ extension UsageSnapshot {
 }
 
 extension View {
+    /// Report this view's laid-out width into `width`, for the few places that
+    /// size their own content against it. The popover is a fixed 390 wide and
+    /// nothing inside it may exceed that — a child that does overflows both
+    /// edges rather than clipping, dragging every other card off-centre.
+    ///
+    /// Safe to read back into the same subtree only where the width does not
+    /// depend on the value: a row of equal, width-filling cells, not
+    /// content-sized ones.
+    func measuredWidth(_ width: Binding<CGFloat>) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onChange(of: proxy.size.width, initial: true) { _, measured in
+                        if abs(measured - width.wrappedValue) > 0.5 {
+                            width.wrappedValue = measured
+                        }
+                    }
+            }
+        }
+    }
+
     func cardStyle() -> some View {
         padding(14)
             .background(

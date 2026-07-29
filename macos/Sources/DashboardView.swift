@@ -143,42 +143,40 @@ struct DashboardView: View {
         return HeadroomPalette.green
     }
 
+    /// The popover is a fixed width, so past four or five providers the tab
+    /// names have to give way to the marks rather than wrap and spill out of
+    /// it. Widest layout that fits wins; the last one always fits.
     private var providerSwitcher: some View {
+        ViewThatFits(in: .horizontal) {
+            switcherRow(labels: .all)
+            switcherRow(labels: .selectedOnly)
+            switcherRow(labels: .none)
+        }
+        .onChange(of: visibleProviders.map(\.id)) { _, ids in
+            // Drop onto Overview if the selected provider was disabled.
+            if !isOverview, !ids.contains(selectedDashboardRaw) {
+                selectedDashboardRaw = DashboardSelection.overview
+            }
+        }
+    }
+
+    private func switcherRow(labels: DashboardTabLabels) -> some View {
         let tabs = DashboardSelection.tabs(for: visibleProviders)
         return HStack(spacing: 2) {
             ForEach(tabs, id: \.self) { tabID in
                 let isSelected = selectedDashboardRaw == tabID
-                Button {
+                DashboardTabButton(
+                    tabID: tabID,
+                    title: DashboardSelection.title(
+                        for: tabID, providers: visibleProviders),
+                    isSelected: isSelected,
+                    showsTitle: labels.showsTitle(isSelected: isSelected)
+                ) {
                     selectedDashboardRaw = tabID
                     if tabID != DashboardSelection.overview {
                         selectedProviderRaw = tabID
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        if tabID == DashboardSelection.overview {
-                            Image(systemName: "rectangle.grid.2x2")
-                                .font(.system(size: 10.5, weight: .medium))
-                        } else {
-                            ProviderMark(providerID: tabID, size: 11)
-                        }
-                        Text(DashboardSelection.title(
-                            for: tabID, providers: visibleProviders))
-                    }
-                    .font(.caption.weight(isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 4)
-                    .background {
-                        if isSelected {
-                            Capsule(style: .continuous)
-                                .fill(Color(nsColor: .controlBackgroundColor))
-                                .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
-                        }
-                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(3)
@@ -188,12 +186,6 @@ struct DashboardView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dashboard")
-        .onChange(of: visibleProviders.map(\.id)) { _, ids in
-            // Drop onto Overview if the selected provider was disabled.
-            if !isOverview, !ids.contains(selectedDashboardRaw) {
-                selectedDashboardRaw = DashboardSelection.overview
-            }
-        }
     }
 
     private var footer: some View {
@@ -260,5 +252,76 @@ struct DashboardView: View {
             .filter { ($0.enabled ?? true) && $0.stale == true }
             .sorted { ($0.ageS ?? 0) > ($1.ageS ?? 0) }
             .first
+    }
+}
+
+/// How much of each tab's name the switcher can afford to draw.
+enum DashboardTabLabels {
+    case all
+    case selectedOnly
+    case none
+
+    func showsTitle(isSelected: Bool) -> Bool {
+        switch self {
+        case .all: true
+        case .selectedOnly: isSelected
+        case .none: false
+        }
+    }
+}
+
+/// Segment in the overview/provider switcher. Plain buttons on macOS only
+/// hit-test their text unless the padded capsule is an explicit content shape.
+private struct DashboardTabButton: View {
+    let tabID: String
+    let title: String
+    let isSelected: Bool
+    /// False once the row can only fit the marks. The name still reaches
+    /// VoiceOver and the tooltip, so a mark-only tab is never unlabelled.
+    var showsTitle = true
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if tabID == DashboardSelection.overview {
+                    Image(systemName: "rectangle.grid.2x2")
+                        .font(.system(size: 10.5, weight: .medium))
+                } else {
+                    ProviderMark(providerID: tabID, size: 11)
+                }
+                if showsTitle {
+                    // Fixed, so the row measures at its untruncated width —
+                    // that measurement is what ViewThatFits rejects when it
+                    // falls through to the next layout.
+                    Text(title)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .font(.caption.weight(isSelected ? .semibold : .medium))
+            .foregroundStyle(isSelected ? .primary : .secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+            .background {
+                if isSelected {
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
+                } else if hovering {
+                    Capsule(style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                }
+            }
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
