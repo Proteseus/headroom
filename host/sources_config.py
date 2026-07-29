@@ -104,6 +104,11 @@ class Source(NamedTuple):
     headline_fallback_max: tuple = ()
     # #RRGGBB — shared with firmware COL_* and macos UsageProvider.tint.
     accent: Optional[str] = None
+    # Where a granted reset gets explained, when the provider explains them
+    # somewhere. A permalink only — Headroom never fetches it, so the page can
+    # change shape without breaking anything here, and nothing about your
+    # account leaves the Mac. None for providers that announce nothing.
+    reset_note_url: Optional[str] = None
     # Extra logins. accounts.KIND_DIR when a second account is a second
     # credential *directory* (Claude, Codex, Gemini), accounts.KIND_FILE when
     # it is the credential store itself (Cursor / Windsurf state.vscdb).
@@ -361,6 +366,9 @@ BASE_SOURCES = (
            codex_usage.fetch_quota, summary_fn=_summary_codex,
            kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
            headline=("week", "session"), accent="#10A37F",
+           # Codex resets are announced by OpenAI's Codex lead rather than on a
+           # status page, so the permalink is the account itself.
+           reset_note_url="https://x.com/thsottiaux",
            account_kind=accounts.KIND_DIR,
            account_file=codex_usage.AUTH_NAME,
            account_hint="~/.codex-work (a second CODEX_HOME)"),

@@ -158,6 +158,22 @@ def _oauth_block(blob):
     return o
 
 
+def _shape_hint(store, blob):
+    """Say what the credential store actually holds, not what we wanted.
+
+    Claude Code owns this layout and has moved it before. An error that only
+    restates the expectation sends you hunting; one that lists the keys that
+    are there turns the next move into a one-line diagnosis. Key names only —
+    a value printed here would be the token itself.
+    """
+    if isinstance(blob, dict):
+        found = ", ".join(sorted(blob)) or "empty object"
+    else:
+        found = f"a bare {type(blob).__name__}"
+    return (f"{store} has no claudeAiOauth.accessToken (found: {found}) — "
+            "run `claude login` if this followed an update")
+
+
 def _expires_at_s(oauth):
     ms = oauth.get("expiresAt")
     if not isinstance(ms, (int, float)):
@@ -346,12 +362,7 @@ def fetch_quota(force=False, account=None):
                      "(Keychain or ~/.claude/.credentials.json)")
         oauth = _oauth_block(blob)
         if not oauth:
-            # Reachable with a perfectly healthy Claude Code: the store is
-            # there and parses, it just has no plan token in it any more. Say
-            # what fixes it, because "missing key" reads like a Headroom bug
-            # and sends you looking in the wrong place.
-            return _keep_stale(
-                "no Claude plan token in credentials — run `claude login`")
+            return _keep_stale(_shape_hint(store, blob))
 
         if _needs_refresh(oauth):
             try:

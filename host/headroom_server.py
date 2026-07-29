@@ -51,6 +51,7 @@ import cache_util
 import claude_history
 import daily_burn
 import device_view
+import git_activity
 import github_actions
 import host_version
 import local_servers
@@ -117,8 +118,55 @@ def _unix_seconds(value):
         return 0.0
 
 
-def _build_activity(vercel, git, supabase=None, github=None):
-    """Merge deploys, commits, Actions failures, and backend alerts."""
+def _reset_activity_rows(burndowns):
+    """Granted quota resets as feed rows, newest first.
+
+    A grant is an event that happened to you at a moment you can name, which is
+    what this feed is for — and it is the one event here you did not cause. The
+    burndown already detected it; this only reshapes it, so the chart mark and
+    the feed row can never disagree about when or how much.
+
+    `url` is the provider's own permalink from the registry, opened on click
+    and never fetched.
+    """
+    rows = []
+    for provider, pools in (burndowns or {}).items():
+        source = sources_config.BY_ID.get(provider)
+        title = source.title if source else provider.capitalize()
+        note_url = source.reset_note_url if source else None
+        for pool, result in (pools or {}).items():
+            pool_title = next(
+                (spec.title for spec in (source.pools if source else ())
+                 if spec.id == pool),
+                pool.capitalize(),
+            )
+            for event in (result.get("resets") or []):
+                at = event.get("t")
+                if at is None:
+                    continue
+                forgiven = event.get("forgiven_pct") or 0
+                rows.append({
+                    "id": f"reset:{provider}:{pool}:{int(at)}",
+                    "kind": "reset",
+                    "status": "granted",
+                    "subject": f"{title} {pool_title.lower()} limits reset",
+                    "repo": None,
+                    "project": f"{int(round(forgiven))} pts back",
+                    "branch": None,
+                    "sha": None,
+                    "short_sha": None,
+                    "target": None,
+                    "created_at": int(at),
+                    "ago": git_activity.fmt_ago(at),
+                    "error_message": None,
+                    "url": note_url,
+                    "inspector_url": None,
+                })
+    return rows
+
+
+def _build_activity(vercel, git, supabase=None, github=None, burndowns=None):
+    """Merge deploys, commits, Actions failures, backend alerts, and grants."""
     deployments = vercel.get("deployments") or []
     commits = git.get("commits") or []
     deployed_shas = {d.get("sha") for d in deployments if d.get("sha")}
@@ -281,6 +329,8 @@ def _build_activity(vercel, git, supabase=None, github=None):
             ),
             "inspector_url": project.get("dashboard_url"),
         })
+
+    items.extend(_reset_activity_rows(burndowns))
 
     items.sort(
         key=lambda item: (
@@ -729,7 +779,7 @@ def _compute_doc():
             "stale": bool(git.get("stale")),
             "commits": git.get("commits") or [],
         },
-        "activity": _build_activity(vercel, git, supabase, github),
+        "activity": _build_activity(vercel, git, supabase, github, burndowns),
         "supabase": supabase,
         "plausible": plausible,
         "github": {
@@ -859,7 +909,27 @@ def _build_attention(doc):
         if codex.get("cost_reached"):
             add("critical", "codex", "Codex spend limit reached", 40)
 
-    # Source timeouts keep last-good data — don't light Attention for them.
+    # A source timing out keeps its last-good data and stays quiet — that is
+    # the point of the fallback. Past STALE_ALERT_S it is not a timeout any
+    # more, and silence becomes the problem: the meter still reads 42%, the
+    # countdown still ticks, and nothing on any surface says the number is
+    # from an hour ago. One reason per source, because each is fixed
+    # separately.
+    for provider in doc.get("providers") or []:
+        if provider.get("kind") != "quota" or not provider.get("enabled"):
+            continue
+        held = provider.get("stale_for_s")
+        if not provider.get("stale") or not isinstance(held, (int, float)):
+            continue
+        if held < cache_util.STALE_ALERT_S:
+            continue
+        title = provider.get("title") or provider.get("id")
+        add(
+            "warn",
+            "stale",
+            f"{title} quota stuck at {oauth_usage.fmt_resets(held)} old",
+            30,
+        )
 
     score = min(100, sum(r["weight"] for r in reasons))
     if any(r["level"] == "critical" for r in reasons):
@@ -997,11 +1067,16 @@ def _providers_payload(state, burndowns=None):
             # reader can be expected to notice.
             "stale": bool(payload.get("stale")),
             "age_s": _age_seconds(payload),
+            # Follow-up clients use the explicit stale-duration name. Keep
+            # age_s for clients already shipped against the first freshness
+            # payload; both are derived from the same fetched_at timestamp.
+            "stale_for_s": _age_seconds(payload),
             "plan": payload.get("plan"),
             "error": payload.get("error"),
             "accent": sources_config.accent_for(source.id),
             "accent_default": source.accent,
             "headline": source.headline[0] if source.headline else None,
+            "reset_note_url": source.reset_note_url,
             "pools": pools,
         })
     return rows
@@ -1088,9 +1163,11 @@ def _restart_host():
             os.execv(sys.executable,
                      [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
         except Exception as exc:
-            # Under launchd, KeepAlive brings us straight back anyway.
+            # Under launchd, KeepAlive brings us straight back — but only for a
+            # non-zero exit. Zero is reserved for "someone else owns the port,
+            # stay down" (see main), and using it here would strand the host.
             print("re-exec failed, exiting for launchd:", exc, flush=True)
-            os._exit(0)
+            os._exit(1)
 
     threading.Thread(target=_go, daemon=True).start()
 
@@ -1730,7 +1807,9 @@ def main():
     except OSError as exc:
         if getattr(exc, "errno", None) == errno.EADDRINUSE:
             # Another healthy host already owns the port — exit 0 so KeepAlive
-            # does not thrash. Otherwise leave a non-zero for retry.
+            # does not thrash. That only holds because the LaunchAgent asks for
+            # KeepAlive/SuccessfulExit=false; a plain KeepAlive=true ignores the
+            # status and respawns anyway. Otherwise leave a non-zero for retry.
             if _local_health_ok(args.port):
                 print(
                     f"port {args.port} already serving /health — nothing to do",

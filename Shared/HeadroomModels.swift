@@ -326,7 +326,8 @@ struct UsageSnapshot: Decodable, Sendable {
             resetCreditsLabel: resetCreditsLabel,
             resetCreditsExpiryLabel: resetCreditsExpiryLabel,
             costLabel: costLabel,
-            headlinePoolID: info.headline
+            headlinePoolID: info.headline,
+            staleNote: info.staleNote
         )
     }
 
@@ -454,6 +455,10 @@ struct Burndown: Decodable, Sendable, Identifiable {
     /// pool can jump back to full days before its window was due to roll.
     /// Scheduled rolls are not in here; the axis already ends on those.
     var resets: [BurndownReset]?
+    /// The burn a grant wiped out, [[epoch, remaining], …], drawn faint behind
+    /// the live curve. Empty unless this window began with one — a window that
+    /// simply ran out needs no explaining.
+    var forgiven: [[Double]]?
     /// "measured" from real samples, "estimated" from token history, nil when
     /// there is nothing to go on yet.
     var rateSource: String?
@@ -515,7 +520,7 @@ struct Burndown: Decodable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
-        case exhausted, verdict, resets
+        case exhausted, verdict, resets, forgiven
         case windowStart = "window_start"
         case windowEnd = "window_end"
         case windowS = "window_s"
@@ -598,6 +603,10 @@ struct ProviderMeter: Sendable {
     var costLabel: String?
     /// Host registry headline pool id (`week`, `total`, …) for menu-bar tanks.
     var headlinePoolID: String?
+    /// Set when the host is replaying frozen numbers — see
+    /// `QuotaProviderInfo.staleNote`, which is where the wording is decided.
+    /// Nil on a provider that is fetching normally.
+    var staleNote: String?
 
     var knownProvider: UsageProvider? { UsageProvider(rawValue: id) }
 
@@ -615,7 +624,8 @@ struct ProviderMeter: Sendable {
         resetCreditsLabel: String? = nil,
         resetCreditsExpiryLabel: String? = nil,
         costLabel: String? = nil,
-        headlinePoolID: String? = nil
+        headlinePoolID: String? = nil,
+        staleNote: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -631,6 +641,7 @@ struct ProviderMeter: Sendable {
         self.resetCreditsExpiryLabel = resetCreditsExpiryLabel
         self.costLabel = costLabel
         self.headlinePoolID = headlinePoolID
+        self.staleNote = staleNote
     }
 
     /// Compatibility for call sites still typed on the known-provider enum.
@@ -774,6 +785,13 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var rank: Int?
     var enabled: Bool?
     var ok: Bool?
+    /// The host is replaying its last good numbers because the live fetch is
+    /// failing. `ok` stays true — these percentages were real once — so a
+    /// surface that only checks `ok` will draw a frozen meter as a live one.
+    var stale: Bool?
+    /// Seconds since the numbers were actually fetched. Nil when the host
+    /// predates the field or never managed a good fetch to date from.
+    var staleForS: Double?
     var plan: String?
     var error: String?
     var accent: String?
@@ -781,6 +799,10 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// this swatch "Default"; everything else just paints `accent`.
     var accentDefault: String?
     var headline: String?
+    /// Where this provider's granted resets get explained, when it explains
+    /// them anywhere. A permalink the app only ever opens — nothing fetches
+    /// it, so no part of your account leaves the Mac to render a reset.
+    var resetNoteURL: String?
     var pools: [String: QuotaPoolInfo]?
 
     init(
@@ -790,11 +812,14 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         rank: Int? = nil,
         enabled: Bool? = nil,
         ok: Bool? = nil,
+        stale: Bool? = nil,
+        staleForS: Double? = nil,
         plan: String? = nil,
         error: String? = nil,
         accent: String? = nil,
         accentDefault: String? = nil,
         headline: String? = nil,
+        resetNoteURL: String? = nil,
         pools: [String: QuotaPoolInfo]? = nil
     ) {
         self.id = id
@@ -803,21 +828,40 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.rank = rank
         self.enabled = enabled
         self.ok = ok
+        self.stale = stale
+        self.staleForS = staleForS
         self.plan = plan
         self.error = error
         self.accent = accent
         self.accentDefault = accentDefault
         self.headline = headline
+        self.resetNoteURL = resetNoteURL
         self.pools = pools
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, kind, rank, enabled, ok, plan, error, accent
+        case id, title, kind, rank, enabled, ok, plan, error, accent, stale
         case headline, pools
+        case staleForS = "stale_for_s"
         case accentDefault = "accent_default"
+        case resetNoteURL = "reset_note_url"
     }
 
     var displayTitle: String { title ?? id.capitalized }
+
+    /// Frozen numbers the host is replaying. Worth saying out loud on any
+    /// surface that draws them: `ok` is still true, so nothing else about the
+    /// provider looks wrong.
+    var isStale: Bool { stale == true }
+
+    /// "Not updating · 2 hours ago", or nil when the provider is fetching
+    /// normally. One place decides what a frozen meter says, so the Mac and
+    /// the phone cannot word it differently.
+    var staleNote: String? {
+        guard isStale else { return nil }
+        guard let age = staleForS else { return HeadroomCopy.notUpdating }
+        return HeadroomCopy.notUpdating(age: age)
+    }
 
     /// Fallback pool order for hosts that predate `pools[].rank`. It only
     /// names the pools those hosts could serve — Copilot, Gemini, JetBrains

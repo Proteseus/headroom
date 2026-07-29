@@ -9,6 +9,13 @@ import time
 
 CACHE_DIR = os.path.expanduser("~/.headroom/cache")
 
+# How long last-good data may be replayed before it stops being a hiccup.
+# Fetchers poll on the order of a minute, so anything past this is a provider
+# that changed shape, a credential that expired, or a login that went away —
+# none of which clear up on their own, and all of which leave every ring
+# drawn from that source quietly wrong.
+STALE_ALERT_S = 15 * 60
+
 
 def _disk_path(name: str) -> str:
     return os.path.join(CACHE_DIR, f"{name}.json")
@@ -75,8 +82,16 @@ def fresh(cache, now, ttl_s, fail_ttl_s, force=False):
 def store(cache, now, data, disk_name=None):
     """Record a good fetch in memory and, when named, as the last-good disk
     snapshot `keep_stale` falls back to. Returns `data` so callers can
-    `return cache_util.store(...)`."""
-    data["fetched_at"] = now
+    `return cache_util.store(...)`.
+
+    Stamps when the data was actually obtained, which is the only thing that
+    can tell a replay from a fetch later on. It goes in the payload rather
+    than beside it so it survives into the disk snapshot, and so a restart
+    cannot mistake a month-old cache for something it just fetched.
+    """
+    if isinstance(data, dict):
+        data["fetched_at"] = now
+        data["stale"] = False
     if disk_name:
         save_disk(disk_name, data)
     cache.update(t=now, data=data, err=None)
@@ -103,6 +118,19 @@ def keep_stale(cache, now, err, empty, disk_name=None):
         stale = dict(prev)
         stale["stale"] = True
         stale["error"] = err
+        # Age from the last real fetch, not from the last attempt — every
+        # attempt lands here, so counting attempts would keep resetting the
+        # clock and a permanently broken source would read as fresh forever.
+        since = prev.get("fetched_at")
+        if not isinstance(since, (int, float)):
+            # A snapshot written before this stamp existed cannot say how old
+            # it is, and leaving it ageless would exempt the one case that
+            # most needs escalating: a source that was already broken when
+            # this shipped. Date it from the first failure seen instead, which
+            # under-reports the age but never invents one.
+            since = cache.get("stale_since") or now
+        cache["stale_since"] = since
+        stale["stale_for_s"] = int(max(0, now - since))
         cache.update(t=now, data=stale, err=err)
         return stale
     out = dict(empty)

@@ -225,6 +225,24 @@ class RecordTests(unittest.TestCase):
         payload["ok"] = False
         self.assertEqual(quota_samples.record({"claude": payload}, now=NOW), [])
 
+    def test_skips_sources_replaying_last_good_data(self):
+        # A stale payload keeps ok=True and repeats the same pct and the same
+        # resets_in_s every tick. Recorded, it would read back as a measured
+        # burn of zero on a window that never advances.
+        payload = claude_payload()
+        payload["stale"] = True
+        self.assertEqual(quota_samples.record({"claude": payload}, now=NOW), [])
+
+    def test_a_gap_while_stale_does_not_break_the_next_real_sample(self):
+        quota_samples.record({"claude": claude_payload()}, now=NOW)
+        stuck = claude_payload()
+        stuck["stale"] = True
+        quota_samples.record({"claude": stuck}, now=NOW + 3600)
+        rows = quota_samples.record(
+            {"claude": claude_payload(week_pct=44.0)}, now=NOW + 7200)
+        week = next(row for row in rows if row["pool"] == "week")
+        self.assertEqual(week["pct"], 44.0)
+
     def test_dedupes_inside_one_bucket(self):
         quota_samples.record({"claude": claude_payload()}, now=NOW)
         again = quota_samples.record({"claude": claude_payload()}, now=NOW + 30)

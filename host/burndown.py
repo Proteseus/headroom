@@ -47,6 +47,9 @@ FIT_LOOKBACK_MIN_S = 3600
 FIT_LOOKBACK_MAX_S = 7 * 24 * 3600
 # Remaining-percent gap that counts as meaningfully off even pace.
 DEFICIT_PCT = 5.0
+# How far back the forgiven curve reaches. Matches the overview chart's
+# lookback, since that is the only chart wide enough to draw it.
+PREVIOUS_LOOKBACK_S = 3 * 24 * 3600
 
 STATUS_OK = "ok"
 STATUS_AHEAD = "ahead"
@@ -238,6 +241,12 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
     ideal_remaining = 100.0 - pace if pace is not None else None
     delta = (remaining - ideal_remaining) if ideal_remaining is not None else None
 
+    # Resets granted out of band, oldest first. A scheduled roll is already
+    # drawn by the axis; these are the ones that would otherwise look like the
+    # chart forgetting yesterday.
+    resets = quota_samples.rolls(
+        rows, since=now - quota_samples.ROLL_LOOKBACK_S)
+
     # Clipped to the window, so the curve can never span a reset. Samples from
     # the other side of one describe a budget that no longer exists.
     series = [
@@ -250,6 +259,36 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
     # The live reading is newer than the newest persisted bucket.
     if not series or series[-1][0] < int(now) - quota_samples.BUCKET_S:
         series.append((int(now), remaining))
+
+    # The run a grant cut short, for a window that only exists because one
+    # landed. Emitted apart from `actual` rather than joined to it: this budget
+    # is spent and gone, so nothing may fit a slope through it or measure pace
+    # against it. It is drawn faint, and only here, because a window that
+    # simply ran out needs no explaining — putting a ghost behind every rolled
+    # session would double the strokes on the overview to say nothing.
+    forgiven = []
+    if resets and abs(resets[-1]["t"] - window_start) <= quota_samples.BUCKET_S:
+        # Cut on the grant's own sample, not on `window_start`: the start is
+        # derived from a live `resets_in_s` and lands a few seconds off the
+        # bucket, which is enough to pull the new window's first reading into
+        # the ghost and flatten its last point back up to 100.
+        grant_t = resets[-1]["t"]
+        # Stop at the grant before this one. Reaching further back splices two
+        # windows into one curve, and the ghost then *rises* where the earlier
+        # grant refilled it — a burndown that climbs reads as a bug, and the
+        # older run was not what this reset forgave anyway.
+        floor = grant_t - PREVIOUS_LOOKBACK_S
+        if len(resets) > 1:
+            floor = max(floor, resets[-2]["t"])
+        forgiven = sorted(
+            (int(row["t"]), max(0.0, 100.0 - float(row["pct"])))
+            for row in rows
+            if row.get("t") is not None and row.get("pct") is not None
+            and floor <= int(row["t"]) < grant_t
+        )
+        if forgiven:
+            forgiven = _downsample(
+                forgiven, points, forgiven[0][0], forgiven[-1][0])
 
     # --- forecast -------------------------------------------------------
     lookback = max(FIT_LOOKBACK_MIN_S, min(FIT_LOOKBACK_MAX_S, window_s // 3))
@@ -343,11 +382,10 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
         # [[epoch_s, remaining_pct], ...] — ideal is a straight line, so two
         # points is the whole of it.
         "ideal": [[window_start, 100.0], [window_end, 0.0]],
-        # Resets granted out of band, newest window last. A scheduled roll is
-        # already drawn by the axis; these are the ones that would otherwise
-        # look like the chart forgetting yesterday.
-        "resets": quota_samples.rolls(
-            rows, since=now - quota_samples.ROLL_LOOKBACK_S),
+        "resets": resets,
+        # The burn a grant wiped out, drawn faint behind the live curve. Empty
+        # unless this window began with one.
+        "forgiven": [[t, round(r, 2)] for t, r in forgiven],
         # Thinned across the range that actually has samples, not across the
         # whole window — a window we only joined halfway through would
         # otherwise spend most of the point budget on empty time.

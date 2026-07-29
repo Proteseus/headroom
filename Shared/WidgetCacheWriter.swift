@@ -32,7 +32,11 @@ enum HeadroomWidgetCache {
                     title: provider.title ?? provider.id.capitalized,
                     percent: percent,
                     accent: provider.accent,
-                    layers: provider.ringLayers.map {
+                    layers: provider.ringLayers(
+                        burndown: snapshot.burndownRings(
+                            forProviderID: provider.id
+                        )
+                    ).map {
                         HeadroomWidgetSnapshot.Provider.Layer(
                             id: $0.id,
                             percent: $0.percent,

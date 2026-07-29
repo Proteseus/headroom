@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import cache_util
 import daily_burn
 import headroom_server
 import quota_samples
@@ -129,6 +131,60 @@ class QuotaRegistryTests(unittest.TestCase):
         self.assertTrue(claude["pools"]["week"]["ring"])
         cursor = next(r for r in rows if r["id"] == "cursor")
         self.assertFalse(cursor["pools"]["auto"]["ring"])
+
+    def test_providers_carry_staleness_not_just_ok(self):
+        # A replayed payload keeps ok=True, so a client checking only `ok`
+        # draws frozen numbers as live ones. Settings has always had the flag;
+        # the rings need it too.
+        state = sources_config.blank_state()
+        state["claude"] = {
+            "ok": True,
+            "stale": True,
+            "stale_for_s": 4200,
+            "error": "keychain has no claudeAiOauth.accessToken",
+            "week": {"pct": 40, "resets_in_s": 86400, "window_s": 7 * 86400},
+        }
+        claude = headroom_server._providers_payload(state)[0]
+        self.assertTrue(claude["ok"])
+        self.assertTrue(claude["stale"])
+        self.assertEqual(claude["stale_for_s"], 4200)
+
+    def test_a_fetching_provider_is_not_marked_stale(self):
+        state = sources_config.blank_state()
+        state["claude"] = {
+            "ok": True,
+            "week": {"pct": 40, "resets_in_s": 86400, "window_s": 7 * 86400},
+        }
+        claude = headroom_server._providers_payload(state)[0]
+        self.assertFalse(claude["stale"])
+        self.assertIsNone(claude["stale_for_s"])
+
+    def test_attention_fires_only_once_stale_stops_being_a_blip(self):
+        blip = {
+            "providers": [{
+                "id": "claude", "title": "Claude", "kind": "quota",
+                "enabled": True, "ok": True, "stale": True,
+                "stale_for_s": cache_util.STALE_ALERT_S - 1,
+            }],
+        }
+        self.assertEqual(headroom_server._build_attention(blip)["level"], "ok")
+
+        stuck = json.loads(json.dumps(blip))
+        stuck["providers"][0]["stale_for_s"] = cache_util.STALE_ALERT_S + 60
+        attention = headroom_server._build_attention(stuck)
+        self.assertEqual(attention["level"], "warn")
+        self.assertEqual(attention["reasons"][0]["kind"], "stale")
+        self.assertIn("Claude", attention["reasons"][0]["summary"])
+
+    def test_a_disabled_source_going_stale_is_not_worth_a_warning(self):
+        doc = {
+            "providers": [{
+                "id": "claude", "title": "Claude", "kind": "quota",
+                "enabled": False, "ok": True, "stale": True,
+                "stale_for_s": cache_util.STALE_ALERT_S * 10,
+            }],
+        }
+        self.assertEqual(headroom_server._build_attention(doc)["level"], "ok")
 
     def test_countdowns_follow_the_burndowns_held_window(self):
         # A source whose resets_in has drifted 3h past the reset the burndown

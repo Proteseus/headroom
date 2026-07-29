@@ -72,6 +72,9 @@ struct OverviewBurndownCard: View {
         let title: String
         let pool: Burndown
         let renewsAt: Double?
+        /// Where this provider explains its grants, when it explains them
+        /// anywhere. Opened on click; never fetched.
+        let resetNoteURL: URL?
 
         /// Newest grant the chart is actually showing, for the caption that
         /// names the rule.
@@ -97,7 +100,8 @@ struct OverviewBurndownCard: View {
                 providerID: provider.id,
                 title: provider.displayTitle,
                 pool: pool,
-                renewsAt: pool.windowEnd
+                renewsAt: pool.windowEnd,
+                resetNoteURL: provider.resetNoteURL.flatMap(URL.init(string:))
             )
         }
     }
@@ -177,6 +181,30 @@ struct OverviewBurndownCard: View {
                             ? snapshot.tint(forProviderID: entry.providerID)
                                 .drained()
                             : snapshot.tint(forProviderID: entry.providerID)
+
+                        // The run a grant wiped out, behind everything else.
+                        // Faint and thin: it is history that stopped counting,
+                        // and it must never be mistaken for the live curve.
+                        let forgiven = points(
+                            OverallBurndownChartMath.preparedActual(
+                                entry.pool.forgiven, domain: domain
+                            )
+                        ).map {
+                            CGPoint(x: x($0.time), y: y($0.remaining))
+                        }
+                        if forgiven.count >= 2 {
+                            var ghost = Path()
+                            ghost.move(to: forgiven[0])
+                            for point in forgiven.dropFirst() {
+                                ghost.addLine(to: point)
+                            }
+                            context.stroke(
+                                ghost,
+                                with: .color(tint.opacity(0.3)),
+                                style: StrokeStyle(
+                                    lineWidth: 1.5, lineJoin: .round)
+                            )
+                        }
 
                         let actual = points(
                             OverallBurndownChartMath.preparedActual(
@@ -320,12 +348,25 @@ struct OverviewBurndownCard: View {
                             // the verdict, which is the actionable one, off
                             // the bottom of the legend.
                             if let granted = entry.latestReset(in: domain) {
-                                Text(HeadroomCopy.resetGranted(
-                                    forgivenPct: granted.forgivenPct))
-                                    .font(.caption2)
-                                    .monospacedDigit()
-                                    .lineLimit(1)
-                                    .foregroundStyle(.tertiary)
+                                let caption = HeadroomCopy.resetGranted(
+                                    forgivenPct: granted.forgivenPct)
+                                // A link only where the provider actually
+                                // announces its grants somewhere. Opening it
+                                // is the whole integration — Headroom never
+                                // reads that page, so nothing here can break
+                                // when it changes.
+                                if let note = entry.resetNoteURL {
+                                    Link(caption, destination: note)
+                                        .font(.caption2)
+                                        .monospacedDigit()
+                                        .lineLimit(1)
+                                } else {
+                                    Text(caption)
+                                        .font(.caption2)
+                                        .monospacedDigit()
+                                        .lineLimit(1)
+                                        .foregroundStyle(.tertiary)
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -585,8 +626,14 @@ struct MultiBurndownCanvas: View {
                 }
             }
             let now = sampleTimes.max() ?? Date().timeIntervalSince1970
+            // Oldest forgiven sample across the overlaid pools. The domain
+            // only reaches back toward it — see `historyFraction`.
+            let historyStart = pools
+                .compactMap { $0.forgiven?.first?.first }
+                .min()
             guard let domain = BurndownChartAxis.domain(
-                windowStart: start, windowEnd: end, now: now
+                windowStart: start, windowEnd: end, now: now,
+                historyStart: historyStart
             ) else { return }
 
             let plotStart = domain.startEpoch
@@ -644,6 +691,40 @@ struct MultiBurndownCanvas: View {
                 let base = pool.kind == .exhausted ? tint.drained() : tint
                 let isApi = pool.pool == "api"
                 let seriesTint = isApi ? base.opacity(0.75) : base
+
+                // The burn a grant wiped out, in the stub of plot that sits
+                // before the window. Faint, and never fitted or measured
+                // against the budget line — that budget no longer exists.
+                let ghost = OverallBurndownChartMath.clipPolyline(
+                    pool.forgiven ?? [], start: plotStart, end: plotEnd
+                ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
+                if ghost.count >= 2 {
+                    var path = Path()
+                    path.move(to: ghost[0])
+                    for point in ghost.dropFirst() { path.addLine(to: point) }
+                    context.stroke(
+                        path,
+                        with: .color(seriesTint.opacity(0.3)),
+                        style: StrokeStyle(lineWidth: 1.5, lineJoin: .round)
+                    )
+                }
+                for granted in OverallBurndownChartMath.preparedResets(
+                    pool.resets?.compactMap(\.t),
+                    domain: OverallBurndownChartMath.Domain(
+                        start: Date(timeIntervalSince1970: plotStart),
+                        end: Date(timeIntervalSince1970: plotEnd),
+                        now: Date(timeIntervalSince1970: now)
+                    )
+                ) {
+                    var mark = Path()
+                    mark.move(to: CGPoint(x: x(granted), y: plot.minY))
+                    mark.addLine(to: CGPoint(x: x(granted), y: plot.maxY))
+                    context.stroke(
+                        mark,
+                        with: .color(seriesTint.opacity(0.55)),
+                        lineWidth: 1
+                    )
+                }
 
                 let clippedActual = OverallBurndownChartMath.clipPolyline(
                     pool.actual ?? [], start: plotStart, end: plotEnd

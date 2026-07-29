@@ -26,7 +26,12 @@ struct QuotaOverviewCard: View {
                         )
                     } label: {
                         HStack(spacing: 10) {
-                            ProviderSummaryRow(provider: provider)
+                            ProviderSummaryRow(
+                                provider: provider,
+                                burndown: provider.orderedBurndown(
+                                    from: burndown[provider.id]
+                                )
+                            )
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
@@ -59,8 +64,13 @@ struct QuotasScreen: View {
                         )
                     )
                 } label: {
-                    ProviderSummaryRow(provider: provider)
-                        .padding(.vertical, 6)
+                    ProviderSummaryRow(
+                        provider: provider,
+                        burndown: provider.orderedBurndown(
+                            from: store.snapshot.burndown?[provider.id]
+                        )
+                    )
+                    .padding(.vertical, 6)
                 }
             }
         }
@@ -79,11 +89,17 @@ struct QuotasScreen: View {
 
 private struct ProviderSummaryRow: View {
     let provider: QuotaProviderInfo
+    /// The provider's burndown pools, for the pace dots. Empty is fine.
+    var burndown: [Burndown] = []
 
     var body: some View {
         HStack(spacing: 16) {
-            HeadroomRings(layers: provider.ringLayers, tint: provider.tint)
+            HeadroomRings(
+                layers: provider.ringLayers(burndown: burndown),
+                tint: provider.tint
+            )
             .frame(width: 82, height: 82)
+            .opacity(provider.isStale ? 0.4 : 1)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -105,7 +121,14 @@ private struct ProviderSummaryRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                if provider.ok == false, let error = provider.error {
+                // Ahead of the headline, because a headline written from
+                // frozen percentages is confidently wrong.
+                if let stale = provider.staleNote {
+                    Text(stale)
+                        .font(.caption2)
+                        .foregroundStyle(HeadroomPalette.amber)
+                        .lineLimit(1)
+                } else if provider.ok == false, let error = provider.error {
                     Text(error)
                         .font(.caption2)
                         .foregroundStyle(HeadroomPalette.amber)
@@ -127,26 +150,37 @@ private struct ProviderQuotaDetail: View {
     /// sequence. Do not re-sort here.
     let burndown: [Burndown]
 
+    /// "Connected" is a claim about right now, and a provider whose numbers
+    /// stopped arriving is in no position to make it. `ok` alone would let it.
+    private var statusLabel: String {
+        if let stale = provider.staleNote { return stale }
+        return provider.ok == false ? HeadroomCopy.needsAttention : "Connected"
+    }
+
+    private var statusTint: Color {
+        provider.ok == false || provider.isStale
+            ? HeadroomPalette.amber
+            : HeadroomPalette.green
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         HeadroomRings(
-                            layers: provider.ringLayers,
+                            layers: provider.ringLayers(burndown: burndown),
                             tint: provider.tint
                         )
                         .frame(width: 112, height: 112)
+                        .opacity(provider.isStale ? 0.4 : 1)
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(provider.plan ?? "Plan unavailable")
                                 .foregroundStyle(.secondary)
-                            Text(provider.ok == false ? HeadroomCopy.needsAttention : "Connected")
-                                .foregroundStyle(
-                                    provider.ok == false
-                                        ? HeadroomPalette.amber
-                                        : HeadroomPalette.green
-                                )
+                            Text(statusLabel)
+                                .foregroundStyle(statusTint)
+                                .multilineTextAlignment(.trailing)
                         }
                         .font(.subheadline)
                     }
@@ -209,14 +243,18 @@ private struct BurndownChart: View {
             pair.count >= 2 ? pair[0] : nil
         }.max() ?? Date().timeIntervalSince1970
         return BurndownChartAxis.domain(
-            windowStart: start, windowEnd: end, now: now
+            windowStart: start, windowEnd: end, now: now,
+            // Reaches back toward the forgiven burn by a stub of the window
+            // — see `historyFraction`.
+            historyStart: pool.forgiven?.first?.first
         )
     }
 
     private var points: [BurndownPoint] {
         guard let domain = axisDomain else {
             return rawPoints(ideal: pool.ideal, actual: pool.actual,
-                             projected: pool.croppedProjected)
+                             projected: pool.croppedProjected,
+                             forgiven: pool.forgiven)
         }
         // Clip series to the (possibly 7-day-capped) plot domain so monthly
         // pools don't smear past the weekday columns.
@@ -232,13 +270,21 @@ private struct BurndownChart: View {
             pool.croppedProjected,
             start: domain.startEpoch, end: domain.endEpoch
         )
-        return rawPoints(ideal: ideal, actual: actual, projected: projected)
+        // The burn a grant wiped out, in the stub before the window. Never
+        // fitted and never measured against the budget — it is spent.
+        let forgiven = OverallBurndownChartMath.clipPolyline(
+            pool.forgiven ?? [],
+            start: domain.startEpoch, end: domain.endEpoch
+        )
+        return rawPoints(ideal: ideal, actual: actual, projected: projected,
+                         forgiven: forgiven)
     }
 
     private func rawPoints(
         ideal: [[Double]]?,
         actual: [[Double]]?,
-        projected: [[Double]]?
+        projected: [[Double]]?,
+        forgiven: [[Double]]? = nil
     ) -> [BurndownPoint] {
         func rows(_ values: [[Double]]?, series: String) -> [BurndownPoint] {
             (values ?? []).enumerated().compactMap { index, pair in
@@ -254,6 +300,7 @@ private struct BurndownChart: View {
         return rows(ideal, series: "Budget")
             + rows(actual, series: "Actual")
             + rows(projected, series: "Projected")
+            + rows(forgiven, series: "Forgiven")
     }
 
     var body: some View {
@@ -317,6 +364,7 @@ private struct BurndownChart: View {
                     "Budget": Color.secondary.opacity(0.45),
                     "Actual": tint,
                     "Projected": tint.opacity(0.55),
+                    "Forgiven": tint.opacity(0.3),
                 ])
                 .chartXScale(domain: domain.start...domain.end)
                 .chartYScale(domain: 0...100)
@@ -378,6 +426,7 @@ private struct OverallBurndownSeries: Identifiable {
     let pool: Burndown
     let actual: [OverallBurndownPoint]
     let projected: [OverallBurndownPoint]
+    let forgiven: [OverallBurndownPoint]
     let renewsAt: Date?
     let resetsIn: String?
 
@@ -428,6 +477,7 @@ struct OverallBurndownChart: View {
                 pool: pool,
                 actual: actual,
                 projected: points(pool.projected, kind: "projected"),
+                forgiven: points(pool.forgiven, kind: "forgiven"),
                 renewsAt: pool.windowEnd.map {
                     Date(timeIntervalSince1970: $0)
                 },
@@ -481,6 +531,12 @@ struct OverallBurndownChart: View {
                     ),
                     idPrefix: "\(entry.id)-p"
                 ),
+                forgiven: chartPoints(
+                    OverallBurndownChartMath.preparedActual(
+                        entry.pool.forgiven, domain: domain
+                    ),
+                    idPrefix: "\(entry.id)-f"
+                ),
                 renewsAt: entry.renewsAt,
                 resetsIn: entry.resetsIn
             )
@@ -514,6 +570,22 @@ struct OverallBurndownChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 1))
 
                     ForEach(drawn) { entry in
+                        // The run a grant wiped out, behind everything else.
+                        // Faint and thin: history that stopped counting must
+                        // never be mistaken for the live curve.
+                        ForEach(entry.forgiven) { point in
+                            LineMark(
+                                x: .value("Time", point.date),
+                                y: .value("Remaining", point.remaining),
+                                series: .value(
+                                    "Series", "\(entry.id)-forgiven"
+                                )
+                            )
+                            .foregroundStyle(entry.provider.tint.opacity(0.3))
+                            .lineStyle(StrokeStyle(
+                                lineWidth: 2, lineJoin: .round
+                            ))
+                        }
                         ForEach(entry.actual) { point in
                             LineMark(
                                 x: .value("Time", point.date),
@@ -643,11 +715,22 @@ struct OverallBurndownChart: View {
                             // Names the solid rule. Newest only — the legend
                             // has one line to spare, not a history list.
                             if let granted = entry.latestReset(in: domain) {
-                                Text(HeadroomCopy.resetGranted(
-                                    forgivenPct: granted.forgivenPct))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .monospacedDigit()
+                                let caption = HeadroomCopy.resetGranted(
+                                    forgivenPct: granted.forgivenPct)
+                                // A link only where the provider announces its
+                                // grants somewhere. Opening it is the whole
+                                // integration — nothing reads that page.
+                                if let note = entry.provider.resetNoteURL
+                                    .flatMap(URL.init(string:)) {
+                                    Link(caption, destination: note)
+                                        .font(.caption2)
+                                        .monospacedDigit()
+                                } else {
+                                    Text(caption)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                        .monospacedDigit()
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

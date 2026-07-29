@@ -251,6 +251,55 @@ final class ContractTests: XCTestCase {
             ["overview", "claude", "gemini"])
     }
 
+    func testAReplayedProviderSaysSoDespiteBeingOK() throws {
+        // The host keeps ok=true on a replay — the numbers were real once —
+        // so `stale` is the only thing standing between a frozen meter and a
+        // surface that draws it as live.
+        let json = """
+        {
+          "providers": [
+            {"id": "claude", "title": "Claude", "kind": "quota",
+             "enabled": true, "ok": true, "stale": true,
+             "stale_for_s": 7200, "headline": "week",
+             "pools": {
+               "week": {"title": "Weekly", "pct": 35.0, "ring": true}
+             }},
+            {"id": "codex", "title": "Codex", "kind": "quota",
+             "enabled": true, "ok": true,
+             "pools": {
+               "week": {"title": "Weekly", "pct": 12.0, "ring": true}
+             }}
+          ]
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let claude = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "claude" })
+        XCTAssertEqual(claude.ok, true)
+        XCTAssertTrue(claude.isStale)
+        XCTAssertEqual(claude.staleNote, "Not updating · 2 hours ago")
+        XCTAssertEqual(snapshot.meter(for: claude).staleNote, claude.staleNote)
+
+        let codex = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "codex" })
+        XCTAssertFalse(codex.isStale)
+        XCTAssertNil(codex.staleNote)
+        XCTAssertNil(snapshot.meter(for: codex).staleNote)
+    }
+
+    func testAHostWithoutTheStaleFieldReadsAsFetching() throws {
+        // Older hosts never send it; absent must not mean frozen.
+        let json = """
+        {"providers": [{"id": "claude", "kind": "quota", "ok": true}]}
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let claude = try XCTUnwrap(snapshot.providers?.first)
+        XCTAssertFalse(claude.isStale)
+        XCTAssertNil(claude.staleNote)
+    }
+
     func testMissingProvidersAndSourcesYieldEmptyActiveSet() throws {
         let snapshot = UsageSnapshot.empty
         XCTAssertTrue(snapshot.visibleQuotaProviders.isEmpty)

@@ -398,6 +398,13 @@ def record(state, *, now=None, persist=True):
 
     Returns the rows written (empty when every pool is still inside its current
     bucket). Never raises — a sampling failure must not take down a poll tick.
+
+    A stale payload is not sampled. It carries the last good percentage with
+    the last good `resets_in_s`, so writing it every bucket would hand the
+    burndown a flat line it reads as a *measured* burn of zero, and a reset
+    countdown that never moves — which eventually looks like a window that
+    rolled. One broken credential would rewrite the history of a pool that
+    nobody actually stopped using.
     """
     now = time.time() if now is None else float(now)
     bucket_t = int(now // BUCKET_S) * BUCKET_S
@@ -414,6 +421,8 @@ def record(state, *, now=None, persist=True):
                 # derived window forward, so a source that stopped answering
                 # last night still shows a window rolling on schedule today.
                 if not cache_util.trusted(payload, now):
+                    continue
+                if payload.get("stale"):
                     continue
                 reading = extract(spec.provider, spec.pool, payload)
                 if reading is None:

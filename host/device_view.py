@@ -81,6 +81,9 @@ CURSOR_FIELDS = (
 # (t1, 0), so it is derived on the board rather than sent. Keys are short
 # because this rides CDC. Secondary series (Cursor API) use *2 suffixes.
 MAX_BURNDOWN_POINTS = 24
+# The forgiven curve is a stub at the left edge of the panel — context, not a
+# reading. A third of the live budget is enough to show the drop.
+MAX_GHOST_POINTS = 8
 BURNDOWN_FIELDS = (
     "pool", "status", "t0", "t1", "pts", "proj", "warn", "est", "verdict",
     "pool2", "status2", "pts2", "proj2", "warn2", "est2",
@@ -196,7 +199,29 @@ def _trim_burndown(pool):
         # ~25 bytes for the phrase the Mac shows, so the desk and the menu bar
         # answer "do I make it" with the same words.
         "verdict": _board_text(pool.get("verdict")),
+        # The burn a grant wiped out, and when it landed. Both only exist on a
+        # window a grant opened, so on any ordinary week these are [] and None
+        # and cost the frame nothing. Thinned harder than `pts`: the ghost is
+        # context for the live curve, not a second reading of it.
+        "gpts": _thin(pool.get("forgiven"), MAX_GHOST_POINTS),
+        "rst": _grant_mark(pool.get("resets")),
     }
+
+
+def _grant_mark(resets):
+    """[t, forgiven_pct] for the newest granted reset, or None.
+
+    One, not the list: the board draws a single window, so the only grant it
+    can place on that axis is the one that opened it.
+    """
+    newest = None
+    for event in (resets or []):
+        at = event.get("t")
+        if at is None:
+            continue
+        if newest is None or at > newest[0]:
+            newest = [int(at), round(float(event.get("forgiven_pct") or 0), 1)]
+    return newest
 
 
 def _ordered_pools(pools):

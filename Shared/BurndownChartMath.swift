@@ -191,6 +191,17 @@ enum BurndownChartAxis {
     static let daySeconds: TimeInterval = 24 * 60 * 60
     /// Below this, weekday columns don't apply (session windows).
     static let dayAxisMinSpan: TimeInterval = 2 * daySeconds
+    /// How far a plot may reach back past its own window to show the burn a
+    /// grant wiped out, as a fraction of the window.
+    ///
+    /// A stub, deliberately. The window is what this chart is about — it is
+    /// where the budget line lives and where the reset sits — so history gets
+    /// only enough room to show the drop that preceded the grant. Scaling by
+    /// the window keeps that true at both ends of the range: about a day
+    /// before a weekly reset, about forty minutes before a session one.
+    /// Wide enough to read, narrow enough that `dayColumns` still settles on
+    /// seven weekday names.
+    static let historyFraction = 0.15
 
     struct Domain: Equatable, Sendable {
         var start: Date
@@ -209,10 +220,18 @@ enum BurndownChartAxis {
     }
 
     /// Plot domain for a provider burndown: the pool window, capped at 7 days.
+    ///
+    /// `historyStart` is the oldest pre-window sample worth drawing — the
+    /// first point of `forgiven`. The plot reaches back toward it by at most
+    /// `historyFraction` of the window, so a granted reset shows what it wiped
+    /// out without the new window losing its reset off the right edge. The
+    /// budget diagonal is unaffected: `windowStart` / `windowEnd` still
+    /// describe the window, which is why the two are separate fields.
     static func domain(
         windowStart: Double,
         windowEnd: Double,
-        now: Double = Date().timeIntervalSince1970
+        now: Double = Date().timeIntervalSince1970,
+        historyStart: Double? = nil
     ) -> Domain? {
         guard windowEnd > windowStart else { return nil }
         let winStart = Date(timeIntervalSince1970: windowStart)
@@ -220,8 +239,11 @@ enum BurndownChartAxis {
         let span = windowEnd - windowStart
         let week = TimeInterval(maxDays) * daySeconds
         if span <= week + 3600 {
+            let floor = windowStart - span * historyFraction
+            let reach = historyStart.map { max($0, floor) } ?? windowStart
             return Domain(
-                start: winStart, end: winEnd,
+                start: Date(timeIntervalSince1970: min(reach, windowStart)),
+                end: winEnd,
                 windowStart: winStart, windowEnd: winEnd
             )
         }

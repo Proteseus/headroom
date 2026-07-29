@@ -108,6 +108,15 @@ enum HeadroomCopy {
         return days == 1 ? "1 day ago" : "\(days) days ago"
     }
 
+    /// A meter the Mac is replaying instead of fetching. The word alone reads
+    /// as a hiccup you can wait out, so the age travels with it — "2 hours
+    /// ago" is what turns it into something to go and fix.
+    static let notUpdating = "Not updating"
+
+    static func notUpdating(age: TimeInterval) -> String {
+        "\(notUpdating) · \(ago(age))"
+    }
+
     // MARK: Activity feed
 
     /// What a feed row's host status (`failure`, `ready`, `pushed`, …) is

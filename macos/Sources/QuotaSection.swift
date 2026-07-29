@@ -24,6 +24,7 @@ struct QuotaOverviewCard: View {
                 HStack(spacing: 10) {
                     ForEach(providers) { provider in
                         ProviderQuotaRing(
+                            provider: provider,
                             meter: snapshot.meter(for: provider),
                             rings: snapshot.burndownRings(forProviderID: provider.id),
                             tint: snapshot.tint(forProviderID: provider.id)
@@ -99,6 +100,13 @@ struct ProviderQuotaCard: View {
                 Text(cost)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            // Above the error, and shown even though `ok` is true: every bar
+            // on this card is a number the Mac stopped being able to refresh.
+            if let stale = meter.staleNote {
+                Label(stale, systemImage: "exclamationmark.arrow.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(HeadroomPalette.amber)
             }
             if !meter.ok, let error = meter.error {
                 Text(error)
@@ -194,37 +202,35 @@ struct QuotaRow: View {
 }
 
 struct ProviderQuotaRing: View {
+    let provider: QuotaProviderInfo
     let meter: ProviderMeter
-    /// Pace layers, fastest window outermost. Empty until the host has
-    /// sampled, so the single-ring path stays the fallback.
+    /// This provider's burndown pools, which sharpen the pace dot. Empty
+    /// until the host has sampled, when the pools' own pace stands in.
     var rings: [Burndown] = []
     let tint: Color
 
     private var headline: MeterWindow { meter.headline }
 
-    /// Three rings at 72pt would be mush; two is the readable ceiling.
-    private var layers: [Burndown] { Array(rings.prefix(2)) }
-
     private var ringLayers: [HeadroomRingLayer] {
-        if layers.isEmpty {
-            return [
-                HeadroomRingLayer(
-                    id: headline.title,
-                    percent: headline.percent,
-                    pacePercent: headline.pacePercent
-                ),
-            ]
-        }
-        return layers.map {
+        let layers = provider.ringLayers(burndown: rings)
+        guard layers.isEmpty else { return layers }
+        // A host predating the pool registry ships no pools, which leaves the
+        // headline window as the only thing there is to draw.
+        return [
             HeadroomRingLayer(
-                id: $0.poolTitle,
-                percent: $0.usedPct,
-                pacePercent: $0.pacePercent
-            )
-        }
+                id: headline.title,
+                percent: headline.percent,
+                pacePercent: headline.pacePercent
+            ),
+        ]
     }
 
+    /// The countdown is computed against the wall clock, so it keeps ticking
+    /// over numbers that stopped moving hours ago — the one part of this
+    /// glyph that actively insists a frozen meter is live. When the host says
+    /// the fetch is failing, the age of the data replaces it.
     private var windowCaption: String {
+        if let note = provider.staleNote { return note }
         if let reset = headline.reset, !reset.isEmpty {
             return "\(headline.title) · \(reset)"
         }
@@ -235,12 +241,15 @@ struct ProviderQuotaRing: View {
         VStack(spacing: 7) {
             HeadroomRings(layers: ringLayers, tint: tint)
             .frame(width: 72, height: 72)
+            // Drained of colour, because the gap between arc and pace dot is
+            // the reading, and on frozen numbers that reading is fiction.
+            .opacity(provider.isStale ? 0.4 : 1)
             Text(meter.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
             Text(windowCaption)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(provider.isStale ? HeadroomPalette.amber : .secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
