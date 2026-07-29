@@ -72,6 +72,18 @@ struct OverviewBurndownCard: View {
         let title: String
         let pool: Burndown
         let renewsAt: Double?
+
+        /// Newest grant the chart is actually showing, for the caption that
+        /// names the rule.
+        func latestReset(
+            in domain: OverallBurndownChartMath.Domain
+        ) -> BurndownReset? {
+            let visible = Set(OverallBurndownChartMath.preparedResets(
+                pool.resets?.compactMap(\.t), domain: domain))
+            return (pool.resets ?? [])
+                .filter { $0.t.map(visible.contains) ?? false }
+                .max { ($0.t ?? 0) < ($1.t ?? 0) }
+        }
     }
 
     /// One pool per provider — `UsageSnapshot.overviewBurndown` makes that
@@ -230,6 +242,28 @@ struct OverviewBurndownCard: View {
                             }
                         }
 
+                        // Resets already granted, drawn under the upcoming
+                        // one: solid rather than dotted, because this one
+                        // happened. Without it the curve just restarts and
+                        // the week that was forgiven reads as missing data.
+                        for granted in OverallBurndownChartMath.preparedResets(
+                            entry.pool.resets?.compactMap(\.t), domain: domain
+                        ) {
+                            var mark = Path()
+                            mark.move(to: CGPoint(x: x(granted), y: plot.minY))
+                            mark.addLine(to: CGPoint(
+                                x: x(granted), y: plot.maxY))
+                            context.stroke(
+                                mark,
+                                with: .color(tint.opacity(0.55)),
+                                lineWidth: 1
+                            )
+                            let cap = Path(ellipseIn: CGRect(
+                                x: x(granted) - 2.5, y: plot.minY - 2.5,
+                                width: 5, height: 5))
+                            context.fill(cap, with: .color(tint))
+                        }
+
                         // Accent dotted reset on top of the strokes.
                         if let renew = entry.renewsAt,
                            renew > domain.nowEpoch,
@@ -281,6 +315,18 @@ struct OverviewBurndownCard: View {
                                 .monospacedDigit()
                                 .lineLimit(2)
                                 .foregroundStyle(.secondary)
+                            // Names the solid rule on the chart. Only the
+                            // newest grant: two lines of history would push
+                            // the verdict, which is the actionable one, off
+                            // the bottom of the legend.
+                            if let granted = entry.latestReset(in: domain) {
+                                Text(HeadroomCopy.resetGranted(
+                                    forgivenPct: granted.forgivenPct))
+                                    .font(.caption2)
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }

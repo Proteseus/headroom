@@ -104,6 +104,20 @@ enum OverallBurndownChartMath {
         )
     }
 
+    /// Granted-reset marks inside the domain, oldest first.
+    ///
+    /// Takes bare epochs rather than the model type so this file stays free of
+    /// the model layer, which is what lets the widget target draw the same
+    /// chart. Callers pass `pool.resets?.compactMap(\.t)`.
+    static func preparedResets(
+        _ times: [Double]?,
+        domain: Domain
+    ) -> [Double] {
+        (times ?? [])
+            .filter { $0 >= domain.startEpoch && $0 <= domain.endEpoch }
+            .sorted()
+    }
+
     /// Clip actual samples to the chart domain.
     static func preparedActual(
         _ pairs: [[Double]]?,

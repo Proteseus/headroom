@@ -196,6 +196,7 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
     """Burndown for one pool, or None when the pool has no usable reading.
 
     `rows` overrides the sample lookup (tests, and callers batching one read).
+    Pass the pool's whole log, oldest first — not a pre-filtered window.
 
     `prior_pct_per_day` is a burn estimate derived from token history, used
     only while the window is too fresh to fit a slope. Measured samples always
@@ -212,21 +213,17 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
     used_pct = reading["pct"]
     remaining = max(0.0, 100.0 - used_pct)
 
+    # The pool's whole log, not just this window: the series below selects by
+    # sample *time* inside the window anyway — including rows stamped with a
+    # forked window_start from resets_in jitter, which equality on the label
+    # alone used to hide behind a flat "today only" line — and the grants the
+    # chart marks are boundaries between windows, so they need both sides.
     if rows is None:
-        # Resolve the live window first, then gather every sample whose
-        # timestamp falls inside it — including ones stamped with a forked
-        # window_start from resets_in jitter. Equality on the label alone is
-        # what used to hide yesterday's burn behind a flat "today only" line.
-        previous = quota_samples.latest_row(provider, pool)
-        window_start, window_end = quota_samples.window_for(
-            now, window_s, resets_in_s, pct=used_pct, previous=previous)
-        rows = quota_samples.current_window(
-            provider, pool, window_start=window_start, window_s=window_s)
-    else:
-        window_start, window_end = quota_samples.window_for(
-            now, window_s, resets_in_s, pct=used_pct,
-            previous=(rows[-1] if rows else None),
-        )
+        rows = quota_samples.read(provider=provider, pool=pool)
+    window_start, window_end = quota_samples.window_for(
+        now, window_s, resets_in_s, pct=used_pct,
+        previous=(rows[-1] if rows else None),
+    )
 
     # The axis ends on the held reset, so the countdown has to come from the
     # same number. Raw `resets_in_s` decays against the clock loosely enough on
@@ -345,6 +342,11 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
         # [[epoch_s, remaining_pct], ...] — ideal is a straight line, so two
         # points is the whole of it.
         "ideal": [[window_start, 100.0], [window_end, 0.0]],
+        # Resets granted out of band, newest window last. A scheduled roll is
+        # already drawn by the axis; these are the ones that would otherwise
+        # look like the chart forgetting yesterday.
+        "resets": quota_samples.rolls(
+            rows, since=now - quota_samples.ROLL_LOOKBACK_S),
         # Thinned across the range that actually has samples, not across the
         # whole window — a window we only joined halfway through would
         # otherwise spend most of the point budget on empty time.

@@ -450,6 +450,10 @@ struct Burndown: Decodable, Sendable, Identifiable {
     var actual: [[Double]]?
     var projected: [[Double]]?
     var rateUnit: String?
+    /// Resets the provider granted out of band, oldest first — the reason a
+    /// pool can jump back to full days before its window was due to roll.
+    /// Scheduled rolls are not in here; the axis already ends on those.
+    var resets: [BurndownReset]?
     /// "measured" from real samples, "estimated" from token history, nil when
     /// there is nothing to go on yet.
     var rateSource: String?
@@ -511,7 +515,7 @@ struct Burndown: Decodable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
-        case exhausted, verdict
+        case exhausted, verdict, resets
         case windowStart = "window_start"
         case windowEnd = "window_end"
         case windowS = "window_s"
@@ -536,6 +540,30 @@ enum BurndownStatus: String, Sendable {
     case ahead
     case critical
     case exhausted
+}
+
+/// One reset a provider handed out early, as detected in the sample log.
+///
+/// Without this the grant is invisible: the burn curve simply restarts, which
+/// reads as the chart having forgotten the week rather than the week having
+/// been forgiven.
+struct BurndownReset: Decodable, Sendable, Identifiable {
+    /// When the pool came back, epoch seconds.
+    var t: Double?
+    /// "granted" today. Present so scheduled rolls could join later without
+    /// changing the shape.
+    var kind: String?
+    /// Percentage points the grant handed back.
+    var forgivenPct: Double?
+
+    var id: Double { t ?? 0 }
+
+    var date: Date? { t.map { Date(timeIntervalSince1970: $0) } }
+
+    enum CodingKeys: String, CodingKey {
+        case t, kind
+        case forgivenPct = "forgiven_pct"
+    }
 }
 
 enum UsageProvider: String, CaseIterable, Sendable {

@@ -36,6 +36,15 @@ enum HeadroomCopy {
         "\(poolTitle) burndown"
     }
 
+    /// "Reset granted · 42 pts back" — the caption under a chart whose curve
+    /// restarts mid-week because the provider handed the budget back.
+    static let resetGranted = "Reset granted"
+
+    static func resetGranted(forgivenPct: Double?) -> String {
+        guard let forgivenPct, forgivenPct >= 1 else { return resetGranted }
+        return "\(resetGranted) · \(Int(forgivenPct.rounded())) pts back"
+    }
+
     // MARK: Status
 
     /// Healthy attention summary from the host / Attention card fallback.

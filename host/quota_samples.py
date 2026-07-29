@@ -28,8 +28,10 @@ reading is not stable at all, so a derived end only replaces the held one once
 a full window has passed — see `window_for`. The exception is a reset granted
 out of band (Codex handing everyone a fresh week mid-window), which no
 elapsed-time rule can ever recognise; `rolled_window` detects those from the
-reading itself. Reads then select by sample *time* inside the window, so labels
-forked before the hold still reunite on the chart.
+reading itself, and `rolls` reads them back out of the stored labels so the
+chart can mark the moment instead of silently starting a new line. Reads then
+select by sample *time* inside the window, so labels forked before the hold
+still reunite on the chart.
 
 Stdlib only.
 """
@@ -59,6 +61,17 @@ WINDOW_TOLERANCE_S = 15 * 60
 # `rolled_window` for why either alone is ambiguous.
 RESET_MIN_DROP_PCT = 1.0
 RESET_MIN_GAIN_S = 15 * 60
+# How far back `rolls` looks, and how many it hands to a caller. The span
+# covers the overview chart's week so a grant stays marked for as long as the
+# history it interrupts is still on screen.
+ROLL_LOOKBACK_S = 7 * 24 * 3600
+MAX_ROLLS = 8
+# How far ahead of its held reset a window has to roll before `rolls` calls it
+# a grant, as a fraction of the window. Flat minutes are the wrong bar: a 5h
+# session that rolls 18 minutes early is the source rounding, while a weekly
+# window doing the same thing is still just the week ending. The real grants
+# clear their old reset by days.
+ROLL_GRANT_MIN_EARLY = 0.1
 # Bytes read from the tail to reseed bucket/window state after a restart.
 TAIL_BYTES = 64 * 1024
 
@@ -176,6 +189,51 @@ def rolled_window(previous, pct, resets_in_s, now):
         return False
     expected = prev_resets - max(0.0, now - prev_t)
     return resets_in_s - expected >= RESET_MIN_GAIN_S
+
+
+def rolls(rows, *, since=None, limit=MAX_ROLLS):
+    """Granted resets visible in `rows` (one pool's samples, oldest first).
+
+    Every window boundary shows up in the log as a change of `window_start`.
+    Most are the window simply running out, which is not news: the axis already
+    ends there and the chart draws the rule. The ones worth surfacing are the
+    grants — Codex handing back a week you had already spent — and those are
+    exactly the boundaries that landed while the previous window's reset was
+    still in the future.
+
+    Read off the stored labels rather than by re-running `rolled_window`, so
+    what the chart marks and what the log says can never disagree: a relabelled
+    row moves both at once.
+
+    Returns [{t, kind, forgiven_pct}, …], oldest first.
+    """
+    out = []
+    previous = None
+    for row in rows:
+        start = row.get("window_start")
+        if (previous is not None
+                and start is not None
+                and start != previous.get("window_start")):
+            window_s = _num(previous.get("window_s")) or _num(row.get("window_s"))
+            previous_end = _previous_end(previous, window_s or 0)
+            t = _num(row.get("t"))
+            forgiven = ((_num(previous.get("pct")) or 0.0)
+                        - (_num(row.get("pct")) or 0.0))
+            early_by = max(WINDOW_TOLERANCE_S,
+                           (window_s or 0) * ROLL_GRANT_MIN_EARLY)
+            if (previous_end is not None
+                    and t is not None
+                    and previous_end - t > early_by
+                    and forgiven >= RESET_MIN_DROP_PCT):
+                out.append({
+                    "t": int(t),
+                    "kind": "granted",
+                    "forgiven_pct": round(forgiven, 2),
+                })
+        previous = row
+    if since is not None:
+        out = [roll for roll in out if roll["t"] >= since]
+    return out[-limit:] if limit else out
 
 
 def window_for(now, window_s, resets_in_s, *, pct=None, previous=None):

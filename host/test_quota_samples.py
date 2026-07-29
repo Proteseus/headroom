@@ -145,6 +145,63 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(end, int(NOW + 3 * 24 * 3600))
 
 
+class RollTests(unittest.TestCase):
+    """`rolls` reads grants back out of the stored labels, so the chart can
+    mark the moment a pool came back early instead of silently restarting."""
+
+    def _log(self, *rows):
+        """Rows relabelled the way the store would have written them."""
+        out = []
+        for t, pct, resets_in_s, window_s in rows:
+            out.append(row_at(t, pct, resets_in_s, window_s=window_s,
+                              previous=out[-1] if out else None))
+        return out
+
+    def test_a_granted_reset_is_reported_with_what_it_forgave(self):
+        rows = self._log(
+            (NOW, 42.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        self.assertEqual(
+            quota_samples.rolls(rows),
+            [{"t": int(NOW + 3600), "kind": "granted", "forgiven_pct": 42.0}],
+        )
+
+    def test_a_window_running_out_on_time_is_not_a_grant(self):
+        # The axis already ends there — marking it would label every Monday.
+        rows = self._log(
+            (NOW, 42.0, 300, WEEK_S),
+            (NOW + 600, 0.0, WEEK_S, WEEK_S),
+        )
+        self.assertEqual(quota_samples.rolls(rows), [])
+
+    def test_a_session_rolling_minutes_early_is_not_a_grant(self):
+        # A 5h session reporting its reset 18 minutes early is the source
+        # rounding, and it happens several times a day. Seen in the live log.
+        session_s = 5 * 3600
+        rows = self._log(
+            (NOW, 10.0, 18 * 60, session_s),
+            (NOW + 300, 2.0, session_s, session_s),
+        )
+        self.assertEqual(quota_samples.rolls(rows), [])
+
+    def test_a_flat_window_is_not_a_grant(self):
+        # Nothing was forgiven, so there is nothing to explain on the chart.
+        rows = self._log(
+            (NOW, 0.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        self.assertEqual(quota_samples.rolls(rows), [])
+
+    def test_older_grants_drop_out_past_the_lookback(self):
+        rows = self._log(
+            (NOW, 42.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        self.assertEqual(
+            quota_samples.rolls(rows, since=NOW + 2 * 3600), [])
+
+
 class RecordTests(unittest.TestCase):
     def setUp(self):
         quota_samples.reset_for_tests()

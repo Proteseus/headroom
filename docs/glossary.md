@@ -46,6 +46,12 @@ and far-out resets don’t stretch the axis. Forecasts crop at each reset (and a
 empty); each in-range reset is an accent dotted vertical rule, and the legend
 shows **Resets …**.
 
+A reset the provider hands out early — Codex clearing a week you had already
+spent — is a **granted** reset: a solid accent rule where an upcoming one is
+dotted, captioned **Reset granted · N pts back**. Scheduled rolls get no mark;
+the axis already ends on those. The host detects them in the sample log
+(`burndown[].resets`), so the mark and the history agree by construction.
+
 Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown`).
 Provider charts share one X-axis rule across Mac / iOS / ESP32: at most **seven
 weekday-named columns** (never day-of-month numbers); windows longer than a week

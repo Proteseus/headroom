@@ -380,6 +380,18 @@ private struct OverallBurndownSeries: Identifiable {
     let projected: [OverallBurndownPoint]
     let renewsAt: Date?
     let resetsIn: String?
+
+    /// Newest grant the chart is actually showing, for the caption that names
+    /// the rule.
+    func latestReset(
+        in domain: OverallBurndownChartMath.Domain
+    ) -> BurndownReset? {
+        let visible = Set(OverallBurndownChartMath.preparedResets(
+            pool.resets?.compactMap(\.t), domain: domain))
+        return (pool.resets ?? [])
+            .filter { $0.t.map(visible.contains) ?? false }
+            .max { ($0.t ?? 0) < ($1.t ?? 0) }
+    }
 }
 
 struct OverallBurndownChart: View {
@@ -545,6 +557,24 @@ struct OverallBurndownChart: View {
                             .symbolSize(last.remaining <= 0 ? 36 : 22)
                         }
 
+                        // Resets already granted: solid, because this one
+                        // happened. Without the mark the curve just restarts
+                        // and a forgiven week reads as missing data.
+                        ForEach(
+                            OverallBurndownChartMath.preparedResets(
+                                entry.pool.resets?.compactMap(\.t),
+                                domain: domain
+                            ),
+                            id: \.self
+                        ) { granted in
+                            RuleMark(x: .value(
+                                "Reset granted",
+                                Date(timeIntervalSince1970: granted)
+                            ))
+                            .foregroundStyle(entry.provider.tint.opacity(0.55))
+                            .lineStyle(StrokeStyle(lineWidth: 1))
+                        }
+
                         // Reset rules last so they sit on top of the strokes.
                         if let renew = entry.renewsAt,
                            renew > nowDate,
@@ -608,6 +638,15 @@ struct OverallBurndownChart: View {
                                 Text(HeadroomCopy.resets(resets))
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            // Names the solid rule. Newest only — the legend
+                            // has one line to spare, not a history list.
+                            if let granted = entry.latestReset(in: domain) {
+                                Text(HeadroomCopy.resetGranted(
+                                    forgivenPct: granted.forgivenPct))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                                     .monospacedDigit()
                             }
                         }
