@@ -7,6 +7,17 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.2 — 2026-07-29
+
+### Fixed
+
+- The macOS download is signed with Developer ID and notarized. Earlier
+  releases shipped ad-hoc signed, so Gatekeeper refused to open them and
+  reported that it could not verify the app. The signing certificate stored in
+  CI held a private key with no certificate alongside it, which left the build
+  job with no usable identity and sent it down its unsigned fallback path
+  without failing.
+
 ## 1.1.1 — 2026-07-29
 
 ### Added
