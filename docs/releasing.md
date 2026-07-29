@@ -1,7 +1,17 @@
 # Releasing Headroom
 
-Marketing version lives in [`host/VERSION`](../host/VERSION) (semver, hand-bumped).
+Marketing version lives in [`host/VERSION`](../host/VERSION), hand-bumped.
 Apple build numbers are `git rev-list --count HEAD` via [`scripts/version-env.sh`](../scripts/version-env.sh).
+
+**Each coherent set of changes gets one release, and the patch never passes 9.**
+Increment the patch; at `.9` roll to the next minor and reset it, so 1.1.9 is
+followed by 1.2.0 and 1.9.9 by 2.0.0. That rule is why the Apple Watch release
+is 1.1.0 rather than 1.0.12.
+
+Because the bump ships whatever is on `main`, one-set-per-release means one
+branch per set, merged and bumped one at a time — see
+[`AGENTS.md`](../AGENTS.md) for the full working agreement, including what to
+check before bumping when several agents share the repo.
 
 Tag releases as `v` + that version (e.g. `1.0.0` → `v1.0.0`). The release
 workflow refuses a tag that does not match `host/VERSION`.
