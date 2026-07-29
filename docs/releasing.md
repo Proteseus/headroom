@@ -32,17 +32,41 @@ Public download URLs (macOS Releases + iOS TestFlight) live in
 
 ## Cut a release
 
-Every point version gets a section in [`CHANGELOG.md`](../CHANGELOG.md) before
-it is tagged. `cut-release.sh` refuses a version with no `## <version>` heading,
-so this is a step you cannot skip by forgetting it.
+**A bump to `host/VERSION` on `main` releases itself.** Push a commit that
+changes it, and the [Release workflow](../.github/workflows/release.yml) tags,
+builds, notarizes, publishes, and uploads to TestFlight with nothing running on
+your Mac. That is the whole procedure:
 
 ```bash
 # 1. bump host/VERSION
 # 2. add a "## <version> — YYYY-MM-DD" section to CHANGELOG.md
-# 3. commit both, then:
-./scripts/cut-release.sh
-# or: git tag v1.0.0 && git push origin v1.0.0
+# 3. commit both and push to main
 ```
+
+The `gate` job decides what a push means:
+
+| Push to `main` | Result |
+|---|---|
+| `host/VERSION` already tagged | Nothing. Ordinary commits never publish. |
+| New version, changelog section present | Tags `v<version>` and publishes. |
+| New version, **no** changelog section | **Fails.** Nothing ships undocumented. |
+
+That last row is the one that matters, because on this path nobody is watching
+a terminal. The section also becomes the "What changed" body of the GitHub
+Release, so it is read by users rather than filed away.
+
+The tag is created by the publish step rather than pushed from CI on purpose: a
+tag pushed with `GITHUB_TOKEN` does not trigger workflows, so a tag-then-build
+design would tag and then silently never build.
+
+Hand-cutting still works when you want it, and runs the same changelog guard
+through the same script:
+
+```bash
+./scripts/cut-release.sh
+```
+
+Manual **Actions → Release → Run workflow** builds artifacts without publishing.
 
 What the [Release workflow](../.github/workflows/release.yml) does on a `v*` tag:
 

@@ -87,7 +87,12 @@ in the imperative, wrapped body explaining why rather than what.
 
 ## Releasing
 
-Every point version gets a section in [`CHANGELOG.md`](CHANGELOG.md) before it
-is tagged, written for someone deciding whether to update rather than for the
-person who wrote the code. `scripts/cut-release.sh` refuses a version with no
-`## <version>` heading. Procedure in [docs/releasing.md](docs/releasing.md).
+Bumping `host/VERSION` on `main` **is** the release: CI tags, builds,
+notarizes, publishes, and uploads to TestFlight on its own. So the changelog
+section is not paperwork you file afterwards, it is part of shipping.
+
+Every point version gets a section in [`CHANGELOG.md`](CHANGELOG.md), written
+for someone deciding whether to update rather than for the person who wrote the
+code. It becomes the release body. A bump without one fails the build rather
+than shipping undocumented, and `scripts/cut-release.sh` refuses it locally
+through the same script. Procedure in [docs/releasing.md](docs/releasing.md).

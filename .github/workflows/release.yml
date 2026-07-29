@@ -2,6 +2,9 @@ name: Release
 
 on:
   push:
+    # A bump to host/VERSION on main releases itself — see the `gate` job. The
+    # tag path stays for hand-cut releases (scripts/cut-release.sh).
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -18,9 +21,70 @@ permissions:
   contents: write
 
 jobs:
+  # Decides whether this run publishes, and under which tag. Everything else
+  # keys off its outputs rather than github.ref, because on the automatic path
+  # the ref is refs/heads/main and the tag does not exist yet.
+  #
+  # The tag is deliberately NOT pushed from here: a tag pushed with
+  # GITHUB_TOKEN does not trigger workflows, so it would never reach the jobs
+  # below. Instead the Create GitHub Release step takes tag_name and creates
+  # the tag as it publishes, inside this same run.
+  gate:
+    name: Decide
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      release: ${{ steps.decide.outputs.release }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide
+        id: decide
+        run: |
+          source ./scripts/version-env.sh
+          VERSION="$HEADROOM_VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # build   = compile and upload artifacts
+          # release = also publish a GitHub Release under $tag
+          case "${{ github.event_name }}" in
+            workflow_dispatch)
+              echo "Manual run — building $VERSION, artifacts only."
+              echo "build=true" >> "$GITHUB_OUTPUT"
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              ;;
+            push)
+              if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+                echo "Tag ${GITHUB_REF_NAME} — publishing."
+                echo "build=true" >> "$GITHUB_OUTPUT"
+                echo "release=true" >> "$GITHUB_OUTPUT"
+                echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+              elif git rev-parse "v$VERSION" >/dev/null 2>&1; then
+                echo "v$VERSION already tagged — nothing to release."
+                echo "build=false" >> "$GITHUB_OUTPUT"
+                echo "release=false" >> "$GITHUB_OUTPUT"
+                echo "tag=" >> "$GITHUB_OUTPUT"
+              else
+                # Fail loudly rather than ship an undocumented version. Nobody
+                # is watching a terminal on this path.
+                ./scripts/changelog-section.sh "$VERSION" >/dev/null
+                echo "host/VERSION is $VERSION with no tag — releasing v$VERSION."
+                echo "build=true" >> "$GITHUB_OUTPUT"
+                echo "release=true" >> "$GITHUB_OUTPUT"
+                echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+          esac
   macos-app:
     name: Build Headroom.app
     runs-on: macos-latest
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     outputs:
       version: ${{ steps.ver.outputs.version }}
       build: ${{ steps.ver.outputs.build }}
@@ -149,17 +213,21 @@ jobs:
 
       - name: Compose release notes
         id: notes
-        if: startsWith(github.ref, 'refs/tags/')
+        if: needs.gate.outputs.release == 'true'
         env:
           VERSION: ${{ steps.ver.outputs.version }}
           BUILD: ${{ steps.ver.outputs.build }}
           NOTARIZED: ${{ steps.meta.outputs.notarized }}
           TESTFLIGHT_URL: ${{ steps.links.outputs.testflight_url }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.gate.outputs.tag }}
           REPO: ${{ github.repository }}
         run: |
           {
             echo "Headroom **${VERSION}** (build ${BUILD})."
+            echo
+            echo "## What changed"
+            echo
+            ./scripts/changelog-section.sh "$VERSION"
             echo
             echo "## macOS"
             echo
@@ -186,9 +254,14 @@ jobs:
           echo "path=$RUNNER_TEMP/release-body.md" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: needs.gate.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          # Explicit tag_name so this works on the automatic path, where the
+          # ref is a branch. The action creates the tag at this commit when it
+          # does not exist yet, which is what replaces cut-release.sh.
+          tag_name: ${{ needs.gate.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             dist/Headroom-macOS.zip
             dist/version.txt
@@ -199,13 +272,13 @@ jobs:
   ios-testflight:
     name: iOS → TestFlight
     runs-on: macos-latest
-    needs: macos-app
-    # On tags: soft-attempt when ASC secrets exist. Manual: only when checked.
+    needs: [gate, macos-app]
+    # Releasing: soft-attempt when ASC secrets exist. Manual: only when checked.
     if: |
       always() &&
       needs.macos-app.result == 'success' &&
       (
-        startsWith(github.ref, 'refs/tags/') ||
+        needs.gate.outputs.release == 'true' ||
         (github.event_name == 'workflow_dispatch' && inputs.upload_testflight)
       )
     steps:

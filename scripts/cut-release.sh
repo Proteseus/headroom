@@ -28,10 +28,10 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   die "tag $TAG already exists"
 fi
 
-# A tag with no changelog entry ships a Release whose notes nobody wrote.
-if ! grep -qE "^## $HEADROOM_VERSION( |$)" "$CHANGELOG" 2>/dev/null; then
-  die "CHANGELOG.md has no '## $HEADROOM_VERSION' section — write it before tagging"
-fi
+# A tag with no changelog entry ships a Release whose notes nobody wrote. Same
+# check the Release workflow runs, via the same script.
+"$ROOT/scripts/changelog-section.sh" "$HEADROOM_VERSION" >/dev/null \
+  || die "write the CHANGELOG.md section before tagging $TAG"
 
 TESTFLIGHT="$(
   awk -F'|' '
