@@ -76,6 +76,7 @@ static const uint16_t COL_RED    = RGB565(175, 105, 100);   // soft dusty red
 // played the intro instead of a different one booting after it.
 static const uint16_t COL_CRT    = RGB565(0, 214, 236);    // cyan phosphor
 static const uint16_t COL_CRT_DIM= RGB565(150, 40, 120);   // magenta, receding
+static const uint16_t COL_CRT_YELLOW = RGB565(236, 214, 0); // process yellow
 static const uint16_t COL_CRT_BG = RGB565(6, 4, 14);       // = the splash bg
 static const uint16_t COL_CRT_HDR= RGB565(22, 14, 44);     // boot header bar
 static const uint16_t COL_CRT_SCAN= RGB565(12, 8, 26);     // scanlines
@@ -1346,7 +1347,7 @@ static void drawNetDiag() {
   gfx->clear(COL_CRT_BG);
   const int16_t pad = UI_PAD;
   gfx->drawRect(pad, pad, scrW() - pad * 2, scrH() - pad * 2, COL_CRT_DIM);
-  drawCentered("NO HOST", pad + 10, 2, COL_RED);
+  drawCentered("NO HOST", pad + 10, 2, COL_CRT_YELLOW);
 
   const bool up = WiFi.status() == WL_CONNECTED;
   int16_t y = pad + 42;
@@ -1369,7 +1370,7 @@ static void drawNetDiag() {
   };
 
   row("WIFI", up ? WiFi.SSID() : String("not connected"),
-      up ? COL_CRT : COL_RED);
+      up ? COL_CRT : COL_CRT_YELLOW);
   if (up) {
     row("IP", WiFi.localIP().toString() + "  " + String(WiFi.RSSI()) + "dBm",
         COL_CRT);
@@ -1378,16 +1379,18 @@ static void drawNetDiag() {
   row("ADDR", resolvedHost.length()
                   ? resolvedHost + (hostViaMdns ? "  mdns" : "  fallback")
                   : String("unresolved"),
-      resolvedHost.length() && hostViaMdns ? COL_CRT : COL_AMBER);
+      resolvedHost.length() && hostViaMdns ? COL_CRT : COL_CRT_YELLOW);
   row("TOKEN", sizeof(HOST_TOKEN) > 1 ? "set" : "EMPTY",
-      sizeof(HOST_TOKEN) > 1 ? COL_CRT : COL_RED);
+      sizeof(HOST_TOKEN) > 1 ? COL_CRT : COL_CRT_YELLOW);
   row("LAST", everOk ? String((millis() - lastOkMs) / 1000) + "s ago"
                      : String("never"),
-      everOk ? COL_CRT : COL_RED);
-  row("WHY", netErr.length() ? netErr : String("unknown"), COL_RED);
+      everOk ? COL_CRT : COL_CRT_YELLOW);
+  row("WHY", netErr.length() ? netErr : String("unknown"), COL_CRT_YELLOW);
 
-  drawCentered("start the host on the Mac, then wait a poll",
-               scrH() - pad - 22, 1, COL_CRT_DIM);
+  // Size 2 is the minimum display type everywhere else; keep the instruction
+  // short enough to remain readable at that size instead of shrinking it.
+  drawCentered("START HOST ON MAC, THEN WAIT",
+               scrH() - pad - 24, 2, COL_CRT_DIM);
   gfx->flush();
 }
 
@@ -1942,12 +1945,12 @@ static uint16_t statusColor(const String &status) {
   return COL_DIM;
 }
 
-// Normalize "ago" strings to whole hours for glance columns.
-static String gitHoursAgo(const String &ago) {
+// Compact "ago" for glance columns: hours first, then days (not always hours).
+static String glanceAgo(const String &ago) {
   // ASCII only: gfx->print walks bytes into the 5x7 table, so a UTF-8 dash
   // would paint three CP437 glyphs.
   if (!ago.length()) return "-";
-  int days = 0, hours = 0;
+  int days = 0, hours = 0, minutes = 0;
   const char *p = ago.c_str();
   while (*p) {
     while (*p == ' ') p++;
@@ -1957,11 +1960,21 @@ static String gitHoursAgo(const String &ago) {
     if (end == p) break;
     if (*end == 'd' || *end == 'D') { days = (int)v; p = end + 1; }
     else if (*end == 'h' || *end == 'H') { hours = (int)v; p = end + 1; }
-    else if (*end == 'm' || *end == 'M') { p = end + 1; }  // ignore minutes
+    else if (*end == 'm' || *end == 'M') { minutes = (int)v; p = end + 1; }
+    else if (*end == 's' || *end == 'S') { p = end + 1; }  // ignore seconds
     else break;
   }
+  const int totalH = days * 24 + hours;
   char b[12];
-  snprintf(b, sizeof b, "%dh", days * 24 + hours);
+  if (totalH >= 24) {
+    snprintf(b, sizeof b, "%dd", totalH / 24);
+  } else if (totalH >= 1) {
+    snprintf(b, sizeof b, "%dh", totalH);
+  } else if (minutes >= 1) {
+    snprintf(b, sizeof b, "%dm", minutes);
+  } else {
+    snprintf(b, sizeof b, "0h");
+  }
   return String(b);
 }
 
@@ -1991,23 +2004,41 @@ static const char *pageName(Page p) {
   }
 }
 
-static void drawWifiDot(int16_t padX, int16_t top) {
-  // Healthy link: nothing. Red only when last /usage fetch failed
-  // (Wi-Fi HTTP or USB CDC).
+static void drawHostErrorBorder() {
+  // Healthy link: nothing. A 2px red frame when last /usage fetch failed
+  // (Wi-Fi HTTP or USB CDC) — reads at desk distance; a corner pip did not.
   if (hostOk) return;
-  gfx->fillCircle(scrW() - padX / 2, top + 8, 5, COL_RED);
+  const int16_t W = scrW();
+  const int16_t H = scrH();
+  gfx->drawRect(0, 0, W, H, COL_RED);
+  gfx->drawRect(1, 1, (int16_t)(W - 2), (int16_t)(H - 2), COL_RED);
 }
 
 // Footprint the home page reserves for the link glyph, bottom-right.
 static const int16_t LINK_GLYPH_W = 18;
 static const int16_t LINK_GLYPH_H = 15;
 
+static void formatLastLinkAge(char *buf, size_t n) {
+  if (!everOk) {
+    snprintf(buf, n, "--m");
+    return;
+  }
+  const uint32_t minutes = (millis() - lastOkMs) / 60000UL;
+  snprintf(buf, n, "%lum", (unsigned long)minutes);
+}
+
 // Which pipe fed the numbers above: Wi-Fi arcs, or a plug for the cable.
 // (rightX, bottomY) is the bottom-right corner the glyph is tucked into.
 static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
-  const uint16_t col = hostOk ? COL_DIM : COL_RED;
+  const uint16_t col = hostOk ? COL_DIM : COL_CRT_YELLOW;
   const int16_t gx = (int16_t)(rightX - LINK_GLYPH_W);
   const int16_t gy = (int16_t)(bottomY - LINK_GLYPH_H);
+
+  if (!hostOk) {
+    char age[8];
+    formatLastLinkAge(age, sizeof age);
+    drawRightAt(age, (int16_t)(gx - 6), gy, 2, col);
+  }
 
   if (linkVia == LINK_USB) {
     // Plug: two prongs, a body, and a stub of cable. The real USB trident
@@ -2532,7 +2563,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
     int16_t y = lowTop;
 
     if (i == 0) {
-      // Vercel — status dot + project + age in hours (like Git).
+      // Vercel — status dot + project + compact age (like Git).
       drawTextAt("Vercel", x, y, 2, COL_WHITE);
       y += 22;
       if (vercelOk && vercelN > 0) {
@@ -2541,7 +2572,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
           const DeployRow &r = vercelRows[d];
           gfx->fillCircle(x + dotR, y + 8, dotR, statusColor(r.status));
           drawNameAgoRow(x + textX, y, (int16_t)(colW - textX),
-                         r.project, gitHoursAgo(r.ago),
+                         r.project, glanceAgo(r.ago),
                          COL_WHITE, COL_DIM);
           y += rowH;
         }
@@ -2549,7 +2580,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
         drawTextAt(vercelOk ? "-" : "down", x, y, 2, COL_DIM);
       }
     } else if (i == 1) {
-      // Git — repo leaf (no owner) + age in hours (right-aligned).
+      // Git — repo leaf (no owner) + compact age (right-aligned).
       drawTextAt("Git", x, y, 2, COL_WHITE);
       y += 22;
       if (gitOk && gitN > 0) {
@@ -2558,7 +2589,7 @@ static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
           String repo = gitRows[c].repo;
           int slash = repo.lastIndexOf('/');
           if (slash >= 0) repo = repo.substring(slash + 1);
-          drawNameAgoRow(x, y, colW, repo, gitHoursAgo(gitRows[c].ago),
+          drawNameAgoRow(x, y, colW, repo, glanceAgo(gitRows[c].ago),
                          COL_WHITE, COL_DIM);
           y += rowH;
         }
@@ -2897,7 +2928,7 @@ static void drawGlancePage() {
     }
   }
 
-  drawWifiDot(padX, top);
+  drawHostErrorBorder();
   drawLinkGlyph((int16_t)(W - padX), (int16_t)(H - bot));
   present();
 }
@@ -3007,7 +3038,7 @@ static void drawQuotaPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
 
-  drawWifiDot(padX, top);
+  drawHostErrorBorder();
   present();
 }
 
@@ -3060,7 +3091,7 @@ static void drawVercelPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)vercelN) + " recent", padX, footY, 2, COL_DIM);
-  drawWifiDot(padX, top);
+  drawHostErrorBorder();
   present();
 }
 
@@ -3102,7 +3133,7 @@ static void drawGitPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)gitN) + " recent", padX, footY, 2, COL_DIM);
-  drawWifiDot(padX, top);
+  drawHostErrorBorder();
   present();
 }
 
@@ -3151,7 +3182,7 @@ static void drawLocalPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)localN) + " up", padX, footY, 2, COL_DIM);
-  drawWifiDot(padX, top);
+  drawHostErrorBorder();
   present();
 }
 

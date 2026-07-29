@@ -26,14 +26,20 @@ _EMPTY = {"ok": False, "error": None, "commits": []}
 
 
 def fmt_ago(unix_ts):
-    """Always hours since commit (e.g. 0h, 3h, 48h)."""
+    """Compact age: seconds, minutes, hours, then days (e.g. 3h, 2d)."""
     if unix_ts is None:
         return None
     try:
         ago_s = max(0, int(time.time() - float(unix_ts)))
     except (TypeError, ValueError):
         return None
-    return f"{ago_s // 3600}h"
+    if ago_s < 60:
+        return f"{ago_s}s"
+    if ago_s < 3600:
+        return f"{ago_s // 60}m"
+    if ago_s < 86400:
+        return f"{ago_s // 3600}h"
+    return f"{ago_s // 86400}d"
 
 
 def _is_git_repo(path):
@@ -182,7 +188,7 @@ def fetch_commits(force=False):
                 "short_sha": c["sha"][:7],
                 "subject": c["subject"],
                 "created_at": c["t"],
-                "ago": f"{hours}h",
+                "ago": fmt_ago(c["t"]),
                 "hours": hours,
                 "branch": c["branch"],
                 "pushed": c["pushed"],

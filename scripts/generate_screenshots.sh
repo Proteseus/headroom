@@ -19,6 +19,7 @@ fi
 echo "→ ESP32 glance preview"
 "$VENV/bin/python" "$ROOT/scripts/render_esp32_preview.py" \
   --input "$FIXTURE" \
+  --demo-burndown \
   --out "$OUT/esp32-glance.png"
 
 echo "→ build Headroom (Debug)"

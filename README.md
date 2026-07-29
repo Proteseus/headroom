@@ -11,7 +11,7 @@ that consolidates that into one glance:
 
 | Always on | What you see |
 |---|---|
-| **ESP32 AMOLED** | Quota rings for the same three providers the menu bar shows, Vercel, git, local ports |
+| **ESP32 AMOLED** | Quota rings for the same three providers the menu bar shows, with a combined seven-day burndown |
 | **Menu bar** | Thin remaining-quota meters for the first three enabled providers + amber/red attention pip |
 | **Popover** | Overview rings, daily burn, spend, Activity / Services |
 | **Notification Center** | The same widget the iPhone runs: rings small, combined burndown medium |
@@ -44,11 +44,12 @@ feed. No cloud account for Headroom itself — your tokens stay on the machine.
 
 **Hardware is optional.** The menu bar alone is useful. The Waveshare
 ESP32-S3-Touch-AMOLED-1.8 (368×448) is the always-on desk glance — same feed,
-tap a slot for detail, long-press to force-refresh. Its three rings are the
-same three the menu bar draws — the host picks them and the board draws what
-it is sent, so a newer provider, an extra account, your pinned order and your
-color overrides all reach the desk. Its Vercel, git and local pages still stay
-up whether or not you switched those sources off.
+tap a slot for detail, tap the header to switch Burndown / Activity, and
+long-press to force-refresh. Its three rings are the same three the menu bar
+draws — the host picks them and the board draws what it is sent, so a newer
+provider, an extra account, your pinned order and your color overrides all
+reach the desk. The default lower half combines those providers into the same
+seven-day burndown the Mac, phone and medium widget show.
 
 ## Why it exists
 
@@ -220,8 +221,9 @@ Update the Mac host before flashing: the board reads its three providers from
 `/usage?view=device` → `providers[]`, which a host older than 1.0.9 does not
 send. A board that gets no providers says so on the glance rather than guessing.
 
-Wi‑Fi first; USB CDC fallback when LAN fails. **Tap** a glance slot for detail;
-**long-press** home → `POST /sync/refresh`.
+Wi‑Fi first; USB CDC fallback when LAN fails. **Tap** a glance slot for detail,
+tap the header to switch Burndown / Activity; **long-press** home →
+`POST /sync/refresh`.
 
 ### Tokens (host vs mobile)
 
