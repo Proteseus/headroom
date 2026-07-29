@@ -115,8 +115,12 @@ issuer="${APPLE_API_ISSUER_ID:-}"
 tmp_auth_key=""
 if [[ -n "$key_id" && -n "$issuer" ]]; then
   if [[ -z "$key_path" && -n "${APPLE_API_KEY:-}" ]]; then
+    # The .p8 suffix means this is a new path, not the file mktemp created and
+    # locked down — so it lands under the default umask. asc refuses a key it
+    # can see is group- or world-readable.
     tmp_auth_key="$(mktemp -t AuthKey).p8"
     printf '%s\n' "$APPLE_API_KEY" > "$tmp_auth_key"
+    chmod 600 "$tmp_auth_key"
     key_path="$tmp_auth_key"
   fi
   if [[ -n "$key_path" ]]; then
