@@ -28,12 +28,13 @@ THICK = 70
 GAP = 40
 OUTER_RADIUS = 360
 
-# Accent + percent per band, outside in. Colours are HeadroomPalette /
-# firmware COL_*; the percentages are chosen to read as three distinct arcs.
+# Accent + percent per band, outside in. The live rings keep provider brand
+# accents; the icon uses process CMY so the three arcs stay distinct at every
+# catalog size instead of collapsing into muddy terracotta / teal / periwinkle.
 BANDS = [
-    ((217, 119, 87), 90.0),   # Claude
-    ((16, 163, 127), 60.0),   # OpenAI
-    ((120, 155, 200), 30.0),  # Cursor
+    ((255, 214, 0), 90.0),    # Yellow
+    ((0, 200, 220), 60.0),    # Cyan
+    ((230, 45, 140), 30.0),   # Magenta
 ]
 
 # macOS catalog filenames by pixel size. A @2x slot holds twice its nominal
