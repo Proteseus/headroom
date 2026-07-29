@@ -32,6 +32,7 @@ final class ModelsTests: XCTestCase {
             "week_resets_in": "3d",
             "reset_credits_available": 2,
             "reset_credits_expiries": ["6d 5h", "18d 3h"],
+            "reset_credits_expire_at": [1785330000, 1786359600],
             "cost_usd": 120.5,
             "cost_limit_usd": 500.0,
             "cost_label": "$120 / $500"
@@ -181,6 +182,10 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.codex?.costLabel, "$120 / $500")
         XCTAssertEqual(value.codex?.resetCreditsAvailable, 2)
         XCTAssertEqual(value.codex?.resetCreditsExpiries, ["6d 5h", "18d 3h"])
+        XCTAssertEqual(
+            value.codex?.resetCreditsExpireAt,
+            [1785330000, 1786359600]
+        )
         XCTAssertEqual(value.meter(for: .codex).resetCreditsLabel, "2 reset credits")
         XCTAssertEqual(
             value.meter(for: .codex).resetCreditsExpiryLabel,
@@ -358,6 +363,20 @@ final class ModelsTests: XCTestCase {
             domain.endEpoch,
             accuracy: 1,
             "forecast clipped at the fixed week edge, not stretched to the reset"
+        )
+    }
+
+    func testUpcomingEventsAppearOnlyOnceTheyEnterReach() {
+        let domain = OverallBurndownChartMath.Domain(
+            start: Date(timeIntervalSince1970: 100),
+            end: Date(timeIntervalSince1970: 800),
+            now: Date(timeIntervalSince1970: 400)
+        )
+        XCTAssertEqual(
+            OverallBurndownChartMath.preparedUpcomingEvents(
+                [900, 500, 300, 800], domain: domain
+            ),
+            [500, 800]
         )
     }
 

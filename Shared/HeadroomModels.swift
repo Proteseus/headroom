@@ -955,6 +955,9 @@ struct CodexUsage: Decodable, Sendable {
     var runsOutIn: String?
     var resetCreditsAvailable: Int?
     var resetCreditsExpiries: [String]?
+    /// Exact expiry instants for banked reset credits. Countdown strings are
+    /// still used on meters; dates let the overview place an expiry in time.
+    var resetCreditsExpireAt: [Double]?
     var costUSD: Double?
     var costLimitUSD: Double?
     var costLabel: String?
@@ -985,6 +988,7 @@ struct CodexUsage: Decodable, Sendable {
         case runsOutIn = "runs_out_in"
         case resetCreditsAvailable = "reset_credits_available"
         case resetCreditsExpiries = "reset_credits_expiries"
+        case resetCreditsExpireAt = "reset_credits_expire_at"
         case costUSD = "cost_usd"
         case costLimitUSD = "cost_limit_usd"
         case costLabel = "cost_label"

@@ -69,6 +69,10 @@ enum HeadroomCopy {
         return "\(resetGranted) · \(Int(forgivenPct.rounded())) pts back"
     }
 
+    static func resetCreditExpires(_ label: String) -> String {
+        "Reset credit expires \(label)"
+    }
+
     // MARK: Status
 
     /// Healthy attention summary from the host / Attention card fallback.

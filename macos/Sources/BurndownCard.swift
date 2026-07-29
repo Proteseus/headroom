@@ -72,6 +72,7 @@ struct OverviewBurndownCard: View {
         let title: String
         let pool: Burndown
         let renewsAt: Double?
+        let resetCreditExpiries: [Double]
         /// Where this provider explains its grants, when it explains them
         /// anywhere. Opened on click; never fetched.
         let resetNoteURL: URL?
@@ -87,6 +88,14 @@ struct OverviewBurndownCard: View {
                 .filter { $0.t.map(visible.contains) ?? false }
                 .max { ($0.t ?? 0) < ($1.t ?? 0) }
         }
+
+        func nextResetCreditExpiry(
+            in domain: OverallBurndownChartMath.Domain
+        ) -> Double? {
+            OverallBurndownChartMath.preparedUpcomingEvents(
+                resetCreditExpiries, domain: domain
+            ).first
+        }
     }
 
     /// One pool per provider — `UsageSnapshot.overviewBurndown` makes that
@@ -101,6 +110,9 @@ struct OverviewBurndownCard: View {
                 title: provider.displayTitle,
                 pool: pool,
                 renewsAt: pool.windowEnd,
+                resetCreditExpiries: provider.id == UsageProvider.codex.rawValue
+                    ? snapshot.codex?.resetCreditsExpireAt ?? []
+                    : [],
                 resetNoteURL: provider.resetNoteURL.flatMap(URL.init(string:))
             )
         }
@@ -309,6 +321,35 @@ struct OverviewBurndownCard: View {
                                     lineWidth: 1.5, dash: [1.5, 2.5])
                             )
                         }
+
+                        // A banked reset credit does not refill the pool by
+                        // itself. Its expiry is a deadline, so use a longer
+                        // dash and a pointed cap rather than a reset dot.
+                        for expiry in
+                            OverallBurndownChartMath.preparedUpcomingEvents(
+                                entry.resetCreditExpiries, domain: domain
+                            ) {
+                            var expiryMarker = Path()
+                            expiryMarker.move(to: CGPoint(
+                                x: x(expiry), y: plot.minY))
+                            expiryMarker.addLine(to: CGPoint(
+                                x: x(expiry), y: plot.maxY))
+                            context.stroke(
+                                expiryMarker,
+                                with: .color(tint.opacity(0.7)),
+                                style: StrokeStyle(
+                                    lineWidth: 1.25, dash: [5, 3])
+                            )
+                            var cap = Path()
+                            cap.move(to: CGPoint(
+                                x: x(expiry) - 3, y: plot.minY - 3))
+                            cap.addLine(to: CGPoint(
+                                x: x(expiry) + 3, y: plot.minY - 3))
+                            cap.addLine(to: CGPoint(
+                                x: x(expiry), y: plot.minY + 2))
+                            cap.closeSubpath()
+                            context.fill(cap, with: .color(tint))
+                        }
                     }
                 }
                 .frame(height: 118)
@@ -367,6 +408,23 @@ struct OverviewBurndownCard: View {
                                         .lineLimit(1)
                                         .foregroundStyle(.tertiary)
                                 }
+                            }
+                            if let expiry = entry.nextResetCreditExpiry(
+                                in: domain
+                            ) {
+                                Text(HeadroomCopy.resetCreditExpires(
+                                    Date(timeIntervalSince1970: expiry)
+                                        .formatted(
+                                            .dateTime
+                                                .weekday(.abbreviated)
+                                                .hour()
+                                                .minute()
+                                        )
+                                ))
+                                .font(.caption2)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .foregroundStyle(.tertiary)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

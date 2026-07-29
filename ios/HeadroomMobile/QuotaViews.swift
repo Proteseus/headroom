@@ -430,6 +430,7 @@ private struct OverallBurndownSeries: Identifiable {
     let forgiven: [OverallBurndownPoint]
     let renewsAt: Date?
     let resetsIn: String?
+    let resetCreditExpiries: [Double]
 
     /// Newest grant the chart is actually showing, for the caption that names
     /// the rule.
@@ -441,6 +442,14 @@ private struct OverallBurndownSeries: Identifiable {
         return (pool.resets ?? [])
             .filter { $0.t.map(visible.contains) ?? false }
             .max { ($0.t ?? 0) < ($1.t ?? 0) }
+    }
+
+    func nextResetCreditExpiry(
+        in domain: OverallBurndownChartMath.Domain
+    ) -> Double? {
+        OverallBurndownChartMath.preparedUpcomingEvents(
+            resetCreditExpiries, domain: domain
+        ).first
     }
 }
 
@@ -482,7 +491,11 @@ struct OverallBurndownChart: View {
                 renewsAt: pool.windowEnd.map {
                     Date(timeIntervalSince1970: $0)
                 },
-                resetsIn: pool.resetsIn
+                resetsIn: pool.resetsIn,
+                resetCreditExpiries:
+                    provider.id == UsageProvider.codex.rawValue
+                        ? snapshot.codex?.resetCreditsExpireAt ?? []
+                        : []
             )
         }
     }
@@ -539,7 +552,8 @@ struct OverallBurndownChart: View {
                     idPrefix: "\(entry.id)-f"
                 ),
                 renewsAt: entry.renewsAt,
-                resetsIn: entry.resetsIn
+                resetsIn: entry.resetsIn,
+                resetCreditExpiries: entry.resetCreditExpiries
             )
         }
     }
@@ -660,6 +674,24 @@ struct OverallBurndownChart: View {
                                     dash: [1.5, 2.5]
                                 ))
                         }
+
+                        // A banked credit expiring is not a quota renewal.
+                        // The longer dash keeps both deadlines distinct.
+                        ForEach(
+                            OverallBurndownChartMath.preparedUpcomingEvents(
+                                entry.resetCreditExpiries, domain: domain
+                            ),
+                            id: \.self
+                        ) { expiry in
+                            RuleMark(x: .value(
+                                "Reset credit expires",
+                                Date(timeIntervalSince1970: expiry)
+                            ))
+                            .foregroundStyle(entry.provider.tint.opacity(0.7))
+                            .lineStyle(StrokeStyle(
+                                lineWidth: 1.25, dash: [5, 3]
+                            ))
+                        }
                     }
                 }
                 .chartXScale(domain: range)
@@ -732,6 +764,22 @@ struct OverallBurndownChart: View {
                                         .foregroundStyle(.tertiary)
                                         .monospacedDigit()
                                 }
+                            }
+                            if let expiry = entry.nextResetCreditExpiry(
+                                in: domain
+                            ) {
+                                Text(HeadroomCopy.resetCreditExpires(
+                                    Date(timeIntervalSince1970: expiry)
+                                        .formatted(
+                                            .dateTime
+                                                .weekday(.abbreviated)
+                                                .hour()
+                                                .minute()
+                                        )
+                                ))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .monospacedDigit()
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

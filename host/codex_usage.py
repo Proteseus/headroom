@@ -278,6 +278,7 @@ def _parse_reset_credits(body):
         exp_s = _iso_to_unix(c.get("expires_at"))
         available.append({
             "expires_at": c.get("expires_at"),
+            "expires_at_s": exp_s,
             "expires_in_s": max(0, int(exp_s - time.time())) if exp_s else None,
             "expires_in": fmt_resets(max(0, int(exp_s - time.time()))) if exp_s else None,
         })

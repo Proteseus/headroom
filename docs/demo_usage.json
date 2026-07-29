@@ -202,6 +202,10 @@
       "6d 5h",
       "18d 3h"
     ],
+    "reset_credits_expire_at": [
+      1785330000,
+      1786359600
+    ],
     "cost_usd": 120.5,
     "cost_limit_usd": 500.0,
     "cost_remaining_usd": 379.5,

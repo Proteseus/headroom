@@ -118,6 +118,20 @@ enum OverallBurndownChartMath {
             .sorted()
     }
 
+    /// Known future events that have entered the overview's visible week.
+    ///
+    /// Kept separate from `preparedResets`: granted resets are history and may
+    /// sit left of now, while deadlines such as banked-credit expiries should
+    /// disappear as soon as they pass.
+    static func preparedUpcomingEvents(
+        _ times: [Double]?,
+        domain: Domain
+    ) -> [Double] {
+        Set(times ?? [])
+            .filter { $0 > domain.nowEpoch && $0 <= domain.endEpoch }
+            .sorted()
+    }
+
     /// Clip actual samples to the chart domain.
     static func preparedActual(
         _ pairs: [[Double]]?,

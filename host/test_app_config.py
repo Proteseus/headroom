@@ -305,6 +305,30 @@ class AttentionTests(unittest.TestCase):
 
 
 class SpendParseTests(unittest.TestCase):
+    @mock.patch("codex_usage.time.time", return_value=1785500000)
+    def test_codex_reset_credit_keeps_exact_expiry(self, _time):
+        import codex_usage
+        import headroom_server
+
+        parsed = codex_usage.parse_usage(
+            {"plan_type": "team", "rate_limit": {}},
+            credits_body={
+                "available_count": 1,
+                "credits": [{
+                    "status": "available",
+                    "expires_at": "2026-08-01T12:00:00Z",
+                }],
+            },
+        )
+        credit = parsed["reset_credits"]["credits"][0]
+        self.assertEqual(credit["expires_at_s"], 1785585600)
+
+        flattened = headroom_server._flatten_codex(parsed)
+        self.assertEqual(
+            flattened["reset_credits_expire_at"],
+            [1785585600],
+        )
+
     def test_codex_spend_control(self):
         import codex_usage
         parsed = codex_usage.parse_usage({

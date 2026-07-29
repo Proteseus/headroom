@@ -101,6 +101,10 @@ final class ContractTests: XCTestCase {
             snapshot.codex?.resetCreditsExpiries,
             ["6d 5h", "18d 3h"]
         )
+        XCTAssertEqual(
+            snapshot.codex?.resetCreditsExpireAt,
+            [1785330000, 1786359600]
+        )
         let meter = snapshot.meter(for: .codex)
         XCTAssertEqual(meter.resetCreditsLabel, "2 reset credits")
         XCTAssertEqual(meter.resetCreditsExpiryLabel, "6d 5h · 18d 3h")

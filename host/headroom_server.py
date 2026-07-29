@@ -550,6 +550,12 @@ def _flatten_codex(codex, burndowns=None):
         "runs_out_in_s": pace.get("runs_out_in_s"),
         "reset_credits_available": credits.get("available"),
         "reset_credits_expiries": credits.get("expiries") or [],
+        "reset_credits_expire_at": [
+            credit["expires_at_s"]
+            for credit in (credits.get("credits") or [])
+            if isinstance(credit, dict)
+            and credit.get("expires_at_s") is not None
+        ],
         "cost_usd": spend.get("used_usd"),
         "cost_limit_usd": spend.get("limit_usd"),
         "cost_remaining_usd": spend.get("remaining_usd"),
