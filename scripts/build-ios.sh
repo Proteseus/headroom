@@ -22,15 +22,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/version-env.sh"
 
 UPLOAD=0
+MANUAL_SIGNING=0
 for arg in "$@"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
+    --manual-signing) MANUAL_SIGNING=1 ;;
     -h|--help)
       cat <<'EOF'
 Archive HeadroomMobile for App Store / TestFlight.
 
   ./scripts/build-ios.sh          # → dist/Headroom-iOS.ipa
   ./scripts/build-ios.sh --upload # export + asc publish → Internal group
+
+  --manual-signing  export against named App Store profiles instead of letting
+                    Xcode manage them (CI — see the profile map below)
 EOF
       exit 0
       ;;
@@ -69,6 +74,33 @@ EXPORT_OPTIONS_RESOLVED="$DERIVED/ExportOptions.plist"
 cp "$EXPORT_OPTIONS" "$EXPORT_OPTIONS_RESOLVED"
 /usr/libexec/PlistBuddy -c "Set :teamID $HEADROOM_TEAM_ID" \
   "$EXPORT_OPTIONS_RESOLVED"
+
+# Xcode-managed profiles are minted by the signed-in Xcode account, which a
+# runner does not have — an API key cannot mint them, whatever its role. So CI
+# exports against these named App Store profiles instead, downloaded by
+# .github/workflows/release.yml before this runs. Renaming one in App Store
+# Connect breaks the export, so the names are the contract.
+PROFILE_BUNDLES=(
+  "com.centaur-labs.headroom:Headroom App Store"
+  "com.centaur-labs.headroom.widget:Headroom Widget App Store"
+  "com.centaur-labs.headroom.watchkitapp:Headroom Watch App Store"
+  "com.centaur-labs.headroom.watchkitapp.faces:Headroom Watch Complication App Store"
+)
+
+if [[ "$MANUAL_SIGNING" -eq 1 ]]; then
+  /usr/libexec/PlistBuddy -c "Set :signingStyle manual" "$EXPORT_OPTIONS_RESOLVED"
+  /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" \
+    "$EXPORT_OPTIONS_RESOLVED"
+  /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" \
+    "$EXPORT_OPTIONS_RESOLVED"
+  for entry in "${PROFILE_BUNDLES[@]}"; do
+    /usr/libexec/PlistBuddy \
+      -c "Add :provisioningProfiles:${entry%%:*} string ${entry#*:}" \
+      "$EXPORT_OPTIONS_RESOLVED"
+  done
+  echo "Exporting with manual signing:"
+  /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" "$EXPORT_OPTIONS_RESOLVED"
+fi
 
 echo "Archiving HeadroomMobile $HEADROOM_VERSION ($HEADROOM_BUILD)"
 
