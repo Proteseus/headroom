@@ -28,14 +28,14 @@ Public download URLs (macOS Releases + iOS TestFlight) live in
 2. **App Store Connect app** — `com.centaur-labs.headroom` (id `6795549853`).
    Set GitHub secret `ASC_APP_ID` to that id. Optional: `ASC_TESTFLIGHT_GROUP`
    (default `Internal`).
-3. **Smoke upload** — locally:
+3. **Smoke upload** — locally, from a clean checkout at the tag:
    ```bash
-   export ASC_APP_ID=6795549853
-   export APPLE_API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_YAX564736L.p8
-   export APPLE_API_KEY_ID=YAX564736L
-   export APPLE_API_ISSUER_ID=3cfd203a-f83c-4f1b-8895-2f31c9c02a26
-   ./scripts/build-ios.sh --upload
+   ./scripts/ship-ios.sh --dry-run
    ```
+   Exporting a real IPA proves the certificate and profiles before a build
+   number is spent. Drop `--dry-run` to upload. Do not export `APPLE_API_*` for
+   this: a Developer-role key takes provisioning away from the Xcode account
+   and reproduces CI's export failure on your Mac.
 4. **Public TestFlight link** — ASC → TestFlight → Public Link → paste into
    [`install-links.md`](install-links.md) → commit.
 5. **Cut the tag** — `./scripts/cut-release.sh`
@@ -44,8 +44,8 @@ Public download URLs (macOS Releases + iOS TestFlight) live in
 
 **A bump to `host/VERSION` on `main` releases itself.** Push a commit that
 changes it, and the [Release workflow](../.github/workflows/release.yml) tags,
-builds, notarizes, publishes, and uploads to TestFlight with nothing running on
-your Mac. That is the whole procedure:
+builds, notarizes and publishes the macOS half with nothing running on your
+Mac. That is the whole procedure:
 
 ```bash
 # 1. bump host/VERSION
@@ -77,6 +77,59 @@ through the same script:
 ```
 
 Manual **Actions → Release → Run workflow** builds artifacts without publishing.
+
+## TestFlight
+
+The iPhone half needs the **Apple Distribution** certificate in
+`IOS_DISTRIBUTION_P12`. An App Store Connect key cannot substitute for it: a key
+mints *development* certificates only, so without the p12 the export asks for a
+distribution identity the runner has never had and fails with `Cloud signing
+permission error`. Upgrading the key's role does not help — that was tried on
+2026-07-29 with an App Manager key and failed identically. Each such run also
+leaves a "Created via API" development certificate behind, against the team's
+cap.
+
+With that secret set, a release publishes to TestFlight on its own and the rest
+of this section is only a fallback for when CI is unavailable.
+
+Run this from the Mac once the Release has published:
+
+```bash
+git worktree add --detach /tmp/ship v1.1.5
+```
+
+```bash
+cd /tmp/ship && ./scripts/ship-ios.sh
+```
+
+Signing comes from the Xcode account on that Mac, which holds the **Apple
+Distribution** certificate CI cannot create, so
+[`ship-ios.sh`](../scripts/ship-ios.sh) keeps the ASC key out of the archive
+and lets `asc` upload under its own stored credential.
+
+It refuses to run unless the tree is clean and `HEAD` is the tag matching
+`host/VERSION`. Both numbers Apple sees come from the commit —
+`CFBundleShortVersionString` from `host/VERSION`, `CFBundleVersion` from
+`git rev-list --count HEAD` — so one extra commit moves the build number and
+puts something on TestFlight that no GitHub Release accounts for. Nothing
+downstream can withdraw it. Hence the worktree at the tag.
+
+`--dry-run` exports `dist/Headroom-iOS.ipa` and stops, which is the way to
+check signing without spending a build number.
+
+**This path is currently blocked**, and not by signing. The iPhone app embeds
+the watch app, which on this Mac only archives under `Xcode-beta`
+([`AGENTS.md`](../AGENTS.md)), and App Store Connect rejects beta-SDK builds
+with `ITMS-90534: Unsupported SDK or Xcode version` — betas may be uploaded,
+only Release Candidates are accepted. Stable Xcode refuses the archive outright
+(*"watchOS 26.5 must be installed"*) until its watchOS platform is installed:
+
+```bash
+xcodebuild -downloadPlatform watchOS
+```
+
+CI is unaffected: its runner archives against a release SDK. Which is the other
+reason to keep the workflow, rather than the Mac, as the way builds ship.
 
 What the [Release workflow](../.github/workflows/release.yml) does on a `v*` tag:
 
@@ -119,21 +172,28 @@ base64 -i DeveloperID.p12 | pbcopy
 2. Create a key with **App Manager** (or Admin) access; download the `.p8` once.
 3. Note Key ID + Issuer ID.
 
-A **Developer**-role key notarizes fine but cannot mint distribution
-provisioning profiles, so the macOS job goes green and the iOS one fails at
-export with `Cloud signing permission error` / `No profiles for
-'com.centaur-labs.headroom' were found`. The archive succeeds first, which is
-what makes it look like a build problem rather than a credentials one. Fixing
-it means a new key at the higher role and re-running
-`scripts/setup-release-secrets.sh` — the role of an existing key cannot be
-changed.
+The key's role is not what fixes iOS signing, and chasing it wastes a day. No
+key of any role can mint an **Apple Distribution** certificate — a key creates
+*development* certificates and nothing else. So when the runner has no
+distribution identity, export fails with `Cloud signing permission error` /
+`No profiles for 'com.centaur-labs.headroom' were found` no matter how
+privileged the key is; an App Manager key was tried on 2026-07-29 and failed
+identically to the Developer one. The archive succeeds first, which is what
+makes it read as a build problem rather than a credentials one. The fix is
+`IOS_DISTRIBUTION_P12` below.
+
+Each failed attempt also leaves a `Created via API` development certificate on
+the account, so a run of red releases quietly walks the team toward its
+certificate cap. They are safe to revoke.
 
 ### 3. GitHub Actions secrets
 
 | Secret | Value |
 |---|---|
-| `MACOS_CERTIFICATE_P12` | base64 of the Developer ID `.p12` |
-| `MACOS_CERTIFICATE_PASSWORD` | password used when exporting the `.p12` |
+| `MACOS_CERTIFICATE_P12` | base64 of the **Developer ID Application** `.p12` (macOS notarization) |
+| `MACOS_CERTIFICATE_PASSWORD` | password used when exporting that `.p12` |
+| `IOS_DISTRIBUTION_P12` | base64 of the **Apple Distribution** `.p12` (iOS export) |
+| `IOS_DISTRIBUTION_PASSWORD` | password used when exporting that `.p12` |
 | `KEYCHAIN_PASSWORD` | any random string (CI temp keychain) |
 | `APPLE_API_KEY` | raw `.p8` PEM contents |
 | `APPLE_API_KEY_ID` | Key ID |

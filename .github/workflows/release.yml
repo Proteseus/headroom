@@ -315,6 +315,49 @@ jobs:
           source ./scripts/version-env.sh
           echo "Headroom iOS $HEADROOM_VERSION+$HEADROOM_BUILD"
 
+      # Cloud signing can create *development* certificates from an API key and
+      # nothing more — Apple does not let a key mint an Apple Distribution one.
+      # Without this the export asks for a distribution identity the runner has
+      # never had, and fails with "Cloud signing permission error". Every such
+      # run also leaves another "Created via API" development cert behind,
+      # against the team's cap. Import the real identity instead.
+      - name: Import Apple Distribution certificate
+        id: ioscert
+        if: steps.asc.outputs.ready == 'true'
+        env:
+          IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [[ -z "${IOS_DISTRIBUTION_P12:-}" || -z "${IOS_DISTRIBUTION_PASSWORD:-}" ]]; then
+            echo "error: IOS_DISTRIBUTION_P12 / _PASSWORD missing — export cannot sign" >&2
+            echo "       (see docs/releasing.md, 'TestFlight is a second, local step')" >&2
+            exit 1
+          fi
+          CERTIFICATE_PATH="$RUNNER_TEMP/ios-distribution.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/headroom-ios.keychain-db"
+          echo -n "$IOS_DISTRIBUTION_P12" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$IOS_DISTRIBUTION_PASSWORD" \
+            -A -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "${KEYCHAIN_PASSWORD:-headroom-ci}" "$KEYCHAIN_PATH" || true
+          # A p12 missing either half imports silently (see docs/releasing.md).
+          # Fail here rather than let export report a confusing signing error.
+          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+              | grep -q "Apple Distribution"; then
+            echo "error: no Apple Distribution identity after import — the p12 is" >&2
+            echo "       missing its certificate or its private key" >&2
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2 || true
+            exit 1
+          fi
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Apple Distribution"
+
       - name: Build IPA + publish TestFlight
         if: steps.asc.outputs.ready == 'true'
         env:

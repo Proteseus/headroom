@@ -72,8 +72,11 @@ cp "$EXPORT_OPTIONS" "$EXPORT_OPTIONS_RESOLVED"
 
 echo "Archiving HeadroomMobile $HEADROOM_VERSION ($HEADROOM_BUILD)"
 
-# Optional ASC API key → Xcode can refresh provisioning profiles on CI.
-AUTH_ARGS=()
+# Let Xcode mint the missing App Store profiles either way. On CI that needs
+# the ASC key appended below; on a Mac with an Apple Distribution certificate
+# the signed-in Xcode account does it, and passing a key would override the
+# account with something weaker (see scripts/ship-ios.sh).
+AUTH_ARGS=(-allowProvisioningUpdates)
 key_path="${APPLE_API_KEY_PATH:-}"
 key_id="${APPLE_API_KEY_ID:-}"
 issuer="${APPLE_API_ISSUER_ID:-}"
@@ -85,8 +88,7 @@ if [[ -n "$key_id" && -n "$issuer" ]]; then
     key_path="$tmp_auth_key"
   fi
   if [[ -n "$key_path" ]]; then
-    AUTH_ARGS=(
-      -allowProvisioningUpdates
+    AUTH_ARGS+=(
       -authenticationKeyPath "$key_path"
       -authenticationKeyID "$key_id"
       -authenticationKeyIssuerID "$issuer"
@@ -131,30 +133,29 @@ if [[ "$UPLOAD" -eq 0 ]]; then
   exit 0
 fi
 
-app_id="${ASC_APP_ID:-}"
+# Defaults to the maintainer's App Store Connect app, same as $HEADROOM_TEAM_ID
+# defaults to their team; a fork exports its own.
+app_id="${ASC_APP_ID:-6795549853}"
 group="${ASC_TESTFLIGHT_GROUP:-Internal}"
-if [[ -z "$app_id" ]]; then
-  echo "error: ASC_APP_ID required for --upload (App Store Connect app id)" >&2
-  exit 1
-fi
-if [[ -z "$key_id" || -z "$issuer" ]]; then
-  echo "error: APPLE_API_KEY_ID and APPLE_API_ISSUER_ID required for --upload" >&2
-  exit 1
-fi
-if [[ -z "$key_path" || ! -f "$key_path" ]]; then
-  echo "error: set APPLE_API_KEY_PATH or APPLE_API_KEY for --upload" >&2
-  exit 1
-fi
 command -v asc >/dev/null || {
   echo "error: install asc (brew install asc) for TestFlight upload" >&2
   exit 1
 }
 
-# Prefer env auth so CI does not need a keychain profile.
-export ASC_KEY_ID="$key_id"
-export ASC_ISSUER_ID="$issuer"
-export ASC_PRIVATE_KEY_PATH="$key_path"
-export ASC_BYPASS_KEYCHAIN=true
+if [[ -n "$key_id" && -n "$issuer" && -n "$key_path" && -f "$key_path" ]]; then
+  # Prefer env auth so CI does not need a keychain profile.
+  export ASC_KEY_ID="$key_id"
+  export ASC_ISSUER_ID="$issuer"
+  export ASC_PRIVATE_KEY_PATH="$key_path"
+  export ASC_BYPASS_KEYCHAIN=true
+elif ! asc auth status 2>/dev/null | grep -q '"keyId"'; then
+  # No key in the environment and nothing in the keychain either. `asc auth
+  # status` exits 0 with an empty credential list, so match on the list.
+  echo "error: no App Store Connect credentials for --upload — set" >&2
+  echo "       APPLE_API_KEY_ID + APPLE_API_ISSUER_ID + APPLE_API_KEY_PATH," >&2
+  echo "       or store one with 'asc auth add' (see docs/releasing.md)" >&2
+  exit 1
+fi
 export ASC_APP_ID="$app_id"
 
 echo "Publishing to TestFlight (app $app_id → group $group)…"

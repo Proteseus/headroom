@@ -31,3 +31,10 @@ xcuserdata/
 # Per-machine firmware build counter (see firmware/version.py).
 firmware/.build_number
 firmware/.flashed_build
+
+# Signing material. Certificates and App Store Connect keys live in the
+# keychain and in GitHub secrets, never here — this is a backstop for the
+# working copy someone exports to their Desktop mid-release.
+*.p12
+*.p8
+*.mobileprovision
