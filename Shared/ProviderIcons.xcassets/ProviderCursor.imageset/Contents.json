@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "ProviderClaude.svg",
+      "filename" : "ProviderCursor.svg",
       "idiom" : "universal"
     }
   ],
@@ -10,7 +10,7 @@
     "version" : 1
   },
   "properties" : {
-    "preserves-vector-representation" : true,
-    "template-rendering-intent" : "template"
+    "template-rendering-intent" : "template",
+    "preserves-vector-representation" : true
   }
 }

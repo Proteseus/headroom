@@ -159,14 +159,8 @@ struct DashboardView: View {
                         if tabID == DashboardSelection.overview {
                             Image(systemName: "rectangle.grid.2x2")
                                 .font(.system(size: 10.5, weight: .medium))
-                        } else if let iconName =
-                            DashboardSelection.iconAssetName(for: tabID)
-                        {
-                            Image(iconName)
-                                .resizable()
-                                .renderingMode(.template)
-                                .scaledToFit()
-                                .frame(width: 11, height: 11)
+                        } else {
+                            ProviderMark(providerID: tabID, size: 11)
                         }
                         Text(DashboardSelection.title(
                             for: tabID, providers: visibleProviders))

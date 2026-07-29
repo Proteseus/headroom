@@ -23,8 +23,8 @@ tag a version that has no entry.
   diagnosis that distinguishes Wi-Fi, host resolution, token, HTTP, and USB
   failures. The new flashing helper refuses to race another process for the
   serial port.
-- Claude, Codex, and Cursor marks now identify their tabs in the Mac
-  dashboard, including named accounts under each provider.
+- Claude, Codex, and Cursor marks now identify providers across the Mac and
+  iPhone dashboards, including named accounts under each provider.
 
 ### Fixed
 

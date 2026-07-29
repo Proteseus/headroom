@@ -103,6 +103,7 @@ private struct ProviderSummaryRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
+                    ProviderMark(providerID: provider.id, size: 16)
                     Text(provider.displayTitle)
                         .font(.headline)
                     if let plan = provider.plan {
