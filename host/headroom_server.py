@@ -1053,6 +1053,9 @@ def _providers_payload(state, burndowns=None):
                     oauth_usage.pace_pct(resets, window) if window else None),
                 "ring": bool(spec.ring),
             }
+        age = payload.get("stale_for_s")
+        if not isinstance(age, (int, float)):
+            age = _age_seconds(payload)
         rows.append({
             "id": source.id,
             "title": source.title,
@@ -1066,11 +1069,11 @@ def _providers_payload(state, burndowns=None):
             # that is now deliberately absent, which is not a difference a
             # reader can be expected to notice.
             "stale": bool(payload.get("stale")),
-            "age_s": _age_seconds(payload),
+            "age_s": age,
             # Follow-up clients use the explicit stale-duration name. Keep
             # age_s for clients already shipped against the first freshness
             # payload; both are derived from the same fetched_at timestamp.
-            "stale_for_s": _age_seconds(payload),
+            "stale_for_s": age,
             "plan": payload.get("plan"),
             "error": payload.get("error"),
             "accent": sources_config.accent_for(source.id),
