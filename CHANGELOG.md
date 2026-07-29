@@ -9,6 +9,23 @@ tag a version that has no entry.
 
 ## 1.1.0 — 2026-07-29
 
+### Added
+
+- Headroom now runs on Apple Watch with quota-ring and burndown
+  complications. The iPhone forwards its existing snapshot over
+  WatchConnectivity, so the watch does not need a second API or direct access
+  to the Mac.
+- Provider-granted resets now remain visible instead of making the burndown
+  look as if it forgot the previous window. Charts show the forgiven curve and
+  reset marker, the activity feed records the grant, and the ESP32 receives a
+  compact version of the same history.
+- The ESP32 has a generated cold-boot sequence plus an on-screen connection
+  diagnosis that distinguishes Wi-Fi, host resolution, token, HTTP, and USB
+  failures. The new flashing helper refuses to race another process for the
+  serial port.
+- Claude, Codex, and Cursor marks now identify their tabs in the Mac
+  dashboard, including named accounts under each provider.
+
 ### Fixed
 
 - **Claude quota could sit fifteen hours out of date and still read as live.**
@@ -39,9 +56,17 @@ tag a version that has no entry.
 
 ### Changed
 
-- `providers[]` carries `stale` and `age_s` per source, so a client can tell
-  last-known numbers from current ones without inferring it from an absent
-  countdown.
+- `providers[]` carries `stale`, `age_s`, and `stale_for_s` per source, so a
+  client can tell last-known numbers from current ones without inferring it
+  from an absent countdown.
+- Activity rows now state their outcome and what needs attention in words.
+  Colour remains supporting information rather than the only status signal.
+- Quota rings use the sampled burndown pace when it is available, and visibly
+  mark a provider whose last-known reading is no longer updating.
+- Unconfigured Plausible and Supabase services stay out of the Mac and iPhone
+  dashboards until they are enabled in Settings.
+- App icons now use process cyan, magenta, and yellow rings so their three
+  bands remain distinct at small catalog sizes.
 
 ### Fixed
 
