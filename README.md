@@ -248,6 +248,7 @@ LAN with `"require_auth": false`, in `~/.headroom/config.json`.
 | Empty provider | Sign into that app/CLI; enable under Settings → AI coding tools |
 | Empty dev tool | Paste its key under Settings, then enable it under Dev tools |
 | iPhone won’t pair | Confirm **mobile token** (not host token); Local Network allowed |
+| ESP32 says **NO HOST** | The panel names the failing half — SSID, resolved address, token, and why. `pio device monitor` prints the same plus the two `curl` checks to run on the Mac |
 | Gatekeeper blocks .app | Prefer a [notarized Release](https://github.com/michellzappa/headroom/releases); otherwise right-click → Open. Signing setup: [docs/releasing.md](docs/releasing.md) |
 | Restart host | `launchctl kickstart -k gui/$(id -u)/com.centaur-labs.headroom` |
 | Build a fresh .app | `./scripts/build-app.sh` → `dist/Headroom.app` |

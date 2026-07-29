@@ -20,12 +20,14 @@
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <esp_task_wdt.h>
+#include <esp_system.h>
 #include <Preferences.h>
 #include <Arduino_GFX_Library.h>
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
 
 #include "pin_config.h"
+#include "boot_max.h"  // generated — see scripts/render_esp32_boot.py
 #include "config.h"   // copy config_example.h -> config.h
 
 // Older config.h files predate these — keep them building.
@@ -68,11 +70,14 @@ static const uint16_t COL_BAR    = RGB565(42, 40, 38);     // unfilled quota tra
 static const uint16_t COL_GREEN  = RGB565(95, 155, 115);   // soft sage
 static const uint16_t COL_AMBER  = RGB565(195, 155, 85);    // soft amber
 static const uint16_t COL_RED    = RGB565(175, 105, 100);   // soft dusty red
-static const uint16_t COL_CRT    = RGB565(232, 168, 48);   // boot amber phosphor
-static const uint16_t COL_CRT_DIM= RGB565(140, 90, 28);
-static const uint16_t COL_CRT_BG = RGB565(12, 8, 4);
-static const uint16_t COL_CRT_HDR= RGB565(28, 18, 8);      // boot header bar
-static const uint16_t COL_CRT_SCAN= RGB565(18, 12, 4);     // scanlines
+// Boot / diagnostic chrome. Carries the splash palette rather than the old
+// amber phosphor, so the ROM checklist reads as the same machine that just
+// played the intro instead of a different one booting after it.
+static const uint16_t COL_CRT    = RGB565(0, 214, 236);    // cyan phosphor
+static const uint16_t COL_CRT_DIM= RGB565(150, 40, 120);   // magenta, receding
+static const uint16_t COL_CRT_BG = RGB565(6, 4, 14);       // = the splash bg
+static const uint16_t COL_CRT_HDR= RGB565(22, 14, 44);     // boot header bar
+static const uint16_t COL_CRT_SCAN= RGB565(12, 8, 26);     // scanlines
 
 // Green fringe sits on the native right edge (logical bottom at rotation 3).
 // Paint over it in-panel after every blit. Also blank a few GRAM columns past
@@ -166,6 +171,29 @@ public:
     rotateLogicalToNative(_framebuffer, _native);
     _output->draw16bitRGBBitmap(0, 0, _native, LCD_WIDTH, LCD_HEIGHT);
     sealNativeEdges(COL_BG);
+  }
+
+  // Slide a band of logical rows sideways in place — the boot-splash stutter.
+  // Cheaper than redrawing the band offset, and it tears the backdrop along
+  // with the sprite, which is what makes it read as a broken signal.
+  void tearRows(int16_t y, int16_t h, int16_t dx, uint16_t fill) {
+    if (!_framebuffer || dx == 0) return;
+    if (y < 0) { h = (int16_t)(h + y); y = 0; }
+    if (y + h > LOG_H) h = (int16_t)(LOG_H - y);
+    if (h <= 0) return;
+    const int16_t n = (int16_t)(dx < 0 ? -dx : dx);
+    if (n >= LOG_W) return;
+    const size_t keep = (size_t)(LOG_W - n) * sizeof(uint16_t);
+    for (int16_t row = y; row < y + h; row++) {
+      uint16_t *p = _framebuffer + (int32_t)row * LOG_W;
+      if (dx > 0) {
+        memmove(p + n, p, keep);
+        for (int16_t i = 0; i < n; i++) p[i] = fill;
+      } else {
+        memmove(p, p + n, keep);
+        for (int16_t i = (int16_t)(LOG_W - n); i < LOG_W; i++) p[i] = fill;
+      }
+    }
   }
 
   // Push a logical axis-aligned dirty rect without a full frame.
@@ -534,6 +562,26 @@ static WiFiMulti wifiMulti;
 static String resolvedHost = "";   // cached IP (or hostname) of the Mac
 static bool mdnsUp = false;
 
+// Why the last fetch failed, short enough for the panel and worth reading on
+// Serial. "server unreachable" on its own sends you hunting the wrong half of
+// the link — Wi-Fi down, mDNS miss, wrong token and dead host all look alike.
+static String netErr = "";
+static bool hostViaMdns = false;     // resolvedHost came from mDNS, not fallback
+static int lastHttpCode = 0;         // last /usage HTTP status (or HTTPClient err)
+static uint32_t lastOkMs = 0;        // millis() of the last successful fetch
+static bool everOk = false;
+
+// Which pipe the last good payload came down. The board silently prefers Wi-Fi
+// and falls back to the cable, so without this the two are indistinguishable —
+// and "why is it stale when I unplug it" has no answer on the glass.
+enum LinkVia : uint8_t { LINK_NONE = 0, LINK_WIFI, LINK_USB };
+static LinkVia linkVia = LINK_NONE;
+
+static void setNetErr(const String &why) {
+  netErr = why;
+  Serial.printf("net: %s\n", why.c_str());
+}
+
 static void connectWifi() {
   WiFi.mode(WIFI_STA);
   for (auto &n : WIFI_NETWORKS) wifiMulti.addAP(n.ssid, n.pass);
@@ -545,9 +593,20 @@ static const String &hostFor() {
   if (resolvedHost.length()) return resolvedHost;
   if (mdnsUp) {
     IPAddress ip = MDNS.queryHost(HOST_NAME, 2000);
-    if ((uint32_t)ip != 0) { resolvedHost = ip.toString(); return resolvedHost; }
+    if ((uint32_t)ip != 0) {
+      resolvedHost = ip.toString();
+      hostViaMdns = true;
+      Serial.printf("mdns: %s.local → %s\n", HOST_NAME, resolvedHost.c_str());
+      return resolvedHost;
+    }
+    Serial.printf("mdns: %s.local not found — falling back to %s\n",
+                  HOST_NAME, HOST_FALLBACK_IP);
+  } else {
+    Serial.printf("mdns: responder down — falling back to %s\n",
+                  HOST_FALLBACK_IP);
   }
   resolvedHost = HOST_FALLBACK_IP;   // last resort
+  hostViaMdns = false;
   return resolvedHost;
 }
 
@@ -1061,20 +1120,44 @@ static bool applyUsageStream(Stream &stream) {
 }
 
 static bool fetchUsageHttp() {
-  if (WiFi.status() != WL_CONNECTED) return false;
-  String url = "http://" + hostFor() + ":" + String(HOST_PORT) +
+  if (WiFi.status() != WL_CONNECTED) {
+    setNetErr("no wi-fi");
+    return false;
+  }
+  const String host = hostFor();
+  String url = "http://" + host + ":" + String(HOST_PORT) +
                "/usage?view=device&fw=" + fwVersion();
   HTTPClient http;
   // Fail fast — a slow/wrong LAN must not starve BOOT/touch.
   http.setConnectTimeout(700);
   http.setTimeout(1000);
-  if (!http.begin(url)) return false;
+  if (!http.begin(url)) {
+    setNetErr("bad url " + host);
+    return false;
+  }
   addAuthHeader(http);
+  Serial.printf("GET %s\n", url.c_str());
   int code = http.GET();
+  lastHttpCode = code;
   if (code != 200) {
     http.end();
-    if (code == 401) {
-      Serial.println("usage → HTTP 401: HOST_TOKEN missing or wrong");
+    // Negative codes are HTTPClient transport errors (refused, timeout, no
+    // route); positive ones came from a server that answered. Different bug,
+    // different fix — so say which.
+    if (code < 0) {
+      setNetErr(host + ": " + HTTPClient::errorToString(code));
+      Serial.printf("usage → %s (%d) — is headroom_server.py running on "
+                    "%s:%d? check: curl http://%s:%d/health\n",
+                    HTTPClient::errorToString(code).c_str(), code,
+                    host.c_str(), HOST_PORT, host.c_str(), HOST_PORT);
+    } else if (code == 401 || code == 403) {
+      setNetErr("HTTP " + String(code) + " bad token");
+      Serial.println("usage → HTTP 401/403: HOST_TOKEN missing or wrong. "
+                     "On the Mac: cat ~/.headroom/token — paste into "
+                     "firmware/src/config.h");
+    } else {
+      setNetErr("HTTP " + String(code));
+      Serial.printf("usage → HTTP %d\n", code);
     }
     resolvedHost = "";   // force a fresh mDNS lookup next time
     return false;
@@ -1085,6 +1168,8 @@ static bool fetchUsageHttp() {
   // for no reason.
   bool ok = applyUsageStream(http.getStream());
   http.end();
+  if (!ok) setNetErr("bad json from " + host);
+  else linkVia = LINK_WIFI;
   return ok;
 }
 
@@ -1095,6 +1180,7 @@ static bool fetchUsageUsb(uint32_t timeoutMs) {
   if (!usbTransact(request.c_str(), 200, &body, &len, timeoutMs)) return false;
   bool ok = applyUsageJson(body, len);
   if (body) heap_caps_free(body);
+  if (ok) linkVia = LINK_USB;
   return ok;
 }
 
@@ -1104,14 +1190,66 @@ static bool fetchUsage(uint32_t usbTimeoutMs = USB_TIMEOUT_POLL_MS) {
   // forever while the host holds the CDC write path (UI deadlock).
   if (WiFi.status() == WL_CONNECTED && fetchUsageHttp()) {
     Serial.println("usage via Wi-Fi");
+    netErr = "";
+    lastOkMs = millis();
+    everOk = true;
     return true;
   }
+  const String wifiErr = netErr;   // keep the HTTP reason if USB also fails
   if (fetchUsageUsb(usbTimeoutMs)) {
     Serial.println("usage via USB");
+    netErr = "";
+    lastOkMs = millis();
+    everOk = true;
     return true;
   }
+  if (WiFi.status() != WL_CONNECTED) setNetErr("no wi-fi, no usb host");
+  else netErr = wifiErr.length() ? wifiErr : String("no route to host");
   hostOk = false;
   return false;
+}
+
+// Everything you'd otherwise squint at a serial log for, in one dump. Called on
+// every failed poll so a board left on the desk still explains itself.
+static void logNetDiag() {
+  const bool up = WiFi.status() == WL_CONNECTED;
+  Serial.println("---- headroom net diag ----");
+  Serial.printf("  fw       : %s\n", fwVersion().c_str());
+  Serial.printf("  wifi     : %s", up ? "connected" : "DOWN");
+  if (up) Serial.printf("  ssid=%s  rssi=%d dBm  ip=%s",
+                        WiFi.SSID().c_str(), WiFi.RSSI(),
+                        WiFi.localIP().toString().c_str());
+  Serial.println();
+  if (up) Serial.printf("  gateway  : %s  mask=%s  dns=%s\n",
+                        WiFi.gatewayIP().toString().c_str(),
+                        WiFi.subnetMask().toString().c_str(),
+                        WiFi.dnsIP().toString().c_str());
+  Serial.printf("  mdns     : responder=%s  %s.local → %s\n",
+                mdnsUp ? "up" : "DOWN", HOST_NAME,
+                resolvedHost.length()
+                    ? (hostViaMdns ? resolvedHost.c_str()
+                                   : (resolvedHost + " (fallback)").c_str())
+                    : "unresolved");
+  Serial.printf("  target   : http://%s:%d/usage\n",
+                resolvedHost.length() ? resolvedHost.c_str()
+                                      : HOST_FALLBACK_IP, HOST_PORT);
+  Serial.printf("  token    : %s\n",
+                sizeof(HOST_TOKEN) > 1 ? "set" : "EMPTY (host will 401)");
+  Serial.printf("  link     : %s\n",
+                linkVia == LINK_WIFI ? "wi-fi"
+                                     : (linkVia == LINK_USB ? "usb" : "none"));
+  Serial.printf("  last code: %d\n", lastHttpCode);
+  Serial.printf("  last ok  : %s\n",
+                everOk ? (String((millis() - lastOkMs) / 1000) + "s ago").c_str()
+                       : "never");
+  Serial.printf("  error    : %s\n", netErr.length() ? netErr.c_str() : "none");
+  Serial.println("  on the Mac, in order:");
+  Serial.printf("    curl -s http://127.0.0.1:%d/health\n", HOST_PORT);
+  Serial.printf("    curl -s -H \"X-Headroom-Token: $(cat ~/.headroom/token)\""
+                " http://%s:%d/usage | head -c 200\n",
+                resolvedHost.length() ? resolvedHost.c_str()
+                                      : HOST_FALLBACK_IP, HOST_PORT);
+  Serial.println("---------------------------");
 }
 
 // ---------------- Rendering ----------------
@@ -1175,6 +1313,57 @@ static void drawStatus(const String &msg, uint16_t col) {
   gfx->flush();
 }
 
+// The unreachable screen, with the state that decides which half of the link to
+// go poke. Beats "server unreachable" plus a walk to the Mac to guess.
+static void drawNetDiag() {
+  gfx->clear(COL_CRT_BG);
+  const int16_t pad = UI_PAD;
+  gfx->drawRect(pad, pad, scrW() - pad * 2, scrH() - pad * 2, COL_CRT_DIM);
+  drawCentered("NO HOST", pad + 10, 2, COL_RED);
+
+  const bool up = WiFi.status() == WL_CONNECTED;
+  int16_t y = pad + 42;
+  const int16_t x = pad + 12;
+  // Same size 2 and 20px pitch as the boot checklist — this screen is read
+  // from across the desk, which is the whole reason it exists.
+  const int16_t xv = (int16_t)(x + 6 * 2 * 6);   // widest label is 5 chars + gap
+  const int16_t step = 20;
+  const int16_t maxChars = (int16_t)((scrW() - pad - 4 - xv) / (6 * 2));
+
+  auto row = [&](const char *label, const String &value, uint16_t col) {
+    drawTextAt(label, x, y, 2, COL_CRT_DIM);
+    // Values run long (an mDNS miss, a wedged-socket message). Clip rather
+    // than let Arduino_GFX wrap it into the next row.
+    drawTextAt(value.length() > (unsigned)maxChars
+                   ? value.substring(0, maxChars)
+                   : value,
+               xv, y, 2, col);
+    y = (int16_t)(y + step);
+  };
+
+  row("WIFI", up ? WiFi.SSID() : String("not connected"),
+      up ? COL_CRT : COL_RED);
+  if (up) {
+    row("IP", WiFi.localIP().toString() + "  " + String(WiFi.RSSI()) + "dBm",
+        COL_CRT);
+  }
+  row("HOST", String(HOST_NAME) + ":" + String(HOST_PORT), COL_CRT);
+  row("ADDR", resolvedHost.length()
+                  ? resolvedHost + (hostViaMdns ? "  mdns" : "  fallback")
+                  : String("unresolved"),
+      resolvedHost.length() && hostViaMdns ? COL_CRT : COL_AMBER);
+  row("TOKEN", sizeof(HOST_TOKEN) > 1 ? "set" : "EMPTY",
+      sizeof(HOST_TOKEN) > 1 ? COL_CRT : COL_RED);
+  row("LAST", everOk ? String((millis() - lastOkMs) / 1000) + "s ago"
+                     : String("never"),
+      everOk ? COL_CRT : COL_RED);
+  row("WHY", netErr.length() ? netErr : String("unknown"), COL_RED);
+
+  drawCentered("start the host on the Mac, then wait a poll",
+               scrH() - pad - 22, 1, COL_CRT_DIM);
+  gfx->flush();
+}
+
 // ---- 8-bit CRT boot ----
 static int16_t bootY = 0;
 static uint8_t bootBlink = 0;
@@ -1212,14 +1401,291 @@ static void bootFlush() {
   gfx->flush();
 }
 
+// ---- Max Headroom cold-boot splash ----
+// Deliberately off-palette: the amber ROM chrome below is the machine at work,
+// this is the machine showing off. The vertical roll at the end is the hinge
+// between the two. Mask, copper tables and previews all come out of
+// scripts/render_esp32_boot.py — nothing here is hand-tuned art.
+//
+// The head is a mask, not a picture: everything inside the silhouette resolves
+// to the copper bar field, so no face is ever drawn. Only the lenses and the
+// vector outline are painted as themselves.
+static const uint16_t COL_MX_BG   = RGB565(6, 4, 14);
+static const uint16_t COL_MX_VOID = RGB565(0, 0, 0);        // lenses, mouth
+static const uint16_t COL_MX_EDGE = RGB565(255, 255, 255);  // vector outline
+static const uint16_t COL_MX_TEXT = RGB565(255, 255, 255);
+static const uint16_t COL_MX_TMID = RGB565(150, 190, 235);  // chrome bevel
+static const uint16_t COL_MX_TLOW = RGB565(40, 70, 150);
+static const uint16_t COL_MX_GHC  = RGB565(0, 190, 210);    // chroma-split ghosts
+static const uint16_t COL_MX_GHM  = RGB565(215, 30, 130);
+
+// Backdrop wedges. Kept dim on purpose — the copper head has to stay the
+// brightest thing in the frame or the whole picture turns to noise.
+static const uint16_t MX_RAY[4] = {
+    RGB565(64, 12, 46), RGB565(0, 52, 64),
+    RGB565(26, 58, 30), RGB565(72, 56, 14),
+};
+
+static const int16_t MX_SCALE = 5;
+static const int16_t MX_BAR_Y = 18;     // wordmark, clear of the corner radius
+static const int16_t MX_BAR_H = 52;
+static const uint8_t MX_RAY_COUNT = 26;
+static const float MX_RAY_DUTY = 0.22f;  // lit fraction of each slot
+// Far enough to clear every corner from the vanishing point, and no farther —
+// fillTriangle walks every scanline between its vertices, on-screen or not.
+static const float MX_RAY_R = 460.0f;
+// Backdrop rotation per frame — slow enough to read as a sweep, not a spin.
+static const float MX_RAY_STEP = 0.035f;
+// Copper scroll per frame, in scanlines.
+static const int16_t MX_COP_STEP = 5;
+
+static inline int16_t mxHeadX() { return (int16_t)((scrW() - MAX_W * MX_SCALE) / 2); }
+static inline int16_t mxHeadY() { return 60; }
+
+static inline uint8_t mxPixel(int16_t sx, int16_t sy) {
+  const uint8_t b = pgm_read_byte(&MAX_PIX[(int32_t)sy * MAX_STRIDE + (sx >> 1)]);
+  return (sx & 1) ? (uint8_t)(b & 0x0F) : (uint8_t)(b >> 4);
+}
+
+// Resolve one mask pixel against the copper field at this screen row.
+static uint16_t mxInk(uint8_t ink, int16_t y, int16_t cop, bool dimRow) {
+  if (ink == MAX_INK_VOID) return dimRow ? COL_MX_BG : COL_MX_VOID;
+  if (ink == MAX_INK_EDGE) return COL_MX_EDGE;
+  int32_t i = y + cop;
+  // The quiff runs half a band out of phase with the face. One continuous
+  // field turned the silhouette into a smooth egg — the phase break is what
+  // puts the hairline back without ever drawing a hairline.
+  if (ink == MAX_INK_HAIR) i += MAX_COPPER_BAND / 2;
+  i %= MAX_COPPER_N;
+  if (i < 0) i += MAX_COPPER_N;
+  return dimRow ? (uint16_t)pgm_read_word(&MAX_COPPER_DIM[i])
+                : (uint16_t)pgm_read_word(&MAX_COPPER[i]);
+}
+
+// A mask row never has more spans than this; guarded rather than sized to the
+// worst case, since overflowing would silently clip the right of the face.
+static const uint8_t MX_MAX_SPANS = 24;
+
+// Drawn one screen scanline at a time, not one mask block at a time: the
+// copper colour changes every screen row, so filling a 5px block in a single
+// colour would quantise the bars to the mask grid and flatten the gradient.
+//   shear — px of lean across the full height (the idle bob)
+//   rows  — mask rows to draw, top down (the wipe-in)
+//   tint  — non-zero forces everything flat (the chroma-split ghosts)
+static void mxHead(int16_t x0, int16_t y0, int16_t sy, int16_t shear,
+                   int16_t rows, uint16_t tint, int16_t cop) {
+  if (rows > MAX_H) rows = MAX_H;
+  struct Span { int16_t x, w; uint8_t ink; } span[MX_MAX_SPANS];
+  for (int16_t r = 0; r < rows; r++) {
+    const int16_t lean = (int16_t)((shear * (2 * r - MAX_H)) / (2 * MAX_H));
+    uint8_t n = 0;
+    int16_t c = 0;
+    while (c < MAX_W) {
+      const uint8_t ink = mxPixel(c, r);
+      int16_t run = 1;
+      while (c + run < MAX_W && mxPixel((int16_t)(c + run), r) == ink) run++;
+      if (ink && n < MX_MAX_SPANS) {
+        span[n].x = (int16_t)(c + lean);
+        span[n].w = run;
+        span[n].ink = ink;
+        n++;
+      }
+      c = (int16_t)(c + run);
+    }
+    for (int16_t sub = 0; sub < sy; sub++) {
+      const int16_t py = (int16_t)(y0 + r * sy + sub);
+      const bool dimRow = (sub == sy - 1) && sy > 1;
+      for (uint8_t i = 0; i < n; i++) {
+        gfx->drawFastHLine((int16_t)(x0 + span[i].x * MX_SCALE), py,
+                           (int16_t)(span[i].w * MX_SCALE),
+                           tint ? tint : mxInk(span[i].ink, py, cop, dimRow));
+      }
+    }
+  }
+}
+
+// Wedges radiating from a vanishing point behind his head — the show's
+// standing backdrop. squeeze < 1 flattens them toward mid-screen for the roll.
+static void mxRays(float phase, float squeeze) {
+  gfx->clear(COL_MX_BG);
+  const float vx = (float)(mxHeadX() + MAX_W * MX_SCALE / 2);
+  const float mid = (float)(scrH() / 2);
+  const float vy = mid + (150.0f - mid) * squeeze;
+  const float step = 6.2831853f / MX_RAY_COUNT;
+  for (uint8_t i = 0; i < MX_RAY_COUNT; i++) {
+    const float a0 = phase + i * step;
+    const float a1 = a0 + step * MX_RAY_DUTY;
+    gfx->fillTriangle(
+        (int16_t)vx, (int16_t)vy,
+        (int16_t)(vx + MX_RAY_R * cosf(a0)),
+        (int16_t)(vy + MX_RAY_R * sinf(a0) * squeeze),
+        (int16_t)(vx + MX_RAY_R * cosf(a1)),
+        (int16_t)(vy + MX_RAY_R * sinf(a1) * squeeze),
+        MX_RAY[i & 3]);
+  }
+}
+
+// gfx_font/Arduino_GFX both advance a fixed 6*size cell per glyph.
+static inline int16_t mxTextW(const char *s, uint8_t size) {
+  return (int16_t)(strlen(s) * 6 * size);
+}
+
+// Three passes at one-pixel offsets — the cheap bitmap-font chrome bevel. A
+// real gradient fill needs a mask the panel can't afford; stacking dark, mid
+// and bright copies gets the same read for the price of three blits.
+static void mxChromeText(const char *s, int16_t x, int16_t y, uint8_t size) {
+  drawTextAt(s, x, (int16_t)(y + 2), size, COL_MX_TLOW);
+  drawTextAt(s, x, (int16_t)(y + 1), size, COL_MX_TMID);
+  drawTextAt(s, x, y, size, COL_MX_TEXT);
+}
+
+static const char MX_SCROLL[] =
+    "HEADROOM ... 20 MINUTES INTO THE FUTURE ... C-C-CATCH THE WAVE ... ";
+static const int16_t MX_SCROLL_AMP = 8;
+// Pixels of travel per frame. Must stay well clear of the 12px character cell:
+// at 11 it aliased to -1px and the crawl appeared to run backwards.
+static const int16_t MX_SCROLL_STEP = 5;
+
+// Sine scroller: per-character vertical offset off a travelling wave.
+static void mxScroller(int16_t offset, int16_t y) {
+  const int16_t cell = 12;    // 6px cell at text size 2
+  const int16_t n = (int16_t)(sizeof(MX_SCROLL) - 1);
+  // Own band, so the wave never fights the silhouette behind it.
+  gfx->fillRect(0, (int16_t)(y - MX_SCROLL_AMP - 4), scrW(),
+                (int16_t)(MX_SCROLL_AMP * 2 + 20), COL_MX_BG);
+  const int16_t first = (int16_t)(offset / cell);
+  for (int16_t i = 0; i < scrW() / cell + 2; i++) {
+    int16_t idx = (int16_t)((first + i) % n);
+    if (idx < 0) idx = (int16_t)(idx + n);
+    const char ch = MX_SCROLL[idx];
+    if (ch == ' ') continue;
+    const int16_t x = (int16_t)(i * cell - (offset % cell));
+    const int16_t wave = (int16_t)(sinf((offset + x) * 0.021f) * MX_SCROLL_AMP);
+    const char buf[2] = {ch, 0};
+    drawTextAt(buf, x, (int16_t)(y + wave), 2, COL_MX_TEXT);
+  }
+}
+
+// Wordmark over the head with the scroller beneath. No plate behind either —
+// a solid panel reads as a UI card, and this is meant to read as an intro.
+static void mxTitle(bool stutter, int16_t phase) {
+  const char *word = stutter ? "H-H-HEADROOM" : "HEADROOM";
+  mxChromeText(word, (int16_t)((scrW() - mxTextW(word, 4)) / 2),
+               (int16_t)(MX_BAR_Y + 6), 4);
+  mxScroller(phase, (int16_t)(scrH() - 44));
+}
+
+// Hold for a target frame time measured from before the draw, so a slow flush
+// eats its own budget instead of stretching the whole sequence.
+static void mxFrame(uint32_t startMs, uint32_t targetMs) {
+  gfx->flush();
+  const uint32_t spent = millis() - startMs;
+  if (spent < targetMs) delay(targetMs - spent);
+}
+
+static void maxSplash() {
+  const int16_t hx = mxHeadX();
+  const int16_t hy = mxHeadY();
+  uint32_t t;
+
+  gfx->clear(COL_MX_BG);
+  gfx->flush();
+  delay(200);
+
+  // CRT strikes: a sliver at mid-screen opens up.
+  static const int16_t slivers[] = {1, 4, 10, 24};
+  for (uint8_t i = 0; i < 4; i++) {
+    t = millis();
+    gfx->clear(COL_MX_BG);
+    const int16_t mid = (int16_t)(scrH() / 2);
+    gfx->fillRect(0, (int16_t)(mid - slivers[i]), scrW(),
+                  (int16_t)(slivers[i] * 2 + 1), MX_RAY[0]);
+    gfx->drawFastHLine(0, mid, scrW(), COL_WHITE);
+    mxFrame(t, 40);
+  }
+
+  // He wipes in over the backdrop, top down.
+  static const int16_t wipe[] = {11, 21, 31, 41, 51, MAX_H};
+  for (uint8_t i = 0; i < 6; i++) {
+    t = millis();
+    mxRays(i * MX_RAY_STEP, 1.0f);
+    mxHead(hx, hy, MX_SCALE, 0, wipe[i], 0, (int16_t)(i * MX_COP_STEP));
+    mxFrame(t, 50);
+  }
+
+  // Idle bob.
+  static const int16_t lean[] = {0, 2, 3, 2, 0, -2, -3};
+  for (uint8_t i = 0; i < 7; i++) {
+    t = millis();
+    mxRays((6 + i) * MX_RAY_STEP, 1.0f);
+    mxHead(hx, hy, MX_SCALE, lean[i], MAX_H, 0, (int16_t)((6 + i) * MX_COP_STEP));
+    mxFrame(t, 70);
+  }
+
+  // The stutter. Ghosts first so the real head covers them except at the edges.
+  for (uint8_t i = 0; i < 3; i++) {
+    t = millis();
+    mxRays((13 + i) * MX_RAY_STEP, 1.0f);
+    mxHead((int16_t)(hx - 4), hy, MX_SCALE, -4, MAX_H, COL_MX_GHC, 0);
+    mxHead((int16_t)(hx + 4), hy, MX_SCALE, -4, MAX_H, COL_MX_GHM, 0);
+    mxHead(hx, hy, MX_SCALE, -4, MAX_H, 0, (int16_t)((13 + i) * MX_COP_STEP));
+    mxTitle(true, (int16_t)(i * MX_SCROLL_STEP));
+    gfx->tearRows(96, 22, 14, COL_MX_BG);
+    gfx->tearRows(168, 16, -22, COL_MX_BG);
+    gfx->tearRows(250, 12, 9, COL_MX_BG);
+    mxFrame(t, 70);
+  }
+
+  t = millis();
+  mxRays(16 * MX_RAY_STEP, 1.0f);
+  mxHead(hx, hy, MX_SCALE, -3, MAX_H, 0, (int16_t)(16 * MX_COP_STEP));
+  mxFrame(t, 60);
+
+  // Title card holds while Wi-Fi associates in the background.
+  for (uint8_t i = 0; i < 14; i++) {
+    t = millis();
+    mxRays((17 + i) * MX_RAY_STEP, 1.0f);
+    mxHead(hx, hy, MX_SCALE, (i % 4) < 2 ? 2 : 3, MAX_H, 0,
+           (int16_t)((17 + i) * MX_COP_STEP));
+    mxTitle(false, (int16_t)(40 + i * MX_SCROLL_STEP));
+    mxFrame(t, 100);
+  }
+
+  // Vertical roll — the picture collapses to a line and the ROM page takes over.
+  static const float squeeze[] = {0.70f, 0.40f, 0.16f, 0.05f};
+  for (uint8_t i = 0; i < 4; i++) {
+    t = millis();
+    int16_t sy = (int16_t)(MX_SCALE * squeeze[i]);
+    if (sy < 1) sy = 1;
+    mxRays(0.2f, squeeze[i]);
+    mxHead(hx, (int16_t)((scrH() - MAX_H * sy) / 2), sy, 0, MAX_H, 0,
+           (int16_t)(31 * MX_COP_STEP));
+    gfx->drawFastHLine(0, (int16_t)(scrH() / 2), scrW(), COL_WHITE);
+    mxFrame(t, 45);
+  }
+}
+
+// A warm reboot is almost always an OTA push or a watchdog bite — nobody is
+// watching, and the dev loop shouldn't pay four seconds for the show. Holding
+// BOOT at power-on skips it too.
+static bool wantMaxSplash() {
+  if (digitalRead(BTN_BOOT) == LOW) return false;
+  const esp_reset_reason_t why = esp_reset_reason();
+  return why == ESP_RST_POWERON || why == ESP_RST_BROWNOUT;
+}
+
 static void bootSplash() {
-  bootChrome();
-  drawCentered("20 MINUTES", scrH() / 2 - 28, 2, COL_CRT_DIM);
-  drawCentered("INTO THE FUTURE", scrH() / 2 - 6, 2, COL_CRT);
-  drawCentered("* SYSTEM ONLINE *", scrH() / 2 + 28, 2, COL_CRT_DIM);
-  gfx->fillRect(scrW() / 2 - 60, scrH() / 2 + 50, 120, 4, COL_CRT);
-  bootFlush();
-  delay(550);
+  if (wantMaxSplash()) {
+    maxSplash();
+  } else {
+    bootChrome();
+    drawCentered("20 MINUTES", scrH() / 2 - 28, 2, COL_CRT_DIM);
+    drawCentered("INTO THE FUTURE", scrH() / 2 - 6, 2, COL_CRT);
+    drawCentered("* SYSTEM ONLINE *", scrH() / 2 + 28, 2, COL_CRT_DIM);
+    gfx->fillRect(scrW() / 2 - 60, scrH() / 2 + 50, 120, 4, COL_CRT);
+    bootFlush();
+    delay(550);
+  }
   bootChrome();
   bootFlush();
 }
@@ -1503,6 +1969,36 @@ static void drawWifiDot(int16_t padX, int16_t top) {
   // (Wi-Fi HTTP or USB CDC).
   if (hostOk) return;
   gfx->fillCircle(scrW() - padX / 2, top + 8, 5, COL_RED);
+}
+
+// Footprint the home page reserves for the link glyph, bottom-right.
+static const int16_t LINK_GLYPH_W = 18;
+static const int16_t LINK_GLYPH_H = 15;
+
+// Which pipe fed the numbers above: Wi-Fi arcs, or a plug for the cable.
+// (rightX, bottomY) is the bottom-right corner the glyph is tucked into.
+static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
+  const uint16_t col = hostOk ? COL_DIM : COL_RED;
+  const int16_t gx = (int16_t)(rightX - LINK_GLYPH_W);
+  const int16_t gy = (int16_t)(bottomY - LINK_GLYPH_H);
+
+  if (linkVia == LINK_USB) {
+    // Plug: two prongs, a body, and a stub of cable. The real USB trident
+    // turns to mush below ~20px; a plug still reads at 15.
+    gfx->fillRect((int16_t)(gx + 5), (int16_t)(gy + 1), 2, 4, col);
+    gfx->fillRect((int16_t)(gx + 11), (int16_t)(gy + 1), 2, 4, col);
+    gfx->fillRoundRect((int16_t)(gx + 3), (int16_t)(gy + 5), 12, 7, 2, col);
+    gfx->fillRect((int16_t)(gx + 7), (int16_t)(gy + 12), 4, 3, col);
+    return;
+  }
+
+  // Wi-Fi: three arcs fanning up from a dot. -90 is 12 o'clock here, so a
+  // -135..-45 sweep is the upward 90 degree fan.
+  const int16_t cx = (int16_t)(gx + LINK_GLYPH_W / 2);
+  const int16_t cy = (int16_t)(bottomY - 2);
+  gfx->fillArc(cx, cy, 13, 11, -135, -45, col);
+  gfx->fillArc(cx, cy, 8, 6, -135, -45, col);
+  gfx->fillCircle(cx, (int16_t)(cy - 1), 1, col);
 }
 
 // Hottest pool % + matching pace for a provider (-1 if unavailable).
@@ -2343,7 +2839,9 @@ static void drawGlancePage() {
   const int16_t ringR = 32;
   const int16_t ringCy = top + 74;
   const int16_t midY = ringCy + ringR + 48;  // clear labels under rings
-  const int16_t lowBottom = H - bot;         // no footer — run to the margin
+  // No footer, but the bottom strip belongs to the link glyph — reserve it in
+  // both home modes so a long verdict or a sixth port can't run underneath.
+  const int16_t lowBottom = (int16_t)(H - bot - LINK_GLYPH_H);
 
   for (uint8_t i = 0; i < slotN; i++) {
     int16_t colX = padX + (int16_t)i * slot;
@@ -2373,6 +2871,7 @@ static void drawGlancePage() {
   }
 
   drawWifiDot(padX, top);
+  drawLinkGlyph((int16_t)(W - padX), (int16_t)(H - bot));
   present();
 }
 
@@ -3002,14 +3501,22 @@ void setup() {
   Serial.printf("panel->begin: %s\n", pok ? "ok" : "FAIL");
   sh8601VendorInit();
   Serial.println("sh8601VendorInit sent");
+  // Wipe GRAM — including the columns past LCD_WIDTH — BEFORE raising
+  // brightness. Lighting the panel first shows one frame of power-on garbage,
+  // which is the green line that used to flash along the bottom edge.
+  panel->fillScreen(COL_BLACK);
+  sealNativeEdges(COL_BLACK);
   panel->setBrightness(200);
-  // Wipe panel GRAM before the canvas takes over (kills power-on green fringe).
-  panel->fillScreen(COL_BG);
 
   // Panel already started — skip nested begin inside the canvas.
   bool cok = gfx->begin(GFX_SKIP_OUTPUT_BEGIN);
   Serial.printf("canvas->begin (landscape %dx%d): %s  psram=%d\n",
                 scrW(), scrH(), cok ? "ok" : "FAIL", (int)psramFound());
+
+  // Kick STA + known APs before the splash, not after: associating takes about
+  // as long as the animation runs, so the show costs ~nothing in time-to-data.
+  // Association itself completes in loop().
+  connectWifi();
 
   bootSplash();
   bootLine("CPU", "ESP32-S3", COL_CRT);
@@ -3036,9 +3543,6 @@ void setup() {
     snprintf(aps, sizeof aps, "%u AP", (unsigned)nAp);
     bootLine("RADIO", aps, COL_CRT);
   }
-
-  // Kick STA + known APs; associate in loop(). Desk USB can finish boot now.
-  connectWifi();
 
   {
     int16_t hostY = bootY;
@@ -3096,7 +3600,21 @@ void setup() {
         bootLine("HOST", HOST_NAME, COL_CRT_DIM);
       } else {
         bootLine("WIFI", "FAIL", COL_RED);
-        Serial.println("wifi FAILED (no known network in range?) — trying USB");
+        Serial.println("wifi FAILED — trying USB");
+        // Which is it: SSID not in range, or in range and the password is
+        // wrong? A scan answers that; guessing from "FAIL" does not.
+        Serial.println("visible APs:");
+        int n = WiFi.scanNetworks();
+        for (int i = 0; i < n; i++) {
+          bool known = false;
+          for (auto &k : WIFI_NETWORKS)
+            if (WiFi.SSID(i) == k.ssid) known = true;
+          Serial.printf("  %-32s %4d dBm  ch%-3d %s\n", WiFi.SSID(i).c_str(),
+                        WiFi.RSSI(i), WiFi.channel(i),
+                        known ? "← in config.h" : "");
+        }
+        if (n <= 0) Serial.println("  (none — antenna or radio problem)");
+        WiFi.scanDelete();
         bootLine("HOST", "USB", COL_CRT_DIM);
       }
 
@@ -3136,10 +3654,12 @@ void setup() {
         drawDashboard();
       } else {
         Serial.println("fetch FAILED (server/host unreachable)");
+        logNetDiag();
         bootLine("USAGE", "FAIL", COL_RED);
+        bootLine("WHY", netErr.length() ? netErr.c_str() : "unknown", COL_RED);
         bootLine("READY", "FAIL", COL_RED);
         delay(400);
-        drawStatus("server unreachable", COL_RED);
+        drawNetDiag();
       }
     }
   }
@@ -3191,7 +3711,8 @@ void loop() {
       drawDashboard();
     } else {
       if (fetchFails < FETCH_BACKOFF_MAX) fetchFails++;
-      if (!haveData) drawStatus("server unreachable", COL_RED);
+      logNetDiag();
+      if (!haveData) drawNetDiag();
     }
   }
   delay(4);
