@@ -22,6 +22,26 @@ tag a version that has no entry.
   Mac adopts the settings already in the folder instead of starting from
   defaults. Credentials and machine paths are never synced. See
   [docs/multi-mac.md](docs/multi-mac.md).
+- A first-run Welcome window introduces the menu bar app, dashboard, quota
+  rings, burndown charts, iPhone, Apple Watch and ESP32 companion. Settings can
+  reopen it later, and About now carries the app version and product credits
+  on both Mac and iPhone.
+- Banked Codex reset credits now show their own expiry deadline on burndown
+  charts, distinct from quota renewals and provider-granted resets.
+- The ESP32 glance includes a compact burndown view, recent local Git activity
+  and clearer host connection diagnostics.
+
+### Changed
+
+- The Mac quota dashboard adapts its tabs and card grid to the number of
+  enabled providers instead of reserving space for providers that are hidden.
+- Multi-Mac sharing can be enabled, disabled and inspected directly in
+  Settings, including the current Mac, discovered peers and sync directory.
+
+### Fixed
+
+- The LaunchAgent now runs from `~/.headroom` rather than the read-only bundled
+  host directory, so runtime state and relative writes have a writable home.
 
 ## 1.1.3 — 2026-07-29
 
