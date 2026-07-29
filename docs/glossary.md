@@ -25,6 +25,9 @@ any hardcoded chrome that still bypasses them.
 | **Services** | Supabase, Plausible, local servers | iOS tab (Mac stacks the same panels without a tab) |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
+| **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
+| **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
+| **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
 | **Attention** | Warning / status card | macOS, iOS |
 
 Do not title the activity feed **GitHub**. That word is reserved for the
@@ -83,6 +86,10 @@ dotted, captioned **Reset granted · N pts back**. Scheduled rolls get no mark;
 the axis already ends on those. The host detects them in the sample log
 (`burndown[].resets`), so the mark and the history agree by construction.
 
+A banked Codex reset credit has its own deadline. Once that deadline enters
+the fixed week it is a longer-dashed rule, captioned **Reset credit expires
+Thu 14:00**. It is not drawn as a renewal: expiry does not refill the pool.
+
 Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown`).
 Provider charts share one X-axis rule across Mac / iOS / ESP32: at most **seven
 weekday-named columns** (never day-of-month numbers); windows longer than a week
@@ -120,6 +127,22 @@ Keep these short; don’t explain the pipeline.
 | **Waiting for Mac sync** | iOS before first payload |
 | **Open Headroom on iPhone** | Watch before first payload — it cannot reach the Mac itself |
 | **Searching…** | Bonjour discovery in progress |
+
+## Welcome (macOS first run)
+
+The eight-pane window shown once per install, and again from Settings →
+**Show welcome**. It is a window rather than popover content because the
+popover is `.transient` and hangs off the very icon the walkthrough points at.
+
+Only names reused across surfaces live in `HeadroomCopy`; the pane prose is
+macOS-only and stays in `macos/Sources/WelcomeView.swift`.
+
+| Term | Use |
+|---|---|
+| **Welcome to Headroom** | Window title and first pane heading |
+| **Headroom lives here** | Callout pointing at the menu bar icon |
+| **Start using Headroom** | Final pane's button; closes the window and opens the dashboard |
+| **Show welcome** | Settings row that reopens the window |
 
 ## Sources (host registry titles)
 
