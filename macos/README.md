@@ -36,9 +36,8 @@ see real numbers in Notification Center.
 ## Debug build
 
 ```sh
+./scripts/gen-project.sh           # embeds ../host, then runs xcodegen
 cd macos
-../scripts/sync-embedded-host.sh   # embeds ../host into the app bundle
-xcodegen generate
 xcodebuild \
   -project Headroom.xcodeproj \
   -scheme Headroom \
