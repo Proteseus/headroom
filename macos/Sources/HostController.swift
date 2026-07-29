@@ -156,11 +156,12 @@ enum HostController {
     /// Write LaunchAgent pointing at the bundled host and kickstart it.
     @discardableResult
     static func installAndStart(port: Int = defaultPort) throws -> String {
-        guard let server = bundledServer, let hostDir = bundledHostDirectory else {
+        guard let server = bundledServer else {
             throw HostError.notBundled
         }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let logDir = (home as NSString).appendingPathComponent(".headroom/logs")
+        let headroomDir = (home as NSString).appendingPathComponent(".headroom")
+        let logDir = (headroomDir as NSString).appendingPathComponent("logs")
         try FileManager.default.createDirectory(
             atPath: logDir, withIntermediateDirectories: true)
 
@@ -181,7 +182,7 @@ enum HostController {
             <string>\(port)</string>
           </array>
           <key>WorkingDirectory</key>
-          <string>\(hostDir.path)</string>
+          <string>\(headroomDir)</string>
           <key>RunAtLoad</key>
           <true/>
           <!-- Not a plain <true/>. The host exits 0 on purpose when a foreign
