@@ -7,6 +7,36 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.0.11 — 2026-07-29
+
+### Added
+
+- The widget now runs in macOS Notification Center, not just on the phone.
+  Rings on the small size, combined burndown on the medium one, same as iOS.
+- The Mac widget is current rather than a refresh interval behind. The app is
+  the source of its own data, so it writes the shared cache after every
+  successful poll of its host. The phone can only write after a background
+  refresh, which iOS schedules when it feels like it.
+
+### Changed
+
+- One widget source, `widget/HeadroomWidget.swift`, builds for both platforms.
+  What differs is the group id, which macOS prefixes with the team, and the
+  Info.plist and entitlements under `widget/ios` and `widget/macos`.
+- Quota presentation logic moved out of the iPhone target into
+  `Shared/QuotaPresentation.swift` so both widgets and both apps read one
+  implementation.
+- The Mac app and its extension share an App Group. The app is not sandboxed
+  and the extension is, so the group is the only thing between them.
+
+### Fixed
+
+- `build-app.sh` signs the extension separately from the app instead of with
+  `--deep`. The two take different entitlements, and `--deep` stamped the
+  app's onto the sandboxed extension, which then lost the group container.
+  The build now also verifies both ends resolve to the same group, because a
+  mismatch fails as a widget that loads and draws the placeholder for ever.
+
 ## 1.0.10 — 2026-07-29
 
 ### Fixed
