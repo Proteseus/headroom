@@ -68,8 +68,18 @@ When the patch would pass 9, roll to the next minor and reset it:
 | 1.1.9 | anything shippable | **1.2.0** |
 | 1.9.9 | anything shippable | **2.0.0** |
 
-Never go past `.9`. That rule is why the Apple Watch release is 1.1.0 rather
-than 1.0.12 — 1.0.9 should already have rolled.
+Never go past `.9`. `1.0.10` and `1.0.11` are shipped overshoots from before
+the rule and stay tagged where they are; the roll they were owed happens at the
+next release off them, which is why 1.0.11 is followed by **1.1.0** and not
+1.0.12.
+
+The number is claimed at merge, not at branch. Several branches sitting on
+unmerged bumps is the normal state here, and each one was numbered against the
+`main` it forked from — so the second one to land is wrong by the time it
+lands. Take the number from `main`'s current `host/VERSION`, and expect to
+renumber if someone beats you to it. Nothing downstream can undo a version:
+tags, the GitHub Release and TestFlight builds only ever move forward, so
+shipping a number strands every lower one still in flight.
 
 Do not bundle unrelated work into one version. A release whose notes read as a
 list of things that happened is a release nobody can reason about later.
