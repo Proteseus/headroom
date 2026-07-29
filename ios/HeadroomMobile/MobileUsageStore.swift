@@ -109,7 +109,7 @@ final class MobileUsageStore: ObservableObject {
             capturedAt = Date()
             isShowingArchive = false
             consecutiveFailures = 0
-            MobileWidgetCache.save(snapshot)
+            HeadroomWidgetCache.save(snapshot)
             await MobileNotifications.notifyIfNeeded(snapshot.attention)
         } catch {
             // Keep whatever is on screen. Losing a week of burndown because the

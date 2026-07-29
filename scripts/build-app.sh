@@ -54,13 +54,11 @@ if [[ "$NOTARIZE" -eq 1 && "$CONFIG" != "Release" ]]; then
   exit 1
 fi
 
-command -v xcodegen >/dev/null || { echo "error: install xcodegen (brew install xcodegen)" >&2; exit 1; }
 command -v xcodebuild >/dev/null || { echo "error: Xcode CLT / Xcode required" >&2; exit 1; }
 
-"$ROOT/scripts/sync-embedded-host.sh"
+"$ROOT/scripts/gen-project.sh"
 
 cd "$ROOT/macos"
-xcodegen generate
 
 DERIVED="$ROOT/macos/.build"
 if [[ "$CONFIG" == "Release" ]]; then
@@ -106,9 +104,59 @@ mkdir -p "$DIST"
 ditto "$APP_SRC" "$DIST/Headroom.app"
 APP="$DIST/Headroom.app"
 ENTITLEMENTS="$ROOT/macos/Headroom.entitlements"
+WIDGET_ENTITLEMENTS="$ROOT/widget/macos/HeadroomWidget.entitlements"
+WIDGET="$APP/Contents/PlugIns/HeadroomWidget.appex"
+
+# Xcode expands $(TeamIdentifierPrefix) in entitlements when it signs; codesign
+# does not, and an app group whose id is a literal build setting grants nothing.
+# Write a copy with the real team id in place, and hand codesign that.
+#
+# The prefix is a team id followed by a period — the group name already carries
+# its own separator, so the substitution must not add a second one.
+expanded_entitlements() {
+  local source="$1"
+  local team="$2"
+  local out
+  out="$(mktemp -t headroom-entitlements)"
+  sed "s/\$(TeamIdentifierPrefix)/${team}./g" "$source" > "$out"
+  printf '%s' "$out"
+}
+
+# The team that will actually be on the signature. Prefer the one inside the
+# identity — "Developer ID Application: Name (TEAMID)" — because an entitlement
+# claiming a different team than the certificate is a group that grants nothing.
+signing_team() {
+  local identity="$1"
+  local from_identity
+  from_identity="$(sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p' <<< "$identity")"
+  if [[ -n "$from_identity" ]]; then
+    if [[ -n "${HEADROOM_TEAM_ID:-}" && "$from_identity" != "$HEADROOM_TEAM_ID" ]]; then
+      echo "note: signing as $from_identity (HEADROOM_TEAM_ID is $HEADROOM_TEAM_ID)" >&2
+    fi
+    printf '%s' "$from_identity"
+    return
+  fi
+  if [[ -z "${HEADROOM_TEAM_ID:-}" ]]; then
+    echo "error: can't tell which team to put in the app group entitlement." >&2
+    echo "  set HEADROOM_TEAM_ID, or use an identity ending in (TEAMID)" >&2
+    exit 1
+  fi
+  printf '%s' "$HEADROOM_TEAM_ID"
+}
+
+# The app group as it ended up on a signature, or empty. One entry per bundle,
+# so pulling the string out of the entitlements XML is enough.
+signed_app_group() {
+  codesign -d --entitlements - --xml "$1" 2>/dev/null \
+    | sed -n 's/.*<string>\([A-Z0-9]*\.group\.[^<]*\)<\/string>.*/\1/p'
+}
 
 sign_adhoc() {
-  codesign --force --deep --sign - "$APP" 2>/dev/null || true
+  # Ad-hoc has no team, so the app group is dead either way — the widget falls
+  # back to its placeholder on a locally built .app. Run from Xcode (automatic
+  # signing, your own team) to see it draw real numbers.
+  codesign --force --sign - "$WIDGET" 2>/dev/null || true
+  codesign --force --sign - "$APP" 2>/dev/null || true
 }
 
 sign_developer_id() {
@@ -118,18 +166,52 @@ sign_developer_id() {
     echo "  e.g. export HEADROOM_SIGN_IDENTITY='Developer ID Application: Name (TEAMID)'" >&2
     exit 1
   fi
+
+  # Inside out, never --deep: the widget is sandboxed and the app is not, so
+  # they take different entitlements. --deep would stamp the app's onto the
+  # extension and the sandbox would deny it the group container.
+  local team widget_ents app_ents
+  team="$(signing_team "$identity")"
+  widget_ents="$(expanded_entitlements "$WIDGET_ENTITLEMENTS" "$team")"
+  app_ents="$(expanded_entitlements "$ENTITLEMENTS" "$team")"
+
+  if [[ -d "$WIDGET" ]]; then
+    codesign --force --options runtime --timestamp \
+      --sign "$identity" \
+      --entitlements "$widget_ents" \
+      "$WIDGET"
+  else
+    echo "error: missing $WIDGET — the widget extension did not embed" >&2
+    exit 1
+  fi
+
   # No nested frameworks — sign the main binary, then the bundle.
   local main_bin="$APP/Contents/MacOS/Headroom"
   [[ -f "$main_bin" ]] || { echo "error: missing $main_bin" >&2; exit 1; }
   codesign --force --options runtime --timestamp \
     --sign "$identity" \
-    --entitlements "$ENTITLEMENTS" \
+    --entitlements "$app_ents" \
     "$main_bin"
   codesign --force --options runtime --timestamp \
     --sign "$identity" \
-    --entitlements "$ENTITLEMENTS" \
+    --entitlements "$app_ents" \
     "$APP"
+  rm -f "$widget_ents" "$app_ents"
+
   codesign --verify --deep --strict --verbose=2 "$APP"
+  # A group that doesn't match between the two is the failure that looks like a
+  # working build: the widget installs, loads, and draws the placeholder for
+  # ever. Cheaper to catch here than in Notification Center.
+  local app_group widget_group
+  app_group="$(signed_app_group "$APP")"
+  widget_group="$(signed_app_group "$WIDGET")"
+  if [[ -z "$app_group" || "$app_group" != "$widget_group" ]]; then
+    echo "error: app group mismatch after signing" >&2
+    echo "  app:    ${app_group:-<none>}" >&2
+    echo "  widget: ${widget_group:-<none>}" >&2
+    exit 1
+  fi
+  echo "  app group: $app_group"
 }
 
 notarize_and_staple() {

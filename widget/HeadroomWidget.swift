@@ -30,14 +30,7 @@ struct HeadroomWidgetProvider: TimelineProvider {
     }
 
     private func load() -> HeadroomWidgetSnapshot {
-        guard let data = UserDefaults(suiteName: "group.com.centaur-labs.headroom")?
-                .data(forKey: "widgetSnapshot"),
-              let value = try? JSONDecoder().decode(
-                HeadroomWidgetSnapshot.self,
-                from: data
-              )
-        else { return .placeholder }
-        return value
+        HeadroomWidgetSnapshot.cached() ?? .placeholder
     }
 }
 
@@ -334,6 +327,16 @@ struct HeadroomWidgetBundle: WidgetBundle {
 }
 
 struct HeadroomStatusWidget: Widget {
+    /// Same extension, two homes. On the Mac the numbers never left the machine
+    /// the widget is sitting on, so "from your Mac" would read strangely there.
+    private static var gallerySubtitle: String {
+        #if os(macOS)
+        return "Coding quota and attention status at a glance."
+        #else
+        return "Coding quota and attention status from your Mac."
+        #endif
+    }
+
     var body: some WidgetConfiguration {
         StaticConfiguration(
             kind: "HeadroomWidget",
@@ -342,7 +345,7 @@ struct HeadroomStatusWidget: Widget {
             HeadroomWidgetView(entry: entry)
         }
         .configurationDisplayName(HeadroomCopy.product)
-        .description("Coding quota and attention status from your Mac.")
+        .description(Self.gallerySubtitle)
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

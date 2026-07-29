@@ -5,5 +5,15 @@
 	<!-- Hardened Runtime entitlements for Developer ID + notarization.
 	     No App Sandbox: the menu bar talks to localhost host, LAN ESP32,
 	     and launches the bundled Python host via /usr/bin/python3. -->
+
+	<!-- The one thing shared with the widget extension, which is sandboxed and
+	     can reach nothing else. An app outside the sandbox still needs the team
+	     id in front of the group name, and $(TeamIdentifierPrefix) is what
+	     supplies it — hardcoding a team would stop forks from signing as
+	     themselves. scripts/build-app.sh substitutes it for manual signing. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)group.com.centaur-labs.headroom</string>
+	</array>
 </dict>
 </plist>

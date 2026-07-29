@@ -5,6 +5,8 @@ first launch’s Welcome sheet starts it automatically and installs a login item
 
 - Status item: thin remaining-quota meters for **enabled** providers + attention pip
 - Overview: quota rings, daily burn, attention + spend
+- Notification Center widget: the same extension the iPhone runs, rings on the
+  small size and the combined burndown on the medium one
 - Welcome / setup sheet when the host is down or on first open, asking about
   **AI coding tools** and **Dev tools** separately
 - Settings: endpoint, the two source lists, host/mobile tokens, dev-tool keys
@@ -23,6 +25,13 @@ open dist/Headroom.app
 ```
 
 Version is `host/VERSION` + git commit count (`./scripts/version-env.sh`).
+
+**The widget needs a team on the signature.** App and extension share their
+cache through an app group, and on macOS a group id carries the team id — so an
+ad-hoc build, which is what `build-app.sh` produces without `--notarize`, is
+denied the container and the widget draws its placeholder for ever. Run from
+Xcode with your own team (automatic signing) or build `--release --notarize` to
+see real numbers in Notification Center.
 
 ## Debug build
 

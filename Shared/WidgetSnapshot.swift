@@ -1,4 +1,68 @@
 import Foundation
+#if os(macOS)
+import Security
+#endif
+
+/// Where the app leaves the widget's cache, on both platforms.
+///
+/// The group id is not the same string everywhere. iOS provisions the bare
+/// `group.…` name, while macOS requires the team id in front of it — including
+/// for an app like this one that runs outside the sandbox. Hardcoding the team
+/// would stop forks from signing as themselves (see `$HEADROOM_TEAM_ID`), so
+/// the Mac reads its own signature for it instead.
+enum HeadroomAppGroup {
+    static let name = "group.com.centaur-labs.headroom"
+
+    /// Nil on macOS only when the running copy has no team — an ad-hoc or
+    /// unsigned build. The sandbox would deny that copy the container anyway,
+    /// so the widget falls through to its placeholder rather than reading a
+    /// suite that silently isn't shared.
+    static let identifier: String? = {
+        #if os(macOS)
+        guard let team = signingTeamIdentifier() else { return nil }
+        return "\(team).\(name)"
+        #else
+        return name
+        #endif
+    }()
+
+    static func defaults() -> UserDefaults? {
+        guard let identifier else { return nil }
+        return UserDefaults(suiteName: identifier)
+    }
+
+    static func containerURL() -> URL? {
+        guard let identifier else { return nil }
+        return FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: identifier
+        )
+    }
+
+    /// Key for the encoded `HeadroomWidgetSnapshot` inside the group defaults.
+    static let snapshotKey = "widgetSnapshot"
+
+    #if os(macOS)
+    private static func signingTeamIdentifier() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else {
+            return nil
+        }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
+              let staticCode
+        else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &info
+        ) == errSecSuccess,
+            let values = info as? [String: Any]
+        else { return nil }
+        return values[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+    #endif
+}
 
 struct HeadroomWidgetSnapshot: Codable, Sendable {
     struct Provider: Codable, Identifiable, Sendable {
@@ -48,6 +112,16 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
 
     var age: TimeInterval {
         Date().timeIntervalSince(updatedAt)
+    }
+
+    /// The last cache the app wrote, or nil when there is none to read — no
+    /// group container, nothing written yet, or a payload this build can't
+    /// decode. Every one of those reads the same to a widget: placeholder.
+    static func cached() -> HeadroomWidgetSnapshot? {
+        guard let data = HeadroomAppGroup.defaults()?
+                .data(forKey: HeadroomAppGroup.snapshotKey)
+        else { return nil }
+        return try? JSONDecoder().decode(Self.self, from: data)
     }
 
     /// Gallery preview only: a week-shaped series, so the widget picker shows

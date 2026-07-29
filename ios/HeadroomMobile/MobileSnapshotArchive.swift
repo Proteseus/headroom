@@ -64,10 +64,7 @@ enum MobileSnapshotArchive {
     }
 
     private static var fileURL: URL? {
-        FileManager.default
-            .containerURL(
-                forSecurityApplicationGroupIdentifier: MobileWidgetCache.suite
-            )?
+        HeadroomAppGroup.containerURL()?
             .appendingPathComponent("last-usage.json")
     }
 }

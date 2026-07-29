@@ -50,6 +50,9 @@ targets:
       - name: Stamp Apple version
         basedOnDependencyAnalysis: false
         script: '"${SRCROOT}/../scripts/version-env.sh" --stamp-product'
+    dependencies:
+      - target: HeadroomWidgetMac
+        embed: true
     scheme:
       testTargets:
         - HeadroomTests
@@ -114,10 +117,7 @@ targets:
       Debug: Version.xcconfig
       Release: Version.xcconfig
     sources:
-      - path: ../ios/HeadroomWidget
-        excludes:
-          - Info.plist
-          - HeadroomWidget.entitlements
+      - path: ../widget/HeadroomWidget.swift
       - path: ../Shared/WidgetSnapshot.swift
       - path: ../Shared/HeadroomRings.swift
       - path: ../Shared/HeadroomCopy.swift
@@ -131,9 +131,37 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.widget
         GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: ../ios/HeadroomWidget/Info.plist
-        CODE_SIGN_ENTITLEMENTS: ../ios/HeadroomWidget/HeadroomWidget.entitlements
+        INFOPLIST_FILE: ../widget/ios/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ../widget/ios/HeadroomWidget.entitlements
         CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+  # Same extension, same sources, second platform. The Mac writes the cache it
+  # reads itself, so this one is current rather than a background-refresh
+  # interval behind — see Shared/WidgetCacheWriter.swift.
+  HeadroomWidgetMac:
+    type: app-extension
+    platform: macOS
+    configFiles:
+      Debug: Version.xcconfig
+      Release: Version.xcconfig
+    sources:
+      - path: ../widget/HeadroomWidget.swift
+      - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/HeadroomRings.swift
+      - path: ../Shared/HeadroomCopy.swift
+      - path: ../Shared/HeadroomPalette.swift
+      - path: ../Shared/BurndownChartMath.swift
+      - path: ../Shared/BurndownChartCanvas.swift
+    settings:
+      base:
+        PRODUCT_NAME: HeadroomWidget
+        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.macos.widget
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ../widget/macos/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ../widget/macos/HeadroomWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
         SKIP_INSTALL: YES
         SWIFT_STRICT_CONCURRENCY: complete
   HeadroomMobileTests:

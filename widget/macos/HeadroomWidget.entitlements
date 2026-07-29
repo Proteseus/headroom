@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Unlike the app, a widget extension is sandboxed: it draws a cache and
+	     talks to nothing. The group container is the one hole it needs.
+
+	     On macOS the group id carries the team prefix, which iOS does not use.
+	     Xcode expands $(TeamIdentifierPrefix) when it signs; the manual
+	     Developer ID path in scripts/build-app.sh substitutes it by hand,
+	     because codesign(1) does not expand build settings. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)group.com.centaur-labs.headroom</string>
+	</array>
+</dict>
+</plist>

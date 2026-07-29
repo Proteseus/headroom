@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// How a provider from the host document reads on a ring, wherever it is drawn
+/// — the phone's quota cards, and the widget cache both apps write.
 extension QuotaProviderInfo {
     var ringLayers: [HeadroomRingLayer] {
         visiblePools.prefix(HeadroomRingStyle.maximumLayerCount).map {

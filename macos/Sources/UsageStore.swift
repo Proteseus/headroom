@@ -125,6 +125,10 @@ final class UsageStore: ObservableObject {
 
             lastRefresh = Date()
             consecutiveFailures = 0
+            // Written once per successful pass, after any forced re-sync, so
+            // the widget never picks up the pre-sync document. The Mac is the
+            // source here — this cache is current, unlike the phone's.
+            HeadroomWidgetCache.save(snapshot)
         } catch {
             consecutiveFailures += 1
             errorMessage = error.localizedDescription
