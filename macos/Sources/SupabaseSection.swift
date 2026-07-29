@@ -18,7 +18,16 @@ struct SupabaseSection: View {
         Set(favoriteRefsRaw.split(separator: ",").map(String.init))
     }
 
+    @ViewBuilder
     var body: some View {
+        // No token, no card. An empty "Connect Supabase" row is chrome for a
+        // feature you haven't opted into — Settings is where you wire it up.
+        if data?.configured == true {
+            connected
+        }
+    }
+
+    private var connected: some View {
         let allProjects = data?.projects ?? []
         let attention = allProjects.filter {
             $0.healthy == false
@@ -29,10 +38,8 @@ struct SupabaseSection: View {
         let limit = max(1, min(supabaseRowLimit, 20))
         let rows = showAll ? allProjects : Array(preferred.prefix(limit))
 
-        DataSection(title: "Supabase") {
-            if data?.configured != true {
-                notConnected
-            } else if data?.ok != true {
+        return DataSection(title: "Supabase") {
+            if data?.ok != true {
                 Text(data?.error ?? "Supabase unavailable")
                     .font(.caption)
                     .foregroundStyle(HeadroomPalette.amber)
@@ -72,21 +79,6 @@ struct SupabaseSection: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
-        }
-    }
-
-    private var notConnected: some View {
-        HStack {
-            Text(data?.error ?? "Connect Supabase")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            SettingsLink {
-                Image(systemName: "link")
-            }
-            .buttonStyle(.borderless)
-            .help("Open Settings to connect")
-            .accessibilityLabel("Connect Supabase")
         }
     }
 

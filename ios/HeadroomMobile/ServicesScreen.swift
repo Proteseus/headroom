@@ -48,71 +48,72 @@ struct ServicesScreen: View {
 
     @ViewBuilder
     private var supabaseSection: some View {
-        Section {
-            let usage = store.snapshot.supabase
-            if usage?.configured != true {
-                Text(usage?.error ?? "Connect Supabase on the Mac.")
-                    .foregroundStyle(.secondary)
-            } else if usage?.ok != true {
-                Label(usage?.error ?? "Supabase unavailable", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(HeadroomPalette.amber)
-            } else {
-                ForEach(usage?.projects ?? []) { project in
-                    DisclosureGroup {
-                        ForEach(project.services ?? []) { service in
-                            LabeledContent(
-                                service.name,
-                                value: service.status ?? (service.healthy == true ? "healthy" : "unhealthy")
-                            )
-                            .foregroundStyle(
-                                service.healthy == false
-                                    ? AnyShapeStyle(HeadroomPalette.red)
-                                    : AnyShapeStyle(.secondary)
-                            )
-                        }
-                        lintRows(project)
-                    } label: {
-                        Button {
-                            if let raw = project.dashboardURL, let url = URL(string: raw) {
-                                openURL(url)
+        // Unconnected services stay out of the list entirely — connecting them
+        // happens on the Mac, so a placeholder row here is dead weight.
+        let usage = store.snapshot.supabase
+        if usage?.configured == true {
+            Section {
+                if usage?.ok != true {
+                    Label(usage?.error ?? "Supabase unavailable", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(HeadroomPalette.amber)
+                } else {
+                    ForEach(usage?.projects ?? []) { project in
+                        DisclosureGroup {
+                            ForEach(project.services ?? []) { service in
+                                LabeledContent(
+                                    service.name,
+                                    value: service.status ?? (service.healthy == true ? "healthy" : "unhealthy")
+                                )
+                                .foregroundStyle(
+                                    service.healthy == false
+                                        ? AnyShapeStyle(HeadroomPalette.red)
+                                        : AnyShapeStyle(.secondary)
+                                )
                             }
+                            lintRows(project)
                         } label: {
-                            HStack {
-                                Circle()
-                                    .fill(project.healthy == true
-                                          ? HeadroomPalette.green
-                                          : HeadroomPalette.red)
-                                    .frame(width: 8, height: 8)
-                                VStack(alignment: .leading) {
-                                    Text(project.name ?? project.ref)
-                                        .foregroundStyle(.primary)
-                                    Text([project.region, project.status].compactMap { $0 }.joined(separator: " · "))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                            Button {
+                                if let raw = project.dashboardURL, let url = URL(string: raw) {
+                                    openURL(url)
                                 }
-                                Spacer()
-                                if let errors = project.lintErrorCount, errors > 0 {
-                                    Label("\(errors)", systemImage: "shield.lefthalf.filled")
-                                        .font(.caption)
-                                        .foregroundStyle(HeadroomPalette.red)
-                                } else if let warns = project.lintWarnCount, warns > 0 {
-                                    Label("\(warns)", systemImage: "shield.lefthalf.filled")
-                                        .font(.caption)
-                                        .foregroundStyle(HeadroomPalette.amber)
+                            } label: {
+                                HStack {
+                                    Circle()
+                                        .fill(project.healthy == true
+                                              ? HeadroomPalette.green
+                                              : HeadroomPalette.red)
+                                        .frame(width: 8, height: 8)
+                                    VStack(alignment: .leading) {
+                                        Text(project.name ?? project.ref)
+                                            .foregroundStyle(.primary)
+                                        Text([project.region, project.status].compactMap { $0 }.joined(separator: " · "))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if let errors = project.lintErrorCount, errors > 0 {
+                                        Label("\(errors)", systemImage: "shield.lefthalf.filled")
+                                            .font(.caption)
+                                            .foregroundStyle(HeadroomPalette.red)
+                                    } else if let warns = project.lintWarnCount, warns > 0 {
+                                        Label("\(warns)", systemImage: "shield.lefthalf.filled")
+                                            .font(.caption)
+                                            .foregroundStyle(HeadroomPalette.amber)
+                                    }
                                 }
                             }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
-            }
-        } header: {
-            HStack {
-                Text("Supabase")
-                Spacer()
-                if let count = store.snapshot.supabase?.projectCount {
-                    Text("\(count) projects")
-                        .foregroundStyle(.secondary)
+            } header: {
+                HStack {
+                    Text("Supabase")
+                    Spacer()
+                    if let count = usage?.projectCount {
+                        Text("\(count) projects")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -168,62 +169,61 @@ struct ServicesScreen: View {
 
     @ViewBuilder
     private var plausibleSection: some View {
-        Section {
-            let usage = store.snapshot.plausible
-            if usage?.configured != true {
-                Text(usage?.error ?? "Connect Plausible on the Mac.")
-                    .foregroundStyle(.secondary)
-            } else if usage?.ok != true {
-                Label(usage?.error ?? "Plausible unavailable", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(HeadroomPalette.amber)
-            } else {
-                ForEach(
-                    Array(plausibleSites.enumerated()),
-                    id: \.offset
-                ) { _, site in
-                    Button {
-                        if let raw = site.dashboardURL, let url = URL(string: raw) {
-                            openURL(url)
-                        }
-                    } label: {
-                        HStack {
-                            Circle()
-                                .fill(
-                                    (site.realtime ?? 0) > 0
-                                        ? HeadroomPalette.green
-                                        : Color.secondary.opacity(0.3)
-                                )
-                                .frame(width: 8, height: 8)
-                            VStack(alignment: .leading) {
-                                Text(site.domain)
-                                    .foregroundStyle(.primary)
-                                Text(plausibleDetail(site))
-                                    .font(.caption)
-                                    .foregroundStyle(
-                                        site.error == nil
-                                            ? AnyShapeStyle(.secondary)
-                                            : AnyShapeStyle(HeadroomPalette.amber)
+        let usage = store.snapshot.plausible
+        if usage?.configured == true {
+            Section {
+                if usage?.ok != true {
+                    Label(usage?.error ?? "Plausible unavailable", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(HeadroomPalette.amber)
+                } else {
+                    ForEach(
+                        Array(plausibleSites.enumerated()),
+                        id: \.offset
+                    ) { _, site in
+                        Button {
+                            if let raw = site.dashboardURL, let url = URL(string: raw) {
+                                openURL(url)
+                            }
+                        } label: {
+                            HStack {
+                                Circle()
+                                    .fill(
+                                        (site.realtime ?? 0) > 0
+                                            ? HeadroomPalette.green
+                                            : Color.secondary.opacity(0.3)
                                     )
-                            }
-                            Spacer()
-                            if let live = site.realtime, live > 0 {
-                                Text("\(live) live")
-                                    .font(.caption.monospacedDigit().weight(.semibold))
-                                    .foregroundStyle(HeadroomPalette.green)
+                                    .frame(width: 8, height: 8)
+                                VStack(alignment: .leading) {
+                                    Text(site.domain)
+                                        .foregroundStyle(.primary)
+                                    Text(plausibleDetail(site))
+                                        .font(.caption)
+                                        .foregroundStyle(
+                                            site.error == nil
+                                                ? AnyShapeStyle(.secondary)
+                                                : AnyShapeStyle(HeadroomPalette.amber)
+                                        )
+                                }
+                                Spacer()
+                                if let live = site.realtime, live > 0 {
+                                    Text("\(live) live")
+                                        .font(.caption.monospacedDigit().weight(.semibold))
+                                        .foregroundStyle(HeadroomPalette.green)
+                                }
                             }
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
-        } header: {
-            HStack {
-                Text("Plausible")
-                Spacer()
-                if let today = store.snapshot.plausible?.visitorsToday {
-                    let label = store.snapshot.plausible?.windowLabel ?? "today"
-                    Text("\(HeadroomFormat.compact(today)) \(label)")
-                        .foregroundStyle(.secondary)
+            } header: {
+                HStack {
+                    Text("Plausible")
+                    Spacer()
+                    if let today = usage?.visitorsToday {
+                        let label = usage?.windowLabel ?? "today"
+                        Text("\(HeadroomFormat.compact(today)) \(label)")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

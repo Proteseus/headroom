@@ -10,15 +10,22 @@ struct PlausibleSection: View {
     private var plausibleRowLimit = 6
     @State private var showAll = false
 
+    @ViewBuilder
     var body: some View {
+        // No token, no card. An empty "Connect Plausible" row is chrome for a
+        // feature you haven't opted into — Settings is where you wire it up.
+        if data?.configured == true {
+            connected
+        }
+    }
+
+    private var connected: some View {
         let allSites = data?.sites ?? []
         let limit = max(1, min(plausibleRowLimit, 20))
         let rows = showAll ? allSites : Array(allSites.prefix(limit))
 
-        DataSection(title: "Plausible") {
-            if data?.configured != true {
-                notConnected
-            } else if data?.ok != true {
+        return DataSection(title: "Plausible") {
+            if data?.ok != true {
                 Text(data?.error ?? "Plausible unavailable")
                     .font(.caption)
                     .foregroundStyle(HeadroomPalette.amber)
@@ -47,21 +54,6 @@ struct PlausibleSection: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
-        }
-    }
-
-    private var notConnected: some View {
-        HStack {
-            Text(data?.error ?? "Connect Plausible")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            SettingsLink {
-                Image(systemName: "link")
-            }
-            .buttonStyle(.borderless)
-            .help("Open Settings to connect")
-            .accessibilityLabel("Connect Plausible")
         }
     }
 
