@@ -90,6 +90,21 @@ No Headroom cloud account. Tokens stay on your Mac.
    Use **Start host & keep at login** only if that didn’t happen.
 5. Confirm which providers were detected → **Continue**.
 
+**Updating.** [`scripts/update-app.sh`](scripts/update-app.sh) replaces an
+installed `Headroom.app` with the current Release. It refuses anything that is
+not notarized and signed by the project's team, and it brackets the swap with
+`launchctl bootout` / `bootstrap` — the host runs from inside the bundle under
+a KeepAlive agent, so replacing the app under a live agent leaves launchd
+holding the old code.
+
+```bash
+./scripts/update-app.sh --check
+```
+
+```bash
+./scripts/update-app.sh
+```
+
 ### Option B — macOS from source
 
 ```bash
