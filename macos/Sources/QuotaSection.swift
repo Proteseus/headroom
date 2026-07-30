@@ -146,12 +146,21 @@ struct ProviderQuotaCard: View {
             }
             // Above the error, and shown even though `ok` is true: every bar
             // on this card is a number the Mac stopped being able to refresh.
-            if let stale = meter.staleNote {
-                Label(stale, systemImage: "exclamationmark.arrow.circlepath")
-                    .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+            if let status = meter.statusNote {
+                Label(
+                    status,
+                    systemImage: meter.needsSignIn
+                        ? "person.badge.key"
+                        : "exclamationmark.arrow.circlepath"
+                )
+                .font(.caption)
+                .foregroundStyle(HeadroomPalette.amber)
             }
-            if !meter.ok, let error = meter.error {
+            // Not gated on `ok`. The host holds `ok` true while it replays the
+            // last good bars, so gating here hid the message on exactly the
+            // failures that had one worth reading — including the one that
+            // named the command to run.
+            if let error = meter.error {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(HeadroomPalette.amber)
@@ -276,7 +285,7 @@ struct ProviderQuotaRing: View {
     /// glyph that actively insists a frozen meter is live. When the host says
     /// the fetch is failing, the age of the data replaces it.
     private var windowCaption: String {
-        if let note = provider.staleNote { return note }
+        if let note = provider.statusNote { return note }
         if let reset = headline.reset, !reset.isEmpty {
             return "\(headline.title) · \(reset)"
         }
@@ -289,7 +298,7 @@ struct ProviderQuotaRing: View {
             .frame(width: diameter, height: diameter)
             // Drained of colour, because the gap between arc and pace dot is
             // the reading, and on frozen numbers that reading is fiction.
-            .opacity(provider.isStale ? 0.4 : 1)
+            .opacity(provider.readingSuspect ? 0.4 : 1)
             Text(meter.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
@@ -297,7 +306,7 @@ struct ProviderQuotaRing: View {
                 .minimumScaleFactor(0.8)
             Text(windowCaption)
                 .font(.caption2)
-                .foregroundStyle(provider.isStale ? HeadroomPalette.amber : .secondary)
+                .foregroundStyle(provider.readingSuspect ? HeadroomPalette.amber : .secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)

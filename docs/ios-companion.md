@@ -69,9 +69,24 @@ compile:
 ./scripts/gen-project.sh
 cd macos
 xcodebuild -project Headroom.xcodeproj -scheme HeadroomMobile \
-  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -destination 'generic/platform=iOS Simulator' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
+
+Two things about that command, neither of which the error messages tell you.
+**It builds the watch app too** — `HeadroomMobile` embeds it — so
+the toolchain needs a watchOS SDK that resolves, not just one it reports. An
+Xcode that fails with *"watchOS 26.5 is not installed"* on a watch destination
+fails here as well; point `DEVELOPER_DIR` at one that works:
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+```
+
+And **do not add `-sdk iphonesimulator`.** It overrides the SDK for the embedded
+watch complication too, which then fails with *"'accessoryCorner' is unavailable
+in iOS"* — a red herring that has nothing to do with the complication code. The
+`-destination` above is sufficient on its own.
 
 **Physical phone.** Unlike the Mac app, this cannot be built unsigned, and the
 repo defaults to the maintainer's team and bundle ids. A fork needs both of

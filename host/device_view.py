@@ -96,7 +96,12 @@ CURSOR_BURNDOWN_POOLS = ("total", "api")
 DEPLOY_FIELDS = ("project", "status", "target", "ago", "branch")
 COMMIT_FIELDS = ("repo", "subject", "ago", "branch")
 SERVER_FIELDS = ("name", "port", "cmd")
-SOURCE_FIELDS = ("id", "title", "enabled", "ok", "stale")
+# `auth_required` and `age_s` are what the board's corner glyph reads. Trimmed
+# out here they cost nothing on the wire and the glyph goes quiet on the one
+# failure that lasts — the Mac answering every ten seconds about numbers it has
+# not been able to refresh since last night.
+SOURCE_FIELDS = (
+    "id", "title", "enabled", "ok", "stale", "auth_required", "age_s")
 
 
 def _pick(src, fields):

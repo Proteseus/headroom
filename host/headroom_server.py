@@ -1029,12 +1029,19 @@ def _build_attention(doc):
     for provider in doc.get("providers") or []:
         if provider.get("kind") != "quota" or not provider.get("enabled"):
             continue
+        title = provider.get("title") or provider.get("id")
+        # A dead login is not a slow one, so it does not wait out STALE_ALERT_S
+        # first. Every minute spent under the stale threshold is a minute the
+        # meter reads plausibly and is not being refreshed by anyone, and no
+        # amount of waiting fixes it — outranking stale for the same reason.
+        if provider.get("auth_required"):
+            add("warn", "signin", f"{title} needs sign-in", 45)
+            continue
         held = provider.get("stale_for_s")
         if not provider.get("stale") or not isinstance(held, (int, float)):
             continue
         if held < cache_util.STALE_ALERT_S:
             continue
-        title = provider.get("title") or provider.get("id")
         add(
             "warn",
             "stale",
@@ -1113,6 +1120,10 @@ def _sources_payload(state):
             "enabled": bool(enabled.get(source.id, True)),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
+            # The login is gone or rejected. Distinct from `stale`, which this
+            # also sets: staleness says the numbers stopped, this says why and
+            # who can fix it.
+            "auth_required": bool(payload.get("auth_required")),
             "configured": payload.get("configured"),
             "error": payload.get("error"),
             "detail": sources_config.detail_for(source.id, payload),
@@ -1187,6 +1198,10 @@ def _providers_payload(state, burndowns=None):
             # that is now deliberately absent, which is not a difference a
             # reader can be expected to notice.
             "stale": bool(payload.get("stale")),
+            # Why the bars froze, when the answer is a login. Clients word a
+            # dead credential differently from a provider that is merely
+            # unreachable, because only one of them is the reader's to fix.
+            "auth_required": bool(payload.get("auth_required")),
             "age_s": age,
             # Follow-up clients use the explicit stale-duration name. Keep
             # age_s for clients already shipped against the first freshness

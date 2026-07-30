@@ -140,6 +140,12 @@ struct SourceRow: View {
 
     private var secondaryLine: String {
         var parts: [String] = []
+        // Leads, and replaces the registry hint rather than joining it: the
+        // hint says where the credential is meant to live, which is the least
+        // useful sentence available once we know what is there is not valid.
+        if source.needsSignIn {
+            parts.append(HeadroomCopy.needsSignIn)
+        }
         if let detail = source.detail ?? source.hint ?? source.error {
             parts.append(detail)
         }
@@ -152,6 +158,7 @@ struct SourceRow: View {
     /// Color is not the only carrier of health — VoiceOver gets it in words.
     private var statusLabel: String {
         if !enabled { return "Off" }
+        if source.needsSignIn { return HeadroomCopy.needsSignIn }
         if source.ok != true { return "Error" }
         return source.stale == true ? "Stale" : "Healthy"
     }
@@ -159,6 +166,10 @@ struct SourceRow: View {
     /// Health: green / amber / red, the same words the rest of the app uses.
     private var statusColor: Color {
         if !enabled { return HeadroomPalette.dim }
+        // Red even while `ok` is true and bars are still drawn. Amber is for a
+        // source that is degraded and may recover; this one has stopped and
+        // will stay stopped until someone signs in.
+        if source.needsSignIn { return HeadroomPalette.red }
         if source.ok == true {
             return source.stale == true ? HeadroomPalette.amber : HeadroomPalette.green
         }

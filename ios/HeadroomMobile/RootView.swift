@@ -178,18 +178,22 @@ struct MobileStatusCard: View {
     }
 
     private var statusSubtitle: String {
+        let identity = MobileConnection.identityLabel(
+            machineName: store.snapshot.currentMachine?.name
+        )
         if let error = store.errorMessage {
-            guard let age = store.age else { return error }
-            return "\(HeadroomCopy.ago(age)) · \(error)"
+            guard let age = store.age else { return "\(identity) · \(error)" }
+            return "\(identity) · \(HeadroomCopy.ago(age)) · \(error)"
         }
         // Archived and not yet contradicted: the fetch is still in flight.
         if store.isShowingArchive, let age = store.age {
-            return HeadroomCopy.ago(age)
+            return "\(identity) · \(HeadroomCopy.ago(age))"
         }
         if let date = store.capturedAt {
-            return "Updated \(date.formatted(date: .omitted, time: .shortened))"
+            let updated = date.formatted(date: .omitted, time: .shortened)
+            return "\(identity) · Updated \(updated)"
         }
-        return MobileConnection.endpoint
+        return identity
     }
 
     private var statusColor: Color {

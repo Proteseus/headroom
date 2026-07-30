@@ -225,6 +225,11 @@ Ring and pace semantics are a cross-platform contract: `docs/rings.md`, with
 `Shared/HeadroomRings.swift` as the implementation and the firmware mirroring
 its constants. Changing one means changing all of them.
 
+Attention rollup scoring is the same kind of contract: `docs/attention.md`.
+Weights and ages stay hardcoded product policy — do not add an Attention
+Settings pane. Gateway prefs live under Coding agents; see
+`docs/agent-attention.md`.
+
 ## Multi-Mac
 
 Settings sync between Macs over CloudKit, one record per machine, written by

@@ -157,6 +157,17 @@ enum HeadroomCopy {
         "\(notUpdating) · \(ago(age))"
     }
 
+    /// A meter whose login is gone or refused. "Not updating" is true of this
+    /// too, and useless: it reads as a connection to wait out, when the fetch
+    /// will keep failing until someone signs in. The age still travels with
+    /// it, because how long the numbers have been fiction is the part that
+    /// decides whether this matters now.
+    static let needsSignIn = "Needs sign-in"
+
+    static func needsSignIn(age: TimeInterval) -> String {
+        "\(needsSignIn) · \(ago(age))"
+    }
+
     // MARK: Activity feed
 
     /// What a feed row's host status (`failure`, `ready`, `pushed`, …) is

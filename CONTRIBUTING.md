@@ -32,13 +32,19 @@ cp firmware/src/config_example.h firmware/src/config.h && cd firmware && pio run
 ```
 
 ```bash
-./scripts/gen-project.sh && cd macos && xcodebuild -project Headroom.xcodeproj -scheme HeadroomMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO build
+./scripts/gen-project.sh && cd macos && xcodebuild -project Headroom.xcodeproj -scheme HeadroomMobile -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
+
+The iPhone app embeds the watch app, so that last one needs an Xcode whose
+watchOS SDK is actually installed — see
+[docs/ios-companion.md](docs/ios-companion.md). Do not add `-sdk
+iphonesimulator` to it.
 
 A full `.app`: `./scripts/build-app.sh` writes `dist/Headroom.app`, ad-hoc
 signed, no Apple account needed.
 
-CI runs all three on every PR. Keep it green.
+CI runs the host, firmware, and macOS test jobs on every PR; the iOS build is
+local-only. Keep it green.
 
 ## Signing
 

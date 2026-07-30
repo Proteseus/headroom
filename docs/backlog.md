@@ -16,7 +16,8 @@ everything else, so it moves first.
 - `host/usage_doc.py` gets `_compute_doc`, `_flatten_*`, `_build_activity`,
   `_bodies`. This is the harder half: the flatteners reach into module state.
 - `host/attention.py` gets `_build_attention` and its weights. Self-contained
-  once the doc builder is out.
+  once the doc builder is out. File split only — scoring stays product policy
+  (`docs/attention.md`), not a Settings surface.
 - The poller and `main()` stay.
 
 `test_contract.py` passing unchanged is the whole acceptance test. Do it in

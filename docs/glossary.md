@@ -123,8 +123,16 @@ blank axis.
 | **All clear** | Healthy summary — host default, Attention card, and the Activity feed with nothing failing |
 | **Needs attention** | Warning fallback when a reason has no summary; counted as **N need attention** above the Activity feed |
 | **Collecting history** | Burndown empty / early verdict |
+| **Not updating** | The host is replaying a source's last good numbers; the age travels with it (**Not updating · 2 hours ago**) |
+| **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way |
 | **Clear** | Dismiss attention on every surface |
 | **Refresh all** | Force-sync every source |
+
+**Needs sign-in** outranks **Not updating** wherever both are true, which is
+most of the time — a dead login also freezes the numbers. Staleness is shared
+by rate limits and dropped networks and reads as something to wait out; only
+this one names a thing the reader can go and do. `QuotaProviderInfo.statusNote`
+picks between them so no surface has to.
 
 Do not use **All clear** for connection health — that word belongs on the
 Attention card. The Overview status row uses **Connected** / **Mac unavailable**.

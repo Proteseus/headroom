@@ -4,6 +4,10 @@ Headroom's attention gateway turns provider callbacks into one durable feed.
 The feed is provider-neutral; each adapter declares what it can safely send
 back. Codex is the first adapter.
 
+This is the **gateway** layer (events ledger + adapters). The separate
+**rollup** Attention card / menu-bar pip is product policy, not Settings —
+see [`attention.md`](attention.md).
+
 ## What exists now
 
 - A SQLite attention ledger with compare-and-swap revisions, idempotency keys,

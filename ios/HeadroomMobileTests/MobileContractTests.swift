@@ -41,6 +41,28 @@ final class MobileContractTests: XCTestCase {
         )
     }
 
+    func testIdentityLabelPrefersDistinctMachineName() {
+        UserDefaults.standard.set(
+            "http://studio-mac.local:8737/usage",
+            forKey: MobileConnection.endpointKey
+        )
+        defer {
+            UserDefaults.standard.removeObject(forKey: MobileConnection.endpointKey)
+        }
+        XCTAssertEqual(
+            MobileConnection.identityLabel(machineName: "Studio"),
+            "Studio · studio-mac.local"
+        )
+        XCTAssertEqual(
+            MobileConnection.identityLabel(machineName: "studio-mac"),
+            "studio-mac.local"
+        )
+        XCTAssertEqual(
+            MobileConnection.identityLabel(machineName: nil),
+            "studio-mac.local"
+        )
+    }
+
     func testHeadroomCopyMatchesGlossaryTerms() {
         XCTAssertEqual(HeadroomCopy.dailyBurn, "Daily burn")
         XCTAssertEqual(HeadroomCopy.overallBurndown, "Overall burndown")

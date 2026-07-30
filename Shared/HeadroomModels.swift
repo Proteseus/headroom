@@ -338,7 +338,8 @@ struct UsageSnapshot: Decodable, Sendable {
             resetCreditsExpiryLabel: resetCreditsExpiryLabel,
             costLabel: costLabel,
             headlinePoolID: info.headline,
-            staleNote: info.staleNote
+            statusNote: info.statusNote,
+            needsSignIn: info.needsSignIn
         )
     }
 
@@ -614,10 +615,14 @@ struct ProviderMeter: Sendable {
     var costLabel: String?
     /// Host registry headline pool id (`week`, `total`, …) for menu-bar tanks.
     var headlinePoolID: String?
-    /// Set when the host is replaying frozen numbers — see
-    /// `QuotaProviderInfo.staleNote`, which is where the wording is decided.
-    /// Nil on a provider that is fetching normally.
-    var staleNote: String?
+    /// Set when the host cannot refresh this meter — a dead login or frozen
+    /// numbers. See `QuotaProviderInfo.statusNote`, which is where the wording
+    /// is decided. Nil on a provider that is fetching normally.
+    var statusNote: String?
+    /// Whether `statusNote` is about a credential rather than a slow fetch.
+    /// Carried alongside the note so a card can lead with it without having
+    /// to parse prose back into a state.
+    var needsSignIn: Bool
 
     var knownProvider: UsageProvider? { UsageProvider(rawValue: id) }
 
@@ -636,7 +641,8 @@ struct ProviderMeter: Sendable {
         resetCreditsExpiryLabel: String? = nil,
         costLabel: String? = nil,
         headlinePoolID: String? = nil,
-        staleNote: String? = nil
+        statusNote: String? = nil,
+        needsSignIn: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -652,7 +658,8 @@ struct ProviderMeter: Sendable {
         self.resetCreditsExpiryLabel = resetCreditsExpiryLabel
         self.costLabel = costLabel
         self.headlinePoolID = headlinePoolID
-        self.staleNote = staleNote
+        self.statusNote = statusNote
+        self.needsSignIn = needsSignIn
     }
 
     /// Compatibility for call sites still typed on the known-provider enum.
@@ -807,6 +814,11 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// Seconds since the numbers were actually fetched. Nil when the host
     /// predates the field or never managed a good fetch to date from.
     var staleForS: Double?
+    /// The credential behind this provider is missing or was rejected. Always
+    /// arrives with `stale`, and is the more useful of the two: staleness is
+    /// a symptom shared by rate limits and dropped networks, and only this one
+    /// names something the reader can go and do.
+    var authRequired: Bool?
     var plan: String?
     var error: String?
     var accent: String?
@@ -830,6 +842,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         ok: Bool? = nil,
         stale: Bool? = nil,
         staleForS: Double? = nil,
+        authRequired: Bool? = nil,
         plan: String? = nil,
         error: String? = nil,
         accent: String? = nil,
@@ -847,6 +860,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.ok = ok
         self.stale = stale
         self.staleForS = staleForS
+        self.authRequired = authRequired
         self.plan = plan
         self.error = error
         self.accent = accent
@@ -860,6 +874,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         case id, title, label, kind, rank, enabled, ok, plan, error, accent, stale
         case headline, pools
         case staleForS = "stale_for_s"
+        case authRequired = "auth_required"
         case accentDefault = "accent_default"
         case resetNoteURL = "reset_note_url"
     }
@@ -895,10 +910,26 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// provider looks wrong.
     var isStale: Bool { stale == true }
 
-    /// "Not updating · 2 hours ago", or nil when the provider is fetching
-    /// normally. One place decides what a frozen meter says, so the Mac and
-    /// the phone cannot word it differently.
-    var staleNote: String? {
+    /// The credential is gone or refused, and the meter will not recover on
+    /// its own. Checked ahead of `isStale` everywhere, because it is true of
+    /// a provider that never managed a first fetch either — where there are
+    /// no frozen numbers to be stale, only an empty card that owes the reader
+    /// a reason.
+    var needsSignIn: Bool { authRequired == true }
+
+    /// The numbers on this card cannot be read as current — frozen, or behind
+    /// a login that is no longer working. What drains a ring and ambers a
+    /// caption, since both failures make the arc a claim about the past.
+    var readingSuspect: Bool { needsSignIn || isStale }
+
+    /// "Needs sign-in · 2 hours ago", "Not updating · 2 hours ago", or nil
+    /// when the provider is fetching normally. One place decides what a meter
+    /// in trouble says, so the Mac and the phone cannot word it differently.
+    var statusNote: String? {
+        if needsSignIn {
+            guard let age = staleForS else { return HeadroomCopy.needsSignIn }
+            return HeadroomCopy.needsSignIn(age: age)
+        }
         guard isStale else { return nil }
         guard let age = staleForS else { return HeadroomCopy.notUpdating }
         return HeadroomCopy.notUpdating(age: age)
@@ -1310,14 +1341,21 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var enabled: Bool?
     var ok: Bool?
     var stale: Bool?
+    /// This row's credential needs re-authenticating. Settings sorts on it and
+    /// says so in words: a row that reads "not connected" invites you to check
+    /// a network, which is the wrong half of the problem.
+    var authRequired: Bool?
     var configured: Bool?
     var error: String?
     var detail: String?
     var ageS: Int?
 
+    var needsSignIn: Bool { authRequired == true }
+
     enum CodingKeys: String, CodingKey {
         case id, title, label, hint, kind, group, accent, enabled, ok, stale
         case configured, error, detail
+        case authRequired = "auth_required"
         case accentDefault = "accent_default"
         case ageS = "age_s"
     }

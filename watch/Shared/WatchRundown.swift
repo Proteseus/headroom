@@ -14,9 +14,9 @@ import SwiftUI
 ///     deadline it used to carry are the same sentence the inline and corner
 ///     families already say, and repeating them cost a fifth of the height
 ///     that makes the line readable.
-///   * **The binding source's line is the only thick one.** The rest keep their
-///     colours at lower opacity as context: the shape of the week, not a legend
-///     to decode.
+///   * **The binding source's line is the only thick one.** The rest keep full
+///     colour as context — same as the board — and separate by weight, not by
+///     fading out.
 ///   * **The axis goes, the rhythm stays.** Day boundaries keep their rules and
 ///     lose their labels; the scale keeps its three lines and loses "100%".
 ///
@@ -107,31 +107,9 @@ struct WatchRundownChart: View {
         static let emptyContext: CGFloat = 4.5
     }
 
-    /// The source's colour at the one opacity that fits both facts about it:
-    /// whether it is the named source, and whether its pool is spent.
-    ///
-    /// Deliberately not `burndownTint`, which already dims a spent pool to
-    /// 0.45. `Color.opacity` multiplies, so dimming that again for a context
-    /// line lands at a quarter — a weight chosen by accident, and invisible on
-    /// a wrist. Setting it once from both facts keeps the floor at 0.45, which
-    /// is the faintest thing on this chart that still reads as a line.
-    private static func ink(
-        for provider: HeadroomWidgetSnapshot.Provider,
-        leading: Bool
-    ) -> Color {
-        let spent = provider.burndown?.exhausted == true
-        let alpha: Double = switch (leading, spent) {
-        case (true, false): 1
-        case (true, true): 0.65
-        case (false, false): 0.6
-        case (false, true): 0.45
-        }
-        return provider.watchTint.opacity(alpha)
-    }
-
-    /// One source's week, in that source's colour. `leading` is the named one:
-    /// full strength and thicker, so it separates from the context lines
-    /// without needing the legend there is no room for.
+    /// One source's week, in that source's colour. Every line is opaque — same
+    /// as the board — and `leading` is only thicker, so it separates from the
+    /// context lines without needing the legend there is no room for.
     private static func draw(
         _ provider: HeadroomWidgetSnapshot.Provider,
         in context: inout GraphicsContext,
@@ -139,7 +117,7 @@ struct WatchRundownChart: View {
         leading: Bool
     ) {
         guard let series = provider.burndown else { return }
-        let ink = Self.ink(for: provider, leading: leading)
+        let ink = provider.watchTint
 
         let actual = OverallBurndownChartMath.preparedActual(
             series.actual, domain: plot.domain

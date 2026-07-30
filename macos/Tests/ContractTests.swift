@@ -308,14 +308,76 @@ final class ContractTests: XCTestCase {
             snapshot.providers?.first { $0.id == "claude" })
         XCTAssertEqual(claude.ok, true)
         XCTAssertTrue(claude.isStale)
-        XCTAssertEqual(claude.staleNote, "Not updating · 2 hours ago")
-        XCTAssertEqual(snapshot.meter(for: claude).staleNote, claude.staleNote)
+        XCTAssertFalse(claude.needsSignIn)
+        XCTAssertEqual(claude.statusNote, "Not updating · 2 hours ago")
+        XCTAssertEqual(snapshot.meter(for: claude).statusNote, claude.statusNote)
 
         let codex = try XCTUnwrap(
             snapshot.providers?.first { $0.id == "codex" })
         XCTAssertFalse(codex.isStale)
-        XCTAssertNil(codex.staleNote)
-        XCTAssertNil(snapshot.meter(for: codex).staleNote)
+        XCTAssertNil(codex.statusNote)
+        XCTAssertNil(snapshot.meter(for: codex).statusNote)
+    }
+
+    func testADeadLoginSaysSignInRatherThanNotUpdating() throws {
+        // The failure that sent us here: `ok` true, bars replayed, and the one
+        // string naming the fix suppressed because nothing looked wrong. Both
+        // flags are set on the wire, and the sign-in wording has to win —
+        // "Not updating" reads as a hiccup to wait out, and this one never
+        // clears on its own.
+        let json = """
+        {
+          "providers": [
+            {"id": "claude", "title": "Claude", "kind": "quota",
+             "enabled": true, "ok": true, "stale": true,
+             "auth_required": true, "stale_for_s": 41896,
+             "error": "keychain has no claudeAiOauth.accessToken",
+             "headline": "week",
+             "pools": {
+               "week": {"title": "Weekly", "pct": 53.0, "ring": true}
+             }}
+          ],
+          "sources": [
+            {"id": "claude", "title": "Claude", "kind": "quota",
+             "enabled": true, "ok": true, "stale": true,
+             "auth_required": true}
+          ]
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let claude = try XCTUnwrap(snapshot.providers?.first)
+        XCTAssertEqual(claude.ok, true)
+        XCTAssertTrue(claude.isStale)
+        XCTAssertTrue(claude.needsSignIn)
+        XCTAssertTrue(claude.readingSuspect)
+        XCTAssertEqual(claude.statusNote, "Needs sign-in · 12 hours ago")
+
+        let meter = snapshot.meter(for: claude)
+        XCTAssertTrue(meter.needsSignIn)
+        XCTAssertEqual(meter.statusNote, claude.statusNote)
+        // The card draws this whenever it is non-nil now, so the reason
+        // reaches the reader while `ok` is still true.
+        XCTAssertEqual(meter.error, "keychain has no claudeAiOauth.accessToken")
+
+        let row = try XCTUnwrap(snapshot.sources?.first)
+        XCTAssertTrue(row.needsSignIn)
+    }
+
+    func testAProviderThatNeverFetchedStillAsksForSignIn() throws {
+        // No snapshot to replay, so nothing is stale and there is no age to
+        // report — the card is empty and still owes a reason.
+        let json = """
+        {"providers": [{"id": "claude", "kind": "quota", "ok": false,
+                        "auth_required": true}]}
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let claude = try XCTUnwrap(snapshot.providers?.first)
+        XCTAssertFalse(claude.isStale)
+        XCTAssertTrue(claude.needsSignIn)
+        XCTAssertTrue(claude.readingSuspect)
+        XCTAssertEqual(claude.statusNote, "Needs sign-in")
     }
 
     func testAHostWithoutTheStaleFieldReadsAsFetching() throws {
@@ -327,7 +389,8 @@ final class ContractTests: XCTestCase {
             UsageSnapshot.self, from: Data(json.utf8))
         let claude = try XCTUnwrap(snapshot.providers?.first)
         XCTAssertFalse(claude.isStale)
-        XCTAssertNil(claude.staleNote)
+        XCTAssertFalse(claude.needsSignIn)
+        XCTAssertNil(claude.statusNote)
     }
 
     func testMissingProvidersAndSourcesYieldEmptyActiveSet() throws {
