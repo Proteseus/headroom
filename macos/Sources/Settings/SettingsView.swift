@@ -318,9 +318,19 @@ struct SettingsView: View {
                         // Only this side can know: the host has no idea how the
                         // app was signed. A development build silently doing
                         // nothing here is the most confusing outcome available.
+                        //
+                        // Two different reasons, and they need different
+                        // answers. A notarized release with no iCloud profile
+                        // is not something its owner can fix by downloading
+                        // another copy of what they already have, which is
+                        // exactly what the old wording sent them off to do.
                         Label(
-                            "This build of Headroom cannot use iCloud. "
-                            + "Signed releases can.",
+                            MachineCloudSync.isDeveloperIDSigned
+                            ? "This release was built without the iCloud "
+                                + "profile, so multi-Mac sync is off."
+                            : "Local builds cannot use iCloud. A notarized "
+                                + "release carries the profile that turns "
+                                + "multi-Mac sync on.",
                             systemImage: "exclamationmark.triangle"
                         )
                         .font(.caption)

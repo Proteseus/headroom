@@ -207,6 +207,22 @@ if the team is already at its cap.
 | `APPLE_API_ISSUER_ID` | Issuer ID |
 | `ASC_APP_ID` | App Store Connect app id (`6795549853`) |
 | `ASC_TESTFLIGHT_GROUP` | Optional; default `Internal` |
+| `MACOS_PROVISION_PROFILE` | Optional; base64 of the **Developer ID** `.provisionprofile` for `com.centaur-labs.headroom.macos` with iCloud. Turns multi-Mac CloudKit on. |
+
+`MACOS_PROVISION_PROFILE` is the one secret whose absence is invisible in a
+green run. The release notarizes and publishes exactly as it always did, and
+the app it ships reports multi-Mac over iCloud as unavailable on every Mac that
+opens it. That is what happened through 1.2.0. The tell is in the build log:
+
+```
+note: no HEADROOM_PROVISION_PROFILE — multi-Mac CloudKit is off in this build
+```
+
+With the secret set, the same line reads `note: embedded … — multi-Mac CloudKit
+is on`. It is deliberately a warning and not a failure, because the alternative
+is worse: stamping the restricted iCloud entitlements on with no profile to
+authorize them produces an app that signs, notarizes, downloads, and is killed
+the moment it launches. See [multi-mac.md](multi-mac.md).
 
 Helper (needs a `gh` token that can write Actions secrets):
 

@@ -15,6 +15,10 @@
 #     --api-issuer-id xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 #
 # Optional: --keychain-password 'random'  (defaults to a generated value)
+# Optional: --provision-profile ~/Desktop/Headroom.provisionprofile
+#           Developer ID profile for com.centaur-labs.headroom.macos with the
+#           iCloud capability. Without it releases build fine and multi-Mac
+#           over CloudKit is off in them (docs/multi-mac.md).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +30,7 @@ API_KEY=""
 API_KEY_ID=""
 API_ISSUER_ID=""
 KEYCHAIN_PASSWORD=""
+PROVISION_PROFILE=""
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -37,8 +42,9 @@ while [[ $# -gt 0 ]]; do
     --api-key-id) API_KEY_ID="${2:-}"; shift 2 ;;
     --api-issuer-id) API_ISSUER_ID="${2:-}"; shift 2 ;;
     --keychain-password) KEYCHAIN_PASSWORD="${2:-}"; shift 2 ;;
+    --provision-profile) PROVISION_PROFILE="${2:-}"; shift 2 ;;
     -h|--help)
-      sed -n '2,20p' "$0"
+      sed -n '2,24p' "$0"
       exit 0
       ;;
     *) die "unknown argument: $1" ;;
@@ -65,6 +71,20 @@ printf '%s' "$KEYCHAIN_PASSWORD" | gh secret set KEYCHAIN_PASSWORD --repo "$REPO
 gh secret set APPLE_API_KEY --repo "$REPO" < "$API_KEY"
 printf '%s' "$API_KEY_ID" | gh secret set APPLE_API_KEY_ID --repo "$REPO"
 printf '%s' "$API_ISSUER_ID" | gh secret set APPLE_API_ISSUER_ID --repo "$REPO"
+
+# Optional, and the release still works without it. Skipping only means the
+# published app has no iCloud entitlement, so multi-Mac reports itself off.
+# Merging those entitlements with no profile to authorize them would be the
+# genuinely bad outcome: the app signs, notarizes, and dies at launch.
+if [[ -n "$PROVISION_PROFILE" ]]; then
+  [[ -f "$PROVISION_PROFILE" ]] || die "--provision-profile $PROVISION_PROFILE not found"
+  security cms -D -i "$PROVISION_PROFILE" >/dev/null 2>&1 \
+    || die "--provision-profile is not a provisioning profile"
+  base64 < "$PROVISION_PROFILE" | gh secret set MACOS_PROVISION_PROFILE --repo "$REPO"
+  echo "Set MACOS_PROVISION_PROFILE — multi-Mac CloudKit will be on from the next release."
+else
+  echo "No --provision-profile — multi-Mac CloudKit stays off in releases (docs/multi-mac.md)."
+fi
 
 echo
 echo "Done. Verify with: gh secret list --repo $REPO"

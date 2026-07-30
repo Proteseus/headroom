@@ -52,6 +52,34 @@ final class MachineCloudSync {
         return value != nil
     }()
 
+    /// Whether this binary carries a Developer ID signature.
+    ///
+    /// Only ever used to explain *why* iCloud is off, and it exists because
+    /// "signed releases can" was a lie for every release up to 1.2.0: the
+    /// workflow notarized without `HEADROOM_PROVISION_PROFILE`, so a download
+    /// from GitHub was signed, notarized, and still carried no iCloud
+    /// entitlement. Telling its owner to go and get a signed release is the one
+    /// answer guaranteed to waste their time.
+    ///
+    /// Signed but unavailable means the profile was missing at build time.
+    /// Unsigned means a local build, where it can never be anything else.
+    static let isDeveloperIDSigned: Bool = {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(
+                Bundle.main.bundleURL as CFURL, [], &code) == errSecSuccess,
+              let code else { return false }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(
+                code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any],
+              let certs = dict[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              let leaf = certs.first else { return false }
+        var name: CFString?
+        guard SecCertificateCopyCommonName(leaf, &name) == errSecSuccess,
+              let common = name as String? else { return false }
+        return common.hasPrefix("Developer ID Application:")
+    }()
+
     private let database: CKDatabase
     private let endpoint: String
     private var subscribed = false

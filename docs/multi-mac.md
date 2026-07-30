@@ -51,10 +51,14 @@ Turning it **off** stops this Mac publishing. It does not delete the record:
 the other Macs are still reading it, and reaching into iCloud to remove
 something on their behalf is not what a local toggle should mean.
 
-**It needs a signed build.** CloudKit answers entitlements, and entitlements
-need a provisioning profile, so a local `CODE_SIGNING_ALLOWED=NO` build
-compiles the code but cannot reach the container. Settings says so on a build
-that cannot, rather than leaving the toggle looking broken.
+**It needs a build signed with the iCloud profile.** CloudKit answers
+entitlements, and entitlements need a provisioning profile to authorize them,
+so a local `CODE_SIGNING_ALLOWED=NO` build compiles the code but cannot reach
+the container. Neither can a notarized release built without the profile, which
+is a different problem with the same symptom. Settings distinguishes them:
+`MachineCloudSync.isDeveloperIDSigned` separates "you built this yourself" from
+"this release shipped without the profile", because only the first is fixed by
+downloading a release.
 
 ## Turning it on for the first time, once
 
@@ -67,8 +71,26 @@ Three manual steps, none of which anything here can do for you:
    it.
 3. **Point the build at it**: `HEADROOM_PROVISION_PROFILE=/path/to.profile`.
    `scripts/build-app.sh` then copies it to `Contents/embedded.provisionprofile`
-   and merges `Headroom-iCloud.entitlements` into the signature. For releases,
-   the workflow needs the profile as a secret and that variable set.
+   and merges `Headroom-iCloud.entitlements` into the signature.
+4. **For releases, set the `MACOS_PROVISION_PROFILE` secret** to the base64 of
+   that same file. `scripts/setup-release-secrets.sh --provision-profile` does
+   it. The release workflow decodes it, checks its team against the signing
+   certificate, and exports `HEADROOM_PROVISION_PROFILE` before
+   `scripts/build-app.sh`.
+
+Step 4 is not optional in practice and was missing until 1.2.0, which is why
+every release up to and including that one was notarized, installable, and had
+iCloud off. Nothing was red. `codesign -d --entitlements -` on the downloaded
+app showed the app group and nothing else, and the build log said
+`no HEADROOM_PROVISION_PROFILE`. **A previously downloaded copy never gains
+CloudKit** — entitlements are sealed into a signature, so it takes a new
+release.
+
+To check any copy of the app:
+
+```bash
+codesign -d --entitlements - --xml /Applications/Headroom.app | plutil -convert xml1 -o - -
+```
 
 Without step 3 the build signs exactly as it did before multi-Mac existed. That
 is deliberate — see below.
