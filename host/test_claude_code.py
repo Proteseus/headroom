@@ -33,7 +33,16 @@ class ClaudeCodeHooksTests(unittest.TestCase):
                 "description": "Run the test suite",
             },
             "permission_mode": "default",
+            "tool_use_id": "toolu_01ABC",
+            "permission_reasons": ["Destructive operation"],
         }
+
+    @staticmethod
+    def field(event, key):
+        for entry in event["detail"]["request"]:
+            if entry["key"] == key:
+                return entry
+        raise AssertionError(f"request field {key} missing")
 
     def wait_for_event(self):
         deadline = time.time() + 2
@@ -59,7 +68,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         thread.start()
         event = self.wait_for_event()
         self.assertEqual(event["provider"], "claude-code")
-        self.assertEqual(event["detail"]["tool_input"]["command"], "npm test")
+        self.assertEqual(self.field(event, "command")["value"], "npm test")
         self.answer(event, "approve_once")
         thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
@@ -105,6 +114,63 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             "session_id": "claude-session-1",
         })
         self.assertEqual(self.store.get(event["id"])["state"], "resolved")
+
+    def test_permission_exposes_whole_request_not_just_a_summary(self):
+        """An Edit is unapprovable if the phone only shows the file name."""
+        payload = self.permission()
+        payload["tool_name"] = "Edit"
+        payload["tool_input"] = {
+            "file_path": "/tmp/acme/app.ts",
+            "old_string": "const port = 3000",
+            "new_string": "const port = 8080",
+            "replace_all": False,
+        }
+        thread = threading.Thread(target=lambda: self.adapter.permission_request(
+            payload, wait_seconds=2))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertEqual(
+            [entry["key"] for entry in event["detail"]["request"]],
+            ["file_path", "old_string", "new_string", "replace_all"],
+            "known tools keep the order a person reads them in",
+        )
+        self.assertEqual(self.field(event, "old_string")["value"],
+                         "const port = 3000")
+        self.assertEqual(self.field(event, "new_string")["value"],
+                         "const port = 8080")
+        self.assertEqual(self.field(event, "file_path")["kind"], "path")
+        self.assertEqual(self.field(event, "replace_all")["kind"], "bool")
+        self.answer(event, "decline")
+        thread.join(timeout=2)
+
+    def test_permission_carries_reasons_and_correlation_ids(self):
+        thread = threading.Thread(target=lambda: self.adapter.permission_request(
+            self.permission(), wait_seconds=2))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertEqual(event["detail"]["reasons"], ["Destructive operation"])
+        self.assertEqual(event["detail"]["tool_use_id"], "toolu_01ABC")
+        self.assertEqual(event["detail"]["tool_name"], "Bash")
+        self.answer(event, "decline")
+        thread.join(timeout=2)
+
+    def test_oversized_tool_input_is_bounded_not_rejected(self):
+        payload = self.permission()
+        payload["tool_name"] = "Write"
+        payload["tool_input"] = {
+            "file_path": "/tmp/acme/big.txt",
+            "content": "x" * 500_000,
+        }
+        thread = threading.Thread(target=lambda: self.adapter.permission_request(
+            payload, wait_seconds=2))
+        thread.start()
+        event = self.wait_for_event()
+        content = self.field(event, "content")
+        self.assertTrue(content["truncated"])
+        self.assertEqual(content["full_chars"], 500_000)
+        self.assertLessEqual(len(content["value"]), 2000)
+        self.answer(event, "decline")
+        thread.join(timeout=2)
 
     def test_permission_notification_does_not_duplicate_exact_request(self):
         result = self.adapter.lifecycle_event({

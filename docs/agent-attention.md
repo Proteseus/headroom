@@ -17,6 +17,8 @@ see [`attention.md`](attention.md).
   into the common event shape.
 - Managed Claude Code HTTP hooks for permission requests, stop/idle attention,
   elicitation notices, prompt submission, and session end.
+- The provider's actual request, field by field, on every client — see
+  **Request exposure** below.
 - Synchronous Claude permission answers: the hook request waits in a bounded
   host thread, and an iPhone Allow once / Deny response wakes that exact
   request with Claude's documented decision JSON.
@@ -80,6 +82,50 @@ The iPhone currently schedules a local notification when a foreground or
 background refresh sees a new event. Guaranteed immediate delivery while the
 app is suspended requires APNs registration plus a push provider on the
 server; polling alone cannot provide that guarantee.
+
+## Request exposure
+
+An approval you cannot read is not an approval. Adapters no longer paraphrase
+the provider's request into one line; they hand the raw request object to
+`host/agent_request.py`, which returns an ordered list of typed fields under
+`detail.request`:
+
+```json
+{
+  "key": "old_string",
+  "label": "Replacing",
+  "kind": "code",
+  "value": "const port = 3000",
+  "truncated": false,
+  "full_chars": 17
+}
+```
+
+`key` is the provider's own name and `label` is for humans. `kind` is one of
+`text`, `command`, `code`, `path`, `json`, `number`, `bool`; a client that meets
+an unknown kind draws it as text, so a tool nobody has seen renders without an
+app update. Known tools keep the order a person reads them in
+(`Edit` is file, before, after); everything else follows sorted, which is what
+makes an arbitrary MCP tool legible rather than a special case.
+
+Three rules hold the contract together:
+
+- **Bounds live in the host, not the client.** One `Write` of a large file
+  would otherwise land in the SQLite ledger, every `/attention/events`
+  response, and every phone that polls it. Per-field, per-request and total
+  caps are in `agent_request`; `agent_events.MAX_DETAIL` is the backstop that
+  catches an adapter bug rather than trusting one.
+- **Clipping is never silent.** `truncated` plus `full_chars` reach the client,
+  which says so on screen. Approving a prefix of a command while believing it
+  is the whole command is the failure this design exists to prevent.
+- **`detail.reasons` is why the provider is asking.** Claude sends
+  `permission_reasons`; older builds sent `permission_suggestions`. The adapter
+  reads both, because losing the explanation costs the user the only context
+  they get.
+
+The raw provider request is deliberately **not** stored. The typed fields carry
+both key and value, so nothing downstream needs it — and `updatedInput` merges
+per field, so answering never needs the original either.
 
 ## Provider capability metadata
 
@@ -146,8 +192,31 @@ a request ID from a previous process can still be answered.
    explicitly allows otherwise.
 6. Add structured questions after Codex promotes that App Server request from
    experimental, or behind an explicitly versioned adapter flag.
-7. Add Claude structured elicitation responses once its supported hook/API can
-   return the actual form values; today those events are notify-only.
+7. **Answer Claude's questions and rules.** Verified against Claude Code
+   2.1.220, so this is a wiring gap rather than a provider gap:
+
+   | Answer | How | Headroom today |
+   |---|---|---|
+   | Always allow | `decision.updatedPermissions: [{rule, mode}]` | `permission_grant` still reports `planned` |
+   | Form values | `Elicitation` hook returns `action: "accept"` + `content` | neither `Elicitation` nor `ElicitationResult` is installed |
+   | Edit before allowing | `decision.updatedInput` (merges per field) | not modelled |
+   | Interrupt | `decision.interrupt` | Codex has **Stop task**; Claude has no equivalent |
+
+   The `Elicitation` hook receives `schema` plus `questions[]` (`field`,
+   `question`, `type`, `options`, `default`) — the real question, not the
+   `Notification` shadow with `notification_type: elicitation_dialog` that
+   Headroom listens to now. That shadow carries no schema and accepts no
+   answer, which is why questions currently read as notify-only.
+
+   Two transport changes gate all four: `AgentAttentionResponseRequest` carries
+   only `{revision, action, idempotency_key}` and needs a payload for form
+   `content`, a chosen rule, or an edited input; and the answer path has to stay
+   revision-safe, since a rule that outlives the request is a durable grant made
+   from a phone.
+
+   `claude_hooks.EVENTS` also omits the documented `agent_needs_input`,
+   `agent_completed`, `elicitation_complete` and `elicitation_response`
+   notification types.
 8. Implement a Cursor adapter against the same ledger. An adapter may be
    display-only; unsupported response capabilities remain visible in metadata
    rather than being inferred by the client.

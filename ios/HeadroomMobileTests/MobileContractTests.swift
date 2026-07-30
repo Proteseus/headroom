@@ -34,6 +34,68 @@ final class MobileContractTests: XCTestCase {
         XCTAssertEqual(snapshot.attention?.isWarning, false)
     }
 
+    /// The phone used to decode four fields of a request and drop the rest,
+    /// which made an Edit approval read as "Use Edit". Pin the whole shape.
+    func testDecodesWholeAgentRequestNotJustTheCommand() throws {
+        let data = Data(
+            """
+            {
+              "ok": true,
+              "events": [{
+                "id": "evt_1",
+                "provider": "claude-code",
+                "adapter": "claude-http-hooks",
+                "session_id": "s1",
+                "kind": "permission_approval",
+                "state": "pending",
+                "revision": 1,
+                "title": "Claude needs permission in acme",
+                "summary": "Edit /tmp/acme/app.ts",
+                "detail": {
+                  "tool_name": "Edit",
+                  "reasons": ["Destructive operation"],
+                  "request": [
+                    {"key": "file_path", "label": "File", "kind": "path",
+                     "value": "/tmp/acme/app.ts", "truncated": false},
+                    {"key": "old_string", "label": "Replacing", "kind": "code",
+                     "value": "const port = 3000", "truncated": false},
+                    {"key": "new_string", "label": "With", "kind": "code",
+                     "value": "const port = 8080", "truncated": true,
+                     "full_chars": 9000, "omitted_fields": 2}
+                  ]
+                },
+                "actions": [{"id": "decline", "label": "Deny", "risk": "safe"}],
+                "created_at_ms": 1,
+                "updated_at_ms": 2
+              }]
+            }
+            """.utf8
+        )
+
+        let response = try JSONDecoder().decode(
+            AgentAttentionEventsResponse.self, from: data)
+        let detail = try XCTUnwrap(response.events.first).detail
+        XCTAssertEqual(detail.toolName, "Edit")
+        XCTAssertEqual(detail.reasons, ["Destructive operation"])
+        XCTAssertEqual(detail.requestFields.count, 3)
+        XCTAssertEqual(detail.requestFields[1].value, "const port = 3000")
+        XCTAssertEqual(detail.requestFields[2].kind, "code")
+        XCTAssertTrue(detail.requestFields[2].wasTruncated)
+        XCTAssertEqual(detail.requestFields[2].fullChars, 9000)
+        XCTAssertEqual(detail.requestFields[2].omittedFields, 2)
+    }
+
+    /// Codex still sends a bare `command`; it must render through the same
+    /// accessor so views never branch on provider.
+    func testBareCommandDetailStillProducesARequestField() throws {
+        let data = Data(#"{"command": "npm test", "cwd": "/tmp"}"#.utf8)
+        let detail = try JSONDecoder().decode(
+            AgentAttentionDetail.self, from: data)
+        XCTAssertEqual(detail.requestFields.count, 1)
+        XCTAssertEqual(detail.requestFields.first?.kind, "command")
+        XCTAssertEqual(detail.requestFields.first?.value, "npm test")
+    }
+
     func testNormalizesBareMacHost() {
         XCTAssertEqual(
             MobileConnection.normalize("studio-mac.local"),
