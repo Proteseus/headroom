@@ -326,8 +326,8 @@ class RollupContractTests(unittest.TestCase):
         doc = headroom_server.publish()
         for key in ("updated", "today", "by_day", "codex", "cursor", "vercel",
                     "git", "github", "activity", "local", "supabase",
-                    "plausible", "sources", "attention", "quota_ok",
-                    "session_pct", "week_pct"):
+                    "plausible", "claude_status", "sources", "attention",
+                    "quota_ok", "session_pct", "week_pct"):
             self.assertIn(key, doc)
 
     def test_demo_fixture_matches_the_served_shape(self):

@@ -36,6 +36,7 @@ import threading
 from typing import Callable, NamedTuple, Optional
 
 import accounts
+import claude_status
 import codex_usage
 import copilot_usage
 import cursor_usage
@@ -202,6 +203,18 @@ def _detail_github(payload):
     return " · ".join(bits) if bits else "all clear"
 
 
+def _detail_claude_status(payload):
+    if not payload.get("ok"):
+        return payload.get("error") or "unreachable"
+    if payload.get("alerting"):
+        name = payload.get("incident_name") or payload.get("description")
+        return f"major outage · {name}" if name else "major outage"
+    indicator = payload.get("indicator") or "none"
+    if indicator == "none":
+        return "all clear"
+    return payload.get("description") or indicator
+
+
 def _detail_local(payload):
     if not payload.get("ok"):
         return payload.get("error")
@@ -272,6 +285,11 @@ def _summary_github(payload):
             f"repos={len(payload.get('repos') or [])}")
 
 
+def _summary_claude_status(payload):
+    return (f"indicator={payload.get('indicator')}  "
+            f"alerting={payload.get('alerting')}")
+
+
 def _summary_local(payload):
     return (f"host={payload.get('host')}  "
             f"servers={len(payload.get('servers') or [])}")
@@ -304,6 +322,21 @@ def _blank_git():
 def _blank_github():
     return {"ok": False, "configured": False, "runs": [],
             "fail_count": 0, "running_count": 0, "error": None}
+
+
+def _blank_claude_status():
+    return {
+        "ok": False,
+        "configured": True,
+        "indicator": "none",
+        "description": None,
+        "alerting": False,
+        "incident_name": None,
+        "incident_impact": None,
+        "url": claude_status.PAGE_URL,
+        "updated_at": None,
+        "error": None,
+    }
 
 
 def _blank_local():
@@ -409,6 +442,11 @@ BASE_SOURCES = (
            zed_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_ZED_POOLS,
            headline=("predictions",), accent="#084CCF"),
+    # Non-quota rows are appended after quotas in ordered_sources(); keep this
+    # with the other activity sources so SOURCE_IDS stays in rollup order.
+    Source("claude-status", "Claude Status", "status.claude.com", 60,
+           claude_status.fetch, _detail_claude_status, _summary_claude_status,
+           _blank_claude_status, kind="activity", group=GROUP_AI),
     Source("vercel", "Vercel", "Vercel CLI login", 60,
            vercel_builds.fetch_deployments, _detail_vercel, _summary_vercel,
            _blank_vercel),

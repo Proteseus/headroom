@@ -24,6 +24,7 @@ struct UsageSnapshot: Decodable, Sendable {
     var local: LocalUsage?
     var supabase: SupabaseUsage?
     var plausible: PlausibleUsage?
+    var claudeStatus: ClaudeStatus?
     var sources: [SyncSource]?
     var attention: Attention?
     /// Provider ids the compact surfaces show, picked host-side so the menu
@@ -62,6 +63,7 @@ struct UsageSnapshot: Decodable, Sendable {
         local: LocalUsage? = nil,
         supabase: SupabaseUsage? = nil,
         plausible: PlausibleUsage? = nil,
+        claudeStatus: ClaudeStatus? = nil,
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
         burndown: [String: [String: Burndown]]? = nil,
@@ -90,6 +92,7 @@ struct UsageSnapshot: Decodable, Sendable {
         self.local = local
         self.supabase = supabase
         self.plausible = plausible
+        self.claudeStatus = claudeStatus
         self.sources = sources
         self.attention = attention
         self.burndown = burndown
@@ -100,6 +103,7 @@ struct UsageSnapshot: Decodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case updated, plan, today, codex, cursor, providers, vercel, git, github, activity, local
         case supabase, plausible, sources, attention, focus, burndown, machines
+        case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
         case quotaOK = "quota_ok"
@@ -1458,6 +1462,28 @@ struct PlausibleUsage: Decodable, Sendable {
         case siteCount = "site_count"
         case visitorsToday = "visitors_today"
         case rangeLabel = "range_label"
+    }
+}
+
+/// status.claude.com rollup — Attention reads `alerting`; Settings uses sources[].
+struct ClaudeStatus: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var indicator: String?
+    var description: String?
+    var alerting: Bool?
+    var incidentName: String?
+    var incidentImpact: String?
+    var url: String?
+    var updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, indicator, description, alerting, url
+        case incidentName = "incident_name"
+        case incidentImpact = "incident_impact"
+        case updatedAt = "updated_at"
     }
 }
 

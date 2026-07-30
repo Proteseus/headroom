@@ -145,8 +145,14 @@ def local_available():
     return True
 
 
+def claude_status_available():
+    """Public status page — no local credential; on by default."""
+    return True
+
+
 PROBES = {
     "claude": claude_signed_in,
+    "claude-status": claude_status_available,
     "codex": codex_signed_in,
     "cursor": cursor_signed_in,
     "copilot": copilot_usage.signed_in,
