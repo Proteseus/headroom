@@ -1353,11 +1353,7 @@ struct SettingsView: View {
     }
 
     private func copyMobileToken() {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".headroom/mobile-token")
-        guard let value = try? String(contentsOf: url, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
+        guard let value = HostController.mobileToken else {
             mobileTokenMessage = "Start the host first"
             return
         }

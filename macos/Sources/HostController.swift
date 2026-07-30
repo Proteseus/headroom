@@ -51,6 +51,25 @@ enum HostController {
 
     static var isBundled: Bool { bundledServer != nil }
 
+    /// What the iPhone pastes to pair. Written by the host on first run, so it
+    /// is absent until the helper has started at least once.
+    ///
+    /// Not `~/.headroom/token` — that one is the host token the ESP32 uses, and
+    /// the phone refuses it.
+    static var mobileTokenURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".headroom/mobile-token")
+    }
+
+    static var mobileToken: String? {
+        guard
+            let value = try? String(contentsOf: mobileTokenURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !value.isEmpty
+        else { return nil }
+        return value
+    }
+
     /// Fingerprint of the host this .app ships.
     ///
     /// Cached, but against the directory's stamp rather than for the life of the

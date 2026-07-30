@@ -62,6 +62,8 @@ struct WelcomeView: View {
     @State private var sourceRows: [SetupSourceRow] = []
     @State private var sourcesError: String?
     @State private var sourcesLoaded = false
+    @State private var mobileToken: String?
+    @State private var mobileTokenCopied = false
     @Namespace private var railNamespace
 
     private var pane: WelcomePane { WelcomePane.all[index] }
@@ -102,9 +104,12 @@ struct WelcomeView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 if let icon = NSImage(named: "AboutAppIcon") {
+                    // AboutAppIcon is the full-bleed artwork; the corner is ours
+                    // to apply here, the same way AboutHeadroomView does.
                     Image(nsImage: icon)
                         .resizable()
                         .frame(width: 36, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(HeadroomCopy.product)
@@ -421,15 +426,14 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 numbered([
                     "Install the iPhone app from TestFlight.",
-                    """
-                    Here on the Mac, open Settings → \(HeadroomCopy.settingsiPhone) \
-                    and click Copy mobile token.
-                    """,
-                    "On the phone, pick this Mac under Nearby Macs and paste the token.",
+                    "On the phone, pick this Mac under Nearby Macs.",
+                    "Paste the mobile token below when it asks for one.",
                 ])
 
                 Link("Open the TestFlight invite", destination: WelcomeLink.testFlight)
                     .font(.callout)
+
+                mobileTokenPanel
 
                 calloutBox(
                     symbol: "info.circle",
@@ -439,16 +443,67 @@ struct WelcomeView: View {
                         talk. Nothing goes over the internet.
                         """
                 )
-                calloutBox(
-                    symbol: "exclamationmark.triangle",
-                    text: """
-                        Paste the mobile token, not the host token. The host \
-                        token is for the desk display and the phone will \
-                        refuse it.
-                        """
+            }
+            .task { loadMobileToken() }
+        }
+    }
+
+    /// The token itself, rather than directions to Settings. It is the one
+    /// thing this pane exists to hand over, and the host has usually written it
+    /// by the time anyone gets here.
+    private var mobileTokenPanel: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Mobile token")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if let mobileToken {
+                    Button(mobileTokenCopied ? "Copied" : "Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(mobileToken, forType: .string)
+                        mobileTokenCopied = true
+                    }
+                    .glassButton()
+                    .controlSize(.small)
+                } else {
+                    Button("Check again") { loadMobileToken() }
+                        .glassButton()
+                        .controlSize(.small)
+                }
+            }
+
+            if let mobileToken {
+                Text(mobileToken)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    """
+                    This is the phone's token. The host token in \
+                    ~/.headroom/token is for the desk display, and the phone \
+                    refuses it. Settings → \(HeadroomCopy.settingsiPhone) has \
+                    this again later.
+                    """
                 )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(
+                    """
+                    The background helper writes the token the first time it \
+                    runs. Give it a moment, then check again — or find it later \
+                    in Settings → \(HeadroomCopy.settingsiPhone).
+                    """
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .padding(16)
+        .glassPanel(cornerRadius: 13)
     }
 
     private var boardPane: some View {
@@ -631,6 +686,11 @@ struct WelcomeView: View {
             await saveSources()
             onFinish()
         }
+    }
+
+    private func loadMobileToken() {
+        mobileToken = HostController.mobileToken
+        mobileTokenCopied = false
     }
 
     private func loadSources() async {
