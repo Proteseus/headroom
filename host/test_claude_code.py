@@ -318,6 +318,41 @@ class ClaudeCodeHooksTests(unittest.TestCase):
                 result["hookSpecificOutput"]["permissionDecision"], "defer")
         self.assertEqual(self.store.list(state="all"), [])
 
+    def test_finished_notices_replace_rather_than_stack(self):
+        def finished(session="claude-session-1"):
+            return self.adapter.lifecycle_event({
+                "hook_event_name": "Stop",
+                "session_id": session,
+                "cwd": "/tmp/acme",
+            })
+
+        first = finished()
+        second = finished()
+        third = finished("claude-session-2")
+        self.assertEqual(self.store.get(first["id"])["state"], "resolved")
+        open_rows = self.store.list(state="open")
+        self.assertEqual(
+            {row["id"] for row in open_rows}, {second["id"], third["id"]},
+            "one row per session, newest wins, other sessions untouched",
+        )
+
+    def test_a_notice_never_closes_a_pending_approval(self):
+        thread = threading.Thread(target=lambda: self.adapter.permission_request(
+            self.permission(), wait_seconds=3))
+        thread.start()
+        approval = self.wait_for_event()
+        self.adapter.lifecycle_event({
+            "hook_event_name": "Stop",
+            "session_id": approval["session_id"],
+            "cwd": "/tmp/acme",
+        })
+        self.assertEqual(
+            self.store.get(approval["id"])["state"], "pending",
+            "superseding is scoped by kind",
+        )
+        self.answer(approval, "decline")
+        thread.join(timeout=2)
+
     def test_permission_notification_does_not_duplicate_exact_request(self):
         result = self.adapter.lifecycle_event({
             "hook_event_name": "Notification",

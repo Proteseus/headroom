@@ -461,6 +461,9 @@ class ClaudeCodeHooks:
         )
 
     def _passive(self, payload, kind, title, summary):
+        # One row per session per kind: the newest notice replaces the one it
+        # makes untrue, instead of stacking behind it.
+        self.store.supersede(PROVIDER, ADAPTER, payload["session_id"], kind)
         return self.store.create(
             provider=PROVIDER,
             adapter=ADAPTER,

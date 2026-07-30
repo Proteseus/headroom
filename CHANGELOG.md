@@ -56,6 +56,11 @@ tag a version that has no entry.
   of raw JSON — the question was in there, but nobody was going to find it. The
   row now leads with the question itself instead of "Use AskUserQuestion" and
   lists the options underneath, each with the reason you would pick it.
+- **Claude finished responding** no longer stacks. A session's finished or idle
+  notice replaces the one it makes untrue, so the feed carries at most one per
+  session instead of a wall of identical rows burying the approvals that
+  actually want an answer. Superseding is scoped by session and kind, so a
+  notice arriving can never close a permission request you have not answered.
 
 ### Changed
 

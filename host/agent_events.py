@@ -465,6 +465,34 @@ class EventStore:
         finally:
             connection.close()
 
+    def supersede(self, provider, adapter, session_id, kind, resolution=None):
+        """Retire this session's earlier notice of the same kind.
+
+        A passive notice describes a state, not an event: "Claude finished" is
+        true of a session, and a second copy says nothing the first did not.
+        Without this they stack until dismissed and bury the rows that
+        actually want an answer.
+
+        Scoped by kind on purpose — a pending approval for the same session is
+        a different thing and must never be closed by a notice arriving.
+        """
+        now = _now_ms()
+        connection = self._connect()
+        try:
+            connection.execute(
+                """UPDATE attention_events
+                   SET state = 'resolved', revision = revision + 1,
+                       updated_at_ms = ?, resolution_json = ?
+                   WHERE provider = ? AND adapter = ? AND session_id = ?
+                     AND kind = ? AND state IN ('pending', 'responding')""",
+                (
+                    now, _json(resolution or {"reason": "superseded"}),
+                    provider, adapter, session_id, kind,
+                ),
+            )
+        finally:
+            connection.close()
+
     def resolve_session(self, provider, adapter, session_id, resolution=None):
         """Close passive attention rows when a provider session moves again."""
         now = _now_ms()
