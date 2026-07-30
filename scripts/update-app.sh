@@ -91,11 +91,48 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+# Ask before anything happens, not after the download — this is the point where
+# the answer still changes what the script does. Default is yes: you ran an
+# update command, and the checks below are what stand between a bad download
+# and your working install, not this prompt.
+if [[ "$ASSUME_YES" -eq 0 ]]; then
+  printf 'Update %s (%s → %s)? [Y/n] ' "$APP" "${INSTALLED:-none}" "$LATEST" >&2
+  read -r reply </dev/tty || reply=""
+  case "$reply" in
+    ""|y|Y|yes|YES) ;;
+    *) note "Cancelled."; exit 0 ;;
+  esac
+fi
+
 # ------------------------------------------------------------------- fetch it
 
 STAGE="$(mktemp -d -t headroom-update)"
-cleanup() { rm -rf "$STAGE"; }
+INSTALLED_OK=0
+QUIT_APP=0
+# Reopen on any early exit. The app is closed up front so the replace is never
+# racing a running copy, which means every path out of here before the install
+# owes the user their app back.
+cleanup() {
+  rm -rf "$STAGE"
+  if [[ "$QUIT_APP" -eq 1 && "$INSTALLED_OK" -eq 0 && -d "$APP" ]]; then
+    open "$APP" 2>/dev/null || true
+  fi
+}
 trap cleanup EXIT
+
+# Close it now rather than just before the swap. ditto over a running bundle
+# replaces files out from under mapped images, and the app that survives that
+# is not one you would want to trust.
+if pgrep -x Headroom >/dev/null 2>&1; then
+  note "Closing Headroom…"
+  QUIT_APP=1
+  osascript -e 'quit app "Headroom"' >/dev/null 2>&1 || true
+  for _ in $(seq 1 20); do
+    pgrep -x Headroom >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  pgrep -x Headroom >/dev/null 2>&1 && note "note: Headroom did not quit, continuing anyway"
+fi
 
 ZIP_URL="https://github.com/$REPO/releases/download/$TAG/Headroom-macOS.zip"
 note "Downloading $TAG …"
@@ -148,12 +185,6 @@ fi
 
 note "Verified $NEW_VERSION, notarized, team $GOT_TEAM."
 
-if [[ "$ASSUME_YES" -eq 0 ]]; then
-  printf 'Replace %s (%s → %s)? [y/N] ' "$APP" "${INSTALLED:-none}" "$NEW_VERSION" >&2
-  read -r reply </dev/tty || reply=""
-  [[ "$reply" == "y" || "$reply" == "Y" ]] || { note "Cancelled."; exit 0; }
-fi
-
 # ----------------------------------------------------------------- install it
 
 # Stop the agent first. Quitting the app is not enough and neither is kill:
@@ -166,13 +197,6 @@ if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
   note "Stopping the host…"
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 fi
-
-osascript -e 'quit app "Headroom"' >/dev/null 2>&1 || true
-for _ in $(seq 1 20); do
-  pgrep -x Headroom >/dev/null 2>&1 || break
-  sleep 0.5
-done
-pgrep -x Headroom >/dev/null 2>&1 && note "note: Headroom is still running, replacing anyway"
 
 # Keep the old bundle until the new one is in place, so a failed copy leaves
 # something that launches rather than an empty /Applications entry.
@@ -195,6 +219,7 @@ fi
 # Gatekeeper caches by path; strip quarantine so the replaced bundle opens
 # without the "downloaded from the internet" prompt it already passed.
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+INSTALLED_OK=1
 
 # Always put the agent back. The board reads its usage from that process, so
 # leaving it unloaded looks exactly like a dead board on the next boot.
