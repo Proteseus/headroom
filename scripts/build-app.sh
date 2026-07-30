@@ -145,6 +145,44 @@ embed_icloud_profile() {
   cp "$profile" "$APP/Contents/embedded.provisionprofile"
   /usr/libexec/PlistBuddy -c "Merge $ROOT/macos/Headroom-iCloud.entitlements" \
     "$app_ents" >/dev/null
+
+  # Xcode copies these three out of the profile when it signs. codesign does
+  # not — it stamps exactly what the plist holds and nothing else — so a
+  # hand-signed bundle carries the container identifier with no application
+  # identity to bind it to. CloudKit's answer to that is
+  #
+  #   "Trying to initialize a container without an application ID"
+  #
+  # which names the missing key without saying where it should have come from.
+  # 1.2.2 shipped exactly that way: entitled for iCloud by every check we had,
+  # and unable to open the container on any Mac.
+  #
+  # Read them off the profile rather than hardcoding, so they cannot disagree
+  # with the profile that authorizes them. The environment matters as much as
+  # the identifier — a Developer ID profile is Production, and without the key
+  # CloudKit has nothing telling it which side of the container to talk to.
+  local decoded value
+  decoded="$(mktemp -t headroom-profile)"
+  if ! security cms -D -i "$profile" > "$decoded" 2>/dev/null; then
+    echo "error: $profile is not a readable provisioning profile" >&2
+    rm -f "$decoded"
+    exit 1
+  fi
+  for key in com.apple.application-identifier \
+             com.apple.developer.team-identifier \
+             com.apple.developer.icloud-container-environment; do
+    value="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$decoded" \
+      2>/dev/null || true)"
+    if [[ -z "$value" ]]; then
+      echo "error: profile carries no $key — it cannot authorize CloudKit" >&2
+      rm -f "$decoded"
+      exit 1
+    fi
+    /usr/libexec/PlistBuddy -c "Delete :$key" "$app_ents" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :$key string $value" "$app_ents" >/dev/null
+  done
+  rm -f "$decoded"
+
   echo "note: embedded $(basename "$profile") — multi-Mac CloudKit is on" >&2
 }
 

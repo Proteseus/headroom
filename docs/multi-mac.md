@@ -107,6 +107,22 @@ To check any copy of the app:
 codesign -d --entitlements - --xml /Applications/Headroom.app | plutil -convert xml1 -o - -
 ```
 
+That output must carry **five** keys, not three. Alongside the two iCloud keys
+and the app group it needs `com.apple.application-identifier`,
+`com.apple.developer.team-identifier` and
+`com.apple.developer.icloud-container-environment`. Xcode copies those out of
+the profile when it signs; `codesign` does not, because it stamps exactly what
+the entitlements plist holds. `scripts/build-app.sh` reads them off the
+embedded profile instead, so they can never disagree with the profile that
+authorizes them.
+
+Without them the container has no application identity to bind to, and
+CloudKit fails with **"Trying to initialize a container without an application
+ID"**. 1.2.2 shipped in that state: profile embedded, iCloud entitlements
+present, `MachineCloudSync.isAvailable` true, Settings showing no warning, and
+not one record ever written. Three keys present is the failure that looks like
+success.
+
 Without step 3 the build signs exactly as it did before multi-Mac existed. That
 is deliberate — see below.
 
