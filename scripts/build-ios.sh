@@ -34,8 +34,10 @@ Archive HeadroomMobile for App Store / TestFlight.
   ./scripts/build-ios.sh          # → dist/Headroom-iOS.ipa
   ./scripts/build-ios.sh --upload # export + asc publish → Internal group
 
-  --manual-signing  export against named App Store profiles instead of letting
-                    Xcode manage them (CI — see the profile map below)
+  --manual-signing  archive + export against named App Store profiles instead
+                    of letting Xcode manage them (CI — see the profile map
+                    below). Avoids minting iOS Development certificates via
+                    the ASC API key.
 EOF
       exit 0
       ;;
@@ -100,20 +102,29 @@ if [[ "$MANUAL_SIGNING" -eq 1 ]]; then
   done
   echo "Exporting with manual signing:"
   /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" "$EXPORT_OPTIONS_RESOLVED"
+  # Archive must match. Automatic + an ASC API key mints iOS Development
+  # certificates on every run until the team hits Apple's cap, and then the
+  # archive fails asking you to revoke one (docs/releasing.md).
+  python3 "$ROOT/scripts/ios_manual_sign_pbxproj.py" \
+    "$ROOT/macos/Headroom.xcodeproj/project.pbxproj"
 fi
 
 echo "Archiving HeadroomMobile $HEADROOM_VERSION ($HEADROOM_BUILD)"
 
-# Let Xcode mint the missing App Store profiles either way. On CI that needs
-# the ASC key appended below; on a Mac with an Apple Distribution certificate
-# the signed-in Xcode account does it, and passing a key would override the
-# account with something weaker (see scripts/ship-ios.sh).
-AUTH_ARGS=(-allowProvisioningUpdates)
+# Local Macs: let the signed-in Xcode account mint/refresh App Store profiles
+# (-allowProvisioningUpdates, no API key — see scripts/ship-ios.sh).
+# CI --manual-signing: profiles and the Distribution identity are already on
+# the runner; do NOT pass the ASC key or -allowProvisioningUpdates, or Xcode
+# reaches for Development certificates again.
+AUTH_ARGS=()
+if [[ "$MANUAL_SIGNING" -eq 0 ]]; then
+  AUTH_ARGS=(-allowProvisioningUpdates)
+fi
 key_path="${APPLE_API_KEY_PATH:-}"
 key_id="${APPLE_API_KEY_ID:-}"
 issuer="${APPLE_API_ISSUER_ID:-}"
 tmp_auth_key=""
-if [[ -n "$key_id" && -n "$issuer" ]]; then
+if [[ "$MANUAL_SIGNING" -eq 0 && -n "$key_id" && -n "$issuer" ]]; then
   if [[ -z "$key_path" && -n "${APPLE_API_KEY:-}" ]]; then
     # The .p8 suffix means this is a new path, not the file mktemp created and
     # locked down — so it lands under the default umask. asc refuses a key it
@@ -129,6 +140,16 @@ if [[ -n "$key_id" && -n "$issuer" ]]; then
       -authenticationKeyID "$key_id"
       -authenticationKeyIssuerID "$issuer"
     )
+  fi
+fi
+
+# Upload still needs the ASC key even when signing is manual.
+if [[ "$MANUAL_SIGNING" -eq 1 && "$UPLOAD" -eq 1 ]]; then
+  if [[ -z "$key_path" && -n "${APPLE_API_KEY:-}" && -n "$key_id" && -n "$issuer" ]]; then
+    tmp_auth_key="$(mktemp -t AuthKey).p8"
+    printf '%s\n' "$APPLE_API_KEY" > "$tmp_auth_key"
+    chmod 600 "$tmp_auth_key"
+    key_path="$tmp_auth_key"
   fi
 fi
 
