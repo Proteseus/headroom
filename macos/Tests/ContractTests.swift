@@ -172,7 +172,10 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(grouped.map(\.group), [.ai, .devtools])
         XCTAssertEqual(
             grouped.first { $0.group == .ai }?.sources.map(\.id),
-            ["claude", "codex", "cursor"])
+            ["claude", "codex", "cursor", "claude-status"])
+        let ai = try XCTUnwrap(grouped.first { $0.group == .ai })
+        XCTAssertEqual(
+            ai.sources.first { $0.id == "claude-status" }?.kind, "activity")
         let devtools = try XCTUnwrap(grouped.first { $0.group == .devtools })
         XCTAssertTrue(devtools.sources.contains { $0.id == "plausible" })
         XCTAssertFalse(devtools.sources.contains { $0.kind == "quota" })
