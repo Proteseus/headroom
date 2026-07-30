@@ -124,24 +124,32 @@ final class MachineCloudSync {
     /// reporting that reassuring nothing while every save failed.
     static private(set) var lastFailure: String?
 
-    /// CloudKit's own message, with the cases worth naming spelled out.
-    /// A missing record type is a deployment mistake rather than a runtime
-    /// fault, and nothing in the raw error says where to go and fix it.
+    /// CloudKit's own message, with a hint appended where one is worth having.
+    ///
+    /// The hint is never allowed to *replace* what CloudKit said. An earlier
+    /// version mapped `.invalidArguments` straight to "deploy the schema",
+    /// which would have buried the message that actually solved this —
+    /// "Trying to initialize a container without an application ID", a signing
+    /// problem with nothing to do with the schema. A guess that hides the
+    /// evidence is worse than no guess.
     private static func describe(_ error: Error) -> String {
         guard let ck = error as? CKError else { return error.localizedDescription }
+        let hint: String?
         switch ck.code {
         case .unknownItem, .invalidArguments:
-            return "iCloud is missing the Machine record type. Deploy the "
-                + "CloudKit schema to Production — see docs/multi-mac.md."
+            hint = "If iCloud is missing the Machine record type, deploy the "
+                + "CloudKit schema to Production (docs/multi-mac.md)."
         case .notAuthenticated:
-            return "Sign in to iCloud on this Mac to share settings between Macs."
+            hint = "Sign in to iCloud on this Mac to share settings between Macs."
         case .networkUnavailable, .networkFailure, .serviceUnavailable:
-            return "iCloud is unreachable right now. Retrying."
+            hint = "Retrying."
         case .quotaExceeded:
-            return "This iCloud account is out of storage."
+            hint = "This iCloud account is out of storage."
         default:
-            return ck.localizedDescription
+            hint = nil
         }
+        guard let hint else { return ck.localizedDescription }
+        return "\(ck.localizedDescription) \(hint)"
     }
 
     /// Payload strings exactly as stored. Never parsed on this side.
