@@ -26,8 +26,9 @@ PROFILES = {
 SETTINGS = {
     "CODE_SIGN_STYLE": "Manual",
     "CODE_SIGN_IDENTITY": '"Apple Distribution"',
-    "CODE_SIGN_IDENTITY[sdk=iphoneos*]": '"Apple Distribution"',
-    "CODE_SIGN_IDENTITY[sdk=watchos*]": '"Apple Distribution"',
+    # Bracketed sdk variants must be quoted keys in OpenStep pbxproj syntax.
+    '"CODE_SIGN_IDENTITY[sdk=iphoneos*]"': '"Apple Distribution"',
+    '"CODE_SIGN_IDENTITY[sdk=watchos*]"': '"Apple Distribution"',
 }
 
 
@@ -67,8 +68,8 @@ def _patch_config(text: str, config_id: str, config_name: str, profile: str) -> 
     for key in (
         "CODE_SIGN_STYLE",
         "CODE_SIGN_IDENTITY",
-        "CODE_SIGN_IDENTITY\\[sdk=iphoneos\\*\\]",
-        "CODE_SIGN_IDENTITY\\[sdk=watchos\\*\\]",
+        r'"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]"',
+        r'"CODE_SIGN_IDENTITY\[sdk=watchos\*\]"',
         "PROVISIONING_PROFILE_SPECIFIER",
     ):
         settings = re.sub(
