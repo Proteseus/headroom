@@ -105,10 +105,42 @@ final class MachineCloudSync {
             let peers = try await fetchPeers()
             let round = try await client.syncMachines(records: peers)
             try await save(id: round.recordID, payload: round.recordJSON)
+            Self.lastFailure = nil
             return .success(MultiMacRoundSummary(
                 peers: round.peerCount, adopted: round.adopted.count))
         } catch {
+            Self.lastFailure = Self.describe(error)
             return .failure(error)
+        }
+    }
+
+    /// Why the last round failed, or nil when the last one worked.
+    ///
+    /// This exists because the failure had nowhere to go. `trouble_detail`
+    /// comes from the host and describes the *folder* transport, so a CloudKit
+    /// error fell through to "No other Macs yet" — the same words a working
+    /// sync with nobody else on it produces. 1.2.1 shipped with no `Machine`
+    /// record type in the Production container, and both Macs sat there
+    /// reporting that reassuring nothing while every save failed.
+    static private(set) var lastFailure: String?
+
+    /// CloudKit's own message, with the cases worth naming spelled out.
+    /// A missing record type is a deployment mistake rather than a runtime
+    /// fault, and nothing in the raw error says where to go and fix it.
+    private static func describe(_ error: Error) -> String {
+        guard let ck = error as? CKError else { return error.localizedDescription }
+        switch ck.code {
+        case .unknownItem, .invalidArguments:
+            return "iCloud is missing the Machine record type. Deploy the "
+                + "CloudKit schema to Production — see docs/multi-mac.md."
+        case .notAuthenticated:
+            return "Sign in to iCloud on this Mac to share settings between Macs."
+        case .networkUnavailable, .networkFailure, .serviceUnavailable:
+            return "iCloud is unreachable right now. Retrying."
+        case .quotaExceeded:
+            return "This iCloud account is out of storage."
+        default:
+            return ck.localizedDescription
         }
     }
 

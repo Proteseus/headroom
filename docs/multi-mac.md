@@ -62,7 +62,7 @@ downloading a release.
 
 ## Turning it on for the first time, once
 
-Three manual steps, none of which anything here can do for you:
+Five manual steps, none of which anything here can do for you:
 
 1. **Create the CloudKit container** `iCloud.com.centaur-labs.headroom` in the
    Apple Developer portal, under the same team that signs the app.
@@ -77,6 +77,21 @@ Three manual steps, none of which anything here can do for you:
    it. The release workflow decodes it, checks its team against the signing
    certificate, and exports `HEADROOM_PROVISION_PROFILE` before
    `scripts/build-app.sh`.
+5. **Deploy the CloudKit schema to Production.** Import
+   [`macos/Headroom-CloudKit.ckdb`](../macos/Headroom-CloudKit.ckdb) in the
+   CloudKit Console (**Import Schema…**), then **Deploy Schema Changes…**
+   from Development to Production.
+
+Step 5 looks optional and is not. A Developer ID build is pinned to the
+**Production** environment by its profile
+(`com.apple.developer.icloud-container-environment`), and CloudKit only
+auto-creates record types in **Development**. A container whose Production
+schema has no `Machine` type fails every save and every query — which is
+exactly what 1.2.1 shipped into. iCloud was correctly entitled, the amber
+banner was gone, both Macs said "No other Macs yet", and nothing anywhere said
+why. The schema file is the source of truth for what the container holds:
+changing what `MachineCloudSync` writes means changing it and redeploying, or
+the write fails in Production while a development build still works.
 
 Step 4 is not optional in practice and was missing until 1.2.0, which is why
 every release up to and including that one was notarized, installable, and had

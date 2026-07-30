@@ -335,6 +335,15 @@ struct SettingsView: View {
                         )
                         .font(.caption)
                         .foregroundStyle(HeadroomPalette.amber)
+                    } else if let failure = MachineCloudSync.lastFailure {
+                        // Ahead of the host's trouble_detail because that field
+                        // only ever describes the folder transport. A CloudKit
+                        // round that threw used to fall all the way through to
+                        // "No other Macs yet", which reads as a working sync
+                        // that nobody else has joined.
+                        Label(failure, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(HeadroomPalette.amber)
                     } else if let detail = multiMac.troubleDetail {
                         Label(detail, systemImage: "exclamationmark.triangle")
                             .font(.caption)
