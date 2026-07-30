@@ -113,7 +113,8 @@ class AskUserQuestionTests(unittest.TestCase):
             "How should I handle the 41 uncommitted files?")
         self.assertEqual(
             result[1]["value"],
-            "Two clean commits, push both\nOne commit with everything")
+            "Two clean commits, push both — One commit for the brand system."
+            "\nOne commit with everything — Fastest, but impossible to revert.")
 
     def test_summary_is_the_question_not_the_mechanism(self):
         self.assertEqual(

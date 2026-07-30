@@ -35,6 +35,19 @@ tag a version that has no entry.
 - Notices that can only be dismissed can be swiped away. Rows carrying a real
   answer cannot: a swipe that denied a permission would send Claude a decision
   by accident.
+- **You can answer Claude's questions from the phone.** Its options become the
+  buttons, and tapping one sends the choice back so Claude carries on without
+  you touching the Mac. No hook can hand `AskUserQuestion` a selection — but a
+  denied `PreToolUse` call is documented to show Claude the reason, so the
+  choice travels as the reason. It is a workaround and behaves like one:
+  Claude sees a blocked tool plus your words rather than a clean result, so it
+  may occasionally acknowledge the block. Headroom answers only a single
+  question of two to six options, never a `multiSelect` one, and everything
+  else — a timeout, an odd shape, or **Ask on Mac** — defers, which leaves the
+  question to appear on the Mac exactly as before. See
+  `docs/agent-attention.md`.
+- Installed hooks are now version 2, adding a `PreToolUse` entry scoped to
+  `AskUserQuestion`. Settings reports **Outdated** until you reinstall them.
 
 ### Fixed
 
@@ -42,9 +55,7 @@ tag a version that has no entry.
   permission hook, and the nested `questions` array reached the phone as a wall
   of raw JSON — the question was in there, but nobody was going to find it. The
   row now leads with the question itself instead of "Use AskUserQuestion" and
-  lists the options underneath. They are listed rather than tappable on
-  purpose: no Claude Code hook can return a selected option, so a button there
-  would promise something it cannot do.
+  lists the options underneath, each with the reason you would pick it.
 
 ### Changed
 

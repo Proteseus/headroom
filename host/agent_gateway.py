@@ -74,6 +74,13 @@ class AgentGateway:
             return claude.permission_request(payload)
         return claude.permission_request(payload, wait_seconds=wait_seconds)
 
+    def claude_question(self, payload, wait_seconds=None):
+        with self._adapter_lock:
+            claude = self.claude
+        if wait_seconds is None:
+            return claude.question_request(payload)
+        return claude.question_request(payload, wait_seconds=wait_seconds)
+
     def claude_event(self, payload):
         with self._adapter_lock:
             claude = self.claude

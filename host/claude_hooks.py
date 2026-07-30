@@ -8,20 +8,34 @@ import shutil
 import tempfile
 import urllib.parse
 
-VERSION = 1
+VERSION = 2
 DEFAULT_SETTINGS_PATH = os.path.expanduser("~/.claude/settings.json")
 MANAGED_PATH_PREFIX = "/agents/hooks/claude/"
 EVENTS = (
     "PermissionRequest",
+    "PreToolUse",
     "UserPromptSubmit",
     "Stop",
     "Notification",
     "SessionEnd",
 )
 
+# PreToolUse fires for every tool call, which is far more traffic than the
+# gateway wants. Scoped to the one tool whose answer Headroom can carry back:
+# a denied call is the only hook path documented to show Claude a reason.
+MATCHERS = {"PreToolUse": "AskUserQuestion"}
+
+ENDPOINTS = {
+    "PermissionRequest": "permission",
+    "PreToolUse": "question",
+}
+
+# Hooks that park while a phone decides, versus ones that just post and go.
+SLOW_EVENTS = ("PermissionRequest", "PreToolUse")
+
 
 def _url(port, event):
-    endpoint = "permission" if event == "PermissionRequest" else "event"
+    endpoint = ENDPOINTS.get(event, "event")
     query = urllib.parse.urlencode({
         "managed_by": "headroom",
         "version": VERSION,
@@ -33,9 +47,9 @@ def _entry(port, event):
     hook = {
         "type": "http",
         "url": _url(port, event),
-        "timeout": 300 if event == "PermissionRequest" else 5,
+        "timeout": 300 if event in SLOW_EVENTS else 5,
     }
-    return {"matcher": "", "hooks": [hook]}
+    return {"matcher": MATCHERS.get(event, ""), "hooks": [hook]}
 
 
 def _managed(entry):

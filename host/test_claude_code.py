@@ -234,6 +234,90 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.assertIsNone(
             claude_code.permission_rule("Bash", {"command": "x" * 600}))
 
+    @staticmethod
+    def question(options=None, **overrides):
+        entry = {
+            "question": "How should I handle the 41 uncommitted files?",
+            "multiSelect": False,
+            "options": options if options is not None else [
+                {"label": "Two clean commits, push both"},
+                {"label": "One commit with everything"},
+            ],
+        }
+        entry.update(overrides)
+        return {
+            "hook_event_name": "PreToolUse",
+            "session_id": "claude-session-1",
+            "cwd": "/tmp/acme",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [entry]},
+        }
+
+    def test_question_options_become_answers_carried_back_to_claude(self):
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.question_request(
+                self.question(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertEqual(event["kind"], "structured_question")
+        self.assertEqual(
+            [a["label"] for a in event["actions"]],
+            ["Two clean commits, push both", "One commit with everything",
+             "Ask on Mac"],
+        )
+        self.answer(event, "choice_1")
+        thread.join(timeout=2)
+        output = result["value"]["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "PreToolUse")
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn(
+            "One commit with everything", output["permissionDecisionReason"])
+        self.assertEqual(self.store.get(event["id"])["state"], "resolved")
+
+    def test_ask_on_mac_defers_without_answering(self):
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.question_request(
+                self.question(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        self.answer(event, "ask_on_mac")
+        thread.join(timeout=2)
+        self.assertEqual(
+            result["value"]["hookSpecificOutput"]["permissionDecision"],
+            "defer",
+        )
+
+    def test_unanswered_question_defers_to_the_mac(self):
+        result = self.adapter.question_request(self.question(), wait_seconds=1)
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "defer")
+        self.assertEqual(self.store.list(state="all")[0]["state"], "expired")
+
+    def test_shapes_we_cannot_answer_cleanly_defer_without_a_row(self):
+        """A half-answered set is worse than sending it back to the Mac."""
+        cases = [
+            self.question(multiSelect=True),
+            self.question(options=[{"label": "Only one"}]),
+            self.question(options=[
+                {"label": f"Option {n}"} for n in range(9)]),
+        ]
+        many = {
+            "hook_event_name": "PreToolUse",
+            "session_id": "s",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [
+                {"question": "A?", "options": [{"label": "x"}, {"label": "y"}]},
+                {"question": "B?", "options": [{"label": "x"}, {"label": "y"}]},
+            ]},
+        }
+        for payload in cases + [many]:
+            result = self.adapter.question_request(payload, wait_seconds=1)
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"], "defer")
+        self.assertEqual(self.store.list(state="all"), [])
+
     def test_permission_notification_does_not_duplicate_exact_request(self):
         result = self.adapter.lifecycle_event({
             "hook_event_name": "Notification",

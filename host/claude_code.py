@@ -95,6 +95,64 @@ PASSIVE_ACTIONS = [
     {"id": "dismiss", "label": "Dismiss", "risk": "safe"},
 ]
 
+# Answering a question from the phone, without a hook that returns answers.
+#
+# No Claude Code hook can hand AskUserQuestion a selected option. What a hook
+# *can* do is block the call and give Claude a reason, which the docs say is
+# "shown to Claude". So a tap sends `deny` with the chosen label as the
+# reason, and Claude reads the choice and carries on.
+#
+# This is a workaround and it shows: Claude sees a blocked tool plus your
+# words, not a clean tool result, so it may acknowledge the block or ask
+# again. Everything else here exists to keep that honest — one question only,
+# a bounded option count, and `defer` the moment we are unsure, which hands
+# the question back to the Mac untouched.
+CHOICE_PREFIX = "choice_"
+MAX_CHOICES = 6
+ASK_ON_MAC = {"id": "ask_on_mac", "label": "Ask on Mac", "risk": "safe"}
+
+
+def _sole_question(tool_input):
+    """The one question we can answer with buttons, or None.
+
+    Several questions in one call would need several rounds of taps, and a
+    half-answered set is worse than sending it back to the Mac.
+    """
+    if not isinstance(tool_input, dict):
+        return None
+    questions = tool_input.get("questions")
+    if not isinstance(questions, list) or len(questions) != 1:
+        return None
+    question = questions[0]
+    if not isinstance(question, dict):
+        return None
+    if question.get("multiSelect"):
+        return None
+    text = question.get("question")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    labels = []
+    for option in question.get("options") or []:
+        label = option.get("label") if isinstance(option, dict) else option
+        if isinstance(label, str) and label.strip():
+            labels.append(" ".join(label.split()))
+    if not 2 <= len(labels) <= MAX_CHOICES:
+        return None
+    return {"question": " ".join(text.split()), "labels": labels}
+
+
+def _choice_actions(labels):
+    actions = [
+        {
+            "id": f"{CHOICE_PREFIX}{index}",
+            "label": label,
+            "risk": "safe",
+            "requires_foreground": True,
+        }
+        for index, label in enumerate(labels)
+    ]
+    return actions + [ASK_ON_MAC]
+
 
 def _short(value, fallback, limit=240):
     text = str(value or "").strip() or fallback
@@ -137,6 +195,16 @@ def _render_reason(entry):
     return ""
 
 
+def _defer():
+    """No opinion: let Claude's ordinary permission flow take over."""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "defer",
+        },
+    }
+
+
 class _PendingPermission:
     def __init__(self):
         self.ready = threading.Event()
@@ -175,8 +243,10 @@ class ClaudeCodeHooks:
                     "supported": True, "maturity": "stable"},
                 "permission_grant": {
                     "supported": True, "maturity": "stable"},
+                # Answered through the PreToolUse deny channel rather than a
+                # real answer API, so it stays experimental on purpose.
                 "structured_question": {
-                    "supported": False, "maturity": "notify_only"},
+                    "supported": True, "maturity": "experimental"},
                 "send_message": {
                     "supported": False, "maturity": "planned"},
                 "interrupt": {
@@ -274,6 +344,76 @@ class ClaudeCodeHooks:
             },
         }
 
+    def question_request(self, payload, wait_seconds=DEFAULT_WAIT_SECONDS):
+        """Offer a question's own options as answers, via the deny channel.
+
+        Returns `defer` for anything we cannot answer cleanly, which is the
+        documented way to say "no opinion" and hands the question straight
+        back to the Mac.
+        """
+        session_id = payload.get("session_id")
+        tool_input = payload.get("tool_input")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise agent_events.InvalidEvent("Claude session_id is required")
+        question = _sole_question(tool_input)
+        if question is None:
+            return _defer()
+        wait_seconds = max(1, min(MAX_WAIT_SECONDS, int(wait_seconds)))
+        cwd = payload.get("cwd")
+        with self._lock:
+            event = self.store.create(
+                provider=PROVIDER,
+                adapter=ADAPTER,
+                provider_request_id="question-" + uuid.uuid4().hex,
+                session_id=session_id,
+                kind="structured_question",
+                title=f"Claude is asking you in {_project(cwd)}",
+                summary=_short(question["question"], "Claude asked a question"),
+                actions=_choice_actions(question["labels"]),
+                detail={
+                    "tool_name": "AskUserQuestion",
+                    "request": agent_request.fields(
+                        tool_input, "AskUserQuestion"),
+                    "cwd": cwd,
+                    "transcript_path": payload.get("transcript_path"),
+                    "tool_use_id": payload.get("tool_use_id"),
+                },
+                expires_at_ms=int((time.time() + wait_seconds) * 1000),
+            )
+            waiter = _PendingPermission()
+            self._pending[event["id"]] = waiter
+        waiter.ready.wait(wait_seconds)
+        with self._lock:
+            self._pending.pop(event["id"], None)
+        action = waiter.action
+        if action is None:
+            self.store.expire(event["id"], "Claude question hook timed out")
+            return _defer()
+        if not action.startswith(CHOICE_PREFIX):
+            self.store.resolve(event["id"], {"action": action})
+            return _defer()
+        try:
+            label = question["labels"][int(action[len(CHOICE_PREFIX):])]
+        except (ValueError, IndexError):
+            self.store.resolve(event["id"], {"action": action})
+            return _defer()
+        self.store.resolve(event["id"], {"action": action, "answer": label})
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                # Read by the model, so it is written for the model: state the
+                # answer, and say it came from the phone rather than letting a
+                # blocked tool look like a refusal.
+                "permissionDecisionReason": (
+                    f"The user answered from Headroom on their iPhone instead "
+                    f"of the terminal. Their answer to "
+                    f"\"{question['question']}\" is: {label}. "
+                    f"Treat this as their reply and continue — do not ask again."
+                ),
+            },
+        }
+
     def lifecycle_event(self, payload):
         session_id = payload.get("session_id")
         hook = payload.get("hook_event_name")
@@ -342,7 +482,9 @@ class ClaudeCodeHooks:
         if action_id == "dismiss":
             self.store.resolve(event["id"], {"action": action_id})
             return
-        if action_id not in ("approve_once", "approve_always", "decline"):
+        if (action_id not in (
+                "approve_once", "approve_always", "decline", ASK_ON_MAC["id"])
+                and not action_id.startswith(CHOICE_PREFIX)):
             raise ValueError("unsupported Claude action")
         with self._lock:
             waiter = self._pending.get(event["id"])

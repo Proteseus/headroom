@@ -158,12 +158,21 @@ def _expand_questions(payload):
         })
         choices = []
         for option in entry.get("options") or []:
+            description = None
             if isinstance(option, dict):
                 option_label = option.get("label")
+                description = option.get("description")
             else:
                 option_label = option
-            if isinstance(option_label, str) and option_label.strip():
-                choices.append(" ".join(option_label.split()))
+            if not isinstance(option_label, str) or not option_label.strip():
+                continue
+            choice = " ".join(option_label.split())
+            # The label is what the button says; the description is why you
+            # would pick it, and dropping it leaves four terse phrases with
+            # nothing to choose between.
+            if isinstance(description, str) and description.strip():
+                choice += " — " + " ".join(description.split())
+            choices.append(choice)
         if choices:
             joined = "\n".join(choices)
             result.append({

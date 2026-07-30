@@ -48,7 +48,8 @@ any hardcoded chrome that still bypasses them.
 | **Why** | The provider's stated reasons for asking | iOS |
 | **Show request** / **Hide request** | Expand the bulk fields (file contents, replacement bodies) | iOS |
 | **Shortened to fit** | This value is a prefix; the host clipped it | iOS |
-| **Options** | The choices an agent is offering — listed, not tappable | iOS |
+| **Options** | The choices an agent is offering, each with why you would pick it | iOS |
+| **Ask on Mac** | Decline to answer a question from the phone; it appears on the Mac | iOS |
 | **Allow once** / **Always allow this exact request** / **Deny** | Answers to a permission request. The middle one saves a rule | iOS |
 | **Saves the rule** | The exact rule an always-allow answer will write | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |

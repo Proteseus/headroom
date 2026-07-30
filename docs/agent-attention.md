@@ -63,6 +63,40 @@ the corresponding passive rows. If the host is unavailable or the permission
 wait expires, the hook supplies no decision and Claude falls back to its normal
 local permission dialog.
 
+## Answering a question without an answer API
+
+No Claude Code hook can hand `AskUserQuestion` a selected option. All 30 hook
+events were checked: `PreToolUse` can block a call, `PermissionRequest` can
+allow or deny it, `PostToolUse` fires too late to change anything. The
+`Elicitation` hook returns form values, but only for MCP elicitation — it never
+fires for `AskUserQuestion`.
+
+What a hook *can* do is block the call and give a reason. The docs are explicit
+that a denied `PreToolUse` **"blocks the tool call, and shows Claude the
+reason"**. That reason is the answer channel: tapping an option on the phone
+denies the call with the chosen label as `permissionDecisionReason`, and Claude
+reads the choice and continues.
+
+This is a workaround and the code says so. Claude sees a blocked tool plus
+your words, not a clean tool result, so it may acknowledge the block or ask
+again — which is why `structured_question` reports `experimental` rather than
+`stable`. Four rules keep it honest:
+
+- **One question, two to six options, no `multiSelect`.** Anything else
+  returns `defer`, creating no row at all. A half-answered set is worse than
+  a question that simply arrives on the Mac.
+- **`defer` is the default.** Timeout, an unmapped action, or **Ask on Mac**
+  all defer, which is the documented way to say "no opinion" and hands the
+  question back untouched.
+- **The hook is scoped `"matcher": "AskUserQuestion"`.** `PreToolUse`
+  otherwise fires on every tool call in every session.
+- **No duplicate row.** A denied `PreToolUse` stops the chain, so
+  `PermissionRequest` never fires for a question that was answered. When the
+  phone stays quiet, the deferral lets the ordinary permission flow resume.
+
+The reason text names the phone explicitly. A bare "denied" reads to the model
+as a refusal; it has to say an answer was given and where it came from.
+
 ## Deliberate boundary
 
 This Codex App Server instance currently uses Codex's stdio transport and owns

@@ -1527,6 +1527,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path.rstrip("/")
         claude_permission = path == "/agents/hooks/claude/permission"
+        claude_question = path == "/agents/hooks/claude/question"
         claude_event = path == "/agents/hooks/claude/event"
         event_response_id = None
         prefix = "/attention/events/"
@@ -1550,7 +1551,7 @@ class Handler(BaseHTTPRequestHandler):
             "/machines/config",
             "/machines/sync",
         ) and event_response_id is None:
-            if claude_permission or claude_event:
+            if claude_permission or claude_question or claude_event:
                 pass
             else:
                 self.send_error(404)
@@ -1601,7 +1602,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
-        elif claude_permission or claude_event:
+        elif claude_permission or claude_question or claude_event:
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
@@ -1617,7 +1618,8 @@ class Handler(BaseHTTPRequestHandler):
             # A single machine record is a few KB of prefs and stamps, so a
             # handful of peers clears 4096 immediately. Same ceiling as the
             # hook payloads rather than a third number to keep in step.
-            bulk = claude_permission or claude_event or path == "/machines/sync"
+            bulk = (claude_permission or claude_question or claude_event
+                    or path == "/machines/sync")
             max_length = 128 * 1024 if bulk else 4096
             if length <= 0 or length > max_length:
                 raise ValueError
@@ -1637,6 +1639,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # No decision deliberately hands control back to Claude's ordinary
             # local permission dialog.
+            self._send_json(200, result or {})
+            return
+
+        if claude_question:
+            try:
+                result = agent_gateway.get().claude_question(payload)
+            except agent_events.InvalidEvent as error:
+                self._send_json(400, {"error": str(error)})
+                return
+            # A deferred decision leaves the question to the Mac.
             self._send_json(200, result or {})
             return
 
