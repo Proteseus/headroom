@@ -7,7 +7,7 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
-## Unreleased
+## 1.1.8 — 2026-07-30
 
 ### Added
 
