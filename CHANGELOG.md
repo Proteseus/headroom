@@ -7,6 +7,13 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.0 — 2026-07-30
+
+### Added
+
+- Major Claude outages on status.claude.com light Attention — partial blips
+  stay quiet.
+
 ## 1.1.9 — 2026-07-30
 
 ### Fixed

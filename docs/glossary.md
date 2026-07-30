@@ -37,7 +37,7 @@ any hardcoded chrome that still bypasses them.
 | **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
 | **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
-| **Attention** | Warning / status card | macOS, iOS |
+| **Attention** | Warning / status card (scoring policy: `docs/attention.md`) | macOS, iOS |
 | **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
 | **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
 | **Coding agents** | Provider setup and attention gateway settings | macOS |
@@ -176,6 +176,7 @@ undifferentiated pile of toggles:
 | `windsurf` | Windsurf | `ai` |
 | `jetbrains` | JetBrains AI | `ai` |
 | `zed` | Zed | `ai` |
+| `claude-status` | Claude Status | `ai` |
 | `vercel` | Vercel | `devtools` |
 | `git` | Git | `devtools` |
 | `github` | GitHub Actions | `devtools` |
@@ -197,7 +198,7 @@ served as `sources[].group`). Section titles are chrome and live in
 
 | Term | Meaning | Surfaces |
 |---|---|---|
-| **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left, no key to paste | macOS Settings + onboarding, iOS Settings |
+| **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left, no key to paste; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
 | **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, local servers | macOS Settings + onboarding, iOS Settings |
 
 Don't call the first group **Sources** on its own, and don't call the second

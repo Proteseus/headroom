@@ -435,6 +435,19 @@
       }
     ]
   },
+  "claude_status": {
+    "ok": true,
+    "configured": true,
+    "error": null,
+    "stale": false,
+    "indicator": "none",
+    "description": "All Systems Operational",
+    "alerting": false,
+    "incident_name": null,
+    "incident_impact": null,
+    "url": "https://status.claude.com",
+    "updated_at": "2026-07-30T06:00:00.000Z"
+  },
   "activity": [
     {
       "id": "act_1",
@@ -522,6 +535,16 @@
       "kind": "quota",
       "group": "ai",
       "accent": "#789BC8",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "claude-status",
+      "title": "Claude Status",
+      "kind": "activity",
+      "group": "ai",
       "enabled": true,
       "ok": true,
       "configured": true,

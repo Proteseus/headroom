@@ -52,6 +52,7 @@ import auth
 import burndown
 import cache_util
 import claude_history
+import claude_status
 import daily_burn
 import device_view
 import git_activity
@@ -169,7 +170,8 @@ def _reset_activity_rows(burndowns):
     return rows
 
 
-def _build_activity(vercel, git, supabase=None, github=None, burndowns=None):
+def _build_activity(vercel, git, supabase=None, github=None,
+                    claude_status_payload=None, burndowns=None):
     """Merge deploys, commits, Actions failures, backend alerts, and grants."""
     deployments = vercel.get("deployments") or []
     commits = git.get("commits") or []
@@ -332,6 +334,33 @@ def _build_activity(vercel, git, supabase=None, github=None, burndowns=None):
                 if ref else project.get("dashboard_url")
             ),
             "inspector_url": project.get("dashboard_url"),
+        })
+
+    claude_status_payload = claude_status_payload or {}
+    if claude_status_payload.get("alerting"):
+        subject = (
+            claude_status_payload.get("incident_name")
+            or claude_status_payload.get("description")
+            or "Claude major outage"
+        )
+        items.append({
+            "id": "claude-status",
+            "kind": "claude-status",
+            "status": "error",
+            "subject": subject,
+            "repo": "Claude",
+            "project": None,
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": time.time(),
+            "ago": "now",
+            "error_message": claude_status_payload.get("description"),
+            "url": claude_status_payload.get("url") or claude_status.PAGE_URL,
+            "inspector_url": (
+                claude_status_payload.get("url") or claude_status.PAGE_URL
+            ),
         })
 
     items.extend(_reset_activity_rows(burndowns))
@@ -726,6 +755,7 @@ def _compute_doc():
     local = state["local"]
     supabase = state["supabase"]
     plausible = state["plausible"]
+    claude_status_payload = state.get("claude-status") or {}
 
     local_tz = _local_tz()
     history = claude_history.summary(days=30)
@@ -789,9 +819,23 @@ def _compute_doc():
             "stale": bool(git.get("stale")),
             "commits": git.get("commits") or [],
         },
-        "activity": _build_activity(vercel, git, supabase, github, burndowns),
+        "activity": _build_activity(
+            vercel, git, supabase, github, claude_status_payload, burndowns),
         "supabase": supabase,
         "plausible": plausible,
+        "claude_status": {
+            "ok": bool(claude_status_payload.get("ok")),
+            "configured": bool(claude_status_payload.get("configured", True)),
+            "error": claude_status_payload.get("error"),
+            "stale": bool(claude_status_payload.get("stale")),
+            "indicator": claude_status_payload.get("indicator") or "none",
+            "description": claude_status_payload.get("description"),
+            "alerting": bool(claude_status_payload.get("alerting")),
+            "incident_name": claude_status_payload.get("incident_name"),
+            "incident_impact": claude_status_payload.get("incident_impact"),
+            "url": claude_status_payload.get("url") or claude_status.PAGE_URL,
+            "updated_at": claude_status_payload.get("updated_at"),
+        },
         "github": {
             "ok": bool(github.get("ok")),
             "configured": bool(github.get("configured")),
@@ -918,6 +962,15 @@ def _build_attention(doc):
             "github",
             summary,
             40 + min(30, fails * 5),
+        )
+
+    claude_status_doc = doc.get("claude_status") or {}
+    if claude_status_doc.get("configured") and claude_status_doc.get("alerting"):
+        add(
+            "critical",
+            "claude-status",
+            claude_status.attention_summary(claude_status_doc),
+            45,
         )
 
     supabase = doc.get("supabase") or {}
