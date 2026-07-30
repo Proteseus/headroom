@@ -7,6 +7,39 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.6 — 2026-07-30
+
+### Changed
+
+- iPhone drops to three tabs. Quotas and Settings both leave the bar: quota
+  detail is reached from Overview, where the rings already are, and Settings
+  becomes a toolbar button on every tab instead of a destination competing with
+  the data. Five tabs for four screens and a preferences pane was one bar doing
+  two jobs.
+- The Mac app icon sits on Apple's icon grid — a rounded 824-of-1024 tile with
+  clear margins, no baked shadow — instead of a full-bleed square. macOS masks
+  nothing for you, so the Dock was drawing a black rectangle among rounded
+  ones. iPhone, Watch and the App Store PNG are unchanged: those masks come
+  from the system, and App Store Connect rejects alpha.
+- The Welcome window's **On your phone** pane shows the mobile token itself,
+  with a Copy button, instead of sending you to Settings to fetch it — a detour
+  on the one screen whose whole job is getting the phone paired. If the host
+  has not written the token yet the pane says so and offers to look again.
+- `scripts/update-app.sh` closes the app up front and defaults its prompt to
+  yes.
+
+### Fixed
+
+- The ESP32 sealed its panel edge in a fixed colour, so every cold-blue boot
+  frame got a warm strip along the bottom, repainted each splash frame while
+  the picture above it rolled. It read as the bottom of the panel
+  misbehaving. The canvas now seals to whatever colour it last cleared to, and
+  `scripts/render_esp32_preview.py` mirrors the seal so previews stop promising
+  pixels the panel eats.
+- The ESP32 quota page reclaimed 22px it was reserving for page dots nothing
+  draws, which had left 50px of nothing under the chart against 28 above the
+  header.
+
 ## 1.2.5 — 2026-07-30
 
 ### Added
