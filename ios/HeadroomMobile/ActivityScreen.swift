@@ -73,15 +73,15 @@ struct ActivityScreen: View {
     }
 
     private func agentRow(_ event: AgentAttentionEvent) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let tint = (store.snapshot.providers ?? [])
+            .accentTint(forProvider: event.providerIconID)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // The mark says which agent is asking before the words do.
                 // A generic speech bubble made a Claude row and a Codex row
                 // look like the same thing.
                 ProviderMark(providerID: event.providerIconID, size: 15)
-                    .foregroundStyle(
-                        (store.snapshot.providers ?? [])
-                            .accentTint(forProvider: event.providerIconID))
+                    .foregroundStyle(tint)
                 Text(event.title)
                     .font(.headline)
                 Spacer(minLength: 6)
@@ -109,6 +109,7 @@ struct ActivityScreen: View {
             // Wraps: three options no longer run off the edge of the row.
             FlowingActions(
                 actions: event.actions,
+                tint: tint,
                 disabled: !store.mobilePermissions.agents
                     || store.respondingAgentEventID != nil,
                 responding: store.respondingAgentEventID == event.id

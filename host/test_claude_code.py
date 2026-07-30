@@ -240,7 +240,8 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             "question": "How should I handle the 41 uncommitted files?",
             "multiSelect": False,
             "options": options if options is not None else [
-                {"label": "Two clean commits, push both"},
+                {"label": "Two clean commits, push both",
+                 "description": "Reviewable and revertable per project."},
                 {"label": "One commit with everything"},
             ],
         }
@@ -265,6 +266,16 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             [a["label"] for a in event["actions"]],
             ["Two clean commits, push both", "One commit with everything",
              "Ask on Mac"],
+        )
+        self.assertEqual(
+            event["actions"][0]["description"],
+            "Reviewable and revertable per project.",
+            "an option carries the reason you would pick it",
+        )
+        self.assertEqual(
+            event["detail"]["request"], [],
+            "the summary is the question and the actions are the options, "
+            "so a request block would print all of it twice",
         )
         self.answer(event, "choice_1")
         thread.join(timeout=2)

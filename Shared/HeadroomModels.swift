@@ -1776,11 +1776,16 @@ struct AgentAttentionAction: Codable, Sendable, Equatable, Identifiable {
     var id: String
     var label: String
     var risk: String
+    /// Why you would pick this one. Named `subtitle` rather than
+    /// `description` because that name already means something else on every
+    /// Swift type; the wire key stays the provider's.
+    var subtitle: String?
     var requiresForeground: Bool?
     var requiresBiometric: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id, label, risk
+        case subtitle = "description"
         case requiresForeground = "requires_foreground"
         case requiresBiometric = "requires_biometric"
     }

@@ -87,13 +87,20 @@ def _actions(value):
         risk = str(raw.get("risk") or "safe")
         if risk not in ("safe", "privileged", "destructive"):
             raise InvalidEvent(f"unknown action risk {risk}")
-        result.append({
+        action = {
             "id": action_id,
             "label": label,
             "risk": risk,
             "requires_foreground": bool(raw.get("requires_foreground")),
             "requires_biometric": bool(raw.get("requires_biometric")),
-        })
+        }
+        # Why you would pick this one. An answer that carries its own reason
+        # is one control instead of a list beside a row of buttons saying the
+        # same words.
+        description = raw.get("description")
+        if isinstance(description, str) and description.strip():
+            action["description"] = _text(description, "action description")
+        result.append(action)
     return result
 
 

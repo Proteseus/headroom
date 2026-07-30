@@ -131,26 +131,40 @@ def _sole_question(tool_input):
     text = question.get("question")
     if not isinstance(text, str) or not text.strip():
         return None
-    labels = []
+    options = []
     for option in question.get("options") or []:
-        label = option.get("label") if isinstance(option, dict) else option
-        if isinstance(label, str) and label.strip():
-            labels.append(" ".join(label.split()))
-    if not 2 <= len(labels) <= MAX_CHOICES:
+        if isinstance(option, dict):
+            label = option.get("label")
+            description = option.get("description")
+        else:
+            label, description = option, None
+        if not isinstance(label, str) or not label.strip():
+            continue
+        options.append({
+            "label": " ".join(label.split()),
+            "description": (
+                " ".join(description.split())
+                if isinstance(description, str) and description.strip()
+                else None
+            ),
+        })
+    if not 2 <= len(options) <= MAX_CHOICES:
         return None
-    return {"question": " ".join(text.split()), "labels": labels}
+    return {"question": " ".join(text.split()), "options": options}
 
 
-def _choice_actions(labels):
-    actions = [
-        {
+def _choice_actions(options):
+    actions = []
+    for index, option in enumerate(options):
+        action = {
             "id": f"{CHOICE_PREFIX}{index}",
-            "label": label,
+            "label": option["label"],
             "risk": "safe",
             "requires_foreground": True,
         }
-        for index, label in enumerate(labels)
-    ]
+        if option["description"]:
+            action["description"] = option["description"]
+        actions.append(action)
     return actions + [ASK_ON_MAC]
 
 
@@ -369,11 +383,13 @@ class ClaudeCodeHooks:
                 kind="structured_question",
                 title=f"Claude is asking you in {_project(cwd)}",
                 summary=_short(question["question"], "Claude asked a question"),
-                actions=_choice_actions(question["labels"]),
+                actions=_choice_actions(question["options"]),
                 detail={
                     "tool_name": "AskUserQuestion",
-                    "request": agent_request.fields(
-                        tool_input, "AskUserQuestion"),
+                    # No request block: the summary is the question and the
+                    # actions carry the options with their reasons, so a
+                    # request field here would print all of it a second time.
+                    "request": [],
                     "cwd": cwd,
                     "transcript_path": payload.get("transcript_path"),
                     "tool_use_id": payload.get("tool_use_id"),
@@ -393,7 +409,7 @@ class ClaudeCodeHooks:
             self.store.resolve(event["id"], {"action": action})
             return _defer()
         try:
-            label = question["labels"][int(action[len(CHOICE_PREFIX):])]
+            label = question["options"][int(action[len(CHOICE_PREFIX):])]["label"]
         except (ValueError, IndexError):
             self.store.resolve(event["id"], {"action": action})
             return _defer()

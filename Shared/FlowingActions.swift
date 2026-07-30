@@ -1,53 +1,98 @@
 import SwiftUI
 
-/// Answer buttons that wrap instead of running off the edge.
+/// The answers to an agent's request.
 ///
-/// A permission row can now carry three answers, and "Always allow this exact
-/// request" is a long label by design — it is deliberately not Claude's
-/// shorter "Yes, don't ask again", because Headroom saves a narrower rule and
-/// the button should not claim otherwise. An `HStack` clipped it; this lays
-/// the same buttons out in as many rows as they need.
+/// Two shapes, chosen by whether the answers carry their own reasons. Plain
+/// answers — Allow once, Deny — are pills that wrap when three of them and a
+/// long label will not fit a row. A question's options each come with the
+/// reason you would pick them, so they become full-width rows with the reason
+/// underneath: one control per option, instead of a list of descriptions
+/// sitting above a row of buttons repeating the same words.
+///
+/// Tinted with the account's accent, so the answers belong to the agent that
+/// asked rather than to the system.
 struct FlowingActions: View {
     let actions: [AgentAttentionAction]
+    let tint: Color
     let disabled: Bool
     let responding: Bool
     let answer: (AgentAttentionAction) -> Void
 
+    private var isChoiceList: Bool {
+        actions.contains { $0.subtitle?.isEmpty == false }
+    }
+
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row
-            column
+        if isChoiceList {
+            choiceList
+        } else {
+            ViewThatFits(in: .horizontal) {
+                pillRow
+                pillColumn
+            }
         }
     }
 
-    private var row: some View {
+    private var choiceList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(actions) { action in
+                Button {
+                    answer(action)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(action.label)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(color(for: action))
+                        if let subtitle = action.subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.bordered)
+                .tint(color(for: action))
+                .disabled(disabled)
+            }
+            if responding { spinner }
+        }
+    }
+
+    private var pillRow: some View {
         HStack(spacing: 8) {
-            buttons
+            pills
             if responding { spinner }
             Spacer(minLength: 0)
         }
     }
 
-    private var column: some View {
+    private var pillColumn: some View {
         VStack(alignment: .leading, spacing: 6) {
-            buttons
+            pills
             if responding { spinner }
         }
     }
 
     @ViewBuilder
-    private var buttons: some View {
+    private var pills: some View {
         ForEach(actions) { action in
             Button(action.label) { answer(action) }
                 .buttonStyle(.bordered)
+                .tint(color(for: action))
                 .disabled(disabled)
-                // Deny is not destructive — it is the safe answer — so it
-                // gets no alarm colour. Only a genuinely destructive action
-                // earns one.
-                .tint(action.risk == "destructive"
-                      ? HeadroomPalette.red
-                      : nil)
         }
+    }
+
+    /// Deny is not destructive — it is the safe answer — so it keeps the
+    /// accent. Only a genuinely destructive action earns an alarm colour, and
+    /// **Ask on Mac** steps back because it is the one that answers nothing.
+    private func color(for action: AgentAttentionAction) -> Color {
+        if action.risk == "destructive" { return HeadroomPalette.red }
+        if action.id == "ask_on_mac" { return HeadroomPalette.dim }
+        return tint
     }
 
     private var spinner: some View {
