@@ -160,6 +160,10 @@ class CodexAppServerTests(unittest.TestCase):
     @mock.patch("codex_app_server.subprocess.Popen")
     def test_child_uses_stable_cwd_and_reports_stderr(self, popen):
         popen.return_value = ExitedProcess()
+        # setUp asks resolve_binary("codex"). CI has no Codex on PATH, so the
+        # resolved path is None and _run_once would assert before Popen — this
+        # test is about the child spawn, not discovery.
+        self.adapter.binary = "/mock/codex"
         with self.assertRaisesRegex(
             RuntimeError,
             "status 7.*configuration failed",
