@@ -104,7 +104,7 @@ private struct ProviderSummaryRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     ProviderMark(providerID: provider.id, size: 16)
-                    Text(provider.displayTitle)
+                    Text(provider.markTitle)
                         .font(.headline)
                     if let plan = provider.plan {
                         Text(plan)
@@ -705,7 +705,7 @@ struct OverallBurndownChart: View {
                     ForEach(drawn) { entry in
                         VStack(alignment: .leading, spacing: 2) {
                             Label {
-                                Text(entry.provider.displayTitle)
+                                Text(entry.provider.markTitle)
                                     .font(.caption2.weight(.medium))
                             } icon: {
                                 Circle()
@@ -761,13 +761,13 @@ struct DailyBurnChart: View {
                                 )
                             )
                             .foregroundStyle(
-                                by: .value("Provider", provider.displayTitle)
+                                by: .value("Provider", provider.markTitle)
                             )
                         }
                     }
                 }
                 .chartForegroundStyleScale(
-                    domain: providers.map(\.displayTitle),
+                    domain: providers.map(\.markTitle),
                     range: providers.map(\.tint)
                 )
                 .chartLegend(position: .bottom, alignment: .leading, spacing: 12)

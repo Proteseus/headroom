@@ -64,6 +64,30 @@ class AccountsTests(unittest.TestCase):
         self.assertEqual(row.headline, base.headline)
         self.assertIn("claude:work", sources_config.BURN_SOURCE_IDS)
 
+    def test_account_payload_ships_the_user_label(self):
+        # Build the row the same way the registry does, without seeding
+        # sources.json (that path probes every local sign-in and can block on
+        # Keychain when Headroom.app is already holding it).
+        account = accounts.Account(
+            provider="claude",
+            slug="work",
+            label="Work",
+            root=self.root,
+            raw_root=self.root,
+        )
+        row = sources_config._account_row(
+            sources_config.BASE_BY_ID["claude"], account)
+        self.assertEqual(row.title, "Claude · Work")
+        self.assertEqual(row.account.label, "Work")
+        # /setup sources[] (and /usage sources[] / providers[]) forward label
+        # only on named accounts — see detection_payload / _providers_payload.
+        payload = {"id": row.id, "title": row.title}
+        if row.account is not None:
+            payload["label"] = row.account.label
+        self.assertEqual(payload["label"], "Work")
+        bare = {"id": "claude", "title": "Claude"}
+        self.assertNotIn("label", bare)
+
     def test_account_row_sits_behind_its_provider_and_is_on(self):
         sources_config.add_account("claude", "Work", self._claude_dir())
         sources_config.reload_registry()

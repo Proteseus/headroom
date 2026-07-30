@@ -1042,7 +1042,7 @@ def _sources_payload(state):
         payload = state.get(source.id) or {}
         age = times.get(source.id) or 0.0
         fetched_age = _age_seconds(payload, now)
-        rows.append({
+        row = {
             "id": source.id,
             "title": source.title,
             "hint": source.hint,
@@ -1071,7 +1071,14 @@ def _sources_payload(state):
             # the "N minutes stale" line stays at one minute forever.
             "age_s": (fetched_age if fetched_age is not None
                       else (int(max(0, now - age)) if age > 0 else None)),
-        })
+        }
+        # Named accounts only. Clients put this next to the brand mark so the
+        # mark names the tool and the label names the login — "Claude · Work"
+        # beside a Claude glyph truncates to the one word that was already
+        # obvious.
+        if source.account is not None:
+            row["label"] = source.account.label
+        rows.append(row)
     return rows
 
 
@@ -1114,7 +1121,7 @@ def _providers_payload(state, burndowns=None):
         age = payload.get("stale_for_s")
         if not isinstance(age, (int, float)):
             age = _age_seconds(payload)
-        rows.append({
+        row = {
             "id": source.id,
             "title": source.title,
             "kind": "quota",
@@ -1139,7 +1146,11 @@ def _providers_payload(state, burndowns=None):
             "headline": source.headline[0] if source.headline else None,
             "reset_note_url": source.reset_note_url,
             "pools": pools,
-        })
+        }
+        # See `_sources_payload`: brand mark + user label, not "Brand · Label".
+        if source.account is not None:
+            row["label"] = source.account.label
+        rows.append(row)
     return rows
 
 

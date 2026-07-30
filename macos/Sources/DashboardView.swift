@@ -149,18 +149,23 @@ struct DashboardView: View {
         return HeadroomPalette.green
     }
 
-    /// Always icon + label. Extra providers share the fixed popover width and
-    /// truncate rather than dropping names (which left friend setups looking
-    /// like icon-only chrome).
+    /// Always icon + label. Named accounts use the user label beside the
+    /// brand mark — "Claude · Work" next to a Claude glyph truncates to the
+    /// brand and hides the only word that told the tabs apart. Extra
+    /// providers share the fixed popover width and truncate rather than
+    /// dropping names (which left friend setups looking like icon-only chrome).
     private var providerSwitcher: some View {
         let tabs = DashboardSelection.tabs(for: visibleProviders)
         return HStack(spacing: 2) {
             ForEach(tabs, id: \.self) { tabID in
                 let isSelected = selectedDashboardRaw == tabID
+                let fullTitle = DashboardSelection.title(
+                    for: tabID, providers: visibleProviders)
                 DashboardTabButton(
                     tabID: tabID,
-                    title: DashboardSelection.title(
+                    title: DashboardSelection.markTitle(
                         for: tabID, providers: visibleProviders),
+                    accessibilityTitle: fullTitle,
                     isSelected: isSelected
                 ) {
                     selectedDashboardRaw = tabID
@@ -257,10 +262,17 @@ struct DashboardView: View {
 private struct DashboardTabButton: View {
     let tabID: String
     let title: String
+    /// Spoken / hover name. Keeps the brand when the visible title is only
+    /// the account label next to the mark.
+    var accessibilityTitle: String = ""
     let isSelected: Bool
     let action: () -> Void
 
     @State private var hovering = false
+
+    private var spokenTitle: String {
+        accessibilityTitle.isEmpty ? title : accessibilityTitle
+    }
 
     var body: some View {
         Button(action: action) {
@@ -294,8 +306,8 @@ private struct DashboardTabButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(title)
-        .accessibilityLabel(title)
+        .help(spokenTitle)
+        .accessibilityLabel(spokenTitle)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

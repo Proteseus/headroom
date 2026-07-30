@@ -182,6 +182,12 @@ undifferentiated pile of toggles:
 | `plausible` | Plausible | `devtools` |
 | `local` | Local | `devtools` |
 
+Named extra logins (`claude:work`) keep a full `title` of `Claude · Work` for
+text-only surfaces (Settings, menu bar, the board). The host also ships
+`label` (`Work`). Anywhere a brand mark or accent already names the tool —
+dashboard tabs, rings, iPhone rows, widgets — clients draw `label` instead so
+three Claude accounts do not all truncate to "Claude…".
+
 ## Source groups
 
 Membership comes from `host/sources_config.py` (`GROUP_AI` / `GROUP_DEVTOOLS`,

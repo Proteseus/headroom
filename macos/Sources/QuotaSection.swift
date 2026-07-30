@@ -100,7 +100,8 @@ struct ProviderQuotaCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            HStack {
+            HStack(spacing: 6) {
+                ProviderMark(providerID: meter.id, size: 14)
                 Text(meter.title)
                     .font(.headline)
                 Spacer()

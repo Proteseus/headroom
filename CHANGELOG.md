@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.1.7 — 2026-07-30
+
+### Changed
+
+- Named accounts next to a brand mark show the user label (`Work`), not
+  `Claude · Work`. The mark already names the tool; repeating it is how a row
+  of Claude tabs all truncated to "Claude…". Full titles stay in Settings, the
+  menu bar and other text-only surfaces.
+
 ## 1.1.6 — 2026-07-29
 
 ### Added

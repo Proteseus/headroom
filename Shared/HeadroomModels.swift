@@ -152,6 +152,7 @@ struct UsageSnapshot: Decodable, Sendable {
             return QuotaProviderInfo(
                 id: row.id,
                 title: row.title,
+                label: row.label,
                 kind: row.kind ?? "quota",
                 enabled: true
             )
@@ -252,7 +253,7 @@ struct UsageSnapshot: Decodable, Sendable {
         }
         return ProviderMeter(
             id: info.id,
-            title: info.displayTitle,
+            title: info.markTitle,
             ok: info.ok ?? false,
             plan: info.plan,
             error: info.error,
@@ -320,7 +321,7 @@ struct UsageSnapshot: Decodable, Sendable {
 
         return ProviderMeter(
             id: info.id,
-            title: info.displayTitle,
+            title: info.markTitle,
             ok: info.ok ?? false,
             plan: info.plan,
             error: info.error,
@@ -785,6 +786,10 @@ struct DailyBurnDay: Decodable, Sendable, Identifiable {
 struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var id: String
     var title: String?
+    /// User-defined name for an extra login (`claude:work` → "Work"). Nil on
+    /// the default provider row. Drawn next to the brand mark so the mark
+    /// names the tool and this names the account.
+    var label: String?
     var kind: String?
     /// Position in the user's pinned order. The host already sorted
     /// `providers[]`; this is here so a client that re-sorts can't drift.
@@ -814,6 +819,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     init(
         id: String,
         title: String? = nil,
+        label: String? = nil,
         kind: String? = nil,
         rank: Int? = nil,
         enabled: Bool? = nil,
@@ -830,6 +836,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     ) {
         self.id = id
         self.title = title
+        self.label = label
         self.kind = kind
         self.rank = rank
         self.enabled = enabled
@@ -846,14 +853,38 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, kind, rank, enabled, ok, plan, error, accent, stale
+        case id, title, label, kind, rank, enabled, ok, plan, error, accent, stale
         case headline, pools
         case staleForS = "stale_for_s"
         case accentDefault = "accent_default"
         case resetNoteURL = "reset_note_url"
     }
 
+    /// Full name for text-only surfaces: "Claude · Work", or "Claude".
     var displayTitle: String { title ?? id.capitalized }
+
+    /// Name drawn next to a brand mark (logo or accent-colored ring).
+    ///
+    /// The mark already says which tool this is. Repeating "Claude" beside it
+    /// is how a row of account tabs all truncate to "Claude…" — the one word
+    /// that was already obvious. Prefer the user label; fall back to parsing
+    /// an older host's "Brand · Label" title; otherwise the full title.
+    var markTitle: String {
+        if let label = Self.normalized(label) { return label }
+        if id.contains(":"),
+           let title,
+           let sep = title.range(of: " · ") {
+            let suffix = String(title[sep.upperBound...])
+            if let label = Self.normalized(suffix) { return label }
+        }
+        return displayTitle
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     /// Frozen numbers the host is replaying. Worth saying out loud on any
     /// surface that draws them: `ok` is still true, so nothing else about the
@@ -1257,6 +1288,10 @@ struct SupabaseUsage: Decodable, Sendable {
 struct SyncSource: Decodable, Identifiable, Sendable {
     var id: String
     var title: String?
+    /// User-defined name for an extra login. Nil on the default provider row.
+    /// Settings keeps the full `title` ("Claude · Work"); surfaces that draw
+    /// a brand mark use this instead — see `QuotaProviderInfo.markTitle`.
+    var label: String?
     var hint: String?
     /// "quota" or "activity" — from the host registry.
     var kind: String?
@@ -1277,7 +1312,7 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var ageS: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, hint, kind, group, accent, enabled, ok, stale
+        case id, title, label, hint, kind, group, accent, enabled, ok, stale
         case configured, error, detail
         case accentDefault = "accent_default"
         case ageS = "age_s"

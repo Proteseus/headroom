@@ -9,12 +9,23 @@ import SwiftUI
 enum DashboardSelection {
     static let overview = "overview"
 
+    /// Full name for accessibility / help — "Claude · Work".
     static func title(for id: String, providers: [QuotaProviderInfo]) -> String {
         if id == overview { return HeadroomCopy.overview }
         if let match = providers.first(where: { $0.id == id }) {
             return match.displayTitle
         }
         return UsageProvider(rawValue: id)?.title ?? id.capitalized
+    }
+
+    /// Label drawn next to the brand mark in the switcher — account name when
+    /// the row is a named login, otherwise the provider title.
+    static func markTitle(for id: String, providers: [QuotaProviderInfo]) -> String {
+        if id == overview { return HeadroomCopy.overview }
+        if let match = providers.first(where: { $0.id == id }) {
+            return match.markTitle
+        }
+        return title(for: id, providers: providers)
     }
 
     /// Overview plus whatever quota providers are currently enabled.

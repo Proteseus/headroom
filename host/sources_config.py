@@ -438,6 +438,11 @@ def _account_row(base, account):
     an account row meters, logs, charts and colors exactly like the provider
     it belongs to. `fetch` is bound to the account rather than wrapped, so the
     fetcher keeps its own `force=` contract.
+
+    `title` keeps the brand for text-only surfaces (Settings, menu bar, the
+    board). Clients that already draw the brand mark use `label` instead —
+    repeating "Claude" next to a Claude glyph is how three identical tabs
+    all truncate to "Claude…".
     """
     return base._replace(
         id=account.id,
@@ -944,6 +949,8 @@ def detection_payload():
                 "accent_default": source.accent,
                 "detected": bool(detected.get(source.id, False)),
                 "enabled": bool(enabled.get(source.id, False)),
+                **({"label": source.account.label}
+                   if source.account is not None else {}),
             }
             for source in ordered_sources()
         ],

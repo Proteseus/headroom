@@ -29,7 +29,7 @@ enum HeadroomWidgetCache {
                     .max() ?? 0
                 return HeadroomWidgetSnapshot.Provider(
                     id: provider.id,
-                    title: provider.title ?? provider.id.capitalized,
+                    title: provider.markTitle,
                     percent: percent,
                     accent: provider.accent,
                     layers: provider.ringLayers(

@@ -495,4 +495,33 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(permissions.read)
         XCTAssertFalse(permissions.agents)
     }
+
+    func testAccountMarkTitlePrefersTheUserLabel() throws {
+        let labeled = try JSONDecoder().decode(
+            QuotaProviderInfo.self,
+            from: Data("""
+            {"id":"claude:work","title":"Claude · Work","label":"Work"}
+            """.utf8)
+        )
+        XCTAssertEqual(labeled.displayTitle, "Claude · Work")
+        XCTAssertEqual(labeled.markTitle, "Work")
+
+        // Older hosts only shipped the combined title.
+        let legacy = try JSONDecoder().decode(
+            QuotaProviderInfo.self,
+            from: Data("""
+            {"id":"claude:work","title":"Claude · Work"}
+            """.utf8)
+        )
+        XCTAssertEqual(legacy.markTitle, "Work")
+
+        let bare = try JSONDecoder().decode(
+            QuotaProviderInfo.self,
+            from: Data("""
+            {"id":"claude","title":"Claude"}
+            """.utf8)
+        )
+        XCTAssertEqual(bare.markTitle, "Claude")
+        XCTAssertNil(bare.label)
+    }
 }

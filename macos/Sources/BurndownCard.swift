@@ -89,7 +89,7 @@ struct OverviewBurndownCard: View {
             return Series(
                 id: provider.id,
                 providerID: provider.id,
-                title: provider.displayTitle,
+                title: provider.markTitle,
                 pool: pool
             )
         }
