@@ -99,7 +99,7 @@ private struct ProviderSummaryRow: View {
                 tint: provider.tint
             )
             .frame(width: 82, height: 82)
-            .opacity(provider.isStale ? 0.4 : 1)
+            .opacity(provider.readingSuspect ? 0.4 : 1)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -124,12 +124,16 @@ private struct ProviderSummaryRow: View {
                 }
                 // Ahead of the headline, because a headline written from
                 // frozen percentages is confidently wrong.
-                if let stale = provider.staleNote {
-                    Text(stale)
+                if let status = provider.statusNote {
+                    Text(status)
                         .font(.caption2)
                         .foregroundStyle(HeadroomPalette.amber)
                         .lineLimit(1)
-                } else if provider.ok == false, let error = provider.error {
+                }
+                // Same reasoning as the Mac card: `ok` stays true while the
+                // host replays frozen bars, so an error is worth showing
+                // whenever there is one.
+                if let error = provider.error {
                     Text(error)
                         .font(.caption2)
                         .foregroundStyle(HeadroomPalette.amber)
@@ -154,12 +158,12 @@ private struct ProviderQuotaDetail: View {
     /// "Connected" is a claim about right now, and a provider whose numbers
     /// stopped arriving is in no position to make it. `ok` alone would let it.
     private var statusLabel: String {
-        if let stale = provider.staleNote { return stale }
+        if let status = provider.statusNote { return status }
         return provider.ok == false ? HeadroomCopy.needsAttention : "Connected"
     }
 
     private var statusTint: Color {
-        provider.ok == false || provider.isStale
+        provider.ok == false || provider.readingSuspect
             ? HeadroomPalette.amber
             : HeadroomPalette.green
     }
@@ -174,7 +178,7 @@ private struct ProviderQuotaDetail: View {
                             tint: provider.tint
                         )
                         .frame(width: 112, height: 112)
-                        .opacity(provider.isStale ? 0.4 : 1)
+                        .opacity(provider.readingSuspect ? 0.4 : 1)
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(provider.plan ?? "Plan unavailable")

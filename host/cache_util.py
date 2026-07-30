@@ -92,18 +92,29 @@ def store(cache, now, data, disk_name=None):
     if isinstance(data, dict):
         data["fetched_at"] = now
         data["stale"] = False
+        # A good fetch is proof the login works. Clearing it here rather than
+        # at each call site means no fetcher can leave the flag set on a
+        # payload it just refreshed.
+        data["auth_required"] = False
     if disk_name:
         save_disk(disk_name, data)
     cache.update(t=now, data=data, err=None)
     return data
 
 
-def keep_stale(cache, now, err, empty, disk_name=None):
+def keep_stale(cache, now, err, empty, disk_name=None, auth_required=False):
     """Prefer last-good snapshot on transient failure instead of wiping UI.
 
     `cache` is a dict with at least `data` (and usually `t`). On success paths
     callers still overwrite cache themselves. When `disk_name` is set, falls
     back to ~/.headroom/cache/<name>.json if memory is empty.
+
+    `auth_required` separates the one failure the user can actually fix from
+    every other reason a fetch misses. A rate limit, a dropped VPN and an
+    expired login all arrive here as a stale snapshot with a message, and a
+    surface that treats them alike can only say "not updating" — which reads
+    as something to wait out, and is exactly wrong for a login that will never
+    come back on its own.
 
     `fetched_at` rides along from the snapshot untouched. `cache["t"]` is when
     we last *tried*, which is what the retry TTL needs; the payload has to
@@ -118,6 +129,7 @@ def keep_stale(cache, now, err, empty, disk_name=None):
         stale = dict(prev)
         stale["stale"] = True
         stale["error"] = err
+        stale["auth_required"] = bool(auth_required)
         # Age from the last real fetch, not from the last attempt — every
         # attempt lands here, so counting attempts would keep resetting the
         # clock and a permanently broken source would read as fresh forever.
@@ -137,6 +149,7 @@ def keep_stale(cache, now, err, empty, disk_name=None):
     out["ok"] = False
     out["error"] = err
     out["stale"] = False
+    out["auth_required"] = bool(auth_required)
     cache.update(t=now, data=out, err=err)
     return out
 

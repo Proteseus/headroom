@@ -479,6 +479,14 @@ struct SourceRow {
   bool enabled = true;
   bool ok = false;
   bool stale = false;
+  // The host's own login-is-dead flag. Absent on older hosts, which is why it
+  // defaults false rather than being inferred from `ok` — a host that cannot
+  // say must not be made to look like it said no.
+  bool authRequired = false;
+  // Age of *these numbers*, which is not the age of the last fetch. The board
+  // can be talking to the Mac every ten seconds while the Mac has been unable
+  // to refresh a source since last night.
+  int32_t ageS = -1;
 };
 static uint8_t sourceN = 0;
 static SourceRow sourceRows[MAX_SOURCES];
@@ -487,6 +495,29 @@ static bool sourceEnabled(const char *id) {
     if (sourceRows[i].id.equals(id)) return sourceRows[i].enabled;
   }
   return true;  // older hosts without sources[] → keep showing pages
+}
+
+// Oldest frozen reading on screen, in seconds, or -1 when everything the
+// board is drawing is current. Only enabled rows count: a source switched off
+// in Settings is not on any page, so its age is not a lie anyone can read.
+static int32_t sourcesWorstStaleS() {
+  int32_t worst = -1;
+  for (uint8_t i = 0; i < sourceN; i++) {
+    const SourceRow &r = sourceRows[i];
+    if (!r.enabled || !r.stale) continue;
+    if (r.ageS > worst) worst = r.ageS;
+  }
+  return worst;
+}
+
+// Whether any enabled source is behind a credential the Mac cannot use. The
+// board cannot fix this and does not pretend to — it marks the reading and
+// sends you to the Mac, which names the source and the command.
+static bool sourcesNeedSignIn() {
+  for (uint8_t i = 0; i < sourceN; i++) {
+    if (sourceRows[i].enabled && sourceRows[i].authRequired) return true;
+  }
+  return false;
 }
 
 // ---------------- I2C helpers ----------------
@@ -841,6 +872,8 @@ static bool usageFilterReady(JsonDocument **out) {
   filter["sources"][0]["enabled"] = true;
   filter["sources"][0]["ok"] = true;
   filter["sources"][0]["stale"] = true;
+  filter["sources"][0]["auth_required"] = true;
+  filter["sources"][0]["age_s"] = true;
   // Whole subtree, like codex/cursor above: device_view has already trimmed it
   // (one pool, or Total+API for Cursor), so there is nothing further to filter.
   filter["burndown"] = true;
@@ -1077,6 +1110,8 @@ static bool applyUsageDoc(JsonDocument &doc) {
       r.enabled = s["enabled"].isNull() ? true : (bool)(s["enabled"] | true);
       r.ok = s["ok"] | false;
       r.stale = s["stale"] | false;
+      r.authRequired = s["auth_required"] | false;
+      r.ageS = (int32_t)(s["age_s"] | -1);
     }
   }
 
@@ -2024,26 +2059,59 @@ static uint16_t dimToward(uint16_t color, uint16_t bg, float factor);
 static const int16_t LINK_GLYPH_W = 18;
 static const int16_t LINK_GLYPH_H = 15;
 
+// Compact enough for the corner: "42m", "11h", "3d". Minutes alone was fine
+// for a dropped link, which is minutes old by the time anyone looks, and
+// useless for a frozen reading — the case that sent us here would have drawn
+// "696m".
+static void formatAge(char *buf, size_t n, uint32_t seconds) {
+  if (seconds < 3600UL) {
+    snprintf(buf, n, "%lum", (unsigned long)(seconds / 60UL));
+  } else if (seconds < 86400UL) {
+    snprintf(buf, n, "%luh", (unsigned long)(seconds / 3600UL));
+  } else {
+    snprintf(buf, n, "%lud", (unsigned long)(seconds / 86400UL));
+  }
+}
+
 static void formatLastLinkAge(char *buf, size_t n) {
   if (!everOk) {
     snprintf(buf, n, "--m");
     return;
   }
-  const uint32_t minutes = (millis() - lastOkMs) / 60000UL;
-  snprintf(buf, n, "%lum", (unsigned long)minutes);
+  formatAge(buf, n, (millis() - lastOkMs) / 1000UL);
 }
 
 // Which pipe fed the numbers above: Wi-Fi arcs, or a cable.connector for USB.
 // (rightX, bottomY) is the bottom-right corner the glyph is tucked into.
 static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
-  const uint16_t col = hostOk ? COL_DIM : COL_CRT_YELLOW;
+  // Two different ways the numbers above can be wrong, and the glyph has to
+  // answer both. `hostOk` is the cable: it says whether the Mac answered.
+  // Stale sources are the payload: the Mac answers every ten seconds and has
+  // been unable to refresh a source since last night. Gating on `hostOk`
+  // alone drew nothing for the second case, which is the one that lasts.
+  const int32_t staleFor = sourcesWorstStaleS();
+  const bool signIn = sourcesNeedSignIn();
+  const bool suspect = !hostOk || staleFor >= 0 || signIn;
+  const uint16_t col = suspect ? COL_CRT_YELLOW : COL_DIM;
   const int16_t gx = (int16_t)(rightX - LINK_GLYPH_W);
   const int16_t gy = (int16_t)(bottomY - LINK_GLYPH_H);
 
-  if (!hostOk) {
+  if (suspect) {
     char age[8];
-    formatLastLinkAge(age, sizeof age);
-    drawRightAt(age, (int16_t)(gx - 6), gy, 2, col);
+    char label[12];
+    if (!hostOk) {
+      formatLastLinkAge(age, sizeof age);
+    } else if (staleFor >= 0) {
+      formatAge(age, sizeof age, (uint32_t)staleFor);
+    } else {
+      // A dead login the host caught before it had anything to replay: no
+      // frozen reading, so no age to report, but still worth marking.
+      snprintf(age, sizeof age, "--");
+    }
+    // The Mac names the source and the fix. This only has to say the reading
+    // is not what it looks like, and which kind of not.
+    snprintf(label, sizeof label, "%s%s", signIn ? "!" : "", age);
+    drawRightAt(label, (int16_t)(gx - 6), gy, 2, col);
   }
 
   if (linkVia == LINK_USB) {

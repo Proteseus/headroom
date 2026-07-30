@@ -15,6 +15,7 @@ import os
 import tempfile
 import time
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 import accounts
@@ -339,3 +340,119 @@ class StaleDerivationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuthRequiredTests(unittest.TestCase):
+    """A dead login is not a slow fetch, and the payload has to say which.
+
+    Both arrive as a stale snapshot with a message attached, which is why the
+    Mac spent eleven hours reporting a missing Claude token as "Not updating"
+    — true, unactionable, and indistinguishable from a rate limit.
+    """
+
+    def setUp(self):
+        oauth_usage.reset_for_tests()
+        self._oauth_home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._oauth_home.cleanup)
+        self._oauth_patch = patch.object(
+            oauth_usage, "OAUTH_DIR", self._oauth_home.name)
+        self._oauth_patch.start()
+        self.addCleanup(self._oauth_patch.stop)
+
+    def test_keep_stale_defaults_to_not_an_auth_problem(self):
+        cache = {"t": 0.0, "data": None, "err": None}
+        cache_util.store(cache, NOW, {"ok": True, "pct": 42})
+        out = cache_util.keep_stale(cache, NOW + 60, "HTTP Error 429", {"ok": False})
+        self.assertTrue(out["stale"])
+        self.assertFalse(out["auth_required"])
+
+    def test_keep_stale_marks_an_auth_problem_when_told(self):
+        cache = {"t": 0.0, "data": None, "err": None}
+        cache_util.store(cache, NOW, {"ok": True, "pct": 42})
+        out = cache_util.keep_stale(
+            cache, NOW + 60, "no token", {"ok": False}, auth_required=True)
+        self.assertTrue(out["stale"])
+        self.assertTrue(out["auth_required"])
+
+    def test_a_provider_that_never_fetched_still_reports_the_flag(self):
+        # No prior snapshot to replay: the empty branch has to carry it too,
+        # or a first run with no login looks like a provider that is merely
+        # not configured.
+        cache = {"t": 0.0, "data": None, "err": None}
+        out = cache_util.keep_stale(
+            cache, NOW, "no token", {"ok": False}, auth_required=True)
+        self.assertFalse(out["stale"])
+        self.assertTrue(out["auth_required"])
+
+    def test_a_good_fetch_clears_the_flag(self):
+        cache = {"t": 0.0, "data": None, "err": None}
+        cache_util.keep_stale(
+            cache, NOW, "no token", {"ok": False}, auth_required=True)
+        out = cache_util.store(cache, NOW + 60, {"ok": True, "pct": 42})
+        self.assertFalse(out["auth_required"])
+
+    def test_a_store_holding_only_mcp_oauth_asks_for_a_login(self):
+        # The exact shape that broke: Claude Code's Keychain item present and
+        # parseable, holding MCP plugin tokens and no plan token.
+        blob = {"mcpOAuth": {"plugin:x|abc": {"accessToken": "mcp-token"}}}
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=("keychain", blob)):
+            out = oauth_usage.fetch_quota(force=True)
+        self.assertTrue(out["auth_required"])
+        self.assertIn("claudeAiOauth", out["error"])
+
+    def test_no_credentials_anywhere_asks_for_a_login(self):
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=(None, None)):
+            out = oauth_usage.fetch_quota(force=True)
+        self.assertTrue(out["auth_required"])
+
+    def test_a_rate_limit_is_not_an_auth_problem(self):
+        blob = {"claudeAiOauth": {"accessToken": "t", "refreshToken": "r"}}
+        boom = urllib.error.HTTPError(
+            oauth_usage.USAGE_URL, 429, "Too Many Requests", None, None)
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=("keychain", blob)), \
+             patch.object(oauth_usage, "_http_get_usage", side_effect=boom):
+            out = oauth_usage.fetch_quota(force=True)
+        self.assertFalse(out["auth_required"])
+        self.assertIn("429", out["error"])
+
+    def test_the_flag_reaches_providers_and_sources(self):
+        state = {"claude": quota_payload(
+            stale=True, auth_required=True, error="no plan token")}
+
+        providers = headroom_server._providers_payload(state, burndowns={})
+        claude = next(row for row in providers if row["id"] == "claude")
+        self.assertTrue(claude["auth_required"])
+        # Still ok, still replaying bars — which is exactly why the flag has
+        # to travel separately from `ok`.
+        self.assertTrue(claude["ok"])
+
+        sources = headroom_server._sources_payload(state)
+        row = next(row for row in sources if row["id"] == "claude")
+        self.assertTrue(row["auth_required"])
+        self.assertTrue(row["ok"])
+
+    def test_a_healthy_source_carries_the_flag_as_false(self):
+        # Absent would be indistinguishable from an older host on the wire,
+        # and clients read a missing flag as "this host cannot tell me".
+        state = {"claude": quota_payload()}
+        row = next(r for r in headroom_server._sources_payload(state)
+                   if r["id"] == "claude")
+        self.assertFalse(row["auth_required"])
+
+    def test_attention_calls_out_a_login_without_waiting_for_stale(self):
+        # Under STALE_ALERT_S, so the stale reason would not fire yet. A login
+        # that is gone does not get more fixed by waiting fifteen minutes.
+        doc = {"providers": [{
+            "id": "claude", "title": "Claude", "kind": "quota",
+            "enabled": True, "ok": True, "stale": True,
+            "auth_required": True, "stale_for_s": 60,
+        }]}
+        reasons = headroom_server._build_attention(doc)["reasons"]
+        kinds = [r["kind"] for r in reasons]
+        self.assertIn("signin", kinds)
+        self.assertNotIn("stale", kinds)
+        summary = next(r["summary"] for r in reasons if r["kind"] == "signin")
+        self.assertEqual(summary, "Claude needs sign-in")

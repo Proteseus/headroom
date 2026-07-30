@@ -192,30 +192,6 @@ struct SettingsView: View {
             }
             .onAppear(perform: refreshOpenAtLogin)
 
-            Section("Dashboard") {
-                Stepper(
-                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
-                    value: $activityRowLimit,
-                    in: 3...14
-                )
-                Stepper(
-                    "\(HeadroomCopy.localServers): \(serverRowLimit)",
-                    value: $serverRowLimit,
-                    in: 1...8
-                )
-                Stepper(
-                    "Supabase projects: \(supabaseRowLimit)",
-                    value: $supabaseRowLimit,
-                    in: 1...20
-                )
-                Stepper(
-                    "Plausible sites: \(plausibleRowLimit)",
-                    value: $plausibleRowLimit,
-                    in: 1...20
-                )
-                Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
-            }
-
             Section {
                 NavigationLink(value: SettingsDestination.otherMacs) {
                     LabeledContent(HeadroomCopy.otherMacs) {
@@ -603,6 +579,30 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("Keys stay in the Keychain on this Mac. The iPhone never sees them.")
+            }
+
+            Section("Dashboard") {
+                Stepper(
+                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
+                    value: $activityRowLimit,
+                    in: 3...14
+                )
+                Stepper(
+                    "\(HeadroomCopy.localServers): \(serverRowLimit)",
+                    value: $serverRowLimit,
+                    in: 1...8
+                )
+                Stepper(
+                    "Supabase projects: \(supabaseRowLimit)",
+                    value: $supabaseRowLimit,
+                    in: 1...20
+                )
+                Stepper(
+                    "Plausible sites: \(plausibleRowLimit)",
+                    value: $plausibleRowLimit,
+                    in: 1...20
+                )
+                Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
             }
         }
         .formStyle(.grouped)

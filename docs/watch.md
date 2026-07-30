@@ -47,9 +47,9 @@ labels all stop working. What replaces them:
   the percent, the source, **Empty Thu** / **Resets Thu** — but that is the
   same sentence the inline and corner families already say, and it cost a fifth
   of the height that makes the lines readable.
-- **The binding source's line is the only thick one.** The rest keep their
-  colours at lower opacity as context — the shape of the week, not a key to
-  decode.
+- **The binding source's line is the only thick one.** The rest keep full
+  colour as context — same as the board — and separate by weight, not by fading
+  out.
 - **The axis goes, the rhythm stays.** Day boundaries keep their rules and lose
   their labels; the scale keeps its lines and loses "100%".
 

@@ -7,6 +7,47 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.4 — 2026-07-30
+
+### Added
+
+- `scripts/update-app.sh` installs the latest notarized Release from the
+  command line. This landed on `main` ahead of the bump and ships here rather
+  than in a release of its own.
+
+### Changed
+
+- iOS Overview **Connected** tile names the Mac and its address (Computer
+  Name · host / IP), not just the last update time. Settings → Connection
+  shows the same split.
+- Watch Overall burndown lines are fully opaque, matching the ESP32 glance.
+  The binding source stays thicker; context sources no longer fade.
+- Mac Settings moves the Dashboard row limits out of General and in beside the
+  integrations whose rows they count.
+- `docs/attention.md` writes down what Attention scoring is: hardcoded product
+  policy, deliberately not a Settings pane. The README and CONTRIBUTING build
+  instructions also stop being wrong about XcodeGen being optional and about
+  `-sdk iphonesimulator` on the iPhone target.
+
+### Fixed
+
+- A source whose login has gone now says **Needs sign-in** instead of **Not
+  updating**, and says it on the card, in Settings, and in Attention. The host
+  ships `auth_required` next to `stale`, so a dead credential is no longer
+  indistinguishable from a rate limit or a dropped network.
+- Quota cards show the host's error whenever there is one. The message was
+  gated on `ok`, which the host deliberately keeps true while it replays the
+  last good bars — so the failures that had a reason worth reading were exactly
+  the ones that hid it. A missing Claude token reported eleven hours of frozen
+  numbers without ever surfacing the `claude login` it was asking for.
+- Attention calls out a missing login immediately rather than waiting out the
+  fifteen-minute stale threshold. Waiting does not fix a login.
+- The ESP32 corner glyph marks a frozen reading, not just a dropped cable. It
+  was gated on whether the Mac answered, so the case that lasts — the Mac
+  replying every ten seconds about numbers it has been unable to refresh since
+  last night — drew nothing at all. Ages now read `42m` / `11h` / `3d`, and a
+  dead login is prefixed `!`.
+
 ## 1.2.3 — 2026-07-30
 
 ### Fixed

@@ -613,20 +613,24 @@ def fetch_quota(force=False, account=None):
 
     empty = {"ok": False, "plan": None, "session": None, "week": None, "error": None}
 
-    def _keep_stale(err):
+    def _keep_stale(err, auth_required=False):
         return cache_util.keep_stale(
-            cache, now, err, empty, disk_name=disk_name)
+            cache, now, err, empty, disk_name=disk_name,
+            auth_required=auth_required)
 
     try:
         try:
             store, blob, oauth = _load_oauth(account)
         except KeychainRefused as exc:
             return _keep_stale(str(exc))
+        # Nothing to authenticate with, and nothing here gets better on a
+        # retry: both want a `claude login`, not patience.
         if not store:
             return _keep_stale(
-                f"no Claude credentials in {_credentials_hint(account)}")
+                f"no Claude credentials in {_credentials_hint(account)}",
+                auth_required=True)
         if not oauth:
-            return _keep_stale(_shape_hint(store, blob))
+            return _keep_stale(_shape_hint(store, blob), auth_required=True)
 
         if _needs_refresh(oauth):
             try:
@@ -648,8 +652,15 @@ def fetch_quota(force=False, account=None):
                     return _keep_stale(str(exc))
                 if not oauth:
                     return _keep_stale(
-                        f"HTTP Error {e.code}: {e.reason}")
-                oauth = _refresh(oauth, store, blob, account=account)
+                        f"HTTP Error {e.code}: {e.reason}", auth_required=True)
+                try:
+                    oauth = _refresh(oauth, store, blob, account=account)
+                except Exception as exc:
+                    # The token was rejected and the refresh could not replace
+                    # it. Left to the outer handler this reads as a generic
+                    # failure, when it is the same dead login as a missing
+                    # token and wants the same fix.
+                    return _keep_stale(str(exc), auth_required=True)
                 status, body = _http_get_usage(oauth["accessToken"])
             else:
                 # 429 / 5xx — keep last good bars instead of wiping the page.

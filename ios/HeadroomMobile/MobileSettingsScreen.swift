@@ -46,10 +46,15 @@ struct MobileSettingsScreen: View {
     private var connectionPane: some View {
         Form {
             Section {
-                LabeledContent("Mac", value: connectionName)
+                if let name = store.snapshot.currentMachine?.name, !name.isEmpty {
+                    LabeledContent("Mac", value: name)
+                }
+                LabeledContent("Address", value: connectionName)
                 Button("Change connection", systemImage: "network") {
                     showsConnection = true
                 }
+            } footer: {
+                Text(MobileConnection.endpoint)
             }
             Section {
                 NavigationLink(value: SettingsDestination.permissions) {
@@ -138,7 +143,7 @@ struct MobileSettingsScreen: View {
     }
 
     private var connectionName: String {
-        URL(string: MobileConnection.endpoint)?.host() ?? MobileConnection.endpoint
+        MobileConnection.hostLabel
     }
 
     private var groupedSources: [(group: SourceGroup, sources: [SyncSource])] {

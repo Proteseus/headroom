@@ -14,6 +14,28 @@ enum MobileConnection {
         UserDefaults.standard.bool(forKey: configuredKey)
     }
 
+    /// Host from the saved endpoint — `.local` name, MagicDNS, or IP.
+    static var hostLabel: String {
+        URL(string: endpoint)?.host() ?? endpoint
+    }
+
+    /// One-line Mac identity for the Overview status tile.
+    ///
+    /// Prefer the Computer Name from `/usage` when it adds something the host
+    /// does not already say; otherwise just the address you paired with.
+    static func identityLabel(machineName: String?) -> String {
+        let host = hostLabel
+        guard let name = machineName?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return host }
+        let hostBase = host.split(separator: ".").first.map(String.init) ?? host
+        if name.caseInsensitiveCompare(host) == .orderedSame
+            || name.caseInsensitiveCompare(hostBase) == .orderedSame {
+            return host
+        }
+        return "\(name) · \(host)"
+    }
+
     static func normalize(_ input: String) -> String? {
         var value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }

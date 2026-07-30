@@ -70,7 +70,7 @@ seven-day burndown the Mac, phone and medium widget show.
 | Python 3.9+ | Bundled host is **stdlib only** (system `/usr/bin/python3`) |
 | At least one AI coding tool | Claude, Codex, Cursor, Copilot, Gemini, Windsurf, JetBrains AI or Zed, already signed in locally |
 | Optional: iPhone / iPad (iOS 17+) | Same LAN or Tailscale as the Mac |
-| Optional: Xcode + [xcodegen](https://github.com/yonaskolb/XcodeGen) | Build from source / flash tooling |
+| To build from source: Xcode **and** [XcodeGen](https://github.com/yonaskolb/XcodeGen) | Not either/or — the `.xcodeproj` is generated, so `brew install xcodegen` is required, not optional |
 | Optional: PlatformIO | Only if you flash the ESP32 |
 
 No Headroom cloud account. Tokens stay on your Mac.
@@ -127,6 +127,44 @@ open .build/Build/Products/Debug/Headroom.app
 
 **Foreground try** (no login item): `./scripts/install-host.sh --foreground`  
 **Uninstall LaunchAgent:** `./scripts/uninstall-host.sh` (`--purge` wipes `~/.headroom`)
+
+### Opening the project in Xcode
+
+A fresh clone contains no `.xcodeproj`, and that is expected: `macos/project.yml`
+is the source of truth and XcodeGen writes the project from it, so the generated
+`macos/Headroom.xcodeproj` is gitignored. On a new Mac, write it first:
+
+```bash
+brew install xcodegen
+```
+
+```bash
+./scripts/gen-project.sh
+```
+
+```bash
+open macos/Headroom.xcodeproj
+```
+
+Go through the script rather than calling `xcodegen generate` yourself.
+`project.yml` lists `macos/host` as a source directory, and that folder is a
+gitignored copy of the host made by `sync-embedded-host.sh` — on a fresh clone
+bare xcodegen stops at a missing source directory, which does not point at the
+real cause. The script syncs first.
+
+Anything touching the watch app needs the beta toolchain, and that includes the
+iPhone app, which embeds it. Stable Xcode reports a watchOS SDK and still
+resolves every watch destination to *"watchOS 26.5 is not installed"*:
+
+```bash
+open -a /Applications/Xcode-beta.app macos/Headroom.xcodeproj
+```
+
+Regenerate after any pull that adds files. A new file under `Shared/` will not be
+in the project you generated last week, and the failure reads as a missing type
+rather than a stale project. **Quit Xcode before regenerating** — replacing the
+project underneath a running Xcode is what produces *"The project “Headroom” is
+not a valid property list"* on a file that is perfectly valid.
 
 ### Option C — iPhone
 
@@ -270,6 +308,9 @@ LAN with `"require_auth": false`, in `~/.headroom/config.json`.
 | Gatekeeper blocks .app | Prefer a [notarized Release](https://github.com/michellzappa/headroom/releases); otherwise right-click → Open. Signing setup: [docs/releasing.md](docs/releasing.md) |
 | Restart host | `launchctl kickstart -k gui/$(id -u)/com.centaur-labs.headroom` |
 | Build a fresh .app | `./scripts/build-app.sh` → `dist/Headroom.app` |
+| No `.xcodeproj` in the clone | Expected — it is generated. `./scripts/gen-project.sh`, then open it |
+| Xcode: **not a valid property list** | The project was regenerated while Xcode held it open. Quit Xcode and reopen; the file on disk is fine (`plutil -lint` it to confirm) |
+| Xcode: **watchOS 26.5 is not installed** | Stable Xcode; reopen with `/Applications/Xcode-beta.app` |
 
 ## What it tracks
 
@@ -397,8 +438,7 @@ cd firmware && pio run
 ```
 
 `gen-project.sh` writes `macos/Headroom.xcodeproj`, which is generated and
-gitignored. Calling `xcodegen generate` directly on a fresh clone fails on the
-missing `macos/host` copy.
+gitignored — see [Opening the project in Xcode](#opening-the-project-in-xcode).
 
 `host/test_contract.py` and `macos/Tests/ContractTests.swift` pin the `/usage`
 shape. CI runs host + firmware + macOS on push (`.github/workflows/ci.yml`).
@@ -428,6 +468,8 @@ the port.
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each tagged version |
 | [docs/glossary.md](docs/glossary.md) | Shared chrome names |
 | [docs/rings.md](docs/rings.md) | Ring / pace semantics |
+| [docs/attention.md](docs/attention.md) | Attention rollup policy (not Settings) |
+| [docs/agent-attention.md](docs/agent-attention.md) | Coding-agent attention gateway |
 | [docs/backlog.md](docs/backlog.md) | What's queued and why |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, and PR expectations |
 | [SECURITY.md](SECURITY.md) | Threat model and how to report a hole |
