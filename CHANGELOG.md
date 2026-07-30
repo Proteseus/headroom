@@ -7,6 +7,21 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.2 — 2026-07-30
+
+### Fixed
+
+- Multi-Mac says why it is not syncing. A CloudKit round that failed was
+  discarded without a word, and the host's trouble text only ever described the
+  folder transport, so every failure showed up as "No other Macs yet" — the
+  same words a healthy sync with nobody else on it produces. A missing record
+  type, a signed-out iCloud account and an unreachable network now each say so.
+- The CloudKit schema ships as `macos/Headroom-CloudKit.ckdb` instead of living
+  only in Apple's web console. It has to be deployed to Production before
+  multi-Mac can work at all: released builds are pinned to that environment,
+  and CloudKit creates record types automatically only in Development. See
+  `docs/multi-mac.md`.
+
 ## 1.2.1 — 2026-07-30
 
 ### Fixed
