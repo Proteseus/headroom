@@ -7,6 +7,28 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.1 — 2026-07-30
+
+### Fixed
+
+- Multi-Mac over iCloud now works in released builds. Every release up to 1.2.0
+  was notarized without the iCloud provisioning profile, so the published app
+  carried no CloudKit entitlement and Settings reported iCloud as unavailable
+  on every Mac that downloaded one. Nothing was red: the release was properly
+  signed and notarized, and only a note in the build log said the feature was
+  off. The workflow now embeds the profile, and refuses one whose team does not
+  match the signing certificate. An app downloaded before this release does not
+  gain iCloud, because entitlements are sealed into a signature.
+- Settings no longer claims that signed releases can use iCloud. That was false
+  for exactly the people reading it on a notarized release, and sent them to
+  download another copy of what they already had. A local build and a release
+  built without the profile now say different things.
+- The iOS archive stopped minting a `Created via API` development certificate
+  on every run, which walked the team toward its certificate cap and then
+  failed the archive itself with `Choose a certificate to revoke`.
+- iOS release builds no longer break on SDK-specific `CODE_SIGN_IDENTITY` keys
+  written into the pbxproj unquoted.
+
 ## 1.2.0 — 2026-07-30
 
 ### Added
