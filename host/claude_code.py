@@ -23,16 +23,73 @@ ADAPTER = "claude-http-hooks"
 DEFAULT_WAIT_SECONDS = 285
 MAX_WAIT_SECONDS = 600
 
-PERMISSION_ACTIONS = [
-    {
-        "id": "approve_once",
-        "label": "Allow once",
-        "risk": "privileged",
-        "requires_foreground": True,
-        "requires_biometric": True,
-    },
-    {"id": "decline", "label": "Deny", "risk": "safe"},
-]
+APPROVE_ONCE = {
+    "id": "approve_once",
+    "label": "Allow once",
+    "risk": "privileged",
+    "requires_foreground": True,
+    "requires_biometric": True,
+}
+
+# Claude's own third choice is "Yes, don't ask again", which widens a Bash
+# command to a prefix rule and saves it per repository. Headroom deliberately
+# writes only the exact command or path it was shown: a rule granted from a
+# phone outlives the request that prompted it, and a widened prefix grants
+# more than the thing you actually looked at. The label says "this exact"
+# rather than borrowing Claude's wording, because the two are not the same
+# promise.
+APPROVE_ALWAYS = {
+    "id": "approve_always",
+    "label": "Always allow this exact request",
+    "risk": "privileged",
+    "requires_foreground": True,
+    "requires_biometric": True,
+}
+
+DECLINE = {"id": "decline", "label": "Deny", "risk": "safe"}
+
+PERMISSION_ACTIONS = [APPROVE_ONCE, DECLINE]
+
+# Tools whose input names one concrete thing, so an exact-match rule is both
+# expressible and meaningful. AskUserQuestion is absent on purpose: "always
+# allow this question" is not a grant anybody wants to make.
+RULEABLE_TOOLS = {
+    "Bash": "command",
+    "Edit": "file_path",
+    "Write": "file_path",
+    "Read": "file_path",
+    "NotebookEdit": "notebook_path",
+}
+
+
+def _escape_rule_path(value):
+    """Escape the gitignore metacharacters Claude's own rule writer escapes.
+
+    An unescaped `[` in a directory like `[2024-06] Reports` turns a rule for
+    one folder into a character class that matches its siblings.
+    """
+    out = []
+    for char in value:
+        if char in "[]*?\\":
+            out.append("\\")
+        out.append(char)
+    return "".join(out)
+
+
+def permission_rule(tool_name, tool_input):
+    """The exact-match rule an `approve_always` answer would save, or None."""
+    key = RULEABLE_TOOLS.get(tool_name)
+    if key is None or not isinstance(tool_input, dict):
+        return None
+    value = tool_input.get(key)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    if "\n" in value or len(value) > 512:
+        return None
+    if key == "command":
+        return f"{tool_name}({value})"
+    return f"{tool_name}({_escape_rule_path(value)})"
 
 PASSIVE_ACTIONS = [
     {"id": "dismiss", "label": "Dismiss", "risk": "safe"},
@@ -117,7 +174,7 @@ class ClaudeCodeHooks:
                 "file_approval": {
                     "supported": True, "maturity": "stable"},
                 "permission_grant": {
-                    "supported": False, "maturity": "planned"},
+                    "supported": True, "maturity": "stable"},
                 "structured_question": {
                     "supported": False, "maturity": "notify_only"},
                 "send_message": {
@@ -153,6 +210,11 @@ class ClaudeCodeHooks:
         wait_seconds = max(1, min(MAX_WAIT_SECONDS, int(wait_seconds)))
         provider_request_id = "permission-" + uuid.uuid4().hex
         cwd = payload.get("cwd")
+        rule = permission_rule(tool_name, tool_input)
+        actions = (
+            [APPROVE_ONCE, APPROVE_ALWAYS, DECLINE] if rule
+            else PERMISSION_ACTIONS
+        )
         with self._lock:
             event = self.store.create(
                 provider=PROVIDER,
@@ -162,11 +224,12 @@ class ClaudeCodeHooks:
                 kind="permission_approval",
                 title=f"Claude needs permission in {_project(cwd)}",
                 summary=agent_request.summary(tool_input, tool_name),
-                actions=PERMISSION_ACTIONS,
+                actions=actions,
                 detail={
                     "tool_name": tool_name,
                     "request": agent_request.fields(tool_input, tool_name),
                     "reasons": _reasons(payload),
+                    "permission_rule": rule,
                     "cwd": cwd,
                     "transcript_path": payload.get("transcript_path"),
                     "permission_mode": payload.get("permission_mode"),
@@ -183,12 +246,22 @@ class ClaudeCodeHooks:
         if waiter.action is None:
             self.store.expire(event["id"], "Claude permission hook timed out")
             return None
-        if waiter.action == "approve_once":
+        if waiter.action in ("approve_once", "approve_always"):
             self.store.resolve(event["id"], {"action": waiter.action})
+            decision = {"behavior": "allow"}
+            if waiter.action == "approve_always":
+                # Re-derive rather than trusting the stored string: the rule is
+                # what Claude will persist, so it comes from the request this
+                # process received, not from anything that made a round trip.
+                rule = permission_rule(tool_name, tool_input)
+                if rule:
+                    decision["updatedPermissions"] = [
+                        {"rule": rule, "mode": "allow"},
+                    ]
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PermissionRequest",
-                    "decision": {"behavior": "allow"},
+                    "decision": decision,
                 },
             }
         return {
@@ -269,7 +342,7 @@ class ClaudeCodeHooks:
         if action_id == "dismiss":
             self.store.resolve(event["id"], {"action": action_id})
             return
-        if action_id not in ("approve_once", "decline"):
+        if action_id not in ("approve_once", "approve_always", "decline"):
             raise ValueError("unsupported Claude action")
         with self._lock:
             waiter = self._pending.get(event["id"])

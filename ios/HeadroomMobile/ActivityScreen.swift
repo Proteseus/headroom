@@ -20,7 +20,24 @@ struct ActivityScreen: View {
             ArchivedDataNotice(store: store)
             if !store.agentAttentionEvents.isEmpty {
                 Section(HeadroomCopy.answerCodingAgents) {
-                    ForEach(store.agentAttentionEvents) { agentRow($0) }
+                    ForEach(store.agentAttentionEvents) { event in
+                        agentRow(event)
+                            // Only rows whose sole answer is "dismiss" can be
+                            // swiped. A swipe that denied a permission would
+                            // send Claude a real answer by accident.
+                            .swipeActions(edge: .trailing) {
+                                if event.isDismissOnly,
+                                   let dismiss = event.actions.first {
+                                    Button(dismiss.label) {
+                                        Task {
+                                            await store.answer(
+                                                event, with: dismiss)
+                                        }
+                                    }
+                                    .tint(HeadroomPalette.dim)
+                                }
+                            }
+                    }
                 }
             }
             // One list, failures first, uniform rows — same reading order as
@@ -58,11 +75,14 @@ struct ActivityScreen: View {
     private func agentRow(_ event: AgentAttentionEvent) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Label(
-                    event.title,
-                    systemImage: "bubble.left.and.exclamationmark.bubble.right"
-                )
-                .font(.headline)
+                // The mark says which agent is asking before the words do.
+                // A generic speech bubble made a Claude row and a Codex row
+                // look like the same thing.
+                ProviderMark(providerID: event.providerIconID, size: 15)
+                    .foregroundStyle(
+                        HeadroomPalette.providerTint(id: event.providerIconID))
+                Text(event.title)
+                    .font(.headline)
                 Spacer(minLength: 6)
                 // Same treatment as an activity row's age, so the two halves
                 // of one feed read as one feed.
@@ -85,20 +105,25 @@ struct ActivityScreen: View {
                 }
             }
             AgentRequestView(fields: event.detail.requestFields)
-            HStack {
-                ForEach(event.actions) { action in
-                    Button(action.label) {
-                        Task { await store.answer(event, with: action) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(
-                        !store.mobilePermissions.agents
-                        || store.respondingAgentEventID != nil
-                    )
-                }
-                if store.respondingAgentEventID == event.id {
-                    ProgressView()
-                        .controlSize(.small)
+            // Wraps: three options no longer run off the edge of the row.
+            FlowingActions(
+                actions: event.actions,
+                disabled: !store.mobilePermissions.agents
+                    || store.respondingAgentEventID != nil,
+                responding: store.respondingAgentEventID == event.id
+            ) { action in
+                Task { await store.answer(event, with: action) }
+            }
+            if event.actions.contains(where: { $0.id == "approve_always" }),
+               let rule = event.detail.permissionRule {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(HeadroomCopy.agentWouldSaveRule)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(rule)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
             }
         }

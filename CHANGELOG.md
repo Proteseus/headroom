@@ -23,6 +23,28 @@ tag a version that has no entry.
   as an activity row's age, because they are two halves of one feed. A request
   that has sat for six minutes reads very differently from one that just
   arrived, and the permission hook gives up at around five.
+- A third answer, **Always allow this exact request**, saves a permission rule
+  so Claude stops asking. Headroom writes only the exact command or path it
+  showed you — Claude's own "Yes, don't ask again" widens a command to a
+  prefix, and a grant made from a phone outlives the request that prompted it.
+  The row prints the rule under the buttons before you tap, and glob
+  characters in paths are escaped so a folder named `[2024-06] Reports` cannot
+  match its siblings. Questions are never offered it.
+- Each row carries the agent's own mark in its brand colour instead of one
+  generic speech bubble, so a Claude row and a Codex row stop looking alike.
+- Notices that can only be dismissed can be swiped away. Rows carrying a real
+  answer cannot: a swipe that denied a permission would send Claude a decision
+  by accident.
+
+### Fixed
+
+- An `AskUserQuestion` row is readable. Claude's questions arrive through the
+  permission hook, and the nested `questions` array reached the phone as a wall
+  of raw JSON — the question was in there, but nobody was going to find it. The
+  row now leads with the question itself instead of "Use AskUserQuestion" and
+  lists the options underneath. They are listed rather than tappable on
+  purpose: no Claude Code hook can return a selected option, so a button there
+  would promise something it cannot do.
 
 ### Changed
 

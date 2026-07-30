@@ -21,7 +21,9 @@ MAX_FIELD_CHARS = 2000
 MAX_FIELDS = 24
 MAX_TOTAL_CHARS = 12000
 
-KINDS = ("text", "command", "code", "path", "json", "number", "bool")
+KINDS = (
+    "text", "command", "code", "path", "json", "number", "bool", "choice",
+)
 
 # Field order for the tools whose shape we know. Anything omitted here still
 # appears, sorted, after the known keys — an MCP tool is not a special case.
@@ -126,6 +128,58 @@ def _ordered_keys(tool_name, payload):
     return first + rest
 
 
+def _expand_questions(payload):
+    """Flatten AskUserQuestion into something a person can read.
+
+    Its `questions` array nests two levels deep. Rendered as generic JSON it
+    reaches the phone as a wall of braces — the question you are being asked
+    is in there, but nobody is going to find it. Each question becomes its own
+    field, with the option labels as a list under it.
+    """
+    questions = payload.get("questions")
+    if not isinstance(questions, list) or not questions:
+        return None
+    result = []
+    for index, entry in enumerate(questions):
+        if not isinstance(entry, dict):
+            continue
+        text = entry.get("question")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        header = entry.get("header")
+        label = header if isinstance(header, str) and header.strip() else "Question"
+        result.append({
+            "key": f"question_{index}",
+            "label": label,
+            "kind": "text",
+            "value": " ".join(text.split()),
+            "truncated": False,
+            "full_chars": len(text),
+        })
+        choices = []
+        for option in entry.get("options") or []:
+            if isinstance(option, dict):
+                option_label = option.get("label")
+            else:
+                option_label = option
+            if isinstance(option_label, str) and option_label.strip():
+                choices.append(" ".join(option_label.split()))
+        if choices:
+            joined = "\n".join(choices)
+            result.append({
+                "key": f"options_{index}",
+                "label": "Options",
+                "kind": "choice",
+                "value": joined,
+                "truncated": False,
+                "full_chars": len(joined),
+            })
+    return result or None
+
+
+EXPANDERS = {"AskUserQuestion": _expand_questions}
+
+
 def fields(payload, tool_name=None):
     """Turn a provider request object into ordered, bounded, typed fields.
 
@@ -134,6 +188,11 @@ def fields(payload, tool_name=None):
     """
     if not isinstance(payload, dict) or not payload:
         return []
+    expander = EXPANDERS.get(tool_name)
+    if expander is not None:
+        expanded = expander(payload)
+        if expanded is not None:
+            return expanded[:MAX_FIELDS]
     result = []
     budget = MAX_TOTAL_CHARS
     keys = _ordered_keys(tool_name, payload)
@@ -173,6 +232,15 @@ def summary(payload, tool_name, fallback=None):
     fallback = fallback or (f"Use {tool_name}" if tool_name else "Agent request")
     if not isinstance(payload, dict):
         return fallback
+    # A question's summary is the question. "Use AskUserQuestion" describes
+    # the mechanism and tells you nothing about what is being asked.
+    questions = payload.get("questions")
+    if isinstance(questions, list):
+        for entry in questions:
+            if isinstance(entry, dict):
+                text = entry.get("question")
+                if isinstance(text, str) and text.strip():
+                    return _one_line(text)
     for key in ("command", "description", "query", "url", "pattern"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():

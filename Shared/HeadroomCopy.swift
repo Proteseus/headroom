@@ -133,6 +133,9 @@ enum HeadroomCopy {
     static let hideFullRequest = "Hide request"
     /// Said plainly: the value on screen is a prefix, not the whole thing.
     static let agentValueShortened = "Shortened to fit"
+    /// Shown beside an always-allow answer. A durable grant made from a phone
+    /// should say exactly what it will write before you tap it.
+    static let agentWouldSaveRule = "Saves the rule"
     static func agentFieldsOmitted(_ count: Int) -> String {
         count == 1 ? "1 more field not shown" : "\(count) more fields not shown"
     }

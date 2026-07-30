@@ -172,6 +172,68 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.answer(event, "decline")
         thread.join(timeout=2)
 
+    def test_always_allow_returns_an_exact_match_rule(self):
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.permission_request(
+                self.permission(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertIn(
+            "approve_always", [a["id"] for a in event["actions"]])
+        self.assertEqual(event["detail"]["permission_rule"], "Bash(npm test)")
+        self.answer(event, "approve_always")
+        thread.join(timeout=2)
+        decision = result["value"]["hookSpecificOutput"]["decision"]
+        self.assertEqual(decision["behavior"], "allow")
+        self.assertEqual(
+            decision["updatedPermissions"],
+            [{"rule": "Bash(npm test)", "mode": "allow"}],
+        )
+
+    def test_allow_once_never_grants_a_durable_rule(self):
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.permission_request(
+                self.permission(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        self.answer(event, "approve_once")
+        thread.join(timeout=2)
+        self.assertNotIn(
+            "updatedPermissions",
+            result["value"]["hookSpecificOutput"]["decision"],
+        )
+
+    def test_questions_are_never_offered_a_durable_grant(self):
+        """"Always allow this question" is not a grant anyone wants."""
+        payload = self.permission()
+        payload["tool_name"] = "AskUserQuestion"
+        payload["tool_input"] = {"questions": [{"question": "Which one?"}]}
+        thread = threading.Thread(target=lambda: self.adapter.permission_request(
+            payload, wait_seconds=2))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertEqual(
+            [a["id"] for a in event["actions"]], ["approve_once", "decline"])
+        self.assertIsNone(event["detail"]["permission_rule"])
+        self.answer(event, "decline")
+        thread.join(timeout=2)
+
+    def test_rule_escapes_glob_characters_in_paths(self):
+        rule = claude_code.permission_rule(
+            "Edit", {"file_path": "/tmp/[2024-06] Reports/a.ts"})
+        self.assertEqual(
+            rule, r"Edit(/tmp/\[2024-06\] Reports/a.ts)")
+
+    def test_no_rule_for_unruleable_or_absurd_inputs(self):
+        self.assertIsNone(claude_code.permission_rule("WebFetch", {"url": "x"}))
+        self.assertIsNone(claude_code.permission_rule("Bash", {"command": ""}))
+        self.assertIsNone(
+            claude_code.permission_rule("Bash", {"command": "a\nb"}))
+        self.assertIsNone(
+            claude_code.permission_rule("Bash", {"command": "x" * 600}))
+
     def test_permission_notification_does_not_duplicate_exact_request(self):
         result = self.adapter.lifecycle_event({
             "hook_event_name": "Notification",

@@ -68,13 +68,32 @@ struct AgentRequestView: View {
         field.kind == "code" || field.kind == "json"
     }
 
+    /// A choice draws as its own list of bullets, so its newlines are
+    /// structure rather than length — expanding would change nothing.
     private func isMultiline(_ field: AgentRequestField) -> Bool {
-        field.value.contains("\n") || field.value.count > Self.inlineLimit
+        guard field.kind != "choice" else { return false }
+        return field.value.contains("\n") || field.value.count > Self.inlineLimit
     }
 
     @ViewBuilder
     private func fieldView(_ field: AgentRequestField) -> some View {
-        if isMultiline(field) || isBulk(field) {
+        if field.kind == "choice" {
+            // The options Claude is offering. Listed, not tapped: no hook can
+            // return the selection, so a button here would be a lie. You pick
+            // on the Mac; this is so you know what is waiting.
+            VStack(alignment: .leading, spacing: 2) {
+                label(field)
+                ForEach(
+                    Array(field.value.split(separator: "\n").enumerated()),
+                    id: \.offset
+                ) { _, option in
+                    Text("• \(option)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else if isMultiline(field) || isBulk(field) {
             VStack(alignment: .leading, spacing: 2) {
                 label(field)
                 Text(field.value)

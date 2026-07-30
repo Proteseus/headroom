@@ -1824,6 +1824,9 @@ struct AgentAttentionDetail: Codable, Sendable, Equatable {
     var grantRoot: String?
     var permissionMode: String?
     var transcriptPath: String?
+    /// The exact rule an `approve_always` answer would save. Shown before the
+    /// tap, because a durable grant made from a phone should never be blind.
+    var permissionRule: String?
 
     /// Codex still sends a bare `command`; Claude sends structured fields.
     /// One accessor so views never branch on which provider they came from.
@@ -1841,6 +1844,7 @@ struct AgentAttentionDetail: Codable, Sendable, Equatable {
         case grantRoot = "grant_root"
         case permissionMode = "permission_mode"
         case transcriptPath = "transcript_path"
+        case permissionRule = "permission_rule"
     }
 }
 
@@ -1868,6 +1872,19 @@ struct AgentAttentionEvent: Codable, Sendable, Equatable, Identifiable {
     /// one is to answering itself.
     var age: TimeInterval {
         max(0, Date().timeIntervalSince1970 - Double(createdAtMS) / 1000)
+    }
+
+    /// Gateway providers name the adapter surface (`claude-code`); the icon
+    /// and palette registries are keyed by the tool (`claude`). Mapped once
+    /// here so a new adapter does not need a second copy in every view.
+    var providerIconID: String {
+        provider == "claude-code" ? "claude" : provider
+    }
+
+    /// A row nobody can answer — a finished/idle notice — only offers
+    /// dismissal, and that is what makes it safe to swipe away.
+    var isDismissOnly: Bool {
+        !actions.isEmpty && actions.allSatisfy { $0.id == "dismiss" }
     }
 
     enum CodingKeys: String, CodingKey {

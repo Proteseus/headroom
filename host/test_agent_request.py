@@ -89,6 +89,44 @@ class AgentRequestFieldTests(unittest.TestCase):
             self.assertEqual(agent_request.fields(payload, "Bash"), [])
 
 
+class AskUserQuestionTests(unittest.TestCase):
+    payload = {
+        "questions": [{
+            "header": "Commit scope",
+            "multiSelect": False,
+            "question": "How should I handle the 41 uncommitted files?",
+            "options": [
+                {"label": "Two clean commits, push both",
+                 "description": "One commit for the brand system."},
+                {"label": "One commit with everything",
+                 "description": "Fastest, but impossible to revert."},
+            ],
+        }],
+    }
+
+    def test_question_becomes_readable_fields_not_a_json_blob(self):
+        result = agent_request.fields(self.payload, "AskUserQuestion")
+        self.assertEqual([f["kind"] for f in result], ["text", "choice"])
+        self.assertEqual(result[0]["label"], "Commit scope")
+        self.assertEqual(
+            result[0]["value"],
+            "How should I handle the 41 uncommitted files?")
+        self.assertEqual(
+            result[1]["value"],
+            "Two clean commits, push both\nOne commit with everything")
+
+    def test_summary_is_the_question_not_the_mechanism(self):
+        self.assertEqual(
+            agent_request.summary(self.payload, "AskUserQuestion"),
+            "How should I handle the 41 uncommitted files?",
+        )
+
+    def test_malformed_questions_fall_back_to_generic_rendering(self):
+        result = agent_request.fields(
+            {"questions": "nope"}, "AskUserQuestion")
+        self.assertEqual([f["key"] for f in result], ["questions"])
+
+
 class AgentRequestSummaryTests(unittest.TestCase):
     def test_prefers_the_recognisable_field_over_the_first_one(self):
         payload = {"description": "Clean build", "command": "rm -rf build"}
