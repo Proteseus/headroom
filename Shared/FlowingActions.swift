@@ -2,15 +2,17 @@ import SwiftUI
 
 /// The answers to an agent's request.
 ///
-/// Two shapes, chosen by whether the answers carry their own reasons. Plain
-/// answers — Allow once, Deny — are pills that wrap when three of them and a
-/// long label will not fit a row. A question's options each come with the
-/// reason you would pick them, so they become full-width rows with the reason
-/// underneath: one control per option, instead of a list of descriptions
-/// sitting above a row of buttons repeating the same words.
+/// Two shapes, chosen by whether the answers carry their own reasons.
 ///
-/// Tinted with the account's accent, so the answers belong to the agent that
-/// asked rather than to the system.
+/// Plain answers — Allow once, Deny — are bordered pills that wrap when three
+/// of them will not fit a row. That is the right control for a short verb.
+///
+/// A question's options are not short verbs: each is a sentence with a reason
+/// under it. Filling those with a tint turns every option into a large
+/// coloured slab, which is not how iOS offers a choice. They render instead as
+/// plain rows with a divider between them and a chevron to say they act —
+/// the same shape a grouped list uses everywhere else on the system. Colour
+/// stays on the chevron, where it marks the control without shouting.
 struct FlowingActions: View {
     let actions: [AgentAttentionAction]
     let tint: Color
@@ -34,31 +36,67 @@ struct FlowingActions: View {
     }
 
     private var choiceList: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(actions) { action in
-                Button {
-                    answer(action)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(action.label)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(color(for: action))
-                        if let subtitle = action.subtitle, !subtitle.isEmpty {
-                            Text(subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-                }
-                .buttonStyle(.bordered)
-                .tint(color(for: action))
-                .disabled(disabled)
+        VStack(spacing: 0) {
+            ForEach(Array(choices.enumerated()), id: \.element.id) { index, action in
+                if index > 0 { Divider() }
+                choiceRow(action)
             }
-            if responding { spinner }
+            if let aside {
+                Divider()
+                Button(aside.label) { answer(aside) }
+                    .font(.subheadline)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                    .disabled(disabled)
+            }
+            if responding {
+                Divider()
+                spinner.padding(.vertical, 8)
+            }
         }
+    }
+
+    /// The real answers, and the one that declines to answer. Kept apart so
+    /// "Ask on Mac" reads as a way out rather than a fifth option.
+    private var choices: [AgentAttentionAction] {
+        actions.filter { $0.id != "ask_on_mac" }
+    }
+
+    private var aside: AgentAttentionAction? {
+        actions.first { $0.id == "ask_on_mac" }
+    }
+
+    private func choiceRow(_ action: AgentAttentionAction) -> some View {
+        Button {
+            answer(action)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(action.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    if let subtitle = action.subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(disabled ? AnyShapeStyle(.tertiary)
+                                              : AnyShapeStyle(tint))
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
     }
 
     private var pillRow: some View {
@@ -87,12 +125,9 @@ struct FlowingActions: View {
     }
 
     /// Deny is not destructive — it is the safe answer — so it keeps the
-    /// accent. Only a genuinely destructive action earns an alarm colour, and
-    /// **Ask on Mac** steps back because it is the one that answers nothing.
+    /// accent. Only a genuinely destructive action earns an alarm colour.
     private func color(for action: AgentAttentionAction) -> Color {
-        if action.risk == "destructive" { return HeadroomPalette.red }
-        if action.id == "ask_on_mac" { return HeadroomPalette.dim }
-        return tint
+        action.risk == "destructive" ? HeadroomPalette.red : tint
     }
 
     private var spinner: some View {

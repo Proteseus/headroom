@@ -59,8 +59,15 @@ tag a version that has no entry.
   pass listed the descriptions above a row of buttons repeating the same
   labels, which said everything twice.
 - Answer buttons take the account's accent instead of the system blue, so they
-  belong to the agent that asked. **Ask on Mac** stays grey — it is the one
-  that answers nothing — and only a genuinely destructive action is red.
+  belong to the agent that asked. Short answers stay bordered pills; a
+  question's options are sentences with a reason under each, and tinting those
+  turned every one into a large coloured slab. They read as plain rows with a
+  divider and a chevron now — the shape a grouped list uses everywhere else on
+  the system — with the colour on the chevron. **Ask on Mac** sits below the
+  divider rather than among the answers, because it is the way out rather than
+  another option.
+- The provider mark moved to the top-right corner of an agent row. Which agent
+  asked is a property of the row, not the first thing to read in the sentence.
 - **Claude finished responding** no longer stacks. A session's finished or idle
   notice replaces the one it makes untrue, so the feed carries at most one per
   session instead of a wall of identical rows burying the approvals that

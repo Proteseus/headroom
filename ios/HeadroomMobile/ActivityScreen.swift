@@ -77,11 +77,6 @@ struct ActivityScreen: View {
             .accentTint(forProvider: event.providerIconID)
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // The mark says which agent is asking before the words do.
-                // A generic speech bubble made a Claude row and a Codex row
-                // look like the same thing.
-                ProviderMark(providerID: event.providerIconID, size: 15)
-                    .foregroundStyle(tint)
                 Text(event.title)
                     .font(.headline)
                 Spacer(minLength: 6)
@@ -90,6 +85,12 @@ struct ActivityScreen: View {
                 Text(HeadroomCopy.ago(event.age))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
+                // The mark rides in the corner rather than in front of the
+                // title: which agent asked is a property of the row, not the
+                // first thing to read in the sentence.
+                ProviderMark(providerID: event.providerIconID, size: 14)
+                    .foregroundStyle(tint)
+                    .alignmentGuide(.firstTextBaseline) { $0.height - 2 }
             }
             Text(event.summary)
                 .font(.subheadline)
