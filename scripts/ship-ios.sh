@@ -4,11 +4,9 @@
 #   ./scripts/ship-ios.sh             # archive, export, upload
 #   ./scripts/ship-ios.sh --dry-run   # stop after dist/Headroom-iOS.ipa
 #
-# CI cannot do this. The Release workflow's iOS job archives fine and then
-# fails at export with "Cloud signing permission error", because its App Store
-# Connect key holds the Developer role and that role cannot mint distribution
-# provisioning profiles (docs/releasing.md, "App Store Connect API key"). Until
-# that key is replaced, a build reaches TestFlight only when someone runs this.
+# Prefer the Release workflow when secrets are set: it archives with
+# --manual-signing (Distribution + named App Store profiles). This script is
+# the laptop path when you want the signed-in Xcode account to manage profiles.
 #
 # Signing here comes from the Xcode account on this Mac, which already has the
 # Apple Distribution certificate. So the ASC key is deliberately kept out of

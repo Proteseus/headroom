@@ -320,7 +320,9 @@ jobs:
       # Without this the export asks for a distribution identity the runner has
       # never had, and fails with "Cloud signing permission error". Every such
       # run also leaves another "Created via API" development cert behind,
-      # against the team's cap. Import the real identity instead.
+      # against the team's cap — and once the cap is hit, even the *archive*
+      # fails (build-ios.sh --manual-signing signs the archive too). Import the
+      # real identity instead.
       - name: Import Apple Distribution certificate
         id: ioscert
         if: steps.asc.outputs.ready == 'true'

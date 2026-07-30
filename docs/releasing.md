@@ -178,13 +178,20 @@ key of any role can mint an **Apple Distribution** certificate — a key creates
 distribution identity, export fails with `Cloud signing permission error` /
 `No profiles for 'com.centaur-labs.headroom' were found` no matter how
 privileged the key is; an App Manager key was tried on 2026-07-29 and failed
-identically to the Developer one. The archive succeeds first, which is what
-makes it read as a build problem rather than a credentials one. The fix is
-`IOS_DISTRIBUTION_P12` below.
+identically to the Developer one.
 
-Each failed attempt also leaves a `Created via API` development certificate on
-the account, so a run of red releases quietly walks the team toward its
-certificate cap. They are safe to revoke.
+Worse: passing the key into an **Automatic**-signing *archive* makes Xcode
+mint a fresh `Created via API` development certificate on every run. That is
+what walks the team to its certificate cap, after which the archive itself
+fails with `Choose a certificate to revoke` and looks for **iOS App
+Development** profiles that CI never installed. CI therefore archives with
+`--manual-signing` (Distribution identity + named App Store profiles, no API
+key on `xcodebuild`) and only uses the key for `asc` upload.
+
+`IOS_DISTRIBUTION_P12` is still required for the Distribution identity. Leftover
+`Created via API` development certificates are safe to revoke under
+[Certificates](https://developer.apple.com/account/resources/certificates/list)
+if the team is already at its cap.
 
 ### 3. GitHub Actions secrets
 
