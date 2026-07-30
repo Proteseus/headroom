@@ -252,6 +252,12 @@ Four rules are load-bearing if you touch it:
   `Headroom-iCloud.entitlements` is merged in by `scripts/build-app.sh` only
   when `HEADROOM_PROVISION_PROFILE` supplies one. No profile, no keys, and the
   artifact matches what shipped before the feature.
+- **In CI that profile comes from the `MACOS_PROVISION_PROFILE` secret**, and
+  its absence is invisible in a green run. Through 1.2.0 the workflow never set
+  the variable, so every published release was notarized and had iCloud off.
+  Grep the build log for `multi-Mac CloudKit is off` before believing a release
+  can sync. Entitlements are sealed into a signature, so an already-downloaded
+  app never gains CloudKit — it takes a new release.
 - **The merge stays in Python.** `MachineCloudSync.swift` carries bytes and
   holds no opinion about them. A second implementation of last-writer-wins
   would drift, and the symptom would be settings quietly reverting on one Mac.

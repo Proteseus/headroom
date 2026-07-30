@@ -170,6 +170,46 @@ jobs:
           echo "imported=true" >> "$GITHUB_OUTPUT"
           echo "Using identity: $IDENTITY"
 
+      # Multi-Mac over CloudKit rides on restricted `com.apple.developer.*`
+      # entitlements, which build-app.sh merges only when a Developer ID
+      # profile authorizes them (see docs/multi-mac.md). Without this step the
+      # release notarizes and downloads fine, and every Mac that opens it finds
+      # iCloud off — which is what shipped through 1.2.0.
+      #
+      # Soft-falls back like the certificate above: no secret means the artifact
+      # is exactly the one that shipped before multi-Mac existed, minus the
+      # feature. Stamping the keys on without the profile would be far worse
+      # than shipping without them, because the app is then killed at launch.
+      - name: Install iCloud provisioning profile
+        id: profile
+        if: steps.cert.outputs.imported == 'true'
+        env:
+          MACOS_PROVISION_PROFILE: ${{ secrets.MACOS_PROVISION_PROFILE }}
+        run: |
+          if [[ -z "${MACOS_PROVISION_PROFILE:-}" ]]; then
+            echo "::warning::No MACOS_PROVISION_PROFILE — multi-Mac CloudKit is off in this build (see docs/multi-mac.md)."
+            exit 0
+          fi
+          PROFILE_PATH="$RUNNER_TEMP/headroom.provisionprofile"
+          echo -n "$MACOS_PROVISION_PROFILE" | base64 --decode > "$PROFILE_PATH"
+
+          # A profile that does not decode, or that names another team than the
+          # certificate, produces an app that signs and notarizes and is then
+          # killed on launch. Fail here, where the log still says why.
+          if ! PLIST="$(security cms -D -i "$PROFILE_PATH" 2>/dev/null)"; then
+            echo "error: MACOS_PROVISION_PROFILE did not decode to a provisioning profile" >&2
+            exit 1
+          fi
+          PROFILE_TEAM="$(plutil -extract TeamIdentifier.0 raw -o - - <<<"$PLIST" 2>/dev/null || true)"
+          CERT_TEAM="$(sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p' <<<"${HEADROOM_SIGN_IDENTITY:-}")"
+          if [[ -n "$CERT_TEAM" && -n "$PROFILE_TEAM" && "$PROFILE_TEAM" != "$CERT_TEAM" ]]; then
+            echo "error: profile team $PROFILE_TEAM does not match signing identity team $CERT_TEAM" >&2
+            exit 1
+          fi
+
+          echo "HEADROOM_PROVISION_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
+          echo "Profile installed (team ${PROFILE_TEAM:-unknown}) — multi-Mac CloudKit will be on."
+
       - name: Build + notarize
         id: notarize
         if: steps.cert.outputs.imported == 'true'
