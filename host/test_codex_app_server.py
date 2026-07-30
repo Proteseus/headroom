@@ -74,6 +74,93 @@ class CodexAppServerTests(unittest.TestCase):
         self.assertEqual(
             self.sent, [{"id": 42, "result": {"decision": "accept"}}])
 
+    def question(self, request_id=77, **overrides):
+        entry = {
+            "id": "q1",
+            "header": "Rollout",
+            "question": "How should I roll this out?",
+            "options": [
+                {"label": "Staged", "description": "One region first."},
+                {"label": "All at once", "description": "Faster, riskier."},
+            ],
+        }
+        entry.update(overrides)
+        self.adapter.ingest_for_test({
+            "id": request_id,
+            "method": codex_app_server.USER_INPUT,
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "item-1",
+                "questions": [entry],
+            },
+        })
+        rows = self.store.list(state="open")
+        return rows[0] if rows else None
+
+    def test_command_approval_exposes_the_parsed_actions_and_network(self):
+        """Captured since the adapter was written; never reached a screen."""
+        self.adapter.ingest_for_test({
+            "id": 43,
+            "method": codex_app_server.COMMAND_APPROVAL,
+            "params": {
+                "threadId": "t", "turnId": "u", "itemId": "i",
+                "command": "curl https://example.com",
+                "cwd": "/tmp/project",
+                "commandActions": [{"kind": "network", "host": "example.com"}],
+                "networkApprovalContext": {"policy": "managed"},
+            },
+        })
+        event = self.store.list(state="open")[0]
+        keys = [f["key"] for f in event["detail"]["request"]]
+        self.assertEqual(
+            keys[:2], ["command", "cwd"], "read in the order a person would")
+        self.assertIn("commandActions", keys)
+        self.assertIn("networkApprovalContext", keys)
+
+    def test_question_options_become_answers_codex_can_read(self):
+        event = self.question()
+        self.assertEqual(event["kind"], "structured_question")
+        self.assertEqual(
+            [a["label"] for a in event["actions"]],
+            ["Staged", "All at once", "Ask on Mac", "Stop Codex"])
+        self.assertEqual(event["actions"][0]["description"], "One region first.")
+        self.assertEqual(
+            event["detail"]["request"], [],
+            "the summary is the question and the actions are the options")
+        self.adapter.respond(event, "choice_1")
+        self.assertEqual(self.sent, [{
+            "id": 77,
+            "result": {"answers": {"q1": {"answers": ["All at once"]}}},
+        }])
+
+    def test_ask_on_mac_returns_no_answer(self):
+        event = self.question()
+        self.adapter.respond(event, "ask_on_mac")
+        self.assertEqual(self.sent, [{"id": 77, "result": {"answers": {}}}])
+
+    def test_a_secret_is_never_answerable_from_a_phone(self):
+        self.assertIsNone(self.question(isSecret=True))
+        self.assertEqual(self.sent, [{"id": 77, "result": {"answers": {}}}])
+
+    def test_unanswerable_question_shapes_decline_without_a_row(self):
+        for override in ({"options": [{"label": "Only one"}]},
+                         {"options": [{"label": f"O{n}"} for n in range(9)]},
+                         {"question": ""}):
+            self.sent.clear()
+            self.assertIsNone(self.question(**override))
+            self.assertEqual(
+                self.sent, [{"id": 77, "result": {"answers": {}}}])
+
+    def test_interrupt_stops_the_turn_rather_than_answering(self):
+        event = self.approval()
+        self.adapter.respond(event, "interrupt")
+        self.assertEqual(self.sent, [{
+            "id": 101,
+            "method": codex_app_server.TURN_INTERRUPT,
+            "params": {"threadId": "thread-1", "turnId": "turn-1"},
+        }])
+
     def test_file_approval_is_normalized_separately(self):
         event = self.approval(codex_app_server.FILE_APPROVAL)
         self.assertEqual(event["kind"], "file_approval")

@@ -191,6 +191,36 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             [{"rule": "Bash(npm test)", "mode": "allow"}],
         )
 
+    def test_interrupt_stops_the_turn_and_says_who_did_it(self):
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.permission_request(
+                self.permission(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        action = next(a for a in event["actions"] if a["id"] == "interrupt")
+        self.assertEqual(action["risk"], "destructive")
+        self.assertTrue(action["requires_biometric"])
+        self.answer(event, "interrupt")
+        thread.join(timeout=2)
+        decision = result["value"]["hookSpecificOutput"]["decision"]
+        self.assertEqual(decision["behavior"], "deny")
+        self.assertTrue(decision["interrupt"])
+        self.assertIn("Headroom", decision["message"])
+
+    def test_deny_does_not_interrupt(self):
+        """Deny answers one request; the turn keeps going."""
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.permission_request(
+                self.permission(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        self.answer(event, "decline")
+        thread.join(timeout=2)
+        self.assertNotIn(
+            "interrupt", result["value"]["hookSpecificOutput"]["decision"])
+
     def test_allow_once_never_grants_a_durable_rule(self):
         result = {}
         thread = threading.Thread(target=lambda: result.update(
@@ -214,8 +244,8 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             payload, wait_seconds=2))
         thread.start()
         event = self.wait_for_event()
-        self.assertEqual(
-            [a["id"] for a in event["actions"]], ["approve_once", "decline"])
+        self.assertNotIn(
+            "approve_always", [a["id"] for a in event["actions"]])
         self.assertIsNone(event["detail"]["permission_rule"])
         self.answer(event, "decline")
         thread.join(timeout=2)

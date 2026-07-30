@@ -14,7 +14,10 @@ see [`attention.md`](attention.md).
   expiry, provider resolution, and disconnect/orphan states.
 - A supervised Codex App Server process using its JSONL stdio transport.
 - Stable Codex command-execution and file-change approval requests normalized
-  into the common event shape.
+  into the common event shape, including the `commandActions` and
+  `networkApprovalContext` a command approval carries.
+- Codex structured questions (`item/tool/requestUserInput`) answered from the
+  phone, and `turn/interrupt` on both providers.
 - Managed Claude Code HTTP hooks for permission requests, stop/idle attention,
   elicitation notices, prompt submission, and session end.
 - The provider's actual request, field by field, on every client — see
@@ -105,9 +108,8 @@ Desktop, CLI, or IDE process and intercept that process's callbacks. In
 particular, an already-running conversation cannot be transparently moved
 between App Server processes while a turn is live.
 
-Codex also supports an App Server listening on a local Unix socket, and Codex
-CLI can connect to it with `codex --remote unix://PATH`. That is the right next
-transport for Headroom: one Headroom-supervised App Server, with Headroom and
+Codex now ships `codex app-server daemon` and `codex app-server proxy`, both
+`[experimental]`. A shared daemon is the right next transport for Headroom: one Headroom-supervised App Server, with Headroom and
 future CLI clients subscribing to its tasks. Stored inactive tasks may be
 resumed by task ID, but live ownership and approval routing must remain with
 the App Server that received the request.
@@ -210,11 +212,34 @@ The SQLite row is durable, but a live JSON-RPC callback is not. If the Codex
 process disconnects, open events become `orphaned`; Headroom never guesses that
 a request ID from a previous process can still be answered.
 
+## Reading the Codex protocol rather than guessing at it
+
+`codex app-server generate-json-schema --out DIR` writes the whole protocol —
+234 schemas for v2. Every capability question below was settled from that
+bundle, and it is the right first move for anything else Codex-shaped:
+
+| Wire method | What it gives Headroom |
+|---|---|
+| `item/commandExecution/requestApproval` | `commandActions`, `networkApprovalContext`, proposed policy amendments |
+| `item/tool/requestUserInput` | structured questions — `header`, `id`, options with `label` + `description`, plus `isSecret` |
+| `item/permissions/requestApproval` | the persistent grant that would back `permission_grant` |
+| `turn/interrupt` | stop a turn, keyed by `threadId` + `turnId` |
+| `turn/steer` | send a message into a *live* turn, gated on `expectedTurnId` |
+| `thread/start`, `thread/resume` | Headroom-owned task creation and resume |
+
+Codex's question shape is close enough to Claude's `AskUserQuestion` that both
+go through the same choice actions and render with one control on the phone.
+`isSecret` is the exception that matters: a question marked secret is never
+offered remotely and never enters the ledger.
+
 ## Next slices
 
-1. Replace the private stdio child with a local Unix-socket App Server and a
-   Headroom WebSocket subscriber; expose the exact `codex --remote
-   unix://PATH` launch command in Settings.
+1. Replace the private stdio child with a shared App Server. Codex now ships
+   `codex app-server daemon` and `codex app-server proxy` (proxies stdio to a
+   running control socket), which is a cleaner route than the `--remote
+   unix://PATH` this list originally assumed. Both are `[experimental]`. The
+   hard part is unchanged and is not transport: live ownership of an approval
+   must stay with the process that received it.
 2. Add Headroom-owned Codex task creation, resume/subscription, turn start,
    message, and interrupt routes, storing provider task IDs beside events.
 3. Add an explicit end-to-end test task that requests a harmless approval,
@@ -224,8 +249,11 @@ a request ID from a previous process can still be answered.
 5. Register notification categories for safe actions. Keep privileged and
    destructive answers behind foreground authentication unless policy
    explicitly allows otherwise.
-6. Add structured questions after Codex promotes that App Server request from
-   experimental, or behind an explicitly versioned adapter flag.
+6. ~~Add structured questions~~ **Done.** `item/tool/requestUserInput` is
+   wired to the same choice actions Claude uses. It stays `experimental` in
+   Headroom's capability metadata because Codex marks the request EXPERIMENTAL
+   in its own schema — the maturity mirrors the provider's, not our confidence
+   in the wiring.
 7. **Answer Claude's questions and rules.** Verified against Claude Code
    2.1.220, so this is a wiring gap rather than a provider gap:
 

@@ -7,6 +7,32 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- **Codex approvals show what Codex actually asked.** `commandActions` (its own
+  parse of what the command does) and `networkApprovalContext` were captured
+  when the adapter was written and never reached a screen. They now travel as
+  typed fields through the same contract Claude uses, so one client renders
+  both providers.
+- **Codex questions are answerable from the phone.** `item/tool/requestUserInput`
+  maps onto the same option controls Claude's questions use. A question marked
+  `isSecret` is never offered remotely and never enters the ledger — a secret
+  does not leave the Mac.
+- **Stop Claude** and **Stop Codex** end a runaway turn from the phone, via
+  `decision.interrupt` and `turn/interrupt`. Both are destructive and sit
+  behind device authentication. Deny answers one request and lets the turn
+  continue; interrupt is the other thing, so it is a separate answer.
+
+### Changed
+
+- `docs/agent-attention.md` records that `codex app-server generate-json-schema`
+  writes the whole protocol — 234 schemas for v2 — and every Codex capability
+  claim in this release was settled from that bundle rather than guessed.
+  `turn/steer`, `thread/start` and `item/permissions/requestApproval` are named
+  there as the routes the remaining slices need.
+
 ## 1.2.6 — 2026-07-30
 
 ### Changed

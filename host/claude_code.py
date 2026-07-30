@@ -48,7 +48,18 @@ APPROVE_ALWAYS = {
 
 DECLINE = {"id": "decline", "label": "Deny", "risk": "safe"}
 
-PERMISSION_ACTIONS = [APPROVE_ONCE, DECLINE]
+# Deny answers this one request and lets Claude carry on; interrupt stops the
+# turn outright. Different enough to be separate answers, and the second is
+# destructive.
+INTERRUPT = {
+    "id": "interrupt",
+    "label": "Stop Claude",
+    "risk": "destructive",
+    "requires_foreground": True,
+    "requires_biometric": True,
+}
+
+PERMISSION_ACTIONS = [APPROVE_ONCE, DECLINE, INTERRUPT]
 
 # Tools whose input names one concrete thing, so an exact-match rule is both
 # expressible and meaningful. AskUserQuestion is absent on purpose: "always
@@ -264,7 +275,7 @@ class ClaudeCodeHooks:
                 "send_message": {
                     "supported": False, "maturity": "planned"},
                 "interrupt": {
-                    "supported": False, "maturity": "planned"},
+                    "supported": True, "maturity": "stable"},
             },
         }
 
@@ -296,7 +307,7 @@ class ClaudeCodeHooks:
         cwd = payload.get("cwd")
         rule = permission_rule(tool_name, tool_input)
         actions = (
-            [APPROVE_ONCE, APPROVE_ALWAYS, DECLINE] if rule
+            [APPROVE_ONCE, APPROVE_ALWAYS, DECLINE, INTERRUPT] if rule
             else PERMISSION_ACTIONS
         )
         with self._lock:
@@ -348,13 +359,16 @@ class ClaudeCodeHooks:
                     "decision": decision,
                 },
             }
+        decision = {"behavior": "deny", "message": "Denied from Headroom"}
+        if waiter.action == INTERRUPT["id"]:
+            # Stops the turn rather than just this call, so the message has to
+            # say a person did it — a bare denial reads as a refusal.
+            decision["interrupt"] = True
+            decision["message"] = "Stopped from Headroom on your iPhone"
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
-                "decision": {
-                    "behavior": "deny",
-                    "message": "Denied from Headroom",
-                },
+                "decision": decision,
             },
         }
 
@@ -502,7 +516,8 @@ class ClaudeCodeHooks:
             self.store.resolve(event["id"], {"action": action_id})
             return
         if (action_id not in (
-                "approve_once", "approve_always", "decline", ASK_ON_MAC["id"])
+                "approve_once", "approve_always", "decline",
+                INTERRUPT["id"], ASK_ON_MAC["id"])
                 and not action_id.startswith(CHOICE_PREFIX)):
             raise ValueError("unsupported Claude action")
         with self._lock:

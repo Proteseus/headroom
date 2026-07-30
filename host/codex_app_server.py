@@ -15,6 +15,7 @@ import threading
 import time
 from collections import deque
 
+import agent_request
 import app_config
 
 PROVIDER = "codex"
@@ -23,8 +24,20 @@ MAX_MESSAGE_BYTES = 1024 * 1024
 
 COMMAND_APPROVAL = "item/commandExecution/requestApproval"
 FILE_APPROVAL = "item/fileChange/requestApproval"
+USER_INPUT = "item/tool/requestUserInput"
 REQUEST_RESOLVED = "serverRequest/resolved"
 TURN_COMPLETED = "turn/completed"
+TURN_INTERRUPT = "turn/interrupt"
+
+# Ends the whole turn rather than answering this one request, so it is
+# destructive and stays behind foreground authentication.
+INTERRUPT = {
+    "id": "interrupt",
+    "label": "Stop Codex",
+    "risk": "destructive",
+    "requires_foreground": True,
+    "requires_biometric": True,
+}
 
 APPROVAL_ACTIONS = [
     {
@@ -48,6 +61,17 @@ WIRE_DECISIONS = {
     "decline": "decline",
     "cancel": "cancel",
 }
+
+CHOICE_PREFIX = "choice_"
+MAX_CHOICES = 6
+ASK_ON_MAC = {"id": "ask_on_mac", "label": "Ask on Mac", "risk": "safe"}
+
+# Field order for an approval, so the phone reads it the way a person would.
+COMMAND_FIELDS = (
+    "command", "cwd", "reason", "commandActions", "networkApprovalContext",
+    "proposedExecpolicyAmendment", "proposedNetworkPolicyAmendments",
+)
+FILE_FIELDS = ("reason", "grantRoot", "cwd")
 
 
 def _bundled_candidates(binary):
@@ -114,6 +138,7 @@ class CodexAppServer:
         self._stderr_tail = deque(maxlen=8)
         self._pending_by_event = {}
         self._event_by_request = {}
+        self._request_id = 100
 
     def capabilities(self):
         available = self.binary is not None
@@ -138,12 +163,16 @@ class CodexAppServer:
                     "supported": True, "maturity": "stable"},
                 "permission_grant": {
                     "supported": False, "maturity": "planned"},
+                # item/tool/requestUserInput is marked EXPERIMENTAL in Codex's
+                # own schema, so the maturity here mirrors the provider's.
                 "structured_question": {
-                    "supported": False, "maturity": "experimental"},
+                    "supported": True, "maturity": "experimental"},
+                # turn/steer exists and would carry one, but it needs a text
+                # field on the phone and an expectedTurnId precondition.
                 "send_message": {
                     "supported": False, "maturity": "planned"},
                 "interrupt": {
-                    "supported": False, "maturity": "planned"},
+                    "supported": True, "maturity": "stable"},
             },
         }
 
@@ -207,18 +236,57 @@ class CodexAppServer:
             self._event_by_request.clear()
 
     def respond(self, event, action_id):
-        decision = WIRE_DECISIONS.get(action_id)
-        if decision is None:
-            raise ValueError("unsupported Codex approval action")
         with self._lock:
             callback = self._pending_by_event.get(event["id"])
             process = self._process
-        if callback is None:
-            raise RuntimeError("Codex request is no longer pending")
         if process is None or process.poll() is not None:
             raise RuntimeError("Codex App Server is disconnected")
-        request_id, _method = callback
+
+        # Interrupt ends the turn rather than answering the request, so it is
+        # a client request of its own and needs no live callback — only the
+        # thread and turn the row was already carrying.
+        if action_id == INTERRUPT["id"]:
+            turn_id = event.get("turn_id")
+            if not turn_id:
+                raise RuntimeError("Codex event has no turn to interrupt")
+            self._request(TURN_INTERRUPT, {
+                "threadId": event["session_id"],
+                "turnId": turn_id,
+            })
+            return
+
+        if callback is None:
+            raise RuntimeError("Codex request is no longer pending")
+        request_id, method = callback[0], callback[1]
+
+        if method == USER_INPUT:
+            question_id, labels = callback[2], callback[3]
+            if action_id == ASK_ON_MAC["id"]:
+                self._decline_question(request_id)
+                return
+            if not action_id.startswith(CHOICE_PREFIX):
+                raise ValueError("unsupported Codex question action")
+            try:
+                label = labels[int(action_id[len(CHOICE_PREFIX):])]
+            except (ValueError, IndexError):
+                raise ValueError("unknown Codex choice")
+            self._send({"id": request_id, "result": {
+                "answers": {question_id: {"answers": [label]}},
+            }})
+            return
+
+        decision = WIRE_DECISIONS.get(action_id)
+        if decision is None:
+            raise ValueError("unsupported Codex approval action")
         self._send({"id": request_id, "result": {"decision": decision}})
+
+    def _request(self, method, params):
+        """A client-initiated call. Ids start past the handshake's own id 1."""
+        with self._lock:
+            self._request_id += 1
+            request_id = self._request_id
+        self._send({"id": request_id, "method": method, "params": params})
+        return request_id
 
     def ingest_for_test(self, message):
         """Exercise protocol normalization without starting a child process."""
@@ -348,6 +416,13 @@ class CodexAppServer:
                 return
             self._record_approval(message["id"], method, params)
             return
+        if method == USER_INPUT and "id" in message:
+            if not isinstance(params, dict):
+                self._send({"id": message["id"], "error": {
+                    "code": -32602, "message": "invalid params"}})
+                return
+            self._record_question(message["id"], params)
+            return
         if method == REQUEST_RESOLVED and isinstance(params, dict):
             self._resolved(params.get("requestId"))
             return
@@ -376,18 +451,27 @@ class CodexAppServer:
             command = params.get("command")
             title = "Codex needs command approval"
             summary = _short(reason or command, "Run a command")
+            fields = {key: params.get(key) for key in COMMAND_FIELDS
+                      if params.get(key) is not None}
             detail = {
+                "tool_name": "Codex command",
+                # Same typed-field contract Claude uses, so one client renders
+                # both. commandActions and networkApprovalContext were
+                # captured here for a year and never reached a screen.
+                "request": agent_request.fields(fields, "CodexCommand"),
                 "reason": reason,
                 "command": command,
                 "cwd": params.get("cwd"),
-                "network": params.get("networkApprovalContext"),
-                "command_actions": params.get("commandActions"),
             }
             kind = "command_approval"
         else:
             title = "Codex needs file approval"
             summary = _short(reason, "Apply proposed file changes")
+            fields = {key: params.get(key) for key in FILE_FIELDS
+                      if params.get(key) is not None}
             detail = {
+                "tool_name": "Codex file change",
+                "request": agent_request.fields(fields, "CodexFileChange"),
                 "reason": reason,
                 "grant_root": params.get("grantRoot"),
             }
@@ -404,12 +488,96 @@ class CodexAppServer:
             title=title,
             summary=summary,
             detail=detail,
-            actions=APPROVAL_ACTIONS,
+            actions=APPROVAL_ACTIONS + [INTERRUPT],
             created_at_ms=params.get("startedAtMs"),
         )
         with self._lock:
             self._pending_by_event[event["id"]] = (request_id, method)
             self._event_by_request[key] = event["id"]
+
+    def _record_question(self, request_id, params):
+        """One answerable question becomes buttons; anything else is a notice.
+
+        Codex's shape matches Claude's closely enough to share the ledger's
+        choice vocabulary, so one phone control answers both.
+        """
+        session_id = params.get("threadId")
+        turn_id = params.get("turnId")
+        item_id = params.get("itemId")
+        questions = params.get("questions")
+        if not isinstance(questions, list) or len(questions) != 1 or not all(
+                isinstance(value, str) and value
+                for value in (session_id, turn_id, item_id)):
+            self._decline_question(request_id)
+            return
+        question = questions[0]
+        if not isinstance(question, dict):
+            self._decline_question(request_id)
+            return
+        # A secret never leaves the Mac and is never typed on a phone.
+        if question.get("isSecret"):
+            self._decline_question(request_id)
+            return
+        text = question.get("question")
+        question_id = question.get("id")
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (text, question_id)):
+            self._decline_question(request_id)
+            return
+        options = []
+        for option in question.get("options") or []:
+            if not isinstance(option, dict):
+                continue
+            label = option.get("label")
+            if isinstance(label, str) and label.strip():
+                options.append({
+                    "label": " ".join(label.split()),
+                    "description": (
+                        " ".join(str(option.get("description")).split())
+                        if isinstance(option.get("description"), str)
+                        and option["description"].strip() else None
+                    ),
+                })
+        if not 2 <= len(options) <= MAX_CHOICES:
+            self._decline_question(request_id)
+            return
+        actions = []
+        for index, option in enumerate(options):
+            action = {
+                "id": f"{CHOICE_PREFIX}{index}",
+                "label": option["label"],
+                "risk": "safe",
+                "requires_foreground": True,
+            }
+            if option["description"]:
+                action["description"] = option["description"]
+            actions.append(action)
+        key = _request_key(request_id)
+        event = self.store.create(
+            provider=PROVIDER,
+            adapter=ADAPTER,
+            provider_request_id=key,
+            session_id=session_id,
+            turn_id=turn_id,
+            item_id=item_id,
+            kind="structured_question",
+            title=f"Codex is asking you: {_short(question.get('header'), 'a question', 60)}",
+            summary=_short(" ".join(text.split()), "Codex asked a question"),
+            # The summary is the question and the actions are the options, so
+            # a request block would print all of it a second time.
+            detail={"tool_name": "Codex question", "request": []},
+            actions=actions + [ASK_ON_MAC, INTERRUPT],
+        )
+        with self._lock:
+            self._pending_by_event[event["id"]] = (
+                request_id, USER_INPUT, question_id,
+                [option["label"] for option in options],
+            )
+            self._event_by_request[key] = event["id"]
+
+    def _decline_question(self, request_id):
+        """No opinion: an empty answer set leaves the question to the Mac."""
+        self._send({"id": request_id, "result": {"answers": {}}})
 
     def _resolved(self, request_id):
         key = _request_key(request_id)

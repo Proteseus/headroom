@@ -38,6 +38,13 @@ KNOWN_ORDER = {
     "Glob": ("pattern", "path"),
     "Grep": ("pattern", "path", "glob", "output_mode"),
     "Task": ("subagent_type", "description", "prompt"),
+    # Codex approvals are not tool inputs, but they are the same thing to a
+    # reader: the request, in the order you would want to read it.
+    "CodexCommand": (
+        "command", "cwd", "reason", "commandActions", "networkApprovalContext",
+        "proposedExecpolicyAmendment", "proposedNetworkPolicyAmendments",
+    ),
+    "CodexFileChange": ("reason", "grantRoot", "cwd"),
 }
 
 LABELS = {
@@ -66,6 +73,11 @@ LABELS = {
     "output_mode": "Output",
     "subagent_type": "Agent",
     "cwd": "Working directory",
+    "commandActions": "Does",
+    "networkApprovalContext": "Network",
+    "grantRoot": "Grant root",
+    "proposedExecpolicyAmendment": "Proposed policy change",
+    "proposedNetworkPolicyAmendments": "Proposed network change",
 }
 
 CODE_KEYS = frozenset({
