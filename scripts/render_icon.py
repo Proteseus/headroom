@@ -6,6 +6,13 @@ same 20% tinted track and round-ended usage arc as `Shared/HeadroomRings.swift`
 and `drawPaceRing()` in the firmware. No pace ticks — at icon sizes a hairline
 reads as a defect.
 
+The Mac icon sits on Apple's icon grid — an 824-of-1024 rounded square with
+transparent margins — because macOS does not round anything for you. A
+full-bleed square is drawn as a full-bleed square, which in a Dock of rounded
+tiles reads as a bug. iPhone, Watch and the App Store PNG stay square and
+opaque: those masks are applied by the system and by App Store Connect, which
+rejects alpha outright.
+
     ./scripts/render_icon.py            # rewrite the catalogs + App Store PNG
     ./scripts/render_icon.py --out /tmp/preview.png   # one file, nothing else
 """
@@ -27,6 +34,14 @@ TRACK_MIX = 0.20
 THICK = 70
 GAP = 40
 OUTER_RADIUS = 360
+
+# Apple's macOS icon grid: the artwork occupies 824 of the 1024-pixel canvas and
+# the rest is clear. The corner is the continuous "squircle" the Dock, Finder
+# and Launchpad all use, approximated by a superellipse of this exponent — near
+# enough that no corner reads differently beside a system icon, and a lot less
+# machinery than a bezier reconstruction of Apple's curve.
+MACOS_TILE = 824
+SQUIRCLE_EXPONENT = 5.0
 
 # Accent + percent per band, outside in. The live rings keep provider brand
 # accents; the icon uses process CMY so the three arcs stay distinct at every
@@ -102,20 +117,55 @@ def render(side: int = SIDE) -> Image.Image:
     return image.resize((side, side), Image.LANCZOS)
 
 
+def squircle_mask(side: int) -> Image.Image:
+    """Alpha mask of the continuous rounded square, drawn oversized then down."""
+    high = side * SUPERSAMPLE
+    mask = Image.new("L", (high, high), 0)
+    radius = high / 2
+    power = 2.0 / SQUIRCLE_EXPONENT
+    points = []
+    for step in range(720):
+        angle = 2 * math.pi * step / 720
+        cos, sin = math.cos(angle), math.sin(angle)
+        x = math.copysign(abs(cos) ** power, cos)
+        y = math.copysign(abs(sin) ** power, sin)
+        points.append((radius + x * radius, radius + y * radius))
+    ImageDraw.Draw(mask).polygon(points, fill=255)
+    return mask.resize((side, side), Image.LANCZOS)
+
+
+def macos_icon(side: int) -> Image.Image:
+    """The glyph on Apple's grid: rounded tile, clear margin, nothing baked in.
+
+    No drop shadow. macOS 26 lights and shadows the tile itself, and a shadow in
+    the artwork shows up as a second one under the system's.
+    """
+    tile_side = max(1, round(side * MACOS_TILE / SIDE))
+    tile = render(tile_side).convert("RGBA")
+    tile.putalpha(squircle_mask(tile_side))
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    offset = (side - tile_side) // 2
+    canvas.paste(tile, (offset, offset), tile)
+    return canvas
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", help="Write a single PNG here instead of the catalogs")
     parser.add_argument("--size", type=int, default=SIDE, help="Size for --out")
+    parser.add_argument("--square", action="store_true",
+                        help="With --out: the full-bleed iPhone artwork, not the Mac tile")
     args = parser.parse_args()
 
     if args.out:
-        render(args.size).save(args.out)
+        image = render(args.size) if args.square else macos_icon(args.size)
+        image.save(args.out)
         print(f"wrote {args.out} ({args.size}×{args.size})")
         return
 
     written = []
     for size, names in MACOS_ICONS.items():
-        image = render(size)
+        image = macos_icon(size)
         for name in names:
             image.save(MACOS_DIR / name, format="PNG")
             written.append(MACOS_DIR / name)

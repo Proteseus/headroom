@@ -48,4 +48,10 @@ percent in process CMY (yellow / cyan / magenta), rendered by
 rings keep each provider's brand accent; the icon uses CMY so the arcs stay
 distinct at small sizes.
 
+The Mac catalog gets that glyph on Apple's icon grid: an 824-of-1024 rounded
+square with transparent margins, no baked shadow. macOS masks nothing for you,
+so a full-bleed square stays a square in a Dock full of rounded tiles. iPhone,
+Watch and the App Store PNG stay square and opaque — those are masked by the
+system, and App Store Connect rejects alpha.
+
 User-facing names for charts and sections live in [`docs/glossary.md`](glossary.md).
