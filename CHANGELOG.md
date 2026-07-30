@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.3 — 2026-07-30
+
+### Fixed
+
+- Multi-Mac over iCloud actually connects. The signed app declared the iCloud
+  container but carried no application identity to bind it to, so CloudKit
+  refused every request with "Trying to initialize a container without an
+  application ID". Releases now take the application identifier, team and
+  container environment from the provisioning profile, the way Xcode does when
+  it signs. 1.2.2 looked correct by every check available and never wrote a
+  single record.
+
 ## 1.2.2 — 2026-07-30
 
 ### Fixed
