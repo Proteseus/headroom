@@ -7,6 +7,13 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- Settings → General can open Headroom at login. macOS may still ask once in
+  Login Items; the toggle says so and links there when approval is pending.
+
 ## 1.1.7 — 2026-07-30
 
 ### Changed

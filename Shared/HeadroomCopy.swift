@@ -32,6 +32,9 @@ enum HeadroomCopy {
     static let settingsIntegrations = "Integrations"
     static let settingsConnection = "Connection"
     static let settingsPermissions = "Permissions"
+    /// macOS Settings → General. Matches System Settings → Login Items wording.
+    static let openAtLogin = "Open at Login"
+    static let openLoginItemsSettings = "Open Login Items…"
     /// Welcome rail / first-run heading for the Sources step.
     static let welcomeWhatToWatch = "What to watch"
     /// Welcome rail for the iPhone step — Settings keeps the short “iPhone”.

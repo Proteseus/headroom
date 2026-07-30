@@ -25,7 +25,8 @@ any hardcoded chrome that still bypasses them.
 | **Services** | Supabase, Plausible, local servers | iOS tab (Mac stacks the same panels without a tab) |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
-| **General** | Host endpoint, dashboard density, welcome, Other Macs | macOS Settings |
+| **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs | macOS Settings |
+| **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
 | **Sources** | What to watch — AI tools, extra accounts, dev tools | macOS Settings, iOS Settings, Welcome |
 | **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
 | **Integrations** | Hub for Supabase / Plausible / GitHub keys | macOS Settings |

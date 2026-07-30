@@ -66,6 +66,9 @@ struct SettingsView: View {
     @State private var multiMac = MultiMacConfiguration.unknown
     @State private var multiMacMessage: String?
     @State private var changingMultiMac = false
+    @State private var openAtLogin = LaunchAtLogin.isRequested
+    @State private var openAtLoginNeedsApproval = LaunchAtLogin.needsApproval
+    @State private var openAtLoginMessage: String?
     @State private var selection: SettingsDestination? = .general
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
@@ -123,12 +126,19 @@ struct SettingsView: View {
             plausibleTokenStored = TokenStore.plausible.exists()
             githubTokenStored = TokenStore.github.exists()
             hostTokenStored = TokenStore.host.exists()
+            refreshOpenAtLogin()
             await reloadSources()
             await reloadMobilePermissions()
             await reloadAgentGateway()
             await reloadClaudeHooks()
             await reloadMultiMac()
             await reloadGitHubWatch()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification
+        )) { _ in
+            // Login Items approval happens in System Settings; re-read on return.
+            refreshOpenAtLogin()
         }
     }
 
@@ -160,6 +170,27 @@ struct SettingsView: View {
     private var generalPane: some View {
         Form {
             hostSection
+
+            Section {
+                Toggle(HeadroomCopy.openAtLogin, isOn: Binding(
+                    get: { openAtLogin },
+                    set: { setOpenAtLogin($0) }
+                ))
+                if openAtLoginNeedsApproval {
+                    Button(HeadroomCopy.openLoginItemsSettings) {
+                        LaunchAtLogin.openLoginItemsSettings()
+                    }
+                }
+            } footer: {
+                if let openAtLoginMessage {
+                    Text(openAtLoginMessage)
+                } else if openAtLoginNeedsApproval {
+                    Text("macOS is waiting for you to allow Headroom in Login Items.")
+                } else {
+                    Text("Start the menu bar when you log in. The background host is separate and keeps its own LaunchAgent.")
+                }
+            }
+            .onAppear(perform: refreshOpenAtLogin)
 
             Section("Dashboard") {
                 Stepper(
@@ -1314,6 +1345,22 @@ struct SettingsView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
         mobileTokenMessage = "Copied"
+    }
+
+    private func refreshOpenAtLogin() {
+        openAtLogin = LaunchAtLogin.isRequested
+        openAtLoginNeedsApproval = LaunchAtLogin.needsApproval
+    }
+
+    private func setOpenAtLogin(_ enabled: Bool) {
+        openAtLoginMessage = nil
+        do {
+            try LaunchAtLogin.setEnabled(enabled)
+            refreshOpenAtLogin()
+        } catch {
+            refreshOpenAtLogin()
+            openAtLoginMessage = error.localizedDescription
+        }
     }
 }
 

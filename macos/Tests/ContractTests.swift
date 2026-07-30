@@ -202,6 +202,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.noCodingSources, "No coding sources")
         XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")
         XCTAssertEqual(HeadroomCopy.githubActions, "GitHub Actions")
+        XCTAssertEqual(HeadroomCopy.openAtLogin, "Open at Login")
         XCTAssertEqual(HeadroomCopy.poolBurndown("Weekly"), "Weekly burndown")
         XCTAssertEqual(HeadroomCopy.resets("3d"), "Resets 3d")
     }
