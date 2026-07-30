@@ -1862,6 +1862,14 @@ struct AgentAttentionEvent: Codable, Sendable, Equatable, Identifiable {
     var updatedAtMS: Int64
     var expiresAtMS: Int64?
 
+    /// How long the agent has been waiting. A request that has sat for six
+    /// minutes reads very differently from one that just arrived — and a
+    /// permission hook gives up at ~285s, so the age is also how close this
+    /// one is to answering itself.
+    var age: TimeInterval {
+        max(0, Date().timeIntervalSince1970 - Double(createdAtMS) / 1000)
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, provider, adapter, kind, state, revision, title, summary
         case detail, actions

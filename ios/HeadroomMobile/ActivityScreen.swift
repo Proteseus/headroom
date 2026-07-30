@@ -57,8 +57,19 @@ struct ActivityScreen: View {
 
     private func agentRow(_ event: AgentAttentionEvent) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(event.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Label(
+                    event.title,
+                    systemImage: "bubble.left.and.exclamationmark.bubble.right"
+                )
                 .font(.headline)
+                Spacer(minLength: 6)
+                // Same treatment as an activity row's age, so the two halves
+                // of one feed read as one feed.
+                Text(HeadroomCopy.ago(event.age))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
             Text(event.summary)
                 .font(.subheadline)
             if let reasons = event.detail.reasons, !reasons.isEmpty {

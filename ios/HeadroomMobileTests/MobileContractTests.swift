@@ -85,6 +85,28 @@ final class MobileContractTests: XCTestCase {
         XCTAssertEqual(detail.requestFields[2].omittedFields, 2)
     }
 
+    /// The row shows how long the agent has been waiting, in the same words
+    /// an activity row uses.
+    func testAgentEventAgeReadsFromCreatedAt() throws {
+        let sixMinutesAgo = Int64((Date().timeIntervalSince1970 - 360) * 1000)
+        let data = Data(
+            """
+            {"ok": true, "events": [{
+              "id": "evt_1", "provider": "claude-code",
+              "adapter": "claude-http-hooks", "session_id": "s1",
+              "kind": "permission_approval", "state": "pending", "revision": 1,
+              "title": "t", "summary": "s", "detail": {}, "actions": [],
+              "created_at_ms": \(sixMinutesAgo), "updated_at_ms": \(sixMinutesAgo)
+            }]}
+            """.utf8
+        )
+        let event = try XCTUnwrap(
+            try JSONDecoder().decode(
+                AgentAttentionEventsResponse.self, from: data).events.first)
+        XCTAssertEqual(event.age, 360, accuracy: 5)
+        XCTAssertEqual(HeadroomCopy.ago(event.age), "6 min ago")
+    }
+
     /// Codex still sends a bare `command`; it must render through the same
     /// accessor so views never branch on provider.
     func testBareCommandDetailStillProducesARequestField() throws {

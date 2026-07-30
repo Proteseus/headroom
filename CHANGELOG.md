@@ -19,6 +19,10 @@ tag a version that has no entry.
 - **Why** carries Claude's own stated reasons for asking.
 - A value the host had to clip says **Shortened to fit**, and dropped fields
   are counted, so a prefix of a command is never mistaken for the whole one.
+- Each agent row says how long it has been waiting — same words and placement
+  as an activity row's age, because they are two halves of one feed. A request
+  that has sat for six minutes reads very differently from one that just
+  arrived, and the permission hook gives up at around five.
 
 ### Changed
 
