@@ -49,44 +49,6 @@ struct QuotaOverviewCard: View {
     }
 }
 
-struct QuotasScreen: View {
-    @ObservedObject var store: MobileUsageStore
-
-    var body: some View {
-        List {
-            ArchivedDataNotice(store: store)
-            ForEach(store.visibleProviders) { provider in
-                NavigationLink {
-                    ProviderQuotaDetail(
-                        provider: provider,
-                        burndown: provider.orderedBurndown(
-                            from: store.snapshot.burndown?[provider.id]
-                        )
-                    )
-                } label: {
-                    ProviderSummaryRow(
-                        provider: provider,
-                        burndown: provider.orderedBurndown(
-                            from: store.snapshot.burndown?[provider.id]
-                        )
-                    )
-                    .padding(.vertical, 6)
-                }
-            }
-        }
-        .overlay {
-            if store.visibleProviders.isEmpty {
-                ContentUnavailableView(
-                    HeadroomCopy.noCodingSources,
-                    systemImage: "chart.pie.fill"
-                )
-            }
-        }
-        .navigationTitle(HeadroomCopy.quotas)
-        .refreshable { await store.refresh(forceServerSync: true) }
-    }
-}
-
 private struct ProviderSummaryRow: View {
     let provider: QuotaProviderInfo
     /// The provider's burndown pools, for the pace dots. Empty is fine.

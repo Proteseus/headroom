@@ -19,7 +19,7 @@ any hardcoded chrome that still bypasses them.
 | Term | Meaning | Surfaces |
 |---|---|---|
 | **Overview** | Home summary | macOS tab, iOS tab |
-| **Quotas** | Short nav label for coding quota detail | iOS tab |
+| **Quotas** | Coding quota detail, reached from Overview (no longer its own iOS tab) | iOS |
 | **Coding quotas** | Section title above the rings | macOS, iOS |
 | **Activity** | Merged deploys / commits / Actions feed | iOS tab, macOS section, ESP32 home mode |
 | **Services** | Supabase, Plausible, local servers | iOS tab (Mac stacks the same panels without a tab) |

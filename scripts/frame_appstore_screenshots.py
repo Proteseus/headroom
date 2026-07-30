@@ -22,9 +22,8 @@ MUTED = (160, 158, 152)
 
 SLIDES = [
     ("ios-overview.png", "01-overview.png", "Your quotas,\none glance"),
-    ("ios-quotas.png", "02-quotas.png", "Pace before\nyou hit the wall"),
-    ("ios-activity.png", "03-activity.png", "CI and deploys\nwithout another tab"),
-    ("ios-services.png", "04-services.png", "Supabase, Plausible,\nlocal ports"),
+    ("ios-activity.png", "02-activity.png", "CI and deploys\nwithout another tab"),
+    ("ios-services.png", "03-services.png", "Supabase, Plausible,\nlocal ports"),
 ]
 
 

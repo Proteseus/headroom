@@ -2,10 +2,8 @@ import SwiftUI
 
 enum MobileTab: String, CaseIterable, Hashable {
     case overview
-    case quotas
     case activity
     case services
-    case settings
 }
 
 struct RootView: View {
@@ -15,6 +13,7 @@ struct RootView: View {
     var exportDirectory: String? = nil
 
     @State private var showsConnection = false
+    @State private var showsSettings = false
     @State private var selectedTab: MobileTab = .overview
 
     var body: some View {
@@ -23,36 +22,24 @@ struct RootView: View {
                 TabView(selection: $selectedTab) {
                     NavigationStack {
                         OverviewScreen(store: store)
+                            .settingsToolbar($showsSettings)
                     }
                     .tabItem { Label(HeadroomCopy.overview, systemImage: "circle.grid.2x2") }
                     .tag(MobileTab.overview)
 
                     NavigationStack {
-                        QuotasScreen(store: store)
-                    }
-                    .tabItem { Label(HeadroomCopy.quotas, systemImage: "chart.pie.fill") }
-                    .tag(MobileTab.quotas)
-
-                    NavigationStack {
                         ActivityScreen(store: store)
+                            .settingsToolbar($showsSettings)
                     }
                     .tabItem { Label(HeadroomCopy.activity, systemImage: "bolt.horizontal.circle") }
                     .tag(MobileTab.activity)
 
                     NavigationStack {
                         ServicesScreen(store: store)
+                            .settingsToolbar($showsSettings)
                     }
                     .tabItem { Label(HeadroomCopy.services, systemImage: "server.rack") }
                     .tag(MobileTab.services)
-
-                    NavigationStack {
-                        MobileSettingsScreen(
-                            store: store,
-                            showsConnection: $showsConnection
-                        )
-                    }
-                    .tabItem { Label(HeadroomCopy.settings, systemImage: "gearshape") }
-                    .tag(MobileTab.settings)
                 }
             } else {
                 NavigationStack {
@@ -60,10 +47,16 @@ struct RootView: View {
                 }
             }
         }
-        .sheet(isPresented: $showsConnection) {
-            NavigationStack {
-                PairingView(store: store, isEditing: true)
-            }
+        .sheet(isPresented: $showsSettings) {
+            // The pairing sheet hangs off the settings sheet, not the root:
+            // two sheets presented from the same view cancel each other, and
+            // "Change connection" only ever opens from inside Settings.
+            MobileSettingsScreen(store: store, showsConnection: $showsConnection)
+                .sheet(isPresented: $showsConnection) {
+                    NavigationStack {
+                        PairingView(store: store, isEditing: true)
+                    }
+                }
         }
         .task(id: exportDirectory) {
             guard let exportDirectory else { return }
@@ -75,7 +68,7 @@ struct RootView: View {
     @MainActor
     private func runScreenshotExport(to directory: String) async {
         let root = URL(fileURLWithPath: directory)
-        for tab in MobileTab.allCases where tab != .settings {
+        for tab in MobileTab.allCases {
             selectedTab = tab
             // Layout + chart settle.
             try? await Task.sleep(for: .milliseconds(1100))
@@ -268,6 +261,19 @@ private struct MobileAttentionCard: View {
 }
 
 extension View {
+    /// The gear every tab carries, top right. Settings is a place you visit,
+    /// not a peer of the three screens that show numbers.
+    func settingsToolbar(_ isPresented: Binding<Bool>) -> some View {
+        toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(HeadroomCopy.settings, systemImage: "gearshape") {
+                    isPresented.wrappedValue = true
+                }
+                .labelStyle(.iconOnly)
+            }
+        }
+    }
+
     func headroomCard() -> some View {
         self
             .padding(16)
