@@ -1,11 +1,12 @@
-"""Write Keychain secrets without putting them in argv.
+"""Read and write Keychain secrets without putting them in argv.
 
 `security add-generic-password -w <secret>` publishes the secret in the process
 table for the life of the call — any process on the machine can `ps` it. That
 matters here because the thing being written is a refreshed Claude OAuth token.
 
-Reading is fine via security(1): `find-generic-password -w` returns the secret
-on stdout, not on the command line. Only the write path needs this.
+Reads go through SecItemCopyMatching for the same reason the write path does:
+shelling out to `/usr/bin/security` puts the shared system binary on the ACL
+instead of this process, which is a broader grant and a worse prompt.
 
 Uses the Security framework through ctypes (stdlib) rather than the deprecated
 SecKeychain* C API. Stdlib only.
@@ -21,11 +22,17 @@ _SEC_PATH = ctypes.util.find_library("Security")
 
 ERR_SEC_SUCCESS = 0
 ERR_SEC_ITEM_NOT_FOUND = -25300
+ERR_SEC_USER_CANCELED = -128
+ERR_SEC_AUTH_FAILED = -25293
 _CF_STRING_ENCODING_UTF8 = 0x08000100
 
 
 class KeychainError(OSError):
     """A Security.framework call returned a non-zero OSStatus."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def _load():
@@ -50,6 +57,10 @@ def _load():
         ctypes.POINTER(ctypes.c_void_p), ctypes.c_long,
         ctypes.c_void_p, ctypes.c_void_p,
     ]
+    cf.CFDataGetLength.restype = ctypes.c_long
+    cf.CFDataGetLength.argtypes = [ctypes.c_void_p]
+    cf.CFDataGetBytePtr.restype = ctypes.c_void_p
+    cf.CFDataGetBytePtr.argtypes = [ctypes.c_void_p]
     cf.CFRelease.restype = None
     cf.CFRelease.argtypes = [ctypes.c_void_p]
 
@@ -57,6 +68,10 @@ def _load():
     sec.SecItemAdd.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     sec.SecItemUpdate.restype = ctypes.c_int32
     sec.SecItemUpdate.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    sec.SecItemCopyMatching.restype = ctypes.c_int32
+    sec.SecItemCopyMatching.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+    ]
     return cf, sec
 
 
@@ -95,6 +110,64 @@ def _cfdict(cf, pairs):
     return ref
 
 
+def _cfdata_bytes(cf, ref):
+    length = int(cf.CFDataGetLength(ref))
+    if length <= 0:
+        return b""
+    ptr = cf.CFDataGetBytePtr(ref)
+    if not ptr:
+        raise KeychainError("Keychain returned empty data pointer")
+    return ctypes.string_at(ptr, length)
+
+
+def get_generic_password(service, account=None):
+    """Return (OSStatus, secret_str_or_None).
+
+    Does not raise on the usual miss / cancel / auth-failed outcomes — those
+    are what callers need to distinguish. Raises KeychainError only when the
+    framework itself is unavailable or a query cannot be built.
+    """
+    cf, sec = _load()
+    owned = []
+    result = ctypes.c_void_p()
+
+    def track(ref):
+        owned.append(ref)
+        return ref
+
+    try:
+        pairs = [
+            (_const(sec, "kSecClass"),
+             _const(sec, "kSecClassGenericPassword")),
+            (_const(sec, "kSecAttrService"), track(_cfstr(cf, service))),
+            (_const(sec, "kSecReturnData"),
+             _const(cf, "kCFBooleanTrue")),
+            (_const(sec, "kSecMatchLimit"),
+             _const(sec, "kSecMatchLimitOne")),
+        ]
+        if account is not None:
+            pairs.insert(2, (
+                _const(sec, "kSecAttrAccount"),
+                track(_cfstr(cf, account)),
+            ))
+        query = track(_cfdict(cf, pairs))
+        status = int(sec.SecItemCopyMatching(query, ctypes.byref(result)))
+        if status != ERR_SEC_SUCCESS:
+            return status, None
+        if not result.value:
+            return ERR_SEC_ITEM_NOT_FOUND, None
+        owned.append(result.value)
+        raw = _cfdata_bytes(cf, result.value)
+        try:
+            return ERR_SEC_SUCCESS, raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return ERR_SEC_SUCCESS, raw.decode("utf-8", errors="replace")
+    finally:
+        for ref in owned:
+            if ref:
+                cf.CFRelease(ref)
+
+
 def set_generic_password(service, account, secret):
     """Create or replace a generic password item. Raises KeychainError."""
     cf, sec = _load()
@@ -128,7 +201,8 @@ def set_generic_password(service, account, secret):
             owned.append(attributes)
             status = sec.SecItemAdd(attributes, None)
         if status != ERR_SEC_SUCCESS:
-            raise KeychainError(f"Keychain write failed (OSStatus {status})")
+            raise KeychainError(
+                f"Keychain write failed (OSStatus {status})", status=status)
     finally:
         for ref in owned:
             if ref:

@@ -21,6 +21,7 @@ import accounts
 import burndown
 import cache_util
 import headroom_server
+import keychain
 import oauth_usage
 import quota_samples
 
@@ -50,6 +51,16 @@ class CredentialSearchTests(unittest.TestCase):
     GOOD = {"claudeAiOauth": {"accessToken": "plan-token",
                               "refreshToken": "r"}}
 
+    def setUp(self):
+        oauth_usage.reset_for_tests()
+        self._oauth_home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._oauth_home.cleanup)
+        self._oauth_dir = self._oauth_home.name
+        self._oauth_patch = patch.object(
+            oauth_usage, "OAUTH_DIR", self._oauth_dir)
+        self._oauth_patch.start()
+        self.addCleanup(self._oauth_patch.stop)
+
     @staticmethod
     def _account(root="/Users/example/.claudewho-work"):
         return accounts.Account(
@@ -64,7 +75,7 @@ class CredentialSearchTests(unittest.TestCase):
         service = oauth_usage._keychain_service(self._account())
         self.assertEqual(service, "Claude Code-credentials-abfbd7ee")
 
-    def test_profile_reads_its_own_hashed_keychain_item(self):
+    def test_profile_imports_hashed_keychain_into_headroom_store(self):
         account = self._account()
         service = oauth_usage._keychain_service(account)
 
@@ -74,9 +85,14 @@ class CredentialSearchTests(unittest.TestCase):
         with patch.object(oauth_usage, "_read_keychain_blob",
                           side_effect=keychain_blob):
             store, blob = oauth_usage._read_creds_blob(account)
-        self.assertEqual(store, f"keychain:{service}")
+        self.assertEqual(store, "headroom:claude:work")
         self.assertEqual(oauth_usage._oauth_block(blob)["accessToken"],
                          "plan-token")
+        owned = oauth_usage._headroom_path(account)
+        self.assertTrue(os.path.isfile(owned))
+        with open(owned) as handle:
+            self.assertEqual(json.load(handle)["claudeAiOauth"]["accessToken"],
+                             "plan-token")
 
     def test_keychain_without_plan_token_falls_through_to_file(self):
         # The real shape that broke it: Claude Code keeps per-MCP-server OAuth
@@ -90,11 +106,11 @@ class CredentialSearchTests(unittest.TestCase):
                               return_value=self.MCP_ONLY), \
                  patch.object(oauth_usage, "CREDS_FILE", path):
                 store, blob = oauth_usage._read_creds_blob()
-        self.assertEqual(store, path)
+        self.assertEqual(store, "headroom:claude")
         self.assertEqual(oauth_usage._oauth_block(blob)["accessToken"],
                          "plan-token")
 
-    def test_legacy_keychain_remains_a_default_login_fallback(self):
+    def test_legacy_keychain_imports_as_default_login_fallback(self):
         hashed = oauth_usage._keychain_service()
 
         def keychain_blob(service):
@@ -108,7 +124,7 @@ class CredentialSearchTests(unittest.TestCase):
                           side_effect=keychain_blob), \
              patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
             store, blob = oauth_usage._read_creds_blob()
-        self.assertEqual(store, "keychain")
+        self.assertEqual(store, "headroom:claude")
         self.assertTrue(oauth_usage._oauth_block(blob))
 
     def test_hashed_keychain_wins_for_the_default_login(self):
@@ -121,8 +137,19 @@ class CredentialSearchTests(unittest.TestCase):
                           side_effect=keychain_blob), \
              patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
             store, blob = oauth_usage._read_creds_blob()
-        self.assertEqual(store, f"keychain:{hashed}")
+        self.assertEqual(store, "headroom:claude")
         self.assertTrue(oauth_usage._oauth_block(blob))
+
+    def test_headroom_store_skips_foreign_keychain(self):
+        path = oauth_usage._headroom_path()
+        with open(path, "w") as handle:
+            json.dump(self.GOOD, handle)
+        with patch.object(oauth_usage, "_read_keychain_blob") as read_kc:
+            store, blob = oauth_usage._read_creds_blob()
+        read_kc.assert_not_called()
+        self.assertEqual(store, "headroom:claude")
+        self.assertEqual(oauth_usage._oauth_block(blob)["accessToken"],
+                         "plan-token")
 
     def test_token_nowhere_still_reports_against_a_real_store(self):
         # Nothing to find, but the error has to name a place that exists or it
@@ -146,16 +173,65 @@ class CredentialSearchTests(unittest.TestCase):
              patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
             self.assertEqual(oauth_usage._read_creds_blob(), (None, None))
 
-    def test_refresh_writes_back_to_the_profile_keychain_service(self):
-        service = oauth_usage._keychain_service(self._account())
-        store = f"keychain:{service}"
-        with patch.object(oauth_usage, "_keychain_account",
-                          return_value="profile-account"), \
-             patch.object(oauth_usage.keychain, "set_generic_password") as put:
-            oauth_usage._write_creds_blob(store, self.GOOD)
-        put.assert_called_once()
-        self.assertEqual(put.call_args.args[:2],
-                         (service, "profile-account"))
+    def test_refresh_writes_only_to_headroom_store(self):
+        account = self._account()
+        foreign = f"keychain:{oauth_usage._keychain_service(account)}"
+        with patch.object(oauth_usage.keychain, "set_generic_password") as put:
+            store = oauth_usage._write_creds_blob(foreign, self.GOOD, account)
+        put.assert_not_called()
+        self.assertEqual(store, "headroom:claude:work")
+        with open(oauth_usage._headroom_path(account)) as handle:
+            self.assertEqual(
+                json.load(handle)["claudeAiOauth"]["accessToken"],
+                "plan-token")
+
+    def test_keychain_deny_is_sticky_until_rearm(self):
+        service = oauth_usage._keychain_service()
+
+        def denied(wanted):
+            raise oauth_usage.KeychainRefused(
+                wanted, keychain.ERR_SEC_USER_CANCELED)
+
+        with patch.object(oauth_usage, "_read_keychain_blob",
+                          side_effect=denied), \
+             patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
+            with self.assertRaises(oauth_usage.KeychainRefused):
+                oauth_usage._read_creds_blob()
+
+        oauth_usage._mark_keychain_denied(
+            service, keychain.ERR_SEC_USER_CANCELED)
+        with self.assertRaises(oauth_usage.KeychainRefused) as caught:
+            oauth_usage._read_keychain_blob(service)
+        self.assertTrue(caught.exception.sticky)
+
+        oauth_usage.rearm_keychain()
+        self.assertFalse(oauth_usage._is_keychain_denied(service))
+
+    def test_credentials_present_does_not_touch_keychain(self):
+        with patch.object(oauth_usage, "_read_keychain_blob") as read_kc, \
+             patch.object(oauth_usage, "CREDS_FILE", "/nonexistent/creds"):
+            self.assertFalse(oauth_usage.credentials_present())
+        read_kc.assert_not_called()
+
+    def test_oauth_mem_skips_reread_until_expiry(self):
+        path = oauth_usage._headroom_path()
+        blob = {
+            "claudeAiOauth": {
+                "accessToken": "plan-token",
+                "refreshToken": "r",
+                "expiresAt": int((time.time() + 3600) * 1000),
+            }
+        }
+        with open(path, "w") as handle:
+            json.dump(blob, handle)
+        store, loaded, oauth = oauth_usage._load_oauth()
+        self.assertEqual(store, "headroom:claude")
+        self.assertEqual(oauth["accessToken"], "plan-token")
+        with patch.object(oauth_usage, "_read_creds_blob") as read_creds:
+            store2, loaded2, oauth2 = oauth_usage._load_oauth()
+        read_creds.assert_not_called()
+        self.assertEqual(oauth2["accessToken"], "plan-token")
+        self.assertIs(loaded2, loaded)
 
 
 class StaleAgeTests(unittest.TestCase):

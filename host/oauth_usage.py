@@ -1,16 +1,21 @@
 """Anthropic OAuth plan-usage fetcher (CodexBar-equivalent).
 
-Reads the Claude Code OAuth token from macOS Keychain or
-`~/.claude/.credentials.json`, calls `GET /api/oauth/usage`, and returns
-session/weekly utilization + reset times. Current Claude Code uses one
-Keychain service per config directory:
+Owns Claude OAuth material under `~/.headroom/oauth/`, importing once from
+Claude Code's Keychain or `~/.claude/.credentials.json` when Headroom has
+nothing yet. Refreshed tokens are written only to Headroom's store — never
+back into Claude Code's Keychain item, which races that app's own refresh.
+
+Claude Code's Keychain services remain an *import* source only:
 
     Claude Code-credentials-<sha256(config dir)[:8]>
 
 The old unqualified `Claude Code-credentials` service and credential files
-remain fallbacks. Refreshed tokens go back to the store they came from —
-through the Security framework (see keychain.py), never through `security -w`,
-which would expose the token in the process table.
+remain import fallbacks. After a successful import (or any refresh), the
+LaunchAgent never needs to touch a foreign Keychain item again.
+
+Keychain reads go through SecItemCopyMatching (see keychain.py). A user Deny
+is sticky until Settings refresh re-arms it — collapsing Deny into a miss
+used to re-prompt every fail TTL.
 
 Stdlib only. The endpoint is undocumented and may change; failures degrade
 to an empty quota dict so the desk gadget still shows local cost data.
@@ -21,10 +26,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
+import threading
 import time
 import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 
 import http_util
@@ -39,15 +43,17 @@ TOKEN_URLS = (
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA = "oauth-2025-04-20"
 UA = "claude-cli/2.1.201 (external, cli)"
-# Claude Code used to keep this inside its config directory. It remains a
-# fallback for older installs; current releases put the same payload in a
-# Keychain service derived from `CLAUDE_CONFIG_DIR`.
+# Claude Code used to keep this inside its config directory. It remains an
+# import fallback for older installs; current releases put the same payload in
+# a Keychain service derived from `CLAUDE_CONFIG_DIR`.
 CREDS_NAME = ".credentials.json"
 CONFIG_DIR = os.path.expanduser("~/.claude")
 CREDS_FILE = os.path.join(CONFIG_DIR, CREDS_NAME)
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 KEYCHAIN_SERVICE_PREFIX = KEYCHAIN_SERVICE + "-"
 KEYCHAIN_STORE_PREFIX = "keychain:"
+HEADROOM_STORE_PREFIX = "headroom:"
+OAUTH_DIR = os.path.expanduser("~/.headroom/oauth")
 CACHE_TTL_S = 60
 FAIL_TTL_S = 20          # retry sooner after transient misses (429, etc.)
 EXPIRY_SKEW_S = 120
@@ -58,6 +64,17 @@ EXPIRY_SKEW_S = 120
 _cache = {"t": 0.0, "data": None, "err": None}
 _caches = {"": _cache}
 
+# In-memory OAuth blob: re-read Keychain/disk only when this expires or a
+# usage call returns 401 — not on every 60s usage poll.
+_oauth_mem = {}
+_oauth_lock = threading.Lock()
+
+# Sticky Keychain refusals, keyed by Claude Code service name. Survives across
+# polls until rearm_keychain(); also mirrored to disk so a KeepAlive respawn
+# does not immediately re-prompt.
+_keychain_denied = {}
+_deny_lock = threading.Lock()
+
 
 def _cache_for(account):
     key = account.id if account else ""
@@ -65,6 +82,35 @@ def _cache_for(account):
     if cache is None:
         cache = _caches[key] = {"t": 0.0, "data": None, "err": None}
     return cache
+
+
+def _account_key(account=None):
+    return account.id if account else "claude"
+
+
+def _headroom_path(account=None):
+    """Headroom-owned OAuth blob for one login (default or named account)."""
+    if account is None:
+        name = "claude.json"
+    else:
+        name = f"claude-{account.slug}.json"
+    return os.path.join(OAUTH_DIR, name)
+
+
+def _headroom_store(account=None):
+    return HEADROOM_STORE_PREFIX + _account_key(account)
+
+
+def _path_from_headroom_store(store):
+    if not (isinstance(store, str) and store.startswith(HEADROOM_STORE_PREFIX)):
+        return None
+    key = store[len(HEADROOM_STORE_PREFIX):]
+    if key == "claude":
+        return _headroom_path(None)
+    if key.startswith("claude:"):
+        slug = key.split(":", 1)[1]
+        return os.path.join(OAUTH_DIR, f"claude-{slug}.json")
+    return None
 
 
 def _keychain_service(account=None):
@@ -75,57 +121,142 @@ def _keychain_service(account=None):
 
 
 def _keychain_store(service):
-    """Opaque store id that lets refresh write back to the same service."""
+    """Opaque store id naming a Claude Code Keychain item (import only)."""
     if service == KEYCHAIN_SERVICE:
         return "keychain"
     return KEYCHAIN_STORE_PREFIX + service
-
-
-def _service_from_store(store):
-    if store == "keychain":
-        return KEYCHAIN_SERVICE
-    if isinstance(store, str) and store.startswith(KEYCHAIN_STORE_PREFIX):
-        return store[len(KEYCHAIN_STORE_PREFIX):]
-    return None
-
-
-def _keychain_account(service=KEYCHAIN_SERVICE):
-    try:
-        out = subprocess.check_output(
-            ["security", "find-generic-password", "-s", service],
-            stderr=subprocess.DEVNULL, text=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
-    for line in out.splitlines():
-        line = line.strip()
-        if line.startswith('"acct"'):
-            # "acct"<blob>="mz"
-            i = line.find('="')
-            if i >= 0:
-                return line[i + 2:].rstrip('"')
-    return os.environ.get("USER") or os.environ.get("LOGNAME")
 
 
 def _creds_file(account=None):
     return account.child(CREDS_NAME) if account else CREDS_FILE
 
 
-def _read_keychain_blob(service=KEYCHAIN_SERVICE):
+def _deny_path(service):
+    safe = service.replace("/", "_")
+    return os.path.join(OAUTH_DIR, f".denied-{safe}")
+
+
+def _is_keychain_denied(service):
+    with _deny_lock:
+        if service in _keychain_denied:
+            return True
+    path = _deny_path(service)
+    if os.path.isfile(path):
+        with _deny_lock:
+            _keychain_denied[service] = True
+        return True
+    return False
+
+
+def _mark_keychain_denied(service, status):
+    with _deny_lock:
+        _keychain_denied[service] = True
     try:
-        raw = subprocess.check_output(
-            ["security", "find-generic-password",
-             "-s", service, "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        os.makedirs(OAUTH_DIR, exist_ok=True)
+        with open(_deny_path(service), "w") as handle:
+            handle.write(f"{status}\n")
+    except OSError:
+        pass
+
+
+def rearm_keychain(account=None):
+    """Clear sticky Keychain refusals so the next read may prompt again.
+
+    Bound to a user-initiated refresh in the UI — background polls must not
+    clear this, or Deny becomes a 20s modal loop again.
+    """
+    services = [_keychain_service(account)]
+    if account is None:
+        services.append(KEYCHAIN_SERVICE)
+    with _deny_lock:
+        for service in services:
+            _keychain_denied.pop(service, None)
+    for service in services:
+        try:
+            os.unlink(_deny_path(service))
+        except OSError:
+            pass
+    _invalidate_oauth_mem(account)
+
+
+def _invalidate_oauth_mem(account=None):
+    key = _account_key(account)
+    with _oauth_lock:
+        _oauth_mem.pop(key, None)
+
+
+def _oauth_mem_entry(account=None):
+    key = _account_key(account)
+    with _oauth_lock:
+        entry = _oauth_mem.get(key)
+        if not entry:
+            return None
+        exp = entry.get("exp")
+        # No expiry → keep until a 401 forces a re-read.
+        if exp is not None and time.time() >= exp - EXPIRY_SKEW_S:
+            _oauth_mem.pop(key, None)
+            return None
+        return dict(entry)
+
+
+def _store_oauth_mem(account, store, blob, oauth):
+    exp = _expires_at_s(oauth)
+    key = _account_key(account)
+    with _oauth_lock:
+        _oauth_mem[key] = {
+            "store": store,
+            "blob": blob,
+            "oauth": oauth,
+            "exp": exp,
+        }
+
+
+def _read_keychain_blob(service=KEYCHAIN_SERVICE):
+    """Return the JSON blob, or raise KeychainRefused on user Deny.
+
+    `None` means not found / empty / unparseable — a miss the search may
+    continue past. Refusal is different and must not be retried on a timer.
+    """
+    if _is_keychain_denied(service):
+        raise KeychainRefused(
+            service, keychain.ERR_SEC_USER_CANCELED,
+            sticky=True)
+    try:
+        status, raw = keychain.get_generic_password(service)
+    except keychain.KeychainError:
         return None
-    if not raw:
+    if status in (keychain.ERR_SEC_USER_CANCELED,
+                  keychain.ERR_SEC_AUTH_FAILED):
+        _mark_keychain_denied(service, status)
+        raise KeychainRefused(service, status)
+    if status != keychain.ERR_SEC_SUCCESS or not raw:
         return None
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         return None
+
+
+class KeychainRefused(RuntimeError):
+    """User denied (or auth failed for) a foreign Keychain read."""
+
+    def __init__(self, service, status, sticky=False):
+        self.service = service
+        self.status = status
+        self.sticky = sticky
+        if sticky:
+            msg = (
+                f"Keychain access previously denied for {service} "
+                f"(OSStatus {status}) — refresh this source in Settings to try "
+                f"again"
+            )
+        else:
+            msg = (
+                f"Keychain access denied for {service} "
+                f"(OSStatus {status}) — refresh this source in Settings to try "
+                f"again"
+            )
+        super().__init__(msg)
 
 
 def _read_file_blob(path):
@@ -136,54 +267,106 @@ def _read_file_blob(path):
         return None
 
 
-def _read_creds_blob(account=None):
-    """Return (store, blob_dict); store identifies a Keychain item or file.
-
-    Current Claude Code gives every config directory its own hashed Keychain
-    service, which is what makes simultaneous `CLAUDE_CONFIG_DIR` logins
-    distinct. The default login also checks the old global service, and every
-    login checks its legacy credential file, so upgrades do not strand either
-    storage generation.
-
-    A store that parses but carries no `claudeAiOauth.accessToken` is not an
-    answer, so the search goes on rather than stopping at it. That item is
-    shared: Claude Code also keeps per-MCP-server OAuth in it, and a blob left
-    holding only `mcpOAuth` used to end the search on the Keychain and make the
-    file unreachable — a quota that could not come back on its own even after a
-    fresh login wrote a good token to disk. When nothing anywhere has a token
-    the first store that parsed is still returned, so the failure is reported
-    against the place the credentials are supposed to be.
-    """
-    service = _keychain_service(account)
-    stores = [
-        (_keychain_store(service), _read_keychain_blob(service)),
-    ]
-    if account is None:
-        stores.append(("keychain", _read_keychain_blob(KEYCHAIN_SERVICE)))
-    path = _creds_file(account)
-    stores.append((path, _read_file_blob(path)))
-
-    found = [(store, blob) for store, blob in stores if blob is not None]
-    for store, blob in found:
-        if _oauth_block(blob):
-            return store, blob
-    return found[0] if found else (None, None)
-
-
-def _write_creds_blob(store, blob):
+def _write_headroom_blob(account, blob):
+    path = _headroom_path(account)
     raw = json.dumps(blob, separators=(",", ":"))
-    service = _service_from_store(store)
-    if service:
-        acct = _keychain_account(service) or "Claude"
-        # Via the Security framework, not `security -w`, which would put the
-        # refresh token in argv where any process can read it out of `ps`.
-        keychain.set_generic_password(service, acct, raw)
-        return
-    tmp = store + ".tmp"
+    os.makedirs(OAUTH_DIR, exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w") as f:
         f.write(raw)
     os.chmod(tmp, 0o600)
-    os.replace(tmp, store)
+    os.replace(tmp, path)
+    return _headroom_store(account)
+
+
+def _import_to_headroom(account, blob):
+    """Persist an imported Claude blob as Headroom's own copy."""
+    return _write_headroom_blob(account, blob), blob
+
+
+def _read_creds_blob(account=None, allow_keychain=True):
+    """Return (store, blob_dict); store identifies Headroom's file after import.
+
+    Prefer Headroom's own file. Claude Code Keychain / credential files are
+    import sources only: on a successful read with a plan token, the blob is
+    copied under `~/.headroom/oauth/` and that path becomes the store for
+    refreshes. Foreign Keychain items are never written.
+
+    A store that parses but carries no `claudeAiOauth.accessToken` is not an
+    answer, so the search goes on rather than stopping at it. Claude Code also
+    keeps per-MCP-server OAuth in its Keychain item, and a blob left holding
+    only `mcpOAuth` used to end the search there.
+    """
+    headroom_path = _headroom_path(account)
+    headroom_blob = _read_file_blob(headroom_path)
+    if _oauth_block(headroom_blob):
+        return _headroom_store(account), headroom_blob
+
+    refused = None
+    candidates = []
+
+    if allow_keychain:
+        service = _keychain_service(account)
+        try:
+            blob = _read_keychain_blob(service)
+            if blob is not None:
+                candidates.append((_keychain_store(service), blob))
+        except KeychainRefused as exc:
+            refused = exc
+        if account is None:
+            try:
+                blob = _read_keychain_blob(KEYCHAIN_SERVICE)
+                if blob is not None:
+                    candidates.append(("keychain", blob))
+            except KeychainRefused as exc:
+                refused = refused or exc
+
+    path = _creds_file(account)
+    file_blob = _read_file_blob(path)
+    if file_blob is not None:
+        candidates.append((path, file_blob))
+
+    if headroom_blob is not None:
+        candidates.insert(0, (_headroom_store(account), headroom_blob))
+
+    for store, blob in candidates:
+        if _oauth_block(blob):
+            # Claim ownership so the daemon never needs the foreign item again.
+            if not (isinstance(store, str)
+                    and store.startswith(HEADROOM_STORE_PREFIX)):
+                store, blob = _import_to_headroom(account, blob)
+            return store, blob
+
+    if refused is not None and not candidates:
+        raise refused
+    if refused is not None and not any(_oauth_block(b) for _, b in candidates):
+        # Import sources had no token either — surface the Deny so it stays
+        # sticky rather than looking like a missing login.
+        raise refused
+
+    return candidates[0] if candidates else (None, None)
+
+
+def _write_creds_blob(store, blob, account=None):
+    """Persist a refreshed token to Headroom's store only.
+
+    `store` may still name a Claude Code Keychain item from an older path;
+    those writes are redirected. Never call SecItem* against a foreign
+    service name. When `account` is omitted, recover a named login from a
+    `headroom:claude:<slug>` store id.
+    """
+    if account is None and isinstance(store, str):
+        path = _path_from_headroom_store(store)
+        if path is not None:
+            raw = json.dumps(blob, separators=(",", ":"))
+            os.makedirs(OAUTH_DIR, exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(raw)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+            return store
+    return _write_headroom_blob(account, blob)
 
 
 def _oauth_block(blob):
@@ -194,18 +377,27 @@ def _oauth_block(blob):
 
 
 def credentials_present(account=None):
-    """Whether this config directory has a usable Claude OAuth token."""
-    _store, blob = _read_creds_blob(account)
-    return bool(_oauth_block(blob))
+    """Whether this config directory has a usable Claude OAuth token.
+
+    Checks Headroom's file and the Claude credential file without touching
+    Keychain, so detection / seeding never pops SecurityAgent. Keychain is
+    only consulted on a real fetch (and only when Headroom has no copy yet).
+    """
+    if _oauth_block(_read_file_blob(_headroom_path(account))):
+        return True
+    if _oauth_block(_read_file_blob(_creds_file(account))):
+        return True
+    return False
 
 
 def _credentials_hint(account=None):
     path = _creds_file(account)
+    owned = _headroom_path(account)
     service = _keychain_service(account)
     if account:
-        return f"Keychain service {service} or {path}"
+        return f"{owned}, Keychain service {service}, or {path}"
     return (
-        f"Keychain service {service}, legacy {KEYCHAIN_SERVICE}, "
+        f"{owned}, Keychain service {service}, legacy {KEYCHAIN_SERVICE}, "
         f"or {path}"
     )
 
@@ -240,7 +432,7 @@ def _needs_refresh(oauth):
     return exp - time.time() <= EXPIRY_SKEW_S
 
 
-def _refresh(oauth, store, blob):
+def _refresh(oauth, store, blob, account=None):
     refresh = oauth.get("refreshToken")
     if not refresh:
         raise RuntimeError("no refreshToken")
@@ -275,11 +467,13 @@ def _refresh(oauth, store, blob):
             oauth["expiresAt"] = int((time.time() + expires_in) * 1000)
         blob["claudeAiOauth"] = oauth
         try:
-            _write_creds_blob(store, blob)
+            new_store = _write_headroom_blob(account, blob)
+            store = new_store
         except Exception as exc:
-            # Persisting failed (locked Keychain, read-only home). The token in
-            # hand is still good for this process — don't throw the refresh away.
+            # Persisting failed (read-only home). The token in hand is still
+            # good for this process — don't throw the refresh away.
             print("oauth: could not persist refreshed token:", exc)
+        _store_oauth_mem(account, store, blob, oauth)
         return oauth
     raise RuntimeError(last_err or "token refresh failed")
 
@@ -367,7 +561,7 @@ def parse_usage(body, oauth=None):
         session = next((l for l in limits if l.get("kind") == "session"), None)
         week = next((l for l in limits if l.get("kind") == "weekly_all"), None)
         if week is None:
-            # fall back to highest weekly_* 
+            # fall back to highest weekly_*
             weeklies = [l for l in limits if str(l.get("kind", "")).startswith("weekly")]
             if weeklies:
                 week = max(weeklies, key=lambda l: float(l.get("percent") or 0))
@@ -381,12 +575,31 @@ def parse_usage(body, oauth=None):
     return out
 
 
+def _load_oauth(account=None, force_read=False):
+    """Return (store, blob, oauth) using the in-memory token cache when fresh."""
+    if not force_read:
+        entry = _oauth_mem_entry(account)
+        if entry and entry.get("oauth"):
+            return entry["store"], entry["blob"], entry["oauth"]
+
+    store, blob = _read_creds_blob(account)
+    oauth = _oauth_block(blob)
+    if store and oauth:
+        _store_oauth_mem(account, store, blob, oauth)
+    return store, blob, oauth
+
+
 def fetch_quota(force=False, account=None):
     """Return quota dict, using a short in-memory cache. Never raises.
 
     `account` is an extra login from accounts.py (None = the default one).
     Everything below is per-account: its own cache, its own disk snapshot,
-    and its own credential file to refresh tokens back into.
+    and its own Headroom OAuth file to refresh tokens back into.
+
+    A forced refresh (Settings → refresh) re-reads credentials and the usage
+    API, but does not clear a sticky Keychain Deny on its own — that re-arm
+    is a deliberate user action wired through the sync-refresh path so a
+    KeepAlive respawn cannot undo a Deny and re-prompt.
     """
     now = time.time()
     cache = _cache_for(account)
@@ -405,17 +618,21 @@ def fetch_quota(force=False, account=None):
             cache, now, err, empty, disk_name=disk_name)
 
     try:
-        store, blob = _read_creds_blob(account)
+        try:
+            store, blob, oauth = _load_oauth(account)
+        except KeychainRefused as exc:
+            return _keep_stale(str(exc))
         if not store:
             return _keep_stale(
                 f"no Claude credentials in {_credentials_hint(account)}")
-        oauth = _oauth_block(blob)
         if not oauth:
             return _keep_stale(_shape_hint(store, blob))
 
         if _needs_refresh(oauth):
             try:
-                oauth = _refresh(oauth, store, blob)
+                oauth = _refresh(oauth, store, blob, account=account)
+                store = _headroom_store(account)
+                blob = _read_file_blob(_headroom_path(account)) or blob
             except Exception:
                 # still try the current token; it might work
                 pass
@@ -424,7 +641,15 @@ def fetch_quota(force=False, account=None):
             status, body = _http_get_usage(oauth["accessToken"])
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
-                oauth = _refresh(oauth, store, blob)
+                _invalidate_oauth_mem(account)
+                try:
+                    store, blob, oauth = _load_oauth(account, force_read=True)
+                except KeychainRefused as exc:
+                    return _keep_stale(str(exc))
+                if not oauth:
+                    return _keep_stale(
+                        f"HTTP Error {e.code}: {e.reason}")
+                oauth = _refresh(oauth, store, blob, account=account)
                 status, body = _http_get_usage(oauth["accessToken"])
             else:
                 # 429 / 5xx — keep last good bars instead of wiping the page.
@@ -437,6 +662,8 @@ def fetch_quota(force=False, account=None):
         data["stale"] = False
         data["error"] = None
         return cache_util.store(cache, now, data, disk_name=disk_name)
+    except KeychainRefused as e:
+        return _keep_stale(str(e))
     except Exception as e:
         return _keep_stale(str(e))
 
@@ -475,3 +702,14 @@ def pace_pct(resets_in_s, window_s):
     if elapsed > window_s:
         elapsed = window_s
     return round(100.0 * elapsed / window_s, 1)
+
+
+def reset_for_tests():
+    """Drop process-local caches (unit tests only)."""
+    with _oauth_lock:
+        _oauth_mem.clear()
+    with _deny_lock:
+        _keychain_denied.clear()
+    _cache.update(t=0.0, data=None, err=None)
+    _caches.clear()
+    _caches[""] = _cache

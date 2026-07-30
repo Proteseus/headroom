@@ -144,20 +144,14 @@ class AccountsTests(unittest.TestCase):
         self.assertIn(
             "claude:empty", [row["id"] for row in payload["sources"]])
 
-    def test_detection_probes_the_account_keychain_service(self):
+    def test_detection_probes_the_account_credential_file(self):
         account = sources_config.add_account(
             "claude", "Keychain", self._claude_dir(
-                "keychain", signed_in=False))
+                "keychain", signed_in=True))
         sources_config.reload_registry()
-        service = oauth_usage._keychain_service(account)
-        good = {"claudeAiOauth": {"accessToken": "plan-token"}}
-
-        def keychain_blob(wanted):
-            return good if wanted == service else None
-
-        with patch.object(oauth_usage, "_read_keychain_blob",
-                          side_effect=keychain_blob):
+        with patch.object(oauth_usage, "_read_keychain_blob") as read_kc:
             payload = sources_config.detection_payload()
+        read_kc.assert_not_called()
         self.assertTrue(payload["detected"]["claude:keychain"])
 
     def test_reseeding_keeps_a_signed_in_account_on(self):
@@ -169,21 +163,20 @@ class AccountsTests(unittest.TestCase):
         sources_config.reset_for_tests()
         self.assertTrue(sources_config.enabled_map()["claude:work"])
 
-    def test_reseeding_keeps_a_keychain_account_on(self):
+    def test_reseeding_keeps_a_headroom_oauth_account_on(self):
         account = sources_config.add_account(
             "claude", "Keychain", self._claude_dir(
                 "keychain-seed", signed_in=False))
         sources_config.reload_registry()
-        service = oauth_usage._keychain_service(account)
-        good = {"claudeAiOauth": {"accessToken": "plan-token"}}
+        oauth_dir = os.path.join(self.root, "oauth")
+        os.makedirs(oauth_dir, exist_ok=True)
+        owned = os.path.join(oauth_dir, f"claude-{account.slug}.json")
+        with open(owned, "w") as handle:
+            json.dump({"claudeAiOauth": {"accessToken": "plan-token"}}, handle)
         os.remove(sources_config.STORE_PATH)
         sources_config.reset_for_tests()
 
-        def keychain_blob(wanted):
-            return good if wanted == service else None
-
-        with patch.object(oauth_usage, "_read_keychain_blob",
-                          side_effect=keychain_blob):
+        with patch.object(oauth_usage, "OAUTH_DIR", oauth_dir):
             self.assertTrue(
                 sources_config.enabled_map()["claude:keychain"])
 

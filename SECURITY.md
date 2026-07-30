@@ -15,7 +15,9 @@ the network to get it, and I will confirm and credit you when it is fixed.
 The host runs as you, on your Mac, and reads what other tools already left
 there:
 
-- Claude, Gemini and Zed OAuth material via Keychain
+- Claude OAuth under `~/.headroom/oauth/` (imported once from Claude Code's
+  Keychain or credential file; refreshes never write back into Claude Code)
+- Gemini and Zed OAuth material via Keychain
 - `~/.codex/auth.json`, Cursor's `state.vscdb`, IDE plan caches
 - optional GitHub, Supabase and Plausible keys you paste into Mac Settings,
   stored in Keychain and never written into `/usage`

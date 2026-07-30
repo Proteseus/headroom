@@ -7,7 +7,17 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
-## 1.1.8 — 2026-07-30
+## 1.1.9 — 2026-07-30
+
+### Fixed
+
+- Claude auth no longer borrows Claude Code's Keychain on every poll. Headroom
+  imports the plan token once into `~/.headroom/oauth/` (one file per account),
+  refreshes only that copy, and never writes back into Claude Code's item. A
+  Keychain Deny stays denied until you refresh the source in Settings, instead
+  of retrying every 20 seconds and re-prompting. Named Claude accounts each get
+  their own Headroom file, same as before.
+
 
 ### Added
 

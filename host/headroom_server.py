@@ -1854,6 +1854,14 @@ class Handler(BaseHTTPRequestHandler):
                 sid for sid in wanted
                 if sid in sources_config.BY_ID
             ]
+            # Settings refresh is the user action that clears a sticky Keychain
+            # Deny. Warmup and the poller must not — a KeepAlive respawn would
+            # otherwise undo Deny and pop SecurityAgent again.
+            for sid in wanted:
+                if sid == "claude" or sid.startswith("claude:"):
+                    source = sources_config.BY_ID.get(sid)
+                    oauth_usage.rearm_keychain(
+                        None if source is None else source.account)
             _refresh_async(wanted)
             self._send_json(202, {"ok": True, "sources": wanted})
             return

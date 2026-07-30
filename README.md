@@ -179,13 +179,14 @@ it at the credential location that login already uses.
 | **Gemini** | A second Gemini CLI home, e.g. `~/.gemini-work` |
 | **Cursor / Windsurf** | Another profile's `state.vscdb` |
 
-No tokens are pasted and nothing new is signed in: the host reads the
-credentials that CLI already wrote, refreshing them in place exactly as it does
-for the default login. Each account gets its own row, ring, burndown and
-history under the id `claude:work`, and can be reordered or switched off like
-any other source — the default login keeps the plain `claude` id, so nothing
-recorded under it moves. Copilot, JetBrains AI and Zed stay single-account:
-their credentials are one per Mac, with no second location to point at.
+No tokens are pasted and nothing new is signed in: the host imports the
+credentials that CLI already wrote into `~/.headroom/oauth/`, then refreshes
+that copy — it does not write back into Claude Code's Keychain. Each account
+gets its own row, ring, burndown and history under the id `claude:work`, and
+can be reordered or switched off like any other source — the default login
+keeps the plain `claude` id, so nothing recorded under it moves. Copilot,
+JetBrains AI and Zed stay single-account: their credentials are one per Mac,
+with no second location to point at.
 The list lives in `~/.headroom/accounts.json`, and adding or removing one
 restarts the host (a couple of seconds) so the sample schema and the meters
 are rebuilt together.

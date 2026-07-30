@@ -359,7 +359,7 @@ _ZED_POOLS = (
 )
 
 BASE_SOURCES = (
-    Source("claude", "Claude", "Keychain / ~/.claude credentials", 60,
+    Source("claude", "Claude", "~/.headroom/oauth (imports Claude login)", 60,
            oauth_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_CLAUDE_POOLS,
            headline=("week", "session"), accent="#D97757",
