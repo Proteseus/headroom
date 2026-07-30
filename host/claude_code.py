@@ -15,6 +15,7 @@ import time
 import uuid
 
 import agent_events
+import agent_request
 import claude_hooks
 
 PROVIDER = "claude-code"
@@ -48,13 +49,35 @@ def _project(cwd):
     return os.path.basename(value) or "Claude Code"
 
 
-def _command_summary(tool_name, tool_input):
-    if isinstance(tool_input, dict):
-        for key in ("command", "description", "file_path", "path", "query"):
-            value = tool_input.get(key)
+def _reasons(payload):
+    """Why Claude is asking, from whichever key this version sends.
+
+    `permission_reasons` is the documented field. Older builds sent
+    `permission_suggestions`; reading both costs nothing and losing the
+    explanation costs the user the only context they get.
+    """
+    result = []
+    for key in ("permission_reasons", "permission_suggestions"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            value = [value]
+        if not isinstance(value, list):
+            continue
+        for entry in value:
+            text = entry if isinstance(entry, str) else _render_reason(entry)
+            text = " ".join(str(text or "").split())
+            if text and text not in result:
+                result.append(text)
+    return result[:8]
+
+
+def _render_reason(entry):
+    if isinstance(entry, dict):
+        for key in ("reason", "message", "description", "rule", "title"):
+            value = entry.get(key)
             if isinstance(value, str) and value.strip():
-                return _short(value, f"Use {tool_name}")
-    return f"Use {tool_name}"
+                return value
+    return ""
 
 
 class _PendingPermission:
@@ -138,16 +161,17 @@ class ClaudeCodeHooks:
                 session_id=session_id,
                 kind="permission_approval",
                 title=f"Claude needs permission in {_project(cwd)}",
-                summary=_command_summary(tool_name, tool_input),
+                summary=agent_request.summary(tool_input, tool_name),
                 actions=PERMISSION_ACTIONS,
                 detail={
                     "tool_name": tool_name,
-                    "tool_input": tool_input,
+                    "request": agent_request.fields(tool_input, tool_name),
+                    "reasons": _reasons(payload),
                     "cwd": cwd,
                     "transcript_path": payload.get("transcript_path"),
                     "permission_mode": payload.get("permission_mode"),
-                    "permission_suggestions": payload.get(
-                        "permission_suggestions") or [],
+                    "tool_use_id": payload.get("tool_use_id"),
+                    "prompt_id": payload.get("prompt_id"),
                 },
                 expires_at_ms=int((time.time() + wait_seconds) * 1000),
             )

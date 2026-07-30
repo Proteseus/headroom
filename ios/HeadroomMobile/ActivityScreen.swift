@@ -61,12 +61,19 @@ struct ActivityScreen: View {
                 .font(.headline)
             Text(event.summary)
                 .font(.subheadline)
-            if let command = event.detail.command {
-                Text(command)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
+            if let reasons = event.detail.reasons, !reasons.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(HeadroomCopy.agentWhyAsking)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(reasons, id: \.self) { reason in
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(HeadroomPalette.amber)
+                    }
+                }
             }
+            AgentRequestView(fields: event.detail.requestFields)
             HStack {
                 ForEach(event.actions) { action in
                     Button(action.label) {

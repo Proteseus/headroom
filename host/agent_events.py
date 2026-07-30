@@ -20,6 +20,10 @@ OPEN_STATES = ("pending", "responding")
 TERMINAL_STATES = ("resolved", "declined", "cancelled", "expired", "orphaned")
 ALL_STATES = OPEN_STATES + TERMINAL_STATES
 MAX_TEXT = 4096
+# Adapters bound their own request fields (see agent_request); this is the
+# backstop that keeps one pathological tool input out of the ledger, the HTTP
+# response and every client that polls them.
+MAX_DETAIL = 64 * 1024
 
 
 class EventError(Exception):
@@ -212,6 +216,9 @@ class EventStore:
         actions = _actions(actions)
         if detail is not None and not isinstance(detail, dict):
             raise InvalidEvent("detail must be an object")
+        detail_json = _json(detail or {})
+        if len(detail_json) > MAX_DETAIL:
+            raise InvalidEvent("detail is too large")
         created_at_ms = int(created_at_ms or _now_ms())
         expires_at_ms = (
             int(expires_at_ms) if expires_at_ms is not None else None)
@@ -239,7 +246,7 @@ class EventStore:
                 (
                     event_id, provider, adapter, provider_request_id, session_id,
                     turn_id, item_id, kind, title, summary,
-                    _json(detail or {}), _json(actions), created_at_ms,
+                    detail_json, _json(actions), created_at_ms,
                     created_at_ms, expires_at_ms,
                 ),
             )

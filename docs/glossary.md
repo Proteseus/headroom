@@ -44,6 +44,10 @@ any hardcoded chrome that still bypasses them.
 | **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
 | **Install hooks** / **Reinstall hooks** / **Remove hooks** | Manage only Headroom-owned entries in Claude settings | macOS |
 | **Send test attention** | Add a harmless Claude test row to the common feed | macOS |
+| **Request** | The agent's own request, field by field, above the answer buttons | iOS |
+| **Why** | The provider's stated reasons for asking | iOS |
+| **Show request** / **Hide request** | Expand the bulk fields (file contents, replacement bodies) | iOS |
+| **Shortened to fit** | This value is a prefix; the host clipped it | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |
 
 Do not title the activity feed **GitHub**. That word is reserved for the

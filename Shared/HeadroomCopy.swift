@@ -124,6 +124,19 @@ enum HeadroomCopy {
         "Using Codex at \(path)"
     }
 
+    /// The agent's own request, shown before you answer it. An approval you
+    /// cannot read is not an approval, so these labels sit above the actual
+    /// fields rather than a paraphrase of them.
+    static let agentRequest = "Request"
+    static let agentWhyAsking = "Why"
+    static let showFullRequest = "Show request"
+    static let hideFullRequest = "Hide request"
+    /// Said plainly: the value on screen is a prefix, not the whole thing.
+    static let agentValueShortened = "Shortened to fit"
+    static func agentFieldsOmitted(_ count: Int) -> String {
+        count == 1 ? "1 more field not shown" : "\(count) more fields not shown"
+    }
+
     /// Shown when the phone is drawing its last saved payload because the Mac
     /// is not answering. The numbers are real, they are just not current, and
     /// the copy has to say which.

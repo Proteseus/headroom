@@ -1786,15 +1786,61 @@ struct AgentAttentionAction: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// One field of the agent's actual request, as the provider sent it.
+///
+/// The host decides ordering, labelling and bounds (`host/agent_request.py`);
+/// a client only decides how to draw a `kind` it recognises. A kind it does
+/// not recognise still renders as text, so a new tool never needs an app
+/// update to be readable.
+struct AgentRequestField: Codable, Sendable, Equatable, Identifiable {
+    var key: String
+    var label: String
+    var kind: String
+    var value: String
+    var truncated: Bool?
+    var fullChars: Int?
+    var omittedFields: Int?
+
+    var id: String { key }
+
+    /// True when the host clipped this value, so the row can say so rather
+    /// than silently showing a prefix of a command you are approving.
+    var wasTruncated: Bool { truncated == true }
+
+    enum CodingKeys: String, CodingKey {
+        case key, label, kind, value, truncated
+        case fullChars = "full_chars"
+        case omittedFields = "omitted_fields"
+    }
+}
+
 struct AgentAttentionDetail: Codable, Sendable, Equatable {
+    var toolName: String?
+    var request: [AgentRequestField]?
+    var reasons: [String]?
     var reason: String?
     var command: String?
     var cwd: String?
     var grantRoot: String?
+    var permissionMode: String?
+    var transcriptPath: String?
+
+    /// Codex still sends a bare `command`; Claude sends structured fields.
+    /// One accessor so views never branch on which provider they came from.
+    var requestFields: [AgentRequestField] {
+        if let request, !request.isEmpty { return request }
+        guard let command, !command.isEmpty else { return [] }
+        return [AgentRequestField(
+            key: "command", label: "Command", kind: "command", value: command
+        )]
+    }
 
     enum CodingKeys: String, CodingKey {
-        case reason, command, cwd
+        case request, reasons, reason, command, cwd
+        case toolName = "tool_name"
         case grantRoot = "grant_root"
+        case permissionMode = "permission_mode"
+        case transcriptPath = "transcript_path"
     }
 }
 

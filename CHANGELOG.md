@@ -7,6 +7,34 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- Coding-agent approvals show the agent's actual request. Every field the
+  provider sent is listed in reading order with its own label — an `Edit` shows
+  the file, the text being replaced and the replacement, tinted so the pair
+  reads as a before and after. Bulk fields sit behind **Show request** so the
+  feed stays scannable.
+- **Why** carries Claude's own stated reasons for asking.
+- A value the host had to clip says **Shortened to fit**, and dropped fields
+  are counted, so a prefix of a command is never mistaken for the whole one.
+
+### Changed
+
+- The phone used to decode four fields of a request and drop the rest, which
+  made an `Edit` approval read as "Use Edit" and a `Write` show a path but
+  never the content. `detail.request` now carries typed fields end to end; an
+  unrecognised tool renders without an app update.
+- The Claude adapter reads `permission_reasons` (the documented field) as well
+  as the older `permission_suggestions`, and keeps `tool_use_id` / `prompt_id`
+  for correlation.
+- `docs/agent-attention.md` corrects its claim that structured questions are
+  notify-only pending provider support. Against Claude Code 2.1.220 the
+  `Elicitation` hook returns real form values, `updatedPermissions` makes
+  "always allow" answerable, and `decision.interrupt` exists — all four are
+  wiring gaps on our side, now written down as such.
+
 ## 1.2.4 — 2026-07-30
 
 ### Added
