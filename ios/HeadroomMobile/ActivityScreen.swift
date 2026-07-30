@@ -80,7 +80,8 @@ struct ActivityScreen: View {
                 // look like the same thing.
                 ProviderMark(providerID: event.providerIconID, size: 15)
                     .foregroundStyle(
-                        HeadroomPalette.providerTint(id: event.providerIconID))
+                        (store.snapshot.providers ?? [])
+                            .accentTint(forProvider: event.providerIconID))
                 Text(event.title)
                     .font(.headline)
                 Spacer(minLength: 6)
