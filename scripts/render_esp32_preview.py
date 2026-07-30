@@ -26,6 +26,13 @@ import device_view
 W, H = 448, 368
 PAD = 28
 
+# sealNativeEdges() in firmware/src/main.cpp repaints the bottom rows of every
+# frame in the frame's own background colour, covering a fringe on the panel's
+# native right edge. Mirror it here — it is invisible on a full-bleed clear, but
+# it means a layout that drifts below H - SEAL_ROWS loses its ink on the board,
+# and the preview must lose it too rather than promise pixels the panel eats.
+SEAL_ROWS = 20
+
 COL_BG = (16, 14, 12)
 COL_WHITE = (240, 238, 234)
 COL_DIM = (120, 116, 110)
@@ -443,6 +450,12 @@ def draw_glance_burndown(draw, providers, burns, updated, mid_y, low_bottom):
             draw_text(draw, "-", text_x, row_y, FONT2, COL_DIM)
 
 
+def seal_edges(img: Image.Image, bg) -> Image.Image:
+    """Repaint the bottom band the way the panel does, in the frame's own bg."""
+    ImageDraw.Draw(img).rectangle([0, H - SEAL_ROWS, W - 1, H - 1], fill=bg)
+    return img
+
+
 def render_glance(
     doc: dict,
     link_via: str = "wifi",
@@ -523,7 +536,7 @@ def render_glance(
         link_via=link_via,
         error_minutes=link_error_minutes,
     )
-    return img
+    return seal_edges(img, COL_BG)
 
 
 def draw_link_glyph(
@@ -609,7 +622,7 @@ def render_no_host() -> Image.Image:
         FONT2,
         COL_CRT_DIM,
     )
-    return img
+    return seal_edges(img, COL_CRT_BG)
 
 
 def frame_device(panel: Image.Image, scale: int = 3) -> Image.Image:

@@ -84,8 +84,16 @@ static const uint16_t COL_CRT_SCAN= RGB565(12, 8, 26);     // scanlines
 // Green fringe sits on the native right edge (logical bottom at rotation 3).
 // Paint over it in-panel after every blit. Also blank a few GRAM columns past
 // LCD_WIDTH in case the panel scans slightly beyond our framebuffer.
+//
+// The seal costs the bottom PANEL_SEAL_ROWS logical rows of every frame, so no
+// layout may put ink below LOG_H - PANEL_SEAL_ROWS. 20 is a bring-up guess and
+// probably several times what the panel needs — the library's own preset for
+// this board declares zero offsets. Worth walking down once there are eyes on
+// the panel; every row recovered is a row of picture.
+static const int16_t PANEL_SEAL_ROWS = 20;
+
 static void sealNativeEdges(uint16_t color) {
-  const int16_t fringe = 20;
+  const int16_t fringe = PANEL_SEAL_ROWS;
   panel->fillRect(LCD_WIDTH - fringe, 0, fringe, LCD_HEIGHT, color);
 
   const int16_t extra = 16;
@@ -135,6 +143,7 @@ static void rotateLogicalToNative(const uint16_t *src, uint16_t *dst) {
 // Canvas = logical framebuffer. _native is rotated for panel flush.
 class LandscapeCanvas : public Arduino_Canvas {
   uint16_t *_native = nullptr;
+  uint16_t _bg = COL_BG;   // last clear() colour — what the edge seal matches
 
 public:
   LandscapeCanvas(Arduino_G *out)
@@ -161,6 +170,11 @@ public:
 
   void clear(uint16_t color) {
     if (!_framebuffer) return;
+    // Remembered so the edge seal can match the frame it is sealing. Sealing
+    // in a fixed colour put a warm strip along the bottom of every cold-blue
+    // boot screen, repainted each splash frame while the picture above it
+    // rolled — it read as the bottom of the panel misbehaving.
+    _bg = color;
     uint32_t c32 = ((uint32_t)color << 16) | color;
     uint32_t *p = (uint32_t *)_framebuffer;
     size_t n = ((size_t)LOG_W * LOG_H) / 2;
@@ -172,7 +186,7 @@ public:
     if (!_framebuffer || !_native || !_output) return;
     rotateLogicalToNative(_framebuffer, _native);
     _output->draw16bitRGBBitmap(0, 0, _native, LCD_WIDTH, LCD_HEIGHT);
-    sealNativeEdges(COL_BG);
+    sealNativeEdges(_bg);
   }
 
   // Slide a band of logical rows sideways in place — the boot-splash stutter.
@@ -3049,7 +3063,10 @@ static void drawQuotaPage() {
   // Glance rings already carry pct/pace, so the detail page's job is readable
   // full-width bars plus a chart large enough to read at desk distance.
   const int16_t contentTop = top + 72;
-  const int16_t contentBot = (int16_t)(H - bot - 10 - 12);  // above footer rule
+  // Down to the page inset. There is no footer on this page — the rule that
+  // used to sit here was reserving 22px for page dots nothing draws, which put
+  // 50px of nothing under the chart against 28 above the header.
+  const int16_t contentBot = (int16_t)(H - bot);
   const int16_t midY =
       (int16_t)(contentTop + (contentBot - contentTop) / 2);
 
@@ -3105,10 +3122,6 @@ static void drawQuotaPage() {
     snprintf(missing, sizeof missing, "%s quota unavailable", brand);
     drawTextAt(missing, padX, top + 100, 2, COL_DIM);
   }
-
-  // Bottom bar: page dots. No Today $/model footer.
-  const int16_t footY = H - bot - 10;
-  gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
 
   drawHostErrorBorder();
   present();
