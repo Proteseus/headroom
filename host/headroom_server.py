@@ -1752,6 +1752,7 @@ class Handler(BaseHTTPRequestHandler):
                     revision=payload.get("revision"),
                     action=payload.get("action"),
                     idempotency_key=payload.get("idempotency_key"),
+                    text=payload.get("text"),
                 )
             except agent_events.EventNotFound as error:
                 self._send_json(404, {"ok": False, "error": str(error)})

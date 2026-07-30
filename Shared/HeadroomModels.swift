@@ -1780,12 +1780,15 @@ struct AgentAttentionAction: Codable, Sendable, Equatable, Identifiable {
     /// `description` because that name already means something else on every
     /// Swift type; the wire key stays the provider's.
     var subtitle: String?
+    /// This answer is carried by words you type, not by the button alone.
+    var acceptsText: Bool?
     var requiresForeground: Bool?
     var requiresBiometric: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id, label, risk
         case subtitle = "description"
+        case acceptsText = "accepts_text"
         case requiresForeground = "requires_foreground"
         case requiresBiometric = "requires_biometric"
     }
@@ -1919,9 +1922,13 @@ struct AgentAttentionResponseRequest: Codable, Sendable {
     var revision: Int
     var action: String
     var idempotencyKey: String
+    /// Words typed on the phone. The adapter decides what they mean — a reply
+    /// to a permission request is Claude's "tell it what to do differently",
+    /// and a reply to a question is the answer itself.
+    var text: String?
 
     enum CodingKeys: String, CodingKey {
-        case revision, action
+        case revision, action, text
         case idempotencyKey = "idempotency_key"
     }
 }

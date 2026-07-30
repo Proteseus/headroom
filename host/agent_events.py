@@ -100,6 +100,10 @@ def _actions(value):
         description = raw.get("description")
         if isinstance(description, str) and description.strip():
             action["description"] = _text(description, "action description")
+        # Answers that carry typed words rather than just a decision. The
+        # client shows a field; the adapter decides what the words mean.
+        if raw.get("accepts_text"):
+            action["accepts_text"] = True
         result.append(action)
     return result
 

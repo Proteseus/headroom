@@ -25,6 +25,12 @@ tag a version that has no entry.
   behind device authentication. Deny answers one request and lets the turn
   continue; interrupt is the other thing, so it is a separate answer.
 
+- **Reply in your own words**, on every request that has a channel for them.
+  A permission request carries it as Claude's own "no, and tell it what to do
+  differently"; a question carries it as the answer itself; a Codex question
+  puts it straight into the answers array. None of the fixed buttons is ever
+  quite the thing you want to say.
+
 ### Changed
 
 - `docs/agent-attention.md` records that `codex app-server generate-json-schema`
@@ -32,6 +38,15 @@ tag a version that has no entry.
   claim in this release was settled from that bundle rather than guessed.
   `turn/steer`, `thread/start` and `item/permissions/requestApproval` are named
   there as the routes the remaining slices need.
+- `docs/agent-attention.md` states plainly that **no Codex session can reach
+  Headroom today**. The ledger settles it: 112 Claude rows and zero Codex rows,
+  because Headroom spawns a private `--listen stdio://` child that nothing
+  connects to and never starts a thread on. The adapter is a correct protocol
+  client with no live source, and the doc now says which two slices close it.
+- The same doc spells out what APNs push actually needs — the `.p8` auth key,
+  the entitlement, the device registry, the HTTP/2 constraint against a
+  stdlib-only host, and the sandbox-versus-production trap — so slice 4 is a
+  shopping list rather than a wish.
 
 ## 1.2.6 — 2026-07-30
 

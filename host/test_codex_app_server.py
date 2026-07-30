@@ -123,7 +123,7 @@ class CodexAppServerTests(unittest.TestCase):
         self.assertEqual(event["kind"], "structured_question")
         self.assertEqual(
             [a["label"] for a in event["actions"]],
-            ["Staged", "All at once", "Ask on Mac", "Stop Codex"])
+            ["Staged", "All at once", "Reply", "Ask on Mac", "Stop Codex"])
         self.assertEqual(event["actions"][0]["description"], "One region first.")
         self.assertEqual(
             event["detail"]["request"], [],
@@ -133,6 +133,23 @@ class CodexAppServerTests(unittest.TestCase):
             "id": 77,
             "result": {"answers": {"q1": {"answers": ["All at once"]}}},
         }])
+
+    def test_typed_reply_is_a_first_class_codex_answer(self):
+        event = self.question()
+        reply = next(a for a in event["actions"] if a["id"] == "reply")
+        self.assertTrue(reply["accepts_text"])
+        self.adapter.respond(event, "reply", text="  neither, ship behind a flag ")
+        self.assertEqual(self.sent, [{
+            "id": 77,
+            "result": {"answers": {
+                "q1": {"answers": ["neither, ship behind a flag"]}}},
+        }])
+
+    def test_an_empty_codex_reply_is_refused(self):
+        event = self.question()
+        with self.assertRaises(ValueError):
+            self.adapter.respond(event, "reply", text="  ")
+        self.assertEqual(self.sent, [])
 
     def test_ask_on_mac_returns_no_answer(self):
         event = self.question()

@@ -139,7 +139,8 @@ final class MobileUsageStore: ObservableObject {
 
     func answer(
         _ event: AgentAttentionEvent,
-        with action: AgentAttentionAction
+        with action: AgentAttentionAction,
+        text: String? = nil
     ) async {
         guard mobilePermissions.agents, respondingAgentEventID == nil else { return }
         respondingAgentEventID = event.id
@@ -159,7 +160,8 @@ final class MobileUsageStore: ObservableObject {
             let updated = try await client.respond(
                 to: event,
                 action: action,
-                idempotencyKey: UUID().uuidString
+                idempotencyKey: UUID().uuidString,
+                text: text
             )
             agentAttentionEvents.removeAll { $0.id == updated.id }
             errorMessage = nil

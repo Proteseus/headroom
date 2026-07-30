@@ -114,8 +114,8 @@ struct ActivityScreen: View {
                 disabled: !store.mobilePermissions.agents
                     || store.respondingAgentEventID != nil,
                 responding: store.respondingAgentEventID == event.id
-            ) { action in
-                Task { await store.answer(event, with: action) }
+            ) { action, text in
+                Task { await store.answer(event, with: action, text: text) }
             }
             if event.actions.contains(where: { $0.id == "approve_always" }),
                let rule = event.detail.permissionRule {

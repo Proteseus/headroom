@@ -100,6 +100,45 @@ again — which is why `structured_question` reports `experimental` rather than
 The reason text names the phone explicitly. A bare "denied" reads to the model
 as a refusal; it has to say an answer was given and where it came from.
 
+## Starting a Codex session Headroom can answer
+
+**Today you cannot, and the ledger proves it.** After months of the adapter
+reporting `connection: ready`, this Mac's `~/.headroom/attention.sqlite3` held
+112 `claude-code` rows and **zero** `codex` rows. Not one Codex approval has
+ever been raised.
+
+The reason is structural, not a bug. Headroom spawns its own private child:
+
+```
+codex app-server --listen stdio://
+```
+
+That child talks to Headroom over a pipe and nothing else. A `codex` session
+you start in a terminal is a different process on a different transport, and
+it has no way to reach Headroom's App Server. Approvals go to your terminal
+because that is the only client its own App Server has. Headroom never calls
+`thread/start`, so its App Server has no threads either — the handshake
+succeeds, the version is reported, and nothing ever happens.
+
+So the adapter today is a working protocol client with nothing plugged into it.
+Everything below it — the ledger, the typed fields, questions, interrupt — is
+tested against synthetic messages and is correct; it simply has no live source.
+
+Two ways to close it, and they are the same two slices this list already has:
+
+1. **Headroom drives the session** (slice 2). `thread/start`, `turn/start`,
+   and the approvals arrive on the socket Headroom already owns. This works
+   with today's transport and needs no new Codex feature — but Headroom
+   becomes the place you start Codex work, which is a product decision, not a
+   plumbing one.
+2. **Share one App Server** (slice 1). Codex now ships `codex app-server
+   daemon start` and `codex app-server proxy --sock PATH`, both
+   `[experimental]`. A single daemon with Headroom and the CLI both attached is
+   the shape that lets you keep starting sessions the way you do now.
+
+Until one of those lands, **Settings → Coding agents should not imply the Codex
+gateway is doing anything.** It connects, and that is all it does.
+
 ## Deliberate boundary
 
 This Codex App Server instance currently uses Codex's stdio transport and owns
@@ -244,11 +283,38 @@ offered remotely and never enters the ledger.
    message, and interrupt routes, storing provider task IDs beside events.
 3. Add an explicit end-to-end test task that requests a harmless approval,
    appears on iPhone, and verifies the selected answer reaches Codex.
-4. Add an APNs device registry and push worker. Notifications should contain an
-   opaque event ID and revision, never credentials or full command text.
-5. Register notification categories for safe actions. Keep privileged and
-   destructive answers behind foreground authentication unless policy
-   explicitly allows otherwise.
+4. **APNs push.** Polling cannot wake a suspended app, so an approval that
+   arrives while your phone is in your pocket waits until you open Headroom.
+   What this needs, in order:
+
+   | Step | What it is | Who can do it |
+   |---|---|---|
+   | APNs auth key | A `.p8` from the Apple Developer portal (Keys → Apple Push Notifications service). Gives a key ID and the team ID | You — it is an account credential |
+   | Capability | Push Notifications on the iOS app id, and `aps-environment` in the entitlements | You, then the profile has to be reissued |
+   | Device registry | `POST /agents/devices` storing token, environment and machine, keyed so a reinstall replaces rather than duplicates | Buildable now |
+   | Push worker | Host signs a JWT with the `.p8` (ES256, refreshed hourly) and posts to `api.push.apple.com` over HTTP/2 | Buildable now, but stdlib has no HTTP/2 — either a dependency or `curl --http2` |
+   | Sandbox vs production | TestFlight and App Store builds use different APNs hosts. A token from one is rejected by the other | Config, and a trap worth writing down |
+
+   The `.p8` is a signing key for your whole team and cannot be re-downloaded.
+   It belongs in Keychain or a wrangler secret, never in the repo — the same
+   rule the host token already follows.
+
+   Payload policy is already decided and should not drift: an opaque event id
+   and revision, never credentials, never command text. The phone fetches the
+   real row over the existing authenticated endpoint. A notification is a
+   doorbell, not a delivery.
+
+   Note the stdlib constraint is real: `host/` is deliberately dependency-free,
+   and APNs requires HTTP/2. Shelling out to `curl --http2` keeps that promise;
+   adding `httpx` or `hyper` breaks it. That is a decision to make on purpose
+   rather than discover.
+5. **Actionable notifications.** Once 4 lands, a category with buttons lets a
+   safe answer be given from the lock screen. The rule already enforced in the
+   ledger carries over unchanged: `requires_foreground` and
+   `requires_biometric` actions — every approval, every grant, both
+   interrupts — must open the app. In practice that leaves **Dismiss** and a
+   question's options as the only lock-screen answers, which is the right
+   scope: a notification that can approve `rm -rf` from a pocket is a bug.
 6. ~~Add structured questions~~ **Done.** `item/tool/requestUserInput` is
    wired to the same choice actions Claude uses. It stays `experimental` in
    Headroom's capability metadata because Codex marks the request EXPERIMENTAL

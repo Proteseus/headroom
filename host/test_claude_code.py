@@ -53,12 +53,59 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail("Claude permission did not enter the attention feed")
 
-    def answer(self, event, action):
+    def answer(self, event, action, text=None):
         claimed, duplicate = self.store.claim(
             event["id"], event["revision"], action, "phone-tap-1")
         self.assertFalse(duplicate)
-        self.adapter.respond(claimed, action)
+        self.adapter.respond(claimed, action, text=text)
         self.store.mark_dispatched(event["id"], "phone-tap-1")
+
+    def test_typed_reply_reaches_the_model_as_a_denial_with_words(self):
+        """Claude's own third choice: no, and tell it what to do instead."""
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.permission_request(
+                self.permission(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        reply = next(a for a in event["actions"] if a["id"] == "reply")
+        self.assertTrue(reply["accepts_text"])
+        self.answer(event, "reply", text="  use pnpm, not npm  ")
+        thread.join(timeout=2)
+        decision = result["value"]["hookSpecificOutput"]["decision"]
+        self.assertEqual(decision["behavior"], "deny")
+        self.assertIn("use pnpm, not npm", decision["message"])
+        self.assertIn("iPhone", decision["message"])
+
+    def test_typed_answer_to_a_question_travels_the_reason_channel(self):
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.question_request(
+                self.question(), wait_seconds=3)))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertIn("reply", [a["id"] for a in event["actions"]])
+        self.answer(event, "reply", text="none of those, rebase instead")
+        thread.join(timeout=2)
+        output = result["value"]["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn(
+            "none of those, rebase instead",
+            output["permissionDecisionReason"])
+
+    def test_an_empty_reply_is_refused_rather_than_sent(self):
+        thread = threading.Thread(target=lambda: self.adapter.permission_request(
+            self.permission(), wait_seconds=2))
+        thread.start()
+        event = self.wait_for_event()
+        claimed, _ = self.store.claim(
+            event["id"], event["revision"], "reply", "k")
+        with self.assertRaises(ValueError):
+            self.adapter.respond(claimed, "reply", text="   ")
+        # The request is still live, so the turn is not left hanging.
+        self.adapter.respond(claimed, "decline")
+        thread.join(timeout=3)
+        self.assertFalse(thread.is_alive())
 
     def test_permission_allow_wakes_exact_hook_request(self):
         result = {}
@@ -295,7 +342,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.assertEqual(
             [a["label"] for a in event["actions"]],
             ["Two clean commits, push both", "One commit with everything",
-             "Ask on Mac"],
+             "Reply", "Ask on Mac"],
         )
         self.assertEqual(
             event["actions"][0]["description"],

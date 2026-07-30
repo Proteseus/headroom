@@ -66,6 +66,19 @@ CHOICE_PREFIX = "choice_"
 MAX_CHOICES = 6
 ASK_ON_MAC = {"id": "ask_on_mac", "label": "Ask on Mac", "risk": "safe"}
 
+# ToolRequestUserInputResponse takes an array of arbitrary strings, so words
+# typed on the phone are a first-class answer rather than a workaround. The
+# question's own `isOther` says whether the tool invited one; it is passed to
+# the client as a hint and not enforced, because the wire accepts either.
+REPLY = {
+    "id": "reply",
+    "label": "Reply",
+    "risk": "safe",
+    "accepts_text": True,
+    "requires_foreground": True,
+}
+MAX_REPLY_CHARS = 2000
+
 # Field order for an approval, so the phone reads it the way a person would.
 COMMAND_FIELDS = (
     "command", "cwd", "reason", "commandActions", "networkApprovalContext",
@@ -114,6 +127,14 @@ def _child_working_directory():
 
 def _request_key(request_id):
     return json.dumps(request_id, separators=(",", ":"), sort_keys=True)
+
+
+def _reply_text(value):
+    """Typed words, normalised and bounded, or None if there are none."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text[:MAX_REPLY_CHARS] if text else None
 
 
 def _short(value, fallback, limit=240):
@@ -235,7 +256,7 @@ class CodexAppServer:
             self._pending_by_event.clear()
             self._event_by_request.clear()
 
-    def respond(self, event, action_id):
+    def respond(self, event, action_id, text=None):
         with self._lock:
             callback = self._pending_by_event.get(event["id"])
             process = self._process
@@ -263,6 +284,14 @@ class CodexAppServer:
             question_id, labels = callback[2], callback[3]
             if action_id == ASK_ON_MAC["id"]:
                 self._decline_question(request_id)
+                return
+            if action_id == REPLY["id"]:
+                reply = _reply_text(text)
+                if not reply:
+                    raise ValueError("a reply needs words")
+                self._send({"id": request_id, "result": {
+                    "answers": {question_id: {"answers": [reply]}},
+                }})
                 return
             if not action_id.startswith(CHOICE_PREFIX):
                 raise ValueError("unsupported Codex question action")
@@ -566,7 +595,7 @@ class CodexAppServer:
             # The summary is the question and the actions are the options, so
             # a request block would print all of it a second time.
             detail={"tool_name": "Codex question", "request": []},
-            actions=actions + [ASK_ON_MAC, INTERRUPT],
+            actions=actions + [REPLY, ASK_ON_MAC, INTERRUPT],
         )
         with self._lock:
             self._pending_by_event[event["id"]] = (

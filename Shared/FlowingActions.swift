@@ -18,21 +18,74 @@ struct FlowingActions: View {
     let tint: Color
     let disabled: Bool
     let responding: Bool
-    let answer: (AgentAttentionAction) -> Void
+    var answer: (AgentAttentionAction, String?) -> Void
+
+    @State private var reply = ""
+    @FocusState private var replyFocused: Bool
 
     private var isChoiceList: Bool {
-        actions.contains { $0.subtitle?.isEmpty == false }
+        buttons.contains { $0.subtitle?.isEmpty == false }
+    }
+
+    /// The answer carried by typed words, if this request takes one.
+    private var textAction: AgentAttentionAction? {
+        actions.first { $0.acceptsText == true }
+    }
+
+    private var buttons: [AgentAttentionAction] {
+        actions.filter { $0.acceptsText != true }
     }
 
     var body: some View {
-        if isChoiceList {
-            choiceList
-        } else {
-            ViewThatFits(in: .horizontal) {
-                pillRow
-                pillColumn
+        VStack(alignment: .leading, spacing: 8) {
+            if isChoiceList {
+                choiceList
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    pillRow
+                    pillColumn
+                }
+            }
+            if let textAction {
+                replyField(textAction)
             }
         }
+    }
+
+    /// Always available where the provider has a channel for words, because
+    /// none of the fixed answers is ever quite the thing you want to say.
+    private func replyField(_ action: AgentAttentionAction) -> some View {
+        HStack(spacing: 8) {
+            TextField(HeadroomCopy.agentReplyPlaceholder, text: $reply, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...4)
+                .font(.subheadline)
+                .focused($replyFocused)
+                .submitLabel(.send)
+                .disabled(disabled)
+            Button {
+                let words = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !words.isEmpty else { return }
+                replyFocused = false
+                reply = ""
+                answer(action, words)
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title3)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(canSend ? tint : Color.secondary.opacity(0.4))
+            .disabled(!canSend)
+            .accessibilityLabel(action.label)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.quaternary.opacity(0.5), in: Capsule())
+    }
+
+    private var canSend: Bool {
+        !disabled
+        && !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var choiceList: some View {
@@ -43,7 +96,7 @@ struct FlowingActions: View {
             }
             if let aside {
                 Divider()
-                Button(aside.label) { answer(aside) }
+                Button(aside.label) { answer(aside, nil) }
                     .font(.subheadline)
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -62,16 +115,16 @@ struct FlowingActions: View {
     /// The real answers, and the one that declines to answer. Kept apart so
     /// "Ask on Mac" reads as a way out rather than a fifth option.
     private var choices: [AgentAttentionAction] {
-        actions.filter { $0.id != "ask_on_mac" }
+        buttons.filter { $0.id != "ask_on_mac" }
     }
 
     private var aside: AgentAttentionAction? {
-        actions.first { $0.id == "ask_on_mac" }
+        buttons.first { $0.id == "ask_on_mac" }
     }
 
     private func choiceRow(_ action: AgentAttentionAction) -> some View {
         Button {
-            answer(action)
+            answer(action, nil)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -116,8 +169,8 @@ struct FlowingActions: View {
 
     @ViewBuilder
     private var pills: some View {
-        ForEach(actions) { action in
-            Button(action.label) { answer(action) }
+        ForEach(buttons) { action in
+            Button(action.label) { answer(action, nil) }
                 .buttonStyle(.bordered)
                 .tint(color(for: action))
                 .disabled(disabled)

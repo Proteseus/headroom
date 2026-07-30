@@ -201,7 +201,8 @@ struct MobileHeadroomClient: Sendable {
     func respond(
         to event: AgentAttentionEvent,
         action: AgentAttentionAction,
-        idempotencyKey: String
+        idempotencyKey: String,
+        text: String? = nil
     ) async throws -> AgentAttentionEvent {
         let url = try usageURL.deletingLastPathComponent()
             .appending(path: "attention")
@@ -211,7 +212,8 @@ struct MobileHeadroomClient: Sendable {
         let body = try JSONEncoder().encode(AgentAttentionResponseRequest(
             revision: event.revision,
             action: action.id,
-            idempotencyKey: idempotencyKey
+            idempotencyKey: idempotencyKey,
+            text: text
         ))
         let data = try await send(url: url, method: "POST", body: body)
         return try JSONDecoder()

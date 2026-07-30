@@ -59,7 +59,20 @@ INTERRUPT = {
     "requires_biometric": True,
 }
 
-PERMISSION_ACTIONS = [APPROVE_ONCE, DECLINE, INTERRUPT]
+# Claude's own third choice is "No, and tell Claude what to do differently".
+# The deny message is read by the model, so a typed reply is a real answer
+# rather than a note to yourself — the same channel a chosen option travels on.
+REPLY = {
+    "id": "reply",
+    "label": "Reply",
+    "risk": "safe",
+    "accepts_text": True,
+    "requires_foreground": True,
+}
+
+MAX_REPLY_CHARS = 2000
+
+PERMISSION_ACTIONS = [APPROVE_ONCE, DECLINE, REPLY, INTERRUPT]
 
 # Tools whose input names one concrete thing, so an exact-match rule is both
 # expressible and meaningful. AskUserQuestion is absent on purpose: "always
@@ -176,7 +189,17 @@ def _choice_actions(options):
         if option["description"]:
             action["description"] = option["description"]
         actions.append(action)
-    return actions + [ASK_ON_MAC]
+    return actions + [REPLY, ASK_ON_MAC]
+
+
+def _reply_text(value):
+    """Typed words, normalised and bounded, or None if there are none."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:MAX_REPLY_CHARS]
 
 
 def _short(value, fallback, limit=240):
@@ -220,6 +243,21 @@ def _render_reason(entry):
     return ""
 
 
+def _answered(question, answer):
+    """A phone answer, blocking the call and handing the words to the model."""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                "The user answered from Headroom on their iPhone instead of "
+                f"the terminal. Their answer to \"{question}\" is: {answer}. "
+                "Treat this as their reply and continue — do not ask again."
+            ),
+        },
+    }
+
+
 def _defer():
     """No opinion: let Claude's ordinary permission flow take over."""
     return {
@@ -234,6 +272,7 @@ class _PendingPermission:
     def __init__(self):
         self.ready = threading.Event()
         self.action = None
+        self.text = None
 
 
 class ClaudeCodeHooks:
@@ -307,7 +346,7 @@ class ClaudeCodeHooks:
         cwd = payload.get("cwd")
         rule = permission_rule(tool_name, tool_input)
         actions = (
-            [APPROVE_ONCE, APPROVE_ALWAYS, DECLINE, INTERRUPT] if rule
+            [APPROVE_ONCE, APPROVE_ALWAYS, DECLINE, REPLY, INTERRUPT] if rule
             else PERMISSION_ACTIONS
         )
         with self._lock:
@@ -360,6 +399,22 @@ class ClaudeCodeHooks:
                 },
             }
         decision = {"behavior": "deny", "message": "Denied from Headroom"}
+        if waiter.action == REPLY["id"] and waiter.text:
+            self.store.resolve(
+                event["id"], {"action": waiter.action, "reply": waiter.text})
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest",
+                    "decision": {
+                        "behavior": "deny",
+                        # Read by the model, so it is written for the model.
+                        "message": (
+                            "The user replied from Headroom on their iPhone "
+                            f"instead of the terminal: {waiter.text}"
+                        ),
+                    },
+                },
+            }
         if waiter.action == INTERRUPT["id"]:
             # Stops the turn rather than just this call, so the message has to
             # say a person did it — a bare denial reads as a refusal.
@@ -419,6 +474,10 @@ class ClaudeCodeHooks:
         if action is None:
             self.store.expire(event["id"], "Claude question hook timed out")
             return _defer()
+        if action == REPLY["id"] and waiter.text:
+            self.store.resolve(
+                event["id"], {"action": action, "reply": waiter.text})
+            return _answered(question["question"], waiter.text)
         if not action.startswith(CHOICE_PREFIX):
             self.store.resolve(event["id"], {"action": action})
             return _defer()
@@ -511,18 +570,21 @@ class ClaudeCodeHooks:
             },
         )
 
-    def respond(self, event, action_id):
+    def respond(self, event, action_id, text=None):
         if action_id == "dismiss":
             self.store.resolve(event["id"], {"action": action_id})
             return
         if (action_id not in (
                 "approve_once", "approve_always", "decline",
-                INTERRUPT["id"], ASK_ON_MAC["id"])
+                REPLY["id"], INTERRUPT["id"], ASK_ON_MAC["id"])
                 and not action_id.startswith(CHOICE_PREFIX)):
             raise ValueError("unsupported Claude action")
+        if action_id == REPLY["id"] and not _reply_text(text):
+            raise ValueError("a reply needs words")
         with self._lock:
             waiter = self._pending.get(event["id"])
             if waiter is None:
                 raise RuntimeError("Claude request is no longer pending")
             waiter.action = action_id
+            waiter.text = _reply_text(text)
             waiter.ready.set()

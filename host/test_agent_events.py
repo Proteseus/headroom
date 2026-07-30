@@ -20,8 +20,8 @@ class FakeAdapter:
     def __init__(self):
         self.responses = []
 
-    def respond(self, event, action):
-        self.responses.append((event["id"], action))
+    def respond(self, event, action, text=None):
+        self.responses.append((event["id"], action, text))
 
 
 class EventStoreTests(unittest.TestCase):
@@ -118,7 +118,8 @@ class EventStoreTests(unittest.TestCase):
             action="approve_once",
             idempotency_key="phone-tap-1",
         )
-        self.assertEqual(adapter.responses, [(event["id"], "approve_once")])
+        self.assertEqual(
+            adapter.responses, [(event["id"], "approve_once", None)])
         self.assertEqual(result["event"]["state"], "responding")
 
 

@@ -130,6 +130,7 @@ class AgentHTTPTests(unittest.TestCase):
                 "revision": 4,
                 "action": "approve_once",
                 "idempotency_key": "tap-1",
+                "text": None,
             },
         ), self.gateway.calls)
 

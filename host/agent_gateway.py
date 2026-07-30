@@ -97,7 +97,7 @@ class AgentGateway:
         }
 
     def respond(
-        self, event_id, *, revision, action, idempotency_key,
+        self, event_id, *, revision, action, idempotency_key, text=None,
     ):
         event, duplicate = self.store.claim(
             event_id, revision, action, idempotency_key)
@@ -109,7 +109,7 @@ class AgentGateway:
             self.store.mark_orphaned(event_id, "provider adapter unavailable")
             raise agent_events.EventConflict("provider adapter unavailable")
         try:
-            adapter.respond(event, action)
+            adapter.respond(event, action, text=text)
         except Exception as exc:
             self.store.mark_orphaned(event_id, exc)
             raise agent_events.EventConflict(str(exc))
