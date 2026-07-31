@@ -174,14 +174,38 @@ class Source(NamedTuple):
     # Set on rows the expansion created; None on the default login.
     account: Optional[object] = None
 
+    # ---- meter selection ----
+
+    def windows(self):
+        """The meters shaped like a percentage of a pool that refills.
+
+        Every consumer written before meter kinds existed means *this*, not
+        `pools`: a percentage to average, a pool to sample into the burndown
+        store, a headline for the row to speak for. Handing one of the other
+        kinds to that machinery does not fail loudly — it logs `credits=None%`
+        every poll, or appends a null-pct row to `quota_samples.jsonl`, which
+        is an append-only user asset (docs/product.md) and not a place to
+        discover a shape mistake later.
+
+        `pools` stays the full list, for the two consumers that genuinely want
+        every meter: the `providers[]` payload and `blank()`.
+        """
+        return tuple(spec for spec in self.pools if spec.kind == KIND_WINDOW)
+
     # ---- derived presentation (override with the *_fn fields above) ----
 
     def _headline_pool(self):
         """The pool a one-line status speaks for: the first headline key the
-        row declares, else its first pool."""
+        row declares, else its first window.
+
+        First *window*, not first meter — a row that declares a grant ahead of
+        its windows would otherwise silently change what the Mac Settings line
+        and the ESP32 footer are talking about.
+        """
         if self.headline:
             return self.headline[0]
-        return self.pools[0].id if self.pools else None
+        windows = self.windows()
+        return windows[0].id if windows else None
 
     def detail(self, payload):
         """Short status for the Mac Settings row and the ESP32 footer."""
@@ -197,13 +221,18 @@ class Source(NamedTuple):
         if self.summary_fn is not None:
             return self.summary_fn(payload)
         bits = [f"plan={payload.get('plan')}"]
-        for spec in self.pools:
+        for spec in self.windows():
             pct = (payload.get(spec.key) or {}).get("pct")
             bits.append(f"{spec.id}={pct}%")
         return "  ".join(bits)
 
     def blank(self):
-        """The payload shape before the first fetch."""
+        """The payload shape before the first fetch.
+
+        Every meter, not just the windows: this is about which keys the
+        payload has, which is a question about the fetcher's shape and not
+        about what the numbers inside them mean.
+        """
         if self.blank_fn is not None:
             return self.blank_fn()
         out = {"ok": False, "plan": None}
@@ -638,10 +667,18 @@ def headline_pct(source_id, payload):
 
 
 def pool_rows():
-    """Flat (provider, pool_id, key, default_window_s) for quota_samples."""
+    """Flat (provider, pool_id, key, default_window_s) for quota_samples.
+
+    Windows only. The sample store is a series of percentages against a window
+    that refills, and everything downstream of it — the burndown curves, the
+    pace lines, the exhaustion forecasts — reads it that way. A meter of any
+    other kind has no pct to record and no window to record it against, so it
+    is not a row here; it is a row in `providers[]`, which is where the full
+    set lives.
+    """
     rows = []
     for source in QUOTA_SOURCES:
-        for pool in source.pools:
+        for pool in source.windows():
             rows.append((source.id, pool.id, pool.key, pool.default_window_s))
     return tuple(rows)
 

@@ -17,6 +17,65 @@ import quota_samples
 import sources_config
 
 
+def _source_with_a_grant():
+    """A registry row carrying a grant meter *ahead of* its window.
+
+    The order is the point. `_headline_pool` used to take the first meter, so
+    a grant in slot zero is exactly the arrangement that would have silently
+    repointed the Settings line and the ESP32 footer at a meter with no pct.
+    """
+    grant = sources_config.MeterSpec(
+        "credits", "reset_credits", "Credits",
+        kind=sources_config.KIND_GRANT, ring=False)
+    window = sources_config.MeterSpec("week", "week", "Weekly", 7 * 86400)
+    return sources_config.BY_ID["claude"]._replace(
+        pools=(grant, window), headline=(),
+        detail_fn=None, summary_fn=None, blank_fn=None)
+
+
+class MeterKindSelectionTests(unittest.TestCase):
+    """Machinery written for percentages must not be handed other kinds.
+
+    None of these fail loudly if the selection regresses — a grant reaching
+    the sample store appends a null-pct row to an append-only file, and a
+    grant reaching the log line prints `credits=None%` forever. Both look like
+    working software.
+    """
+
+    def test_windows_excludes_other_meter_kinds(self):
+        source = _source_with_a_grant()
+        self.assertEqual([m.id for m in source.pools], ["credits", "week"])
+        self.assertEqual([m.id for m in source.windows()], ["week"])
+
+    def test_a_grant_does_not_become_the_headline(self):
+        self.assertEqual(_source_with_a_grant()._headline_pool(), "week")
+
+    def test_a_grant_stays_out_of_the_log_line(self):
+        line = _source_with_a_grant().summary({
+            "plan": "Max",
+            "week": {"pct": 40},
+            "reset_credits": {"available": 2},
+        })
+        self.assertIn("week=40%", line)
+        self.assertNotIn("credits", line)
+
+    def test_a_grant_stays_out_of_the_sample_store(self):
+        # quota_samples writes one row per entry here. A meter with no pct has
+        # nothing to record and no window to record it against.
+        with patch.object(sources_config, "QUOTA_SOURCES",
+                          (_source_with_a_grant(),)):
+            rows = sources_config.pool_rows()
+        self.assertEqual([pool_id for _, pool_id, _, _ in rows], ["week"])
+
+    def test_blank_still_covers_every_meter(self):
+        # The other half: windows-only is for machinery that assumes
+        # percentages, not a way to hide meters from the payload. `blank` is
+        # about which keys the fetcher's shape has, not what they mean.
+        blank = _source_with_a_grant().blank()
+        self.assertIn("reset_credits", blank)
+        self.assertIn("week", blank)
+
+
 class QuotaRegistryTests(unittest.TestCase):
     def setUp(self):
         # providers[] follows the pinned order; keep it off this machine's.
