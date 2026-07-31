@@ -7,6 +7,40 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.2.8 — 2026-07-31
+
+### Added
+
+- **Your API tokens follow you to your other Macs.** Retyping a GitHub personal
+  access token on the second Mac was the chore multi-Mac sync was supposed to
+  remove and did not. The three tokens Headroom owns (GitHub, Plausible,
+  Supabase) now travel through iCloud Keychain, end to end encrypted with your
+  own keys. Tokens already saved migrate themselves the next time the app
+  launches, so there is nothing to re-enter.
+
+### Changed
+
+- Tokens do not travel in the multi-Mac sync record, on purpose. `icloud_dir`
+  can aim that same record at Dropbox or Syncthing, where a secret in the record
+  would be a secret sitting in a plaintext file in someone else's folder. The
+  rule that credentials never enter the record is unchanged.
+- The token that authorizes reaching one Mac's host stays on that Mac, because
+  the phone pairs to a single Mac. Claude Code's own Keychain item is left
+  alone: its refresh token rotates, and two Macs refreshing it independently can
+  invalidate each other.
+- GitHub, Plausible and Supabase credentials are read through one path now
+  instead of four. The old one shelled out to `security find-generic-password`,
+  which is the legacy Keychain API and cannot be relied on to see synced items.
+- **`SECURITY.md` and the privacy notes were a release behind.** Neither listed
+  the `agents` permission, and neither said that the agent request ledger keeps
+  commands, paths and code excerpts. Both do now. Nothing about what the app
+  does changed here; the disclosure caught up to it.
+- New reference docs for anyone changing the `/usage` payload, adding a route,
+  or deciding what belongs in the product: `docs/contract.md`, `docs/trust.md`
+  and `docs/product.md`. `docs/agent-attention.md` also records why the Codex
+  shared-daemon route is a dead end in 0.145.0, so the next person spends the
+  twenty minutes elsewhere.
+
 ## 1.2.7 — 2026-07-31
 
 ### Added
