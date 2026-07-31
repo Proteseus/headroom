@@ -53,6 +53,46 @@ half-finished work and cannot tell whose failure you are looking at:
 git worktree add --detach /tmp/verify HEAD
 ```
 
+## The host LaunchAgent is not yours to repoint
+
+`~/Library/LaunchAgents/com.centaur-labs.headroom.plist` runs the host MZ
+actually uses. It was repointed at agent scratchpad paths five times in one
+day, and every time the host died — because the scratchpad had been cleaned up,
+or the build in it was mid-edit. A dead host is not cosmetic: the board stops
+getting data, the phone stops getting rows, and every Claude session sharing
+this Mac loses its Headroom integration at once.
+
+**Verify against your own copy, not the shared service.** The host takes a
+port, so nothing has to touch the plist:
+
+```bash
+HEADROOM_USB_PORT=/dev/null python3 host/headroom_server.py --port 8738
+```
+
+The port keeps you off :8737 and the `HEADROOM_USB_PORT` override keeps you off
+`/dev/cu.usbmodem*`, so the board stays with whoever owns it. Kill it when you
+are done.
+
+If you genuinely must repoint the LaunchAgent — you are testing the packaged
+app, say — point it at a path that will still exist tomorrow, and put it back:
+
+```bash
+./scripts/install-host.sh --app=/Applications/Headroom.app
+```
+
+Two traps that cost real time when the plist does need touching:
+
+- **`install-host.sh` races its own `bootout`.** It unloads the old job and
+  bootstraps the new one immediately, and launchd is asynchronous, so
+  bootstrap fails with `5: Input/output error` and leaves nothing running. The
+  script reports the failure and exits; the host is simply down. Re-run
+  `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.centaur-labs.headroom.plist`
+  after a couple of seconds and it works.
+- **The LaunchAgent runs Xcode's Python 3.9**, not whatever `python3` is on
+  your PATH. `python3 -m unittest` passing under 3.14 says nothing about
+  whether the host will start. Anything newer than 3.9 syntax fails at launch,
+  not in the tests.
+
 ## The board
 
 There is one ESP32 on one desk and it takes one owner at a time. Before you
