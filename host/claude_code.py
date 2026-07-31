@@ -377,6 +377,12 @@ class ClaudeCodeHooks:
             raise agent_events.InvalidEvent("Claude tool_name is required")
         if not isinstance(tool_input, dict):
             raise agent_events.InvalidEvent("Claude tool_input must be an object")
+        # AskUserQuestion arrives here too, but it is a question, not a
+        # request for permission. Rendered as one it offers Allow or Deny for
+        # a choice — answers that mean nothing — so questions are left to the
+        # question hook, which knows how to draw them.
+        if tool_name == "AskUserQuestion":
+            return None
         wait_seconds = max(1, min(MAX_WAIT_SECONDS, int(wait_seconds)))
         provider_request_id = "permission-" + uuid.uuid4().hex
         cwd = payload.get("cwd")
@@ -463,7 +469,8 @@ class ClaudeCodeHooks:
             },
         }
 
-    def question_request(self, payload, wait_seconds=QUESTION_WAIT_SECONDS):
+    def question_request(self, payload, wait_seconds=QUESTION_WAIT_SECONDS,
+                         mode="notify"):
         """Offer a question's own options as answers, via the deny channel.
 
         Returns `defer` for anything we cannot answer cleanly, which is the
@@ -474,8 +481,13 @@ class ClaudeCodeHooks:
         tool_input = payload.get("tool_input")
         if not isinstance(session_id, str) or not session_id.strip():
             raise agent_events.InvalidEvent("Claude session_id is required")
+        if mode != "answer":
+            self._question_notice(payload, tool_input)
+            return _defer()
         question = _sole_question(tool_input)
         if question is None:
+            # Not answerable from here, but still worth seeing there.
+            self._question_notice(payload, tool_input)
             return _defer()
         wait_seconds = max(1, min(MAX_WAIT_SECONDS, int(wait_seconds)))
         cwd = payload.get("cwd")
@@ -616,6 +628,45 @@ class ClaudeCodeHooks:
         return self._passive(
             payload, kind, title,
             _short(payload.get("message"), "Open Claude Code to continue"),
+        )
+
+    def _question_notice(self, payload, tool_input):
+        """Show the question without holding it.
+
+        Every question, whatever its shape — several at once, multi-select,
+        anything. It is read-only by construction: the only way to answer
+        remotely is to block the call, and blocking is exactly what this mode
+        exists to avoid. You answer where Claude already asked you.
+        """
+        questions = (tool_input or {}).get("questions")
+        if not isinstance(questions, list) or not questions:
+            return None
+        first = next(
+            (q.get("question") for q in questions
+             if isinstance(q, dict) and isinstance(q.get("question"), str)
+             and q.get("question").strip()),
+            None,
+        )
+        if not first:
+            return None
+        session_id = payload["session_id"]
+        self.store.supersede(
+            PROVIDER, ADAPTER, session_id, "structured_question")
+        return self.store.create(
+            provider=PROVIDER,
+            adapter=ADAPTER,
+            provider_request_id="question-" + uuid.uuid4().hex,
+            session_id=session_id,
+            kind="structured_question",
+            title=f"Claude is asking you in {_project(payload.get('cwd'))}",
+            summary=_short(" ".join(first.split()), "Claude asked a question"),
+            actions=PASSIVE_ACTIONS,
+            detail={
+                "tool_name": "AskUserQuestion",
+                "request": agent_request.fields(tool_input, "AskUserQuestion"),
+                "answer_on_mac": True,
+                "cwd": payload.get("cwd"),
+            },
         )
 
     def _passive(self, payload, kind, title, summary):
