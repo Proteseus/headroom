@@ -589,7 +589,11 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
             } footer: {
-                Text("Refreshes every source at once. Same list Welcome calls “\(HeadroomCopy.welcomeWhatToWatch)”.")
+                // Was followed by "Same list Welcome calls 'What to watch'."
+                // Copy that explains an inconsistency instead of removing it.
+                // Both names are deliberate (docs/glossary.md), and a reader
+                // who is already standing in Settings does not need the map.
+                Text("Refreshes every source at once.")
             }
         }
         .formStyle(.grouped)

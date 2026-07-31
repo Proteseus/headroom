@@ -181,7 +181,7 @@ def _board_text(value):
     """Map host copy onto the board's ASCII-only glyph set.
 
     glcdfont has no middot (·) / fancy dashes — those UTF-8 bytes render as
-    two garbage glyphs ("On track XX 15%"). Preview already substitutes; keep
+    two garbage glyphs ("On pace XX 15%"). Preview already substitutes; keep
     the live projection matching what the panel can actually draw.
     """
     if not isinstance(value, str) or not value:

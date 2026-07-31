@@ -12,7 +12,7 @@ that consolidates that into one glance:
 | Always on | What you see |
 |---|---|
 | **ESP32 AMOLED** | Quota rings for the same three providers the menu bar shows, with a combined seven-day burndown |
-| **Menu bar** | Thin remaining-quota meters for the first three enabled providers + amber/red attention pip |
+| **Menu bar** | Thin remaining-quota tanks for the first three enabled providers + amber/red attention pip |
 | **Popover** | Overview rings, daily burn, spend, Activity / Services |
 | **Notification Center** | The same widget the iPhone runs: rings small, combined burndown medium |
 | **iPhone / iPad** | Quotas, burndown, activity, services, controls, notifications, widgets |

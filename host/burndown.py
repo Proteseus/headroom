@@ -90,9 +90,20 @@ def _fmt_rate(value):
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
-def _points(value):
-    count = f"{abs(value):.0f}"
-    return f"{count} point" if count == "1" else f"{count} points"
+def _spare(value):
+    """Pace delta as a signed reading, in the same unit as everything else.
+
+    The old wording ran `abs()` over a signed number and called the result
+    "4 points", so a pool 4 behind read exactly like a pool 4 ahead. It also
+    spelled percentage points as "points", which collides with the credits and
+    premium requests the providers themselves bill in. Percent, with the
+    direction attached, or nothing.
+    """
+    if value is None or abs(value) < 1:
+        return None
+    if value >= 1:
+        return f"{value:.0f}% to spare"
+    return f"{abs(value):.0f}% over"
 
 
 def _slope_per_s(points):
@@ -153,15 +164,22 @@ def _when(timestamp, tz, now):
     return moment.strftime("%b %-d")
 
 
-def _headline(remaining, resets_label, status, burn_rate, allowance,
+def _headline(remaining, resets_at_label, status, burn_rate, allowance,
               exhausts_label, delta, unit, rate_source=None):
-    """One short line stating the situation. This is the product."""
+    """One short line stating the situation. This is the product.
+
+    Both times in here are clock form ("Thu 14:00"), never duration form
+    ("4d 44m"). Prose says *when*; the compact surfaces that draw `resets_in`
+    say *how long*. Mixing the two inside one sentence is what produced
+    "58% left · 4d 44m. Out tomorrow 04:18" — two time facts, two shapes, one
+    line. See docs/glossary.md, "Telling time".
+    """
     if status == STATUS_EXHAUSTED:
-        return (f"Exhausted · resets {resets_label}" if resets_label
+        return (f"Exhausted · resets {resets_at_label}" if resets_at_label
                 else "Exhausted")
 
     left = f"{remaining:.0f}% left"
-    head = f"{left} · {resets_label}" if resets_label else left
+    head = f"{left} · resets {resets_at_label}" if resets_at_label else left
     # An estimate off token history is worth marking; a measured rate is not.
     estimated = rate_source == "estimated"
     rate = f"~{_fmt_rate(burn_rate)}" if estimated else _fmt_rate(burn_rate)
@@ -171,21 +189,26 @@ def _headline(remaining, resets_label, status, burn_rate, allowance,
     if burn_rate is not None and allowance is not None and status == STATUS_AHEAD:
         return f"{head}. Burn {rate} vs {_fmt_rate(allowance)}%/{unit}"
     if delta is not None and burn_rate is not None:
-        return f"{head}. On pace · {_points(delta)}"
+        spare = _spare(delta)
+        return f"{head}. On pace · {spare}" if spare else f"{head}. On pace"
     return f"{head}. Collecting history"
 
 
-def _verdict(status, resets_label, exhausts_label, delta, has_forecast):
+def _verdict(status, resets_in_label, exhausts_label, delta, has_forecast):
     """The one line answering "do I make it to the reset, and if not, when".
 
     Deliberately not a sentence. It fills a slot next to a stat row rather than
     carrying the numbers itself, so it never repeats what the row already
     shows — that duplication is what made the old copy read as a paragraph.
-    `headline` stays the prose version for the board's single caption line and
-    for VoiceOver.
+    `headline` stays the prose version for VoiceOver.
+
+    This is the ~25-byte string the board draws, so it is the one place
+    duration form survives: `resets_in_label` is "4d 44m", because a glance
+    wants how long, not a weekday it then has to subtract from today. The two
+    forms never share a line here — each branch returns one time fact.
     """
     if status == STATUS_EXHAUSTED:
-        return f"Spent, back in {resets_label}" if resets_label else "Spent"
+        return f"Spent, back in {resets_in_label}" if resets_in_label else "Spent"
     if status == STATUS_CRITICAL:
         return (f"Runs out {exhausts_label}" if exhausts_label
                 else "Runs out before reset")
@@ -195,9 +218,12 @@ def _verdict(status, resets_label, exhausts_label, delta, has_forecast):
         # "Ahead of pace" cuts both ways to a casual reader — ahead of schedule
         # sounds like good news. "Over" only means the one thing.
         return "Over pace"
+    # Paired with "Over pace": one axis, one noun. The headline says the same
+    # two words for the same two states, so a reader moving between the board
+    # and the Mac is not learning a second vocabulary for one fact.
     if delta is not None and delta >= 1:
-        return f"On track · {delta:.0f}%"
-    return "On track"
+        return f"On pace · {delta:.0f}%"
+    return "On pace"
 
 
 def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
@@ -388,7 +414,11 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
     else:
         status = STATUS_OK
 
+    # Duration for the compact surfaces that draw `resets_in`, clock form for
+    # the prose. Same instant, two readings, and which one a surface gets is a
+    # rule rather than an accident — docs/glossary.md, "Telling time".
     resets_label = oauth_usage.fmt_resets(resets_in_s)
+    resets_at_label = _when(window_end, tz, now)
     exhausts_label = _when(exhausts_at, tz, now)
 
     return {
@@ -440,8 +470,8 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
                         else oauth_usage.fmt_resets(exhausts_in_s)),
         "exhausts_before_reset": exhausts_before_reset,
         "samples": len(series),
-        # Prose, for the board's one caption line and for VoiceOver.
-        "headline": _headline(remaining, resets_label, status, burn_rate,
+        # Prose, for VoiceOver and any surface with a full line to give it.
+        "headline": _headline(remaining, resets_at_label, status, burn_rate,
                               allowance, exhausts_label, delta, unit,
                               rate_source),
         # The same situation as a slot: a short phrase that sits above a stat

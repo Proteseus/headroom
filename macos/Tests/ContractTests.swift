@@ -200,7 +200,6 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.macUnavailable, "Mac unavailable")
         XCTAssertEqual(HeadroomCopy.collectingHistory, "Collecting history")
         XCTAssertEqual(HeadroomCopy.overallBurndownSubtitle, "7 days")
-        XCTAssertEqual(HeadroomCopy.dailyBurnUnit, "pts / day")
         XCTAssertEqual(HeadroomCopy.noHistoryYet, "No history yet")
         XCTAssertEqual(HeadroomCopy.noCodingSources, "No coding sources")
         XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")
@@ -208,6 +207,27 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.openAtLogin, "Open at Login")
         XCTAssertEqual(HeadroomCopy.poolBurndown("Weekly"), "Weekly burndown")
         XCTAssertEqual(HeadroomCopy.resets("3d"), "Resets 3d")
+    }
+
+    /// Percent is the only unit Headroom claims. Every provider bills in a
+    /// real one of its own — points, credits, premium requests — so a figure
+    /// labelled "pts" here reads as a number from somewhere else.
+    func testQuotaFiguresAreLabelledInPercent() {
+        XCTAssertEqual(HeadroomCopy.dailyBurnUnit, "% / day")
+        XCTAssertEqual(HeadroomCopy.resetGranted(forgivenPct: 42),
+                       "Reset granted · 42% back")
+        XCTAssertFalse(HeadroomCopy.dailyBurnUnit.contains("pts"))
+    }
+
+    /// Service health answers the same question source health does: wait, or
+    /// go and do something. "Unavailable" answered neither.
+    func testServiceHealthNamesTheFixableCase() {
+        XCTAssertEqual(HeadroomCopy.serviceStatus("Supabase", configured: false),
+                       "Supabase needs a key")
+        XCTAssertEqual(HeadroomCopy.serviceStatus("Supabase", configured: true),
+                       "Supabase not reporting")
+        XCTAssertEqual(HeadroomCopy.serviceStatus("Plausible", configured: nil),
+                       "Plausible not reporting")
     }
 
     func testDisabledQuotaProviderIsHidden() throws {

@@ -10,6 +10,16 @@ macOS ships via GitHub Releases (Developer ID), not the Mac App Store — yet.
 
 - **App Name**: Headroom (Max your Quotas)
 - **Subtitle** (30 chars max): Local-first coding quotas
+
+> The suffix is load-bearing: **"Headroom" alone is taken on the App Store**,
+> and listing names have to be unique. It is not keyword stuffing and it is not
+> up for tidying — a shorter name is not available. `CFBundleDisplayName` is
+> plain `Headroom` on both platforms, so the home screen and the menu bar are
+> unaffected by whatever the listing has to be called.
+>
+> "Max" reads two ways — the Claude Max plan, and *maximise your usage* — and
+> the first is the one the audience searching for this lands on. Recorded here
+> so the ambiguity stops being rediscovered as a bug.
 - **Bundle ID**: com.centaur-labs.headroom
 - **SKU**: com.centaur-labs.headroom
 - **Primary Language**: English (U.S.)
@@ -18,7 +28,14 @@ macOS ships via GitHub Releases (Developer ID), not the Mac App Store — yet.
 - **Content Rights**: Does not contain third-party content
 - **Age Rating**: 4+
 
-## Version 1.0.3
+## Listing copy
+
+Not pinned to a version. This file was headed "Version 1.0.3" and sat there
+through 1.2.7, because the description and keywords do not change per release
+and nobody was going to renumber a heading that meant nothing. **What's New is
+the only per-release field, and its source is `CHANGELOG.md`** — copy the
+section for the version being submitted rather than maintaining a second one
+here that drifts.
 
 ### Description (4000 chars max)
 
@@ -56,16 +73,14 @@ app share the same local host — this iOS app is the pocket companion.
 
 quotas,claude,codex,cursor,developer,ci,vercel,supabase,menubar,local,burn
 
-### What's New (Version 1.0.3)
+### What's New
 
-First public GitHub Release for the macOS app (notarized zip). Same iOS
-TestFlight companion: pair with the Mac host for quotas, burndown, activity,
-services, widgets, and attention notifications.
+Take the `CHANGELOG.md` section for the version being submitted.
 
 ### Promotional Text (170 chars max, can be updated without review)
 
-Max your quotas without leaving the flow. Claude, Codex, and Cursor on your
-phone — local-first, no Headroom cloud account.
+Know what's left before you hit the wall. Claude, Codex, and Cursor quotas on
+your phone — local-first, no Headroom cloud account.
 
 ### Support URL
 

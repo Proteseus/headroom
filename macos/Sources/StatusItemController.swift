@@ -85,7 +85,10 @@ final class StatusItemController: NSObject {
             attentionLevel: showPip ? attention?.level : nil
         )
         if !healthy {
-            statusItem.button?.toolTip = "Headroom — backend unavailable"
+            // "Backend" is not a word this product uses anywhere else, and
+            // "unavailable" was doing four different jobs. Settings already
+            // calls this thing the host.
+            statusItem.button?.toolTip = "\(HeadroomCopy.product) — host not answering"
         } else if showPip, let attention {
             statusItem.button?.toolTip =
                 "\(HeadroomCopy.product) — \(attention.summary ?? HeadroomCopy.needsAttention)"

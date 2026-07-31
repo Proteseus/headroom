@@ -1969,7 +1969,7 @@ static void drawQuotaRowCompact(const char *title, float pct, float pace,
 }
 
 // glcdfont is ASCII-only. Host copy uses middot (U+00B7 = UTF-8 C2 B7) which
-// otherwise paints as two garbage glyphs — "On track XX 15%". device_view
+// otherwise paints as two garbage glyphs — "On pace XX 15%". device_view
 // already substitutes, but older hosts and firmware-built strings still need
 // this pass.
 static String boardAscii(const char *s) {

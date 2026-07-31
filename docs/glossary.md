@@ -3,10 +3,82 @@
 Canonical names for the same concepts on ESP32, macOS, iOS, and widgets.
 `Shared/HeadroomCopy.swift` is the Swift source. Firmware mirrors the same
 words in `firmware/src/main.cpp` (see the `LABEL_*` constants). Host-served
-titles for sources and pools live in `host/sources_config.py`.
+titles for sources and pools live in `host/sources_config.py`, and the host's
+own prose — `headline`, `verdict`, attention `reasons` — is written in
+`host/burndown.py`. **The host is a copy surface, not a data source**: those
+strings are the ones the ESP32 draws and VoiceOver reads, and no client can
+retitle them. `scripts/check-glossary-copy.sh` searches `host/` for that
+reason.
 
-When you rename something here, update the Swift copy, firmware labels, and
-any hardcoded chrome that still bypasses them.
+When you rename something here, update the Swift copy, firmware labels, host
+prose, and any hardcoded chrome that still bypasses them. **A rename is a
+release**, not a commit that rides along with something else: the iPhone
+replays its last saved payload (**Recent history**) and the board holds strings
+in flash, so for as long as a stale client is alive both spellings are on
+screen somewhere. Clients must never persist host prose across a rename.
+
+## The decisions under all of this
+
+The tables below are the *what*. These are the *why*, and they are the ones
+that get expensive to reverse.
+
+**Percent is the only unit Headroom claims.** Anthropic bills in points,
+Cursor in requests, GitHub in premium requests, OpenAI in credits. Headroom
+flattens all of them to a share of a window, and that flattening *is* the
+product — it is what lets one glance compare four plans. The cost is that
+Headroom's numbers never reconcile with a provider's billing page, so the copy
+must never borrow a provider's unit for a figure that isn't in it. No "pts",
+no "credits", no token counts. If money ever lands on a surface (`host/pricing.py`
+exists and is unused by the UI), it arrives as a second, separately labelled
+axis — it does not get to reuse these words.
+
+**Voice: second person, present tense, no first person.** Headroom says *you*
+and names things; it never says *we*, *our*, or *I*, and it never apologises.
+Actions are imperative (**Refresh all**, **Add a test row**), states are
+fragments (**Not updating**, **On pace**). Welcome is allowed to be warmer than
+Settings — that is a register, and it is deliberate — but it stays in the same
+person. `check-glossary-copy.sh` fails the build on `Text("We `.
+
+**Metaphors are zoned, one per axis.** Five families were in use at once and
+they pointed three directions for one fact:
+
+| Axis | Family | Words |
+|---|---|---|
+| State — how much is left | Fuel | tank, drains, **Empty**, full |
+| Rate — is that sustainable | Pace | **On pace**, **Over pace**, to spare, over |
+| History — how it got here | Burndown | burndown, daily burn, burn rate |
+| Money | Provider's own | credits, grants — **only** where the provider bills that way (Codex reset credits) |
+
+Do not mix them. A tank does not run "over budget"; a pace is not "empty".
+The product name is the fuel family's, and it is the only place the metaphor
+is stated as a noun.
+
+**Telling time: prose says *when*, compact says *how long*.**
+
+| Form | Looks like | Where | Field |
+|---|---|---|---|
+| Clock | `Thu 14:00`, `tomorrow 04:18` | `headline`, anywhere with a full line | `_when()` |
+| Duration | `4d 44m`, `3d` | menu bar, watch, board, `Resets 3d` captions | `resets_in`, `fmt_resets()` |
+
+One sentence gets one form. `58% left · 4d 44m. Out tomorrow 04:18` was two
+time facts in two shapes on one line. The board's `verdict` is the documented
+exception — at ~25 bytes it takes duration form, and each of its branches
+returns only one time fact, so the two never meet.
+
+**Times are 24-hour, English (U.S.), not localized.** Every string is a literal;
+there is no `.strings` catalogue and `host/burndown.py` formats with `%H:%M`.
+That was decided by default rather than on purpose — record it here so the day
+it changes is a decision and not a surprise.
+
+**Provider names belong to other companies.** Claude, Codex, Cursor, Copilot,
+Gemini, Windsurf, JetBrains, Zed. Render them exactly as the vendor does, never
+possessive (*Claude's quota*), never verbed, and never phrased so the reader
+takes Headroom for an official integration. Headroom reads local files those
+tools already wrote; it is not endorsed by any of them.
+
+**Accessibility strings follow one order: name, then value, then state.**
+"Claude, 42 percent used, 38 percent pace". Layout and host prose stay
+surface-specific (see the end of this file), but the shape does not.
 
 ## Product
 
@@ -43,7 +115,7 @@ any hardcoded chrome that still bypasses them.
 | **Coding agents** | Provider setup and attention gateway settings | macOS |
 | **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
 | **Install hooks** / **Reinstall hooks** / **Remove hooks** | Manage only Headroom-owned entries in Claude settings | macOS |
-| **Send test attention** | Add a harmless Claude test row to the common feed | macOS |
+| **Add a test row** | Add a harmless Claude test row to the common feed | macOS |
 | **Request** | The agent's own request, field by field, above the answer buttons | iOS |
 | **Why** | The provider's stated reasons for asking | iOS |
 | **Show request** / **Hide request** | Expand the bulk fields (file contents, replacement bodies) | iOS |
@@ -90,16 +162,28 @@ push turned green, the word would stop distinguishing a shipped deploy from a
 | **Burndown** | Remaining-% over time for one pool | `burndown` |
 | **Overall burndown** | Same chart across all coding providers | `burndown` / `burndown_primary` |
 | **Daily burn** | Per-day %-point burn across providers | `by_day` |
-| **pts / day** | Unit subtitle for daily burn | — |
+| **% / day** | Unit subtitle for daily burn | — |
 | **Headroom rings** | Concentric usage + pace indicator | see `docs/rings.md` |
 | **N% used** | The rings' reading | — |
 | **N% left** | The burndown's reading (remaining) | — |
+| **On pace** / **Over pace** | Whether the current burn lands inside the window | `verdict`, `headline` |
+| **N% to spare** / **N% over** | Signed distance from an even spend | `headline` |
 | **Empty Thu** | Forecast reaches zero before the pool renews | — |
 
 Rings say **used**, burndown says **left**. Keep the word attached to the
 number wherever both glyphs share a surface — the watch's rectangular
 complication does — so they never look like one figure disagreeing with
 itself. Where only one date fits, **Empty** outranks **Resets**.
+
+Pace has two words and only two: **On pace** and **Over pace**. "Ahead of
+pace" cuts both ways to a casual reader, and "On track" was a third word for
+a state that already had one. `headline` and `verdict` say the same pair, so
+moving between the board and the Mac never teaches a second vocabulary.
+
+Slack against an even spend is signed and in percent: **12% to spare**,
+**4% over**. The old `_points()` ran `abs()` over a signed delta and called
+the result "4 points", so a pool four behind read exactly like a pool four
+ahead.
 
 Overall burndown’s optional subtitle is just **7 days** (don’t restate “all quotas”).
 The domain is a fixed local week — today−3 … today+4 — so history stays readable
@@ -109,8 +193,10 @@ shows **Resets …**.
 
 A reset the provider hands out early — Codex clearing a week you had already
 spent — is a **granted** reset. On the **Codex** burndown (not Overview) it is a
-solid accent rule where an upcoming one is dotted, captioned **Reset granted · N
-pts back**. Scheduled rolls get no mark; the axis already ends on those. The
+solid accent rule where an upcoming one is dotted, captioned **Reset granted ·
+N% back**. Percent even here: Codex genuinely grants credits, but the number
+in this caption is a share of the window the chart draws, not a credit count.
+Scheduled rolls get no mark; the axis already ends on those. The
 host detects them in the sample log (`burndown[].resets`), so the mark and the
 history agree by construction.
 
@@ -147,6 +233,25 @@ picks between them so no surface has to.
 
 Do not use **All clear** for connection health — that word belongs on the
 Attention card. The Overview status row uses **Connected** / **Mac unavailable**.
+
+### Service health
+
+Supabase, Plausible and the Supabase advisors sit on the same axis as source
+health: **does the reader wait, or go and do something.** The host's own
+`error` string wins when there is one; these are the fallbacks for when there
+isn't. `HeadroomCopy.serviceStatus(_:configured:)` picks between them.
+
+| Term | Meaning |
+|---|---|
+| **N needs a key** | `configured == false` — nothing pasted yet. Keys live under Settings → Integrations |
+| **N not reporting** | Configured, and it did not answer. Nothing to do but wait |
+| **Plan unknown** | The provider didn't name the plan. Not a failure; the status label beside it already carries health |
+
+**Nothing says "unavailable" any more** except **Mac unavailable**, which is
+the transport and keeps the word. It had grown to cover a missing key, a
+failed fetch, a dead host and an absent plan name — four situations, three of
+them actionable, one sentence for all of them. The menu bar tooltip says
+**host not answering**; "backend" is not a word this product uses.
 
 ## Empty states
 
@@ -203,7 +308,9 @@ undifferentiated pile of toggles:
 | `plausible` | Plausible | `devtools` |
 | `local` | Local | `devtools` |
 
-Named extra logins (`claude:work`) keep a full `title` of `Claude · Work` for
+**Extra accounts** is the user-facing name (macOS Settings section header);
+"logins" and "identities" are not used. An extra account (`claude:work`) keeps
+a full `title` of `Claude · Work` for
 text-only surfaces (Settings, menu bar, the board). The host also ships
 `label` (`Work`). Anywhere a brand mark or accent already names the tool —
 dashboard tabs, rings, iPhone rows, widgets — clients draw `label` instead so

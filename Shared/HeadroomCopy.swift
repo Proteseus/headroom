@@ -51,9 +51,16 @@ enum HeadroomCopy {
     static let overallBurndown = "Overall burndown"
     static let overallBurndownSubtitle = "7 days"
     static let dailyBurn = "Daily burn"
-    static let dailyBurnUnit = "pts / day"
+    /// Percentage points of a quota window, per day — the same quantity the
+    /// host writes as `%/day`. Never "pts": every provider bills in a real
+    /// unit of its own called points, credits, or premium requests, and a
+    /// reader with those numbers open in another tab will take this for one
+    /// of them. Percent is the only unit Headroom claims.
+    static let dailyBurnUnit = "% / day"
 
-    /// "Resets 3d" — same wording as pool detail captions.
+    /// "Resets 3d" — duration form, for surfaces too narrow for a weekday and
+    /// a clock. Host prose says the same instant as "resets Thu 14:00"; see
+    /// docs/glossary.md, "Telling time", for which surface gets which.
     static func resets(_ label: String) -> String {
         "Resets \(label)"
     }
@@ -85,13 +92,17 @@ enum HeadroomCopy {
         "\(poolTitle) burndown"
     }
 
-    /// "Reset granted · 42 pts back" — caption on the Codex burndown when a
+    /// "Reset granted · 42% back" — caption on the Codex burndown when a
     /// mid-window grant restarted the curve. Not shown on Overview.
+    ///
+    /// Percent, not "pts", even though Codex itself grants credits: the number
+    /// here is a share of the window this chart draws, and borrowing the
+    /// provider's unit for a figure that isn't in it is the worse lie.
     static let resetGranted = "Reset granted"
 
     static func resetGranted(forgivenPct: Double?) -> String {
         guard let forgivenPct, forgivenPct >= 1 else { return resetGranted }
-        return "\(resetGranted) · \(Int(forgivenPct.rounded())) pts back"
+        return "\(resetGranted) · \(Int(forgivenPct.rounded()))% back"
     }
 
     static func resetCreditExpires(_ label: String) -> String {
@@ -141,7 +152,10 @@ enum HeadroomCopy {
     static let installHooks = "Install hooks"
     static let reinstallHooks = "Reinstall hooks"
     static let removeHooks = "Remove hooks"
-    static let sendTestAttention = "Send test attention"
+    /// Adds one harmless Claude row to the common feed. Named for what it
+    /// does: "attention" is the card's name and the API's table, not a thing
+    /// you can have one of and send.
+    static let sendTestAttention = "Add a test row"
     static func usingCodex(at path: String) -> String {
         "Using Codex at \(path)"
     }
@@ -230,6 +244,39 @@ enum HeadroomCopy {
     static func needsSignIn(age: TimeInterval) -> String {
         "\(needsSignIn) · \(ago(age))"
     }
+
+    // MARK: Service health
+    //
+    // Supabase, Plausible, and the Supabase advisors, on the same axis as
+    // source health above: does the reader wait, or go and do something.
+    //
+    // These three used to say "Supabase unavailable". That word was carrying
+    // a missing key, a failed fetch, and a Mac that wasn't answering, and it
+    // named none of them — a reader who has not pasted a token and a reader
+    // whose network blipped got the same sentence. The host's own `error`
+    // string still wins when there is one; this is the fallback for when
+    // there isn't.
+
+    /// No credential yet. `configured == false` on the service payload.
+    static func serviceNeedsKey(_ service: String) -> String {
+        "\(service) needs a key"
+    }
+
+    /// Configured, and it did not answer. Nothing for the reader to do.
+    static func serviceNotReporting(_ service: String) -> String {
+        "\(service) not reporting"
+    }
+
+    /// Picks between the two so no surface has to, the way `statusNote` does
+    /// for sources.
+    static func serviceStatus(_ service: String, configured: Bool?) -> String {
+        configured == false ? serviceNeedsKey(service) : serviceNotReporting(service)
+    }
+
+    /// The provider didn't name the plan. Not a failure and not actionable —
+    /// the status label beside it already says whether anything is wrong — so
+    /// it says what it knows rather than borrowing an alarm word.
+    static let planUnknown = "Plan unknown"
 
     // MARK: Activity feed
 
