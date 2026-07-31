@@ -53,8 +53,8 @@ unattended. You do not need them:
 
 | Thing | Default | Yours |
 |---|---|---|
-| Team | `$HEADROOM_TEAM_ID` (992N457T8D) | `export HEADROOM_TEAM_ID=ABCDE12345` |
-| Bundle prefix | `com.centaur-labs` | edit `macos/project.yml` |
+| Team | `$HEADROOM_TEAM_ID` (992N457T8D) | `DEVELOPMENT_TEAM` in `macos/Local.xcconfig` (gitignored), or export the env var |
+| Bundle prefix | `com.centaur-labs` | `HEADROOM_BUNDLE_PREFIX` in `macos/Local.xcconfig` |
 | iOS profiles | the maintainer's, already on their Mac | see below |
 
 The Mac app and the iOS **simulator** build pass `CODE_SIGNING_ALLOWED=NO` and
@@ -62,10 +62,10 @@ touch none of this. Only an iOS **device** build, a notarized release, or a
 TestFlight upload does.
 
 A device build cannot go unsigned, and Apple will not mint anyone else a
-profile for `com.centaur-labs.*`. Forks change `options.bundleIdPrefix` in
-`macos/project.yml` (plus the matching App Group), export their own
-`HEADROOM_TEAM_ID`, and build with `-allowProvisioningUpdates` so Xcode
-registers the new ids. Full steps in
+profile for `com.centaur-labs.*`. Forks set `DEVELOPMENT_TEAM` and
+`HEADROOM_BUNDLE_PREFIX` in a gitignored `macos/Local.xcconfig` (README,
+"Signing as yourself"), rename the matching App Group, and build with
+`-allowProvisioningUpdates` so Xcode registers the new ids. Full steps in
 [docs/ios-companion.md](docs/ios-companion.md).
 
 `scripts/build-app.sh` passes `CODE_SIGNING_ALLOWED=NO`, so a local Mac build

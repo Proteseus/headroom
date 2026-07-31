@@ -92,12 +92,14 @@ in iOS"* — a red herring that has nothing to do with the complication code. Th
 repo defaults to the maintainer's team and bundle ids. A fork needs both of
 these before the device build resolves:
 
-1. `options.bundleIdPrefix` in [`macos/project.yml`](../macos/project.yml) →
-   your own reverse-DNS prefix. `com.centaur-labs.*` is already registered to
-   someone else's team, so Apple will not mint you a profile for it. Change the
-   `group.com.centaur-labs.headroom` App Group to match.
-2. `export HEADROOM_TEAM_ID=ABCDE12345` (your Team ID) so
-   `scripts/version-env.sh` writes it into `Version.xcconfig`.
+1. `HEADROOM_BUNDLE_PREFIX = com.example.you` in the gitignored
+   `macos/Local.xcconfig` (README, "Signing as yourself") → your own
+   reverse-DNS prefix on every target. `com.centaur-labs.*` is already
+   registered to someone else's team, so Apple will not mint you a profile for
+   it. Change the `group.com.centaur-labs.headroom` App Group to match (the
+   `.entitlements` files and `Shared/WidgetSnapshot.swift`).
+2. `DEVELOPMENT_TEAM = ABCDE12345` (your Team ID) in the same file —
+   or `export HEADROOM_TEAM_ID=ABCDE12345`, which wins over it.
 
 Then let Xcode register the ids and mint profiles on first build:
 

@@ -23,6 +23,6 @@
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>com.centaur-labs.headroom</string>
+	<string>$(HEADROOM_BUNDLE_PREFIX).headroom</string>
 </dict>
 </plist>
