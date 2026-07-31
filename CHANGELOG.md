@@ -7,6 +7,31 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.0 — 2026-07-31
+
+Nothing in this one changes what the app does. It is the release that stops a
+whole class of silent breakage from reaching you in the next one.
+
+### Added
+
+- **The `/usage` contract is now enforced, not just described.** Five tests pin
+  the parts that fail quietly: a host too old to send a `contract` number is
+  treated as speaking version 1 rather than as broken, one malformed row costs
+  that row instead of blanking the whole popover, and an empty list stays
+  distinguishable from a missing one. All three were already true. None of them
+  was checked, and the popover decodes under a single `try`, so the first
+  regression would have shown up as an empty window with no clue why.
+- **A guard for constants that live in three languages.** Row caps, provider
+  slots and pool counts are written out separately in the Python host, the
+  Swift clients and the ESP32 firmware, kept in step by a comment. When they
+  drift there is no build error, just the board drawing four rows into a
+  five-row buffer. `scripts/check-mirrored-constants.sh` now fails the build
+  instead.
+- **CI runs the host on Python 3.9 as well as 3.12.** 3.9 is the real floor:
+  Headroom.app points a LaunchAgent at the system `python3`, and macOS 14 ships
+  3.9.6. A single 3.10-only line would have passed every check and then failed
+  on every macOS 14 Mac.
+
 ## 1.2.9 — 2026-07-31
 
 ### Added
