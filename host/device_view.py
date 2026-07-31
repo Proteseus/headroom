@@ -385,6 +385,11 @@ def build(doc):
     device = _pick(doc, CLAUDE_FIELDS)
     if doc.get("updated") is not None:
         device["updated"] = doc["updated"]
+    # Carried even though no shipped firmware reads it yet. A board is the
+    # client most likely to be years behind its host, and it can only ever
+    # check a field the host was already sending before that firmware existed.
+    if doc.get("contract") is not None:
+        device["contract"] = doc["contract"]
 
     device["codex"] = _pick(doc.get("codex"), CODEX_FIELDS)
     device["cursor"] = _pick(doc.get("cursor"), CURSOR_FIELDS)

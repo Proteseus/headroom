@@ -7,6 +7,56 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- **Headroom can start Codex work, which is what finally makes the Codex
+  gateway do anything.** The adapter has been connecting happily for months
+  and had never raised a single event, because it spawned an App Server and
+  never gave it a thread. `POST /agents/codex/tasks` with a folder and a
+  prompt starts one, `POST /agents/codex/steer` adds to a turn already
+  running, and `GET /agents/codex/task` says what is live. All localhost-only:
+  they drive a local executable.
+- **Send a message into a running turn** — `turn/steer`, gated on
+  `expectedTurnId` so words meant for one turn never land in the next.
+  `send_message` reports supported on Codex for the first time.
+- Codex work that dies now says so. The very first real turn Headroom started
+  ended on "your workspace is out of credits" and told nobody, which is the
+  opposite of a surface for following work. A turn that completes with an
+  error raises a dismissible row carrying the provider's own message and
+  error code.
+
+- **Start a task from the Mac or the phone.** One control on both: pick the
+  agent, pick the folder, say what it should do. `POST /agents/tasks` takes
+  either provider, and `GET /agents/tasks` tells a client which agents can
+  actually take work right now so nothing is offered that would fail.
+- **Claude tasks too.** Claude Code has no "start a session" API and does not
+  need one: `claude -p` runs headless and the hooks Headroom already installed
+  are global, so a session started here reports back exactly like one started
+  in a terminal. Verified end to end.
+- Starting a task says so. Both providers answer `ok` and then work quietly,
+  so a success was indistinguishable from nothing happening — the only thing
+  either surface ever showed was a red line when it failed. A start now
+  confirms **"Claude is working in headroom"**, and the Mac adds where the
+  requests will turn up, because the Mac has no feed of its own. A failed
+  start also keeps the words you typed, instead of clearing them along with
+  the attempt.
+- The Mac gets a folder picker; the phone picks from folders the Mac has used,
+  because a phone cannot browse the Mac's disk. The host remembers the last
+  eight.
+
+### Changed
+
+- Starting work from the phone rides the same Mac-granted **Answer coding
+  agents** permission that lets it answer an approval — off by default, and
+  never open to the LAN at large.
+- `docs/agent-attention.md` records what a Codex task needs to be answerable:
+  `approvalPolicy: "on-request"` and `sandbox: "workspace-write"`, because a
+  policy that never asks produces no approvals to answer. It also states the
+  standing limitation plainly — only work Headroom started is visible, which
+  is an OpenAI-side restriction rather than a design choice.
+
 ## 1.2.8 — 2026-07-31
 
 ### Added

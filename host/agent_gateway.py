@@ -67,6 +67,49 @@ class AgentGateway:
         replacement.start()
         return self.configuration()
 
+    def start_task(self, provider, cwd, prompt):
+        """One route for both agents — the surface should not care which."""
+        with self._adapter_lock:
+            adapter = self.adapters.get(provider)
+        if adapter is None or not hasattr(adapter, "start_task"):
+            raise ValueError(f"cannot start work for {provider}")
+        task = adapter.start_task(cwd, prompt)
+        app_config.remember_task_folder(task.get("cwd"))
+        return {"ok": True, "provider": provider, "task": task}
+
+    def task_surface(self):
+        """What a client needs to offer "start a task" without guessing."""
+        with self._adapter_lock:
+            adapters = dict(self.adapters)
+        providers = [
+            {
+                "provider": name,
+                "can_start": hasattr(adapter, "start_task"),
+                "connection": adapter.capabilities().get("connection"),
+            }
+            for name, adapter in adapters.items()
+        ]
+        return {
+            "ok": True,
+            "providers": providers,
+            "folders": app_config.task_folders(),
+        }
+
+    def codex_start_task(self, cwd, prompt):
+        with self._adapter_lock:
+            codex = self.codex
+        return {"ok": True, "task": codex.start_task(cwd, prompt)}
+
+    def codex_steer(self, text):
+        with self._adapter_lock:
+            codex = self.codex
+        return {"ok": True, "task": codex.steer(text)}
+
+    def codex_task(self):
+        with self._adapter_lock:
+            codex = self.codex
+        return {"ok": True, "task": codex.active_task()}
+
     def claude_permission(self, payload, wait_seconds=None):
         with self._adapter_lock:
             claude = self.claude

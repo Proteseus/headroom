@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -190,6 +192,35 @@ def _choice_actions(options):
             action["description"] = option["description"]
         actions.append(action)
     return actions + [REPLY, ASK_ON_MAC]
+
+
+MAX_PROMPT_CHARS = 8000
+
+# `claude -p` runs headless and its hooks are the ones already installed in
+# ~/.claude/settings.json, so a session Headroom starts reports to Headroom
+# without any extra wiring. `manual` keeps permission requests coming — the
+# whole point is that they arrive on your phone.
+CLAUDE_TASK_MODE = "manual"
+
+
+def _claude_binary():
+    """Find `claude` without assuming an interactive shell's PATH.
+
+    The host is a LaunchAgent, so its PATH is narrow — the same trap the Codex
+    adapter documents.
+    """
+    configured = shutil.which("claude")
+    if configured:
+        return configured
+    for candidate in (
+        os.path.expanduser("~/.claude/local/claude"),
+        os.path.expanduser("~/.local/bin/claude"),
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ):
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 def _reply_text(value):
@@ -502,6 +533,39 @@ class ClaudeCodeHooks:
                 ),
             },
         }
+
+    def start_task(self, cwd, prompt):
+        """Run `claude -p` in a folder, headless, and let the hooks report it.
+
+        Claude Code has no "start a session" API, but it does not need one:
+        the hooks Headroom installed are global, so a session started here
+        reports to Headroom exactly like one started in a terminal. The
+        process is detached on purpose — a turn can run for minutes and the
+        HTTP request that started it must not wait for the answer.
+        """
+        folder = os.path.expanduser(str(cwd or "").strip())
+        words = str(prompt or "").strip()
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("a task needs a folder that exists")
+        if not words:
+            raise ValueError("a task needs a prompt")
+        binary = _claude_binary()
+        if binary is None:
+            raise RuntimeError("Claude Code executable not found")
+        status = claude_hooks.inspect()
+        if not status.get("installed"):
+            raise RuntimeError(
+                "Install Claude hooks first, or the task cannot report back")
+        process = subprocess.Popen(
+            [binary, "-p", words[:MAX_PROMPT_CHARS],
+             "--permission-mode", CLAUDE_TASK_MODE],
+            cwd=folder,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"pid": process.pid, "cwd": folder}
 
     def lifecycle_event(self, payload):
         session_id = payload.get("session_id")

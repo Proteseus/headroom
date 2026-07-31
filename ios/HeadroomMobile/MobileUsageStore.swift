@@ -9,6 +9,7 @@ final class MobileUsageStore: ObservableObject {
     @Published private(set) var changingSourceID: String?
     @Published private(set) var mobilePermissions = MobilePermissions.allDisabled
     @Published private(set) var agentAttentionEvents: [AgentAttentionEvent] = []
+    @Published private(set) var agentTaskSurface: AgentTaskSurface?
     @Published private(set) var respondingAgentEventID: String?
     @Published private(set) var errorMessage: String?
     /// When the Mac handed us the snapshot on screen — live this session, or
@@ -135,6 +136,45 @@ final class MobileUsageStore: ObservableObject {
         // poll; the one at launch bailed on `isConfigured`.
         startLiveUpdates()
         await refresh()
+    }
+
+    /// What the phone needs to offer "start a task": which agents can take
+    /// work, and which folders the Mac has used. Refreshed lazily, because it
+    /// only changes when the Mac starts work somewhere new.
+    func loadTaskSurface() async {
+        guard mobilePermissions.agents else { return }
+        let client = MobileHeadroomClient(
+            endpoint: MobileConnection.endpoint,
+            token: MobileTokenStore.read() ?? ""
+        )
+        agentTaskSurface = try? await client.taskSurface()
+    }
+
+    func startTask(
+        provider: String, cwd: String, prompt: String
+    ) async -> AgentTaskOutcome {
+        guard mobilePermissions.agents else {
+            return AgentTaskOutcome(ok: false, message: "Not allowed")
+        }
+        let client = MobileHeadroomClient(
+            endpoint: MobileConnection.endpoint,
+            token: MobileTokenStore.read() ?? ""
+        )
+        do {
+            let started = try await client.startTask(
+                provider: provider, cwd: cwd, prompt: prompt)
+            await loadTaskSurface()
+            await refresh(forceServerSync: true)
+            let agent = agentTaskSurface?.providers.first {
+                $0.provider == started.provider
+            }?.title ?? started.provider
+            let folder = (started.task.cwd ?? cwd)
+                .split(separator: "/").last.map(String.init) ?? cwd
+            return AgentTaskOutcome(
+                ok: true, message: HeadroomCopy.agentIsWorking(agent, in: folder))
+        } catch {
+            return AgentTaskOutcome(ok: false, message: error.localizedDescription)
+        }
     }
 
     func answer(

@@ -85,7 +85,7 @@ actually spent your quota.
 | Quota samples | **14 days** | `~/.headroom/quota_samples.jsonl` |
 | Daily burn | **30 days** | `~/.headroom/daily_burn.json` |
 | Claude history | **400 days** | `~/.headroom/claude_history.json` |
-| Agent ledger | **unbounded** | `~/.headroom/attention.sqlite3` |
+| Agent ledger | **30 days from settlement** | `~/.headroom/attention.sqlite3` |
 
 Three decisions follow from calling it an asset:
 
@@ -95,11 +95,13 @@ Three decisions follow from calling it an asset:
 - **It should survive a new Mac.** There is no export today and no import.
   Getting a new laptop currently costs you every chart. That is the gap most
   worth closing of anything in this file.
-- **The ledger is the exception, and needs the opposite treatment.** It holds
-  commands, file paths and code excerpts from every permission request, capped
-  per field but never pruned. That is the one store where *keeping* data
-  forever is the problem. It needs a retention window and a way to clear it,
-  and until it has one, [docs/privacy.md](privacy.md) has to say so.
+- **The ledger is the exception, and gets the opposite treatment.** It holds
+  commands, file paths and code excerpts from every permission request, so it
+  is the one store where *keeping* data is the risk. Settled events are pruned
+  30 days after they settle; anything still pending survives regardless of age,
+  because something is blocked on it. The clock runs from settlement, not
+  creation — a request raised in March and answered today is a record of what
+  you approved today.
 
 The four numbers above are also four different formats in one directory. Time
 series want to be in the SQLite that already exists; config stays JSON. That

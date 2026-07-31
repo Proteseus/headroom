@@ -28,6 +28,19 @@ USER_INPUT = "item/tool/requestUserInput"
 REQUEST_RESOLVED = "serverRequest/resolved"
 TURN_COMPLETED = "turn/completed"
 TURN_INTERRUPT = "turn/interrupt"
+THREAD_START = "thread/start"
+TURN_START = "turn/start"
+TURN_STEER = "turn/steer"
+TURN_STARTED = "turn/started"
+
+CALL_TIMEOUT_SECONDS = 30
+MAX_PROMPT_CHARS = 8000
+
+# Approvals only reach Headroom when Codex is told to ask. "on-request" is the
+# policy that raises one when the sandbox would otherwise block the work;
+# approvalsReviewer defaults to `user`, which is the client — us.
+DEFAULT_APPROVAL_POLICY = "on-request"
+DEFAULT_SANDBOX = "workspace-write"
 
 # Ends the whole turn rather than answering this one request, so it is
 # destructive and stays behind foreground authentication.
@@ -142,6 +155,13 @@ def _short(value, fallback, limit=240):
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
+class _PendingCall:
+    def __init__(self):
+        self.ready = threading.Event()
+        self.result = None
+        self.error = None
+
+
 class CodexAppServer:
     def __init__(self, store, binary=None, log=print):
         self.store = store
@@ -160,6 +180,9 @@ class CodexAppServer:
         self._pending_by_event = {}
         self._event_by_request = {}
         self._request_id = 100
+        self._pending_calls = {}
+        self._active_thread = None
+        self._active_turn = None
 
     def capabilities(self):
         available = self.binary is not None
@@ -188,10 +211,10 @@ class CodexAppServer:
                 # own schema, so the maturity here mirrors the provider's.
                 "structured_question": {
                     "supported": True, "maturity": "experimental"},
-                # turn/steer exists and would carry one, but it needs a text
-                # field on the phone and an expectedTurnId precondition.
+                # turn/steer, gated on expectedTurnId so words meant for one
+                # turn never land in the next.
                 "send_message": {
-                    "supported": False, "maturity": "planned"},
+                    "supported": True, "maturity": "stable"},
                 "interrupt": {
                     "supported": True, "maturity": "stable"},
             },
@@ -310,12 +333,103 @@ class CodexAppServer:
         self._send({"id": request_id, "result": {"decision": decision}})
 
     def _request(self, method, params):
-        """A client-initiated call. Ids start past the handshake's own id 1."""
+        """A client-initiated call, fire and forget. Ids start past id 1."""
         with self._lock:
             self._request_id += 1
             request_id = self._request_id
         self._send({"id": request_id, "method": method, "params": params})
         return request_id
+
+    def _call(self, method, params, timeout=CALL_TIMEOUT_SECONDS):
+        """A client-initiated call that waits for its answer.
+
+        Approvals travel the other way — the server asks us — so the adapter
+        only needed fire-and-forget until it began starting work of its own.
+        """
+        with self._lock:
+            self._request_id += 1
+            request_id = self._request_id
+            waiter = _PendingCall()
+            self._pending_calls[request_id] = waiter
+        try:
+            self._send({"id": request_id, "method": method, "params": params})
+            if not waiter.ready.wait(timeout):
+                raise RuntimeError(f"Codex did not answer {method} in time")
+            if waiter.error is not None:
+                message = waiter.error.get("message") or waiter.error
+                raise RuntimeError(f"Codex refused {method}: {message}")
+            return waiter.result or {}
+        finally:
+            with self._lock:
+                self._pending_calls.pop(request_id, None)
+
+    def start_task(self, cwd, prompt, approval_policy=None, sandbox=None):
+        """Start a thread and its first turn, so approvals have somewhere to come from.
+
+        This is the whole reason the adapter had never raised an event: it
+        spawned an App Server and never gave it work. A session started in a
+        terminal talks to its own App Server and cannot reach this one, so
+        until Codex lets a second client attach to a shared daemon, the only
+        Codex work Headroom can follow is work Headroom started.
+        """
+        folder = os.path.expanduser(str(cwd or "").strip())
+        words = str(prompt or "").strip()
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("a task needs a folder that exists")
+        if not words:
+            raise ValueError("a task needs a prompt")
+        with self._lock:
+            process = self._process
+            status = self._status
+        if process is None or process.poll() is not None or status != "ready":
+            raise RuntimeError("Codex App Server is not connected")
+
+        started = self._call(THREAD_START, {
+            "cwd": folder,
+            "approvalPolicy": approval_policy or DEFAULT_APPROVAL_POLICY,
+            "sandbox": sandbox or DEFAULT_SANDBOX,
+        })
+        thread = started.get("thread") or {}
+        thread_id = thread.get("id") if isinstance(thread, dict) else None
+        if not isinstance(thread_id, str) or not thread_id:
+            raise RuntimeError("Codex started a thread without an id")
+
+        turn = (self._call(TURN_START, {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": words[:MAX_PROMPT_CHARS]}],
+        }).get("turn") or {})
+        turn_id = turn.get("id") if isinstance(turn, dict) else None
+
+        with self._lock:
+            self._active_thread = thread_id
+            self._active_turn = turn_id
+        return {"thread_id": thread_id, "turn_id": turn_id, "cwd": folder}
+
+    def steer(self, text, thread_id=None, turn_id=None):
+        """Add to a turn already running, rather than waiting for it to finish."""
+        words = _reply_text(text)
+        if not words:
+            raise ValueError("a message needs words")
+        with self._lock:
+            thread_id = thread_id or self._active_thread
+            turn_id = turn_id or self._active_turn
+        if not thread_id or not turn_id:
+            raise RuntimeError("no Codex turn is running")
+        # expectedTurnId is a precondition: Codex refuses if the turn moved on,
+        # which is the right failure — the words were meant for that turn.
+        self._call(TURN_STEER, {
+            "threadId": thread_id,
+            "expectedTurnId": turn_id,
+            "input": [{"type": "text", "text": words}],
+        })
+        return {"thread_id": thread_id, "turn_id": turn_id}
+
+    def active_task(self):
+        with self._lock:
+            return {
+                "thread_id": self._active_thread,
+                "turn_id": self._active_turn,
+            }
 
     def ingest_for_test(self, message):
         """Exercise protocol normalization without starting a child process."""
@@ -427,6 +541,15 @@ class CodexAppServer:
             process.stdin.flush()
 
     def _handle(self, message):
+        call_id = message.get("id")
+        if call_id is not None and ("result" in message or "error" in message):
+            with self._lock:
+                waiter = self._pending_calls.get(call_id)
+            if waiter is not None:
+                waiter.result = message.get("result")
+                waiter.error = message.get("error")
+                waiter.ready.set()
+                return
         if message.get("id") == 1 and "result" in message:
             result = message.get("result") or {}
             with self._lock:
@@ -455,6 +578,14 @@ class CodexAppServer:
         if method == REQUEST_RESOLVED and isinstance(params, dict):
             self._resolved(params.get("requestId"))
             return
+        if method == TURN_STARTED and isinstance(params, dict):
+            turn = params.get("turn") or {}
+            if isinstance(turn, dict) and isinstance(turn.get("id"), str):
+                with self._lock:
+                    self._active_turn = turn["id"]
+                    if isinstance(params.get("threadId"), str):
+                        self._active_thread = params["threadId"]
+            return
         if method == TURN_COMPLETED and isinstance(params, dict):
             turn = params.get("turn") or {}
             turn_id = turn.get("id") if isinstance(turn, dict) else None
@@ -463,6 +594,10 @@ class CodexAppServer:
                     PROVIDER, ADAPTER, turn_id,
                     {"reason": "turn completed"},
                 )
+                with self._lock:
+                    if self._active_turn == turn_id:
+                        self._active_turn = None
+                self._turn_failed(params.get("threadId"), turn)
 
     def _record_approval(self, request_id, method, params):
         session_id = params.get("threadId")
@@ -603,6 +738,39 @@ class CodexAppServer:
                 [option["label"] for option in options],
             )
             self._event_by_request[key] = event["id"]
+
+    def _turn_failed(self, thread_id, turn):
+        """Say so when work Headroom started dies.
+
+        A task that ends in silence is the opposite of a surface for following
+        work — the first real Codex turn this adapter ever started stopped on
+        "out of credits" and told nobody.
+        """
+        error = turn.get("error") if isinstance(turn, dict) else None
+        if not isinstance(error, dict):
+            return
+        message = error.get("message")
+        if not isinstance(message, str) or not message.strip():
+            return
+        info = error.get("codexErrorInfo")
+        if isinstance(info, dict):
+            info = info.get("type") or info.get("code")
+        detail = {"tool_name": "Codex task", "request": []}
+        if isinstance(info, str) and info:
+            detail["reasons"] = [info]
+        self.store.create(
+            provider=PROVIDER,
+            adapter=ADAPTER,
+            provider_request_id="turn-error-" + str(turn.get("id")),
+            session_id=thread_id if isinstance(thread_id, str) and thread_id
+            else str(turn.get("id")),
+            turn_id=turn.get("id") if isinstance(turn.get("id"), str) else None,
+            kind="agent_waiting",
+            title="Codex stopped",
+            summary=_short(message, "The turn ended early"),
+            detail=detail,
+            actions=[{"id": "dismiss", "label": "Dismiss", "risk": "safe"}],
+        )
 
     def _decline_question(self, request_id):
         """No opinion: an empty answer set leaves the question to the Mac."""

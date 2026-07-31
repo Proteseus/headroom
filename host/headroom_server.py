@@ -773,6 +773,11 @@ def _compute_doc():
                                week_q.get("resets_in_s"), quota_trusted)
     doc = {
         "updated": datetime.now(local_tz).strftime("%Y-%m-%dT%H:%M:%S%z"),
+        # Shape of this document, for clients that ship separately from the
+        # host — the phone and the board. A client older than its own floor
+        # says so instead of drawing blanks. See host_version.CONTRACT and
+        # docs/contract.md for when this moves.
+        "contract": host_version.CONTRACT,
         "plan": quota.get("plan"),
         "session_pct": session_q.get("pct"),
         "session_pace_pct": oauth_usage.pace_pct(
@@ -1419,7 +1424,9 @@ class Handler(BaseHTTPRequestHandler):
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch",
                         "/agents/capabilities", "/agents/config",
-                        "/agents/claude/config", "/machines/config",
+                        "/agents/claude/config", "/agents/codex/task",
+                        "/agents/tasks",
+                        "/machines/config",
                         "/attention/events"):
             self.send_error(404)
             return
@@ -1440,6 +1447,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
             self._send_json(200, _accounts_payload())
+            return
+        if path == "/agents/tasks":
+            if not self._is_loopback() and not self._mobile_permission_allowed(
+                    "agents"):
+                self._send_json(403, {"ok": False, "error": "not allowed"})
+                return
+            self._send_json(200, agent_gateway.get().task_surface())
+            return
+        if path == "/agents/codex/task":
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            self._send_json(200, agent_gateway.get().codex_task())
             return
         if path == "/agents/config":
             if not self._is_loopback():
@@ -1548,6 +1568,9 @@ class Handler(BaseHTTPRequestHandler):
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
+            "/agents/codex/tasks",
+            "/agents/codex/steer",
+            "/agents/tasks",
             "/machines/config",
             "/machines/sync",
         ) and event_response_id is None:
@@ -1598,7 +1621,18 @@ class Handler(BaseHTTPRequestHandler):
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
-        elif path == "/agents/claude/config":
+        elif path == "/agents/tasks":
+            # Starting work runs a local executable with your words, so it
+            # rides the same Mac-granted permission that lets a phone answer
+            # an approval — off by default, and never open to the LAN at large.
+            if not self._is_loopback() and not self._mobile_permission_allowed(
+                    "agents"):
+                self._send_json(403, {"ok": False, "error": "not allowed"})
+                return
+        elif path in ("/agents/claude/config", "/agents/codex/tasks",
+                      "/agents/codex/steer"):
+            # These start or steer a local executable, so they never answer
+            # over the LAN — same rule as /agents/config.
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
@@ -1640,6 +1674,37 @@ class Handler(BaseHTTPRequestHandler):
             # No decision deliberately hands control back to Claude's ordinary
             # local permission dialog.
             self._send_json(200, result or {})
+            return
+
+        if path == "/agents/tasks":
+            try:
+                result = agent_gateway.get().start_task(
+                    payload.get("provider"), payload.get("cwd"),
+                    payload.get("prompt"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            except (RuntimeError, OSError) as error:
+                self._send_json(409, {"ok": False, "error": str(error)})
+                return
+            self._send_json(200, result)
+            return
+
+        if path in ("/agents/codex/tasks", "/agents/codex/steer"):
+            gateway = agent_gateway.get()
+            try:
+                if path == "/agents/codex/tasks":
+                    result = gateway.codex_start_task(
+                        payload.get("cwd"), payload.get("prompt"))
+                else:
+                    result = gateway.codex_steer(payload.get("text"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            except RuntimeError as error:
+                self._send_json(409, {"ok": False, "error": str(error)})
+                return
+            self._send_json(200, result)
             return
 
         if claude_question:

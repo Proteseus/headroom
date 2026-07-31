@@ -25,6 +25,28 @@ MAX_TEXT = 4096
 # response and every client that polls them.
 MAX_DETAIL = 64 * 1024
 
+# How long a settled event stays readable.
+#
+# Every other store here bounds itself — samples 14 days, daily burn 30, Claude
+# history 400. This one held commands, file paths and code excerpts forever,
+# which is the wrong direction for the most sensitive thing Headroom writes
+# down (docs/product.md, docs/privacy.md).
+#
+# Thirty days is long enough to answer "what did I approve last month" and
+# short enough that a laptop is not carrying a year of shell commands. Only
+# *terminal* events are pruned: an event still pending or responding is live
+# state no matter how old it looks, and deleting one would strand whatever is
+# waiting on the answer.
+#
+# The clock runs from `updated_at_ms` — when the event *settled* — not from
+# when it was created. A request raised in March and answered today is a
+# record of something you approved today, and it keeps a full window from
+# then.
+RETENTION_S = 30 * 24 * 3600
+# Pruning walks an index, so it is cheap — but not cheap enough to repeat on
+# every callback from a busy agent.
+PRUNE_INTERVAL_S = 3600
+
 
 class EventError(Exception):
     """Base class for safe HTTP-facing event errors."""
@@ -115,6 +137,7 @@ class EventStore:
         self.path = path
         self._init_lock = threading.Lock()
         self._initialized = False
+        self._last_prune_s = 0.0
 
     def _connect(self):
         self._ensure_schema()
@@ -184,6 +207,48 @@ class EventStore:
             except OSError:
                 pass
             self._initialized = True
+        # Boot is the one moment a long-lived ledger is guaranteed to be
+        # revisited, so it is where an install that has been dormant for
+        # months gets caught up.
+        self.prune()
+
+    def prune(self, now=None, retention_s=RETENTION_S):
+        """Drop settled events past the retention window. Returns rows removed.
+
+        Responses cascade on the foreign key, so the transcript of how an old
+        event was answered goes with it. Never raises: a ledger that cannot be
+        tidied is still a working ledger, and failing here would take the
+        gateway down with it.
+        """
+        now = time.time() if now is None else now
+        cutoff_ms = int((now - retention_s) * 1000)
+        placeholders = ",".join("?" * len(TERMINAL_STATES))
+        try:
+            connection = sqlite3.connect(
+                self.path, timeout=5, isolation_level=None)
+        except sqlite3.Error:
+            return 0
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            cursor = connection.execute(
+                f"DELETE FROM attention_events "
+                f"WHERE state IN ({placeholders}) AND updated_at_ms < ?",
+                (*TERMINAL_STATES, cutoff_ms))
+            removed = cursor.rowcount or 0
+        except sqlite3.Error:
+            return 0
+        finally:
+            connection.close()
+        self._last_prune_s = now
+        return removed
+
+    def _prune_if_due(self, now=None):
+        """Hourly tidy on the write path, so a host that never restarts still
+        bounds the file."""
+        now = time.time() if now is None else now
+        if now - self._last_prune_s < PRUNE_INTERVAL_S:
+            return 0
+        return self.prune(now=now)
 
     @staticmethod
     def _public(row):
@@ -235,6 +300,9 @@ class EventStore:
             int(expires_at_ms) if expires_at_ms is not None else None)
         event_id = "evt_" + uuid.uuid4().hex
         connection = self._connect()
+        # Before the insert, and outside its transaction: a host that runs for
+        # months without a restart would otherwise never revisit boot's prune.
+        self._prune_if_due()
         try:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
