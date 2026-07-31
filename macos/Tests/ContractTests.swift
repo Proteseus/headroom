@@ -199,7 +199,11 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.connected, "Connected")
         XCTAssertEqual(HeadroomCopy.macUnavailable, "Mac unavailable")
         XCTAssertEqual(HeadroomCopy.collectingHistory, "Collecting history")
-        XCTAssertEqual(HeadroomCopy.overallBurndownSubtitle, "7 days")
+        XCTAssertEqual(
+            HeadroomCopy.overallBurndownSubtitle, "7 days around today")
+        XCTAssertEqual(HeadroomCopy.overallBurndownSubtitleShort, "±3d")
+        XCTAssertEqual(HeadroomCopy.windowFrame, "This window")
+        XCTAssertEqual(HeadroomCopy.windowSliceFrame, "7 days of this window")
         XCTAssertEqual(HeadroomCopy.noHistoryYet, "No history yet")
         XCTAssertEqual(HeadroomCopy.noCodingSources, "No coding sources")
         XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")

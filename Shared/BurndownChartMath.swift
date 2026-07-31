@@ -15,7 +15,20 @@ import Foundation
 ///    off-canvas so the axis never stretches and compresses history.
 /// 3. **Clip** strokes to that domain with edge interpolation — `chartXScale`
 ///    alone still paints past the plot into the gutter.
+///
+/// This is the **clock-anchored** frame, and it is the only one available to
+/// the overview: provider windows open and reset at different times, so there
+/// is no single window to hang an axis on — which is also why this chart has
+/// no budget diagonal. `BurndownChartAxis` is the **reset-anchored** frame for
+/// a single pool. Two rules, two answers to two questions; every surface says
+/// which one it is drawing (`frameLabel`) so the pair never reads as drift.
 enum OverallBurndownChartMath {
+    /// Whole calendar days of history in the frame.
+    ///
+    /// The domain runs from midnight this many days back for `spanDays`, so it
+    /// covers today plus three days either side — seven whole calendar days,
+    /// symmetric about today. `HeadroomCopy.overallBurndownSubtitle` says that
+    /// in words; change one and change the other.
     static let lookbackDays = 3
     static let spanDays = 7
 
@@ -27,6 +40,10 @@ enum OverallBurndownChartMath {
         var startEpoch: Double { start.timeIntervalSince1970 }
         var endEpoch: Double { end.timeIntervalSince1970 }
         var nowEpoch: Double { now.timeIntervalSince1970 }
+
+        /// What the X-axis covers, for the subtitle beside the chart's title.
+        /// Always the same words here — this frame does not vary.
+        var frameLabel: String { HeadroomCopy.overallBurndownSubtitle }
     }
 
     /// Fixed calendar week for the overview chart (today−3 … today+4).
@@ -253,6 +270,15 @@ enum OverallBurndownChartMath {
 enum BurndownChartAxis {
     static let maxDays = 7
     static let daySeconds: TimeInterval = 24 * 60 * 60
+    /// Where the moving slice starts inside a window too long to draw whole.
+    ///
+    /// Its own number, not `OverallBurndownChartMath.lookbackDays`, though the
+    /// two currently agree. One centres a fixed week on today; this one places
+    /// a seven-day slice inside a month and is then clamped by the window's
+    /// edges, so it is not symmetric about today and the copy must not claim
+    /// it is. Sharing the constant meant a change to the overview silently
+    /// moved every monthly chart.
+    static let sliceLookbackDays = 3
     /// Below this, weekday columns don't apply (session windows).
     static let dayAxisMinSpan: TimeInterval = 2 * daySeconds
     /// How far a plot may reach back past its own window to show the burn a
@@ -280,6 +306,25 @@ enum BurndownChartAxis {
         var windowEndEpoch: Double { windowEnd.timeIntervalSince1970 }
         var showsDayAxis: Bool {
             endEpoch - startEpoch >= dayAxisMinSpan
+        }
+
+        /// Whether the plot spans the pool's whole window.
+        ///
+        /// True for session, daily and weekly pools; false for a monthly one,
+        /// where the plot is a seven-day slice inside the window and the
+        /// budget diagonal runs off both edges. Derived rather than stored so
+        /// it cannot disagree with the domain `domain(…)` actually returned.
+        var showsWholeWindow: Bool {
+            startEpoch <= windowStartEpoch && endEpoch >= windowEndEpoch
+        }
+
+        /// What the X-axis covers, for the subtitle beside the chart's title.
+        /// The counterpart to `OverallBurndownChartMath.Domain.frameLabel`:
+        /// the two rules are told apart here, in words, exactly once.
+        var frameLabel: String {
+            showsWholeWindow
+                ? HeadroomCopy.windowFrame
+                : HeadroomCopy.windowSliceFrame
         }
     }
 
@@ -312,8 +357,7 @@ enum BurndownChartAxis {
             )
         }
         // Monthly+: seven days covering now, clamped inside the window.
-        var lo = now - TimeInterval(OverallBurndownChartMath.lookbackDays)
-            * daySeconds
+        var lo = now - TimeInterval(sliceLookbackDays) * daySeconds
         var hi = lo + week
         if lo < windowStart {
             lo = windowStart

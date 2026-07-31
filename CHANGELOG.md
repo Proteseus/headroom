@@ -7,6 +7,28 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.6 — 2026-07-31
+
+### Changed
+
+- **Every burndown now says which seven days it is drawing.** There have always
+  been two rules — the overview spans three days either side of today, a
+  provider chart spans that pool's own window — and neither chart said so, so
+  the pair read as one chart that kept changing its mind. The overview subtitle
+  is now **7 days around today** instead of the underspecified **7 days**
+  (**±3d** on the watch), a provider chart carries **This window**, and a
+  monthly pool, whose plot is a seven-day slice clipped out of a window too
+  long to draw, carries **7 days of this window** rather than claiming a window
+  four times the one on screen. The words come from `frameLabel` on the
+  domain, so no surface writes them itself.
+- **The monthly slice keeps its own lookback.** It was reading the overview's
+  `lookbackDays`, so retuning where the overview centres would have silently
+  moved every monthly chart with it. Same value, separate constant.
+- **One derivation of a provider chart's domain.** The Mac canvas, the Mac
+  header and the phone each rebuilt it from the pool; the header could describe
+  an axis the canvas had not drawn. `Burndown.chartDomain` is now the only
+  place it happens, and the Mac canvas is handed the domain its header named.
+
 ## 1.3.5 — 2026-07-31
 
 ### Changed

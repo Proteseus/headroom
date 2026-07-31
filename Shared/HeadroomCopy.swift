@@ -49,7 +49,31 @@ enum HeadroomCopy {
 
     static let burndown = "Burndown"
     static let overallBurndown = "Overall burndown"
-    static let overallBurndownSubtitle = "7 days"
+
+    // Every burndown says which frame it draws, because there are two and they
+    // disagree on purpose. The overview is anchored to the clock (it has no
+    // single window to anchor to, which is also why it has no budget line); a
+    // provider chart is anchored to its window. Unlabelled, the pair reads as
+    // one chart that keeps changing its mind. `frameLabel` on each Domain
+    // picks the string, so no surface writes these words itself.
+
+    /// Overview subtitle. Says the anchor, not just the span: the old "7 days"
+    /// left a reader guessing whether that meant the week behind, the week
+    /// ahead, or the one around them. The domain is three days either side of
+    /// today, so say so — see `OverallBurndownChartMath.lookbackDays`.
+    static let overallBurndownSubtitle = "7 days around today"
+    /// Duration form of the same fact, for the watch, where the long form
+    /// wraps to two lines under a chart 62pt tall.
+    static let overallBurndownSubtitleShort = "±3d"
+    /// Provider-chart subtitle: the plot spans this pool's whole window, from
+    /// its start to its reset, which is what the budget diagonal measures.
+    static let windowFrame = "This window"
+    /// Provider-chart subtitle for a monthly pool, where the whole window will
+    /// not fit seven weekday columns and the plot is a slice inside it. Not
+    /// "around today" — the slice is clamped by the window's edges, so at the
+    /// start and end of a month it is not centred on today at all.
+    static let windowSliceFrame = "7 days of this window"
+
     static let dailyBurn = "Daily burn"
     /// Percentage points of a quota window, per day — the same quantity the
     /// host writes as `%/day`. Never "pts": every provider bills in a real

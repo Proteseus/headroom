@@ -185,11 +185,35 @@ Slack against an even spend is signed and in percent: **12% to spare**,
 the result "4 points", so a pool four behind read exactly like a pool four
 ahead.
 
-Overall burndown’s optional subtitle is just **7 days** (don’t restate “all quotas”).
-The domain is a fixed local week — today−3 … today+4 — so history stays readable
-and far-out resets don’t stretch the axis. Forecasts crop at each reset (and at
-empty); each in-range reset is an accent dotted vertical rule, and the legend
-shows **Resets …**.
+**Every burndown says which frame it draws.** There are two rules and they
+disagree on purpose, so an unlabelled pair reads as one chart that keeps
+changing its mind:
+
+| Chart | Frame | Subtitle |
+|---|---|---|
+| Overall burndown | Clock-anchored: three days either side of today | **7 days around today** (**±3d** on the watch) |
+| Provider burndown | Reset-anchored: the pool's own window | **This window** |
+| Provider burndown, monthly pool | Seven days clipped out of a window too long to draw | **7 days of this window** |
+
+The overview gets no choice: provider windows open and reset at different
+times, so there is no single window to hang its axis on — which is also why it
+alone has no budget diagonal. A provider chart gets no choice either, in the
+other direction: the budget diagonal runs from the window's start to its reset,
+so the axis has to be that window or the diagonal measures nothing. This is not
+a preference and there is no toggle for it (see [product.md](product.md), "What
+earns a Setting").
+
+`frameLabel` on each chart's `Domain` picks the string, so no surface writes
+these words itself, and `showsWholeWindow` is derived from the domain rather
+than stored — a monthly chart cannot end up captioned "This window". The board
+is the one surface with no subtitle: its header row is spent on the `verdict`,
+and its weekday axis already names the days on screen.
+
+Don’t restate “all quotas” in the overview subtitle. Its domain is a fixed
+local week — today−3 … today+4 — so history stays readable and far-out resets
+don’t stretch the axis. Forecasts crop at each reset (and at empty); each
+in-range reset is an accent dotted vertical rule, and the legend shows
+**Resets …**.
 
 A reset the provider hands out early — Codex clearing a week you had already
 spent — is a **granted** reset. On the **Codex** burndown (not Overview) it is a

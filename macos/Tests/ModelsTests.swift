@@ -366,6 +366,85 @@ final class ModelsTests: XCTestCase {
         )
     }
 
+    func testFrameLabelsTellTheTwoChartRulesApart() {
+        // The overview is anchored to the clock, a provider chart to its
+        // window, and a monthly provider chart to neither — it is a slice
+        // inside one. Three frames, three sentences; a surface that draws the
+        // wrong words is the bug this whole labelling exists to prevent.
+        let now = Date(timeIntervalSince1970: 1_785_246_900)
+        XCTAssertEqual(
+            OverallBurndownChartMath.domain(now: now).frameLabel,
+            HeadroomCopy.overallBurndownSubtitle
+        )
+
+        // Weekly pool: the plot spans the whole window, history stub and all.
+        let weekStart = now.timeIntervalSince1970 - 2 * 24 * 3600
+        let weekly = BurndownChartAxis.domain(
+            windowStart: weekStart,
+            windowEnd: weekStart + 7 * 24 * 3600,
+            now: now.timeIntervalSince1970,
+            historyStart: weekStart - 5 * 24 * 3600
+        )
+        XCTAssertEqual(weekly?.showsWholeWindow, true)
+        XCTAssertEqual(weekly?.frameLabel, HeadroomCopy.windowFrame)
+
+        // Monthly pool: seven days clipped out of thirty. Saying "this window"
+        // here would describe an axis four times the one on screen.
+        let monthStart = now.timeIntervalSince1970 - 10 * 24 * 3600
+        let monthly = BurndownChartAxis.domain(
+            windowStart: monthStart,
+            windowEnd: monthStart + 30 * 24 * 3600,
+            now: now.timeIntervalSince1970
+        )
+        XCTAssertEqual(monthly?.showsWholeWindow, false)
+        XCTAssertEqual(monthly?.frameLabel, HeadroomCopy.windowSliceFrame)
+        XCTAssertEqual(
+            (monthly?.endEpoch ?? 0) - (monthly?.startEpoch ?? 0),
+            7 * 24 * 3600,
+            accuracy: 1
+        )
+    }
+
+    func testOverviewLookbackIsSymmetricAboutToday() {
+        // The subtitle claims three days either side of today. If the domain
+        // ever stops covering exactly that, the copy is lying — so assert the
+        // shape the words describe, not just the span.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_785_246_900)
+        let today = calendar.startOfDay(for: now)
+        let domain = OverallBurndownChartMath.domain(now: now, calendar: calendar)
+
+        XCTAssertEqual(
+            calendar.dateComponents([.day], from: domain.start, to: today).day,
+            OverallBurndownChartMath.lookbackDays
+        )
+        // Last whole day inside the domain is today + lookback.
+        let lastDay = calendar.date(byAdding: .day, value: -1, to: domain.end)!
+        XCTAssertEqual(
+            calendar.dateComponents([.day], from: today, to: lastDay).day,
+            OverallBurndownChartMath.lookbackDays
+        )
+    }
+
+    func testMonthlySliceKeepsItsOwnLookback() {
+        // The two constants agree today. They are separate so that changing
+        // the overview's centring cannot silently move every monthly chart —
+        // assert they are read from different places, not that they differ.
+        let monthStart = 1_785_246_900.0 - 10 * 24 * 3600
+        let domain = BurndownChartAxis.domain(
+            windowStart: monthStart,
+            windowEnd: monthStart + 30 * 24 * 3600,
+            now: 1_785_246_900
+        )
+        XCTAssertEqual(
+            domain?.startEpoch ?? 0,
+            1_785_246_900
+                - Double(BurndownChartAxis.sliceLookbackDays) * 24 * 3600,
+            accuracy: 1
+        )
+    }
+
     func testUpcomingEventsAppearOnlyOnceTheyEnterReach() {
         let domain = OverallBurndownChartMath.Domain(
             start: Date(timeIntervalSince1970: 100),
