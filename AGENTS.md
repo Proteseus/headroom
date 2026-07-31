@@ -53,6 +53,35 @@ half-finished work and cannot tell whose failure you are looking at:
 git worktree add --detach /tmp/verify HEAD
 ```
 
+### Signing overrides, and the export that used to eat them
+
+`macos/Version.xcconfig` is generated. It writes the defaults, then
+`#include? "Local.xcconfig"` last, so a contributor's gitignored overrides win
+at the moment Xcode reads them. `DEVELOPMENT_TEAM` is pinned *after* that
+include in exactly one case — when the caller set `$HEADROOM_TEAM_ID` — which
+is how CI and the release scripts outrank a personal override.
+
+That test has to survive a process boundary, and for one release it did not.
+`version-env.sh` **exports** `HEADROOM_TEAM_ID` already defaulted to the
+maintainer's team, and `sync-embedded-host.sh` sources the script and then runs
+it again as a child to write the xcconfig. The child inherited the export and
+could not tell our own default from a team someone asked for, so it pinned
+every time — meaning on `gen-project.sh`, the one path a contributor takes,
+`Local.xcconfig` could never change the team.
+
+Nothing looked wrong, because the pinned value equalled the default. Provenance
+now travels separately in `HEADROOM_TEAM_EXPLICIT`, where set-but-empty means
+asked-and-nobody-set-it. **If you touch the resolution order, test through
+`gen-project.sh`, not by invoking `version-env.sh` directly** — the direct call
+is the path that always worked and will happily agree with you:
+
+```bash
+./scripts/gen-project.sh && tail -3 macos/Version.xcconfig
+```
+
+The include must be the last line. A `DEVELOPMENT_TEAM` below it, on a run
+where you set no env var, is the bug back.
+
 ## The host LaunchAgent is not yours to repoint
 
 `~/Library/LaunchAgents/com.centaur-labs.headroom.plist` runs the host MZ
