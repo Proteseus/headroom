@@ -15,7 +15,12 @@ settings:
     # MARKETING_VERSION / CURRENT_PROJECT_VERSION / DEVELOPMENT_TEAM live only
     # in Version.xcconfig, written by scripts/version-env.sh. Setting them here
     # would override the xcconfig and freeze builds at 1; hardcoding the team
-    # would stop forks from signing as themselves ($HEADROOM_TEAM_ID).
+    # would stop forks from signing as themselves ($HEADROOM_TEAM_ID or the
+    # gitignored macos/Local.xcconfig — see README, "Signing as yourself").
+    # Every PRODUCT_BUNDLE_IDENTIFIER below goes through
+    # $(HEADROOM_BUNDLE_PREFIX) for the same reason: the default is set in
+    # Version.xcconfig and Local.xcconfig can replace it. A literal id here
+    # would sit above the xcconfig in Xcode's precedence and win.
 configFiles:
   Debug: Version.xcconfig
   Release: Version.xcconfig
@@ -36,7 +41,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.macos
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.macos
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Headroom
@@ -70,7 +75,7 @@ targets:
         # Without this the test bundle can't code sign, so `xcodebuild test`
         # fails before running anything.
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.macos.tests
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.macos.tests
         SWIFT_STRICT_CONCURRENCY: complete
     dependencies:
       - target: Headroom
@@ -88,7 +93,7 @@ targets:
       - path: ../Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ../ios/HeadroomMobile/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -138,7 +143,7 @@ targets:
       - path: ../Shared/WidgetSnapshotPresentation.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.widget
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.widget
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ../widget/ios/Info.plist
         CODE_SIGN_ENTITLEMENTS: ../widget/ios/HeadroomWidget.entitlements
@@ -166,7 +171,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: HeadroomWidget
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.macos.widget
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.macos.widget
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ../widget/macos/Info.plist
         CODE_SIGN_ENTITLEMENTS: ../widget/macos/HeadroomWidget.entitlements
@@ -202,7 +207,7 @@ targets:
       - path: ../Shared/BurndownChartCanvas.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.watchkitapp
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ../watch/HeadroomWatch/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -248,7 +253,7 @@ targets:
         # registers fine. A short single-word suffix is what works on this
         # team (cf. com.septena.cloud.watchkitapp.next). Both complications
         # live in this one extension, so the word names neither of them.
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.watchkitapp.faces
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.watchkitapp.faces
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ../watch/HeadroomWatchComplication/Info.plist
         CODE_SIGN_STYLE: Automatic
@@ -263,7 +268,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.centaur-labs.headroom.tests
+        PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.tests
         SWIFT_STRICT_CONCURRENCY: complete
     dependencies:
       - target: HeadroomMobile
