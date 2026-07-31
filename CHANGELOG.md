@@ -48,6 +48,19 @@ tag a version that has no entry.
 
 ### Fixed
 
+- **A question shows in both places now.** The default posts it and gets out of
+  the way: Claude renders its own picker in the terminal, and the same question
+  appears on your phone with every option listed, marked **Answer in the
+  terminal**. Nothing is held, so nothing can stall. Holding the call so the
+  phone can answer is still there as a mode, but it is the exception — you
+  cannot both leave the question in the terminal and answer it elsewhere.
+- A question is never drawn as a permission request. `AskUserQuestion` also
+  arrives on the permission hook, so a two-part question rendered as **Claude
+  needs permission** offering *Allow once / Deny / Stop Claude* — answers that
+  mean nothing — with both questions flattened into a wall of text under it.
+- Questions Headroom cannot answer remotely — several at once, multi-select —
+  are shown rather than dropped. They were invisible before, which is worse
+  than read-only.
 - Answering Claude's questions from the phone is now **off by default**, and
   the hook that does it is only installed when it is on. `PreToolUse` is the
   one hook Headroom installs that can block a tool call: while it holds a

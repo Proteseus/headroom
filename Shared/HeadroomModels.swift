@@ -574,7 +574,20 @@ struct Burndown: Decodable, Sendable, Identifiable {
     /// The burn a grant wiped out, [[epoch, remaining], …], drawn faint behind
     /// the live curve. Empty unless this window began with one — a window that
     /// simply ran out needs no explaining.
+    ///
+    /// Superseded by `history`, which covers the same ground without needing a
+    /// grant to exist. Still decoded because a host older than this build sends
+    /// it and nothing else.
     var forgiven: [[Double]]?
+    /// Every recent reading, [[epoch, remaining], …], window boundaries and
+    /// all — the sawtooth behind `actual`.
+    ///
+    /// `actual` stops at the live window's start, so the moment a window rolls
+    /// it holds one point and draws nothing. This is the same readings
+    /// unclipped, which is what keeps a reset from looking like the app
+    /// forgetting the week. It climbs at every boundary, so split it with
+    /// `historySegments(splitAt:)` before stroking.
+    var history: [[Double]]?
     /// "measured" from real samples, "estimated" from token history, nil when
     /// there is nothing to go on yet.
     var rateSource: String?
@@ -636,7 +649,7 @@ struct Burndown: Decodable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
-        case exhausted, verdict, resets, forgiven
+        case exhausted, verdict, resets, forgiven, history
         case windowStart = "window_start"
         case windowEnd = "window_end"
         case windowS = "window_s"
@@ -2029,6 +2042,9 @@ struct AgentAttentionDetail: Codable, Sendable, Equatable {
     /// The exact rule an `approve_always` answer would save. Shown before the
     /// tap, because a durable grant made from a phone should never be blind.
     var permissionRule: String?
+    /// This question is showing in both places and is answered in the other
+    /// one. Saying so beats a row that looks inert for no stated reason.
+    var answerOnMac: Bool?
 
     /// Codex still sends a bare `command`; Claude sends structured fields.
     /// One accessor so views never branch on which provider they came from.
@@ -2047,6 +2063,7 @@ struct AgentAttentionDetail: Codable, Sendable, Equatable {
         case permissionMode = "permission_mode"
         case transcriptPath = "transcript_path"
         case permissionRule = "permission_rule"
+        case answerOnMac = "answer_on_mac"
     }
 }
 

@@ -124,6 +124,12 @@ struct ActivityScreen: View {
                 }
             }
             AgentRequestView(fields: event.detail.requestFields)
+            if event.detail.answerOnMac == true {
+                Label(HeadroomCopy.answerInTheTerminal,
+                      systemImage: "desktopcomputer")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             // Wraps: three options no longer run off the edge of the row.
             FlowingActions(
                 actions: event.actions,

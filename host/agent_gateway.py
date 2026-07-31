@@ -120,9 +120,11 @@ class AgentGateway:
     def claude_question(self, payload, wait_seconds=None):
         with self._adapter_lock:
             claude = self.claude
+        mode = app_config.agent_question_mode()
         if wait_seconds is None:
-            return claude.question_request(payload)
-        return claude.question_request(payload, wait_seconds=wait_seconds)
+            return claude.question_request(payload, mode=mode)
+        return claude.question_request(
+            payload, wait_seconds=wait_seconds, mode=mode)
 
     def claude_event(self, payload):
         with self._adapter_lock:

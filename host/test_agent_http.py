@@ -205,7 +205,7 @@ class AgentHTTPTests(unittest.TestCase):
             "/agents/claude/config", {"action": "install"})
         self.assertEqual(status, 200)
         self.assertEqual(result["state"], "installed")
-        install.assert_called_once_with(port=8737, remote_questions=False)
+        install.assert_called_once_with(port=8737, question_mode="notify")
 
 
 if __name__ == "__main__":

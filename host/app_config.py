@@ -329,23 +329,32 @@ def remember_task_folder(folder):
     return ordered
 
 
-def agent_remote_questions():
-    """Whether Headroom may hold a Claude question open for a phone answer.
+QUESTION_MODES = ("off", "notify", "answer")
 
-    Off by default, and deliberately so. Intercepting a question at
-    `PreToolUse` is the only way to answer it remotely, but it also makes the
-    question unanswerable at the Mac while Headroom holds it — and if the host
-    is down or restarting, every question in every session pays for it. That
-    is a bad trade unless you actually want to answer from your phone.
+
+def agent_question_mode():
+    """What Headroom does when Claude asks you something.
+
+    `notify` — the default — posts the question and gets out of the way, so it
+    appears in the terminal *and* on your phone. You answer where you already
+    are. `answer` holds the call so the phone can answer it, which is the only
+    way to answer remotely and also the reason the question cannot be answered
+    at the Mac while it is held. `off` installs no hook at all.
     """
-    return get("agent_remote_questions") is True
+    value = get("agent_question_mode")
+    if value in QUESTION_MODES:
+        return value
+    # The old boolean, read once so an existing opt-in is not silently lost.
+    if get("agent_remote_questions") is True:
+        return "answer"
+    return "notify"
 
 
-def set_agent_remote_questions(enabled):
-    if not isinstance(enabled, bool):
-        raise ValueError("enabled must be true or false")
-    _persist(agent_remote_questions=enabled)
-    return enabled
+def set_agent_question_mode(mode):
+    if mode not in QUESTION_MODES:
+        raise ValueError(f"mode must be one of {', '.join(QUESTION_MODES)}")
+    _persist(agent_question_mode=mode)
+    return mode
 
 
 def agent_gateway_enabled():

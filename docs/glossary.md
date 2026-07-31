@@ -54,6 +54,7 @@ any hardcoded chrome that still bypasses them.
 | **Saves the rule** | The exact rule an always-allow answer will write | iOS |
 | **Start task** | Give an agent a folder and a prompt | macOS, iOS |
 | **Reply to the agent…** | Free-text answer to a request | iOS |
+| **Answer in the terminal** | This question is showing in both places; answer it where it was asked | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |
 
 Do not title the activity feed **GitHub**. That word is reserved for the
