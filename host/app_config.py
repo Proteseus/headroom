@@ -301,6 +301,62 @@ def set_mobile_permissions(values):
     return frozenset(ordered)
 
 
+MAX_TASK_FOLDERS = 8
+
+
+def task_folders():
+    """Folders you have started agent work in, most recent first.
+
+    The Mac can open a folder picker; a phone cannot browse the Mac's disk, so
+    it picks from what the Mac has already used.
+    """
+    value = get("agent_task_folders")
+    if not isinstance(value, list):
+        return []
+    return [entry for entry in value
+            if isinstance(entry, str) and entry][:MAX_TASK_FOLDERS]
+
+
+def remember_task_folder(folder):
+    """Move a folder to the front of the list, without duplicating it."""
+    if not isinstance(folder, str) or not folder.strip():
+        return task_folders()
+    folder = folder.strip()
+    remaining = [entry for entry in task_folders() if entry != folder]
+    ordered = [folder] + remaining
+    ordered = ordered[:MAX_TASK_FOLDERS]
+    _persist(agent_task_folders=ordered)
+    return ordered
+
+
+QUESTION_MODES = ("off", "notify", "answer")
+
+
+def agent_question_mode():
+    """What Headroom does when Claude asks you something.
+
+    `notify` — the default — posts the question and gets out of the way, so it
+    appears in the terminal *and* on your phone. You answer where you already
+    are. `answer` holds the call so the phone can answer it, which is the only
+    way to answer remotely and also the reason the question cannot be answered
+    at the Mac while it is held. `off` installs no hook at all.
+    """
+    value = get("agent_question_mode")
+    if value in QUESTION_MODES:
+        return value
+    # The old boolean, read once so an existing opt-in is not silently lost.
+    if get("agent_remote_questions") is True:
+        return "answer"
+    return "notify"
+
+
+def set_agent_question_mode(mode):
+    if mode not in QUESTION_MODES:
+        raise ValueError(f"mode must be one of {', '.join(QUESTION_MODES)}")
+    _persist(agent_question_mode=mode)
+    return mode
+
+
 def agent_gateway_enabled():
     """Whether Headroom may launch its supervised coding-agent adapter."""
     return get("agent_gateway_enabled") is True

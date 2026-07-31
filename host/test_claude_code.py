@@ -81,7 +81,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         result = {}
         thread = threading.Thread(target=lambda: result.update(
             value=self.adapter.question_request(
-                self.question(), wait_seconds=3)))
+                self.question(), wait_seconds=3, mode="answer")))
         thread.start()
         event = self.wait_for_event()
         self.assertIn("reply", [a["id"] for a in event["actions"]])
@@ -282,20 +282,38 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             result["value"]["hookSpecificOutput"]["decision"],
         )
 
-    def test_questions_are_never_offered_a_durable_grant(self):
-        """"Always allow this question" is not a grant anyone wants."""
+    def test_a_question_is_never_drawn_as_a_permission_request(self):
+        """Allow once / Deny are not answers to "which of these?"."""
         payload = self.permission()
         payload["tool_name"] = "AskUserQuestion"
         payload["tool_input"] = {"questions": [{"question": "Which one?"}]}
-        thread = threading.Thread(target=lambda: self.adapter.permission_request(
-            payload, wait_seconds=2))
-        thread.start()
-        event = self.wait_for_event()
-        self.assertNotIn(
-            "approve_always", [a["id"] for a in event["actions"]])
-        self.assertIsNone(event["detail"]["permission_rule"])
-        self.answer(event, "decline")
-        thread.join(timeout=2)
+        self.assertIsNone(
+            self.adapter.permission_request(payload, wait_seconds=2))
+        self.assertEqual(self.store.list(state="all"), [])
+
+    def test_notify_shows_the_question_and_holds_nothing(self):
+        """Both places: the terminal renders it, the phone shows it too."""
+        payload = self.question()
+        payload["tool_input"]["questions"].append({
+            "question": "And what else?",
+            "multiSelect": True,
+            "options": [{"label": "A"}, {"label": "B"}],
+        })
+        self.assertEqual(self.adapter.question_request(payload), {})
+        row = self.store.list(state="open")[0]
+        self.assertEqual(row["kind"], "structured_question")
+        self.assertIn("asking you", row["title"])
+        self.assertTrue(row["detail"]["answer_on_mac"])
+        self.assertEqual([a["id"] for a in row["actions"]], ["dismiss"])
+        # Every question, whatever its shape — two here, one multi-select.
+        values = " ".join(f["value"] for f in row["detail"]["request"])
+        self.assertIn("41 uncommitted files", values)
+        self.assertIn("And what else?", values)
+
+    def test_a_second_question_replaces_the_first(self):
+        self.adapter.question_request(self.question())
+        self.adapter.question_request(self.question())
+        self.assertEqual(len(self.store.list(state="open")), 1)
 
     def test_rule_escapes_glob_characters_in_paths(self):
         rule = claude_code.permission_rule(
@@ -335,7 +353,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         result = {}
         thread = threading.Thread(target=lambda: result.update(
             value=self.adapter.question_request(
-                self.question(), wait_seconds=3)))
+                self.question(), wait_seconds=3, mode="answer")))
         thread.start()
         event = self.wait_for_event()
         self.assertEqual(event["kind"], "structured_question")
@@ -367,24 +385,23 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         result = {}
         thread = threading.Thread(target=lambda: result.update(
             value=self.adapter.question_request(
-                self.question(), wait_seconds=3)))
+                self.question(), wait_seconds=3, mode="answer")))
         thread.start()
         event = self.wait_for_event()
         self.answer(event, "ask_on_mac")
         thread.join(timeout=2)
         self.assertEqual(
-            result["value"]["hookSpecificOutput"]["permissionDecision"],
-            "defer",
-        )
+            result["value"], {},
+            "no decision, said the only way that is safe in every version")
 
     def test_unanswered_question_defers_to_the_mac(self):
-        result = self.adapter.question_request(self.question(), wait_seconds=1)
-        self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "defer")
+        result = self.adapter.question_request(
+            self.question(), wait_seconds=1, mode="answer")
+        self.assertEqual(result, {})
         self.assertEqual(self.store.list(state="all")[0]["state"], "expired")
 
-    def test_shapes_we_cannot_answer_cleanly_defer_without_a_row(self):
-        """A half-answered set is worse than sending it back to the Mac."""
+    def test_shapes_we_cannot_answer_still_show_up_read_only(self):
+        """Never half-answered from here — but still worth seeing there."""
         cases = [
             self.question(multiSelect=True),
             self.question(options=[{"label": "Only one"}]),
@@ -401,10 +418,14 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             ]},
         }
         for payload in cases + [many]:
-            result = self.adapter.question_request(payload, wait_seconds=1)
             self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"], "defer")
-        self.assertEqual(self.store.list(state="all"), [])
+                self.adapter.question_request(
+                    payload, wait_seconds=1, mode="answer"), {},
+                "nothing is held and nothing is answered")
+        for row in self.store.list(state="all"):
+            self.assertEqual(
+                [a["id"] for a in row["actions"]], ["dismiss"],
+                "read-only: the only place to answer these is the Mac")
 
     def test_finished_notices_replace_rather_than_stack(self):
         def finished(session="claude-session-1"):

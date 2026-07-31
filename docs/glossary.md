@@ -124,6 +124,9 @@ surface-specific (see the end of this file), but the shape does not.
 | **Ask on Mac** | Decline to answer a question from the phone; it appears on the Mac | iOS |
 | **Allow once** / **Always allow this exact request** / **Deny** | Answers to a permission request. The middle one saves a rule | iOS |
 | **Saves the rule** | The exact rule an always-allow answer will write | iOS |
+| **Start task** | Give an agent a folder and a prompt | macOS, iOS |
+| **Reply to the agent…** | Free-text answer to a request | iOS |
+| **Answer in the terminal** | This question is showing in both places; answer it where it was asked | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |
 
 Do not title the activity feed **GitHub**. That word is reserved for the

@@ -12,9 +12,12 @@ over the same synthetic tree. Change one without the other and a test fails.
 from __future__ import annotations
 
 import os
+import pathlib
+import re
 import tempfile
 import unittest
 
+import device_view
 import headroom_server
 import host_version
 
@@ -102,6 +105,39 @@ class HealthPayloadTest(unittest.TestCase):
         payload = headroom_server._health_payload()
         for key in ("ok", "uptime_s", "updated", "sources"):
             self.assertIn(key, payload)
+
+    def test_health_carries_the_contract(self):
+        payload = headroom_server._health_payload()
+        self.assertEqual(payload["contract"], host_version.CONTRACT)
+
+
+class ContractNumberTest(unittest.TestCase):
+    """The one number every separately-shipped client compares against."""
+
+    def test_contract_is_a_positive_integer(self):
+        self.assertIsInstance(host_version.CONTRACT, int)
+        self.assertGreaterEqual(host_version.CONTRACT, 1)
+
+    def test_usage_states_the_contract(self):
+        doc = headroom_server.rollup()
+        self.assertEqual(doc["contract"], host_version.CONTRACT)
+
+    def test_the_board_projection_carries_it_too(self):
+        # The board is the client most likely to be years behind, and it can
+        # only check a field the host was already sending.
+        device = device_view.build(headroom_server.rollup())
+        self.assertEqual(device["contract"], host_version.CONTRACT)
+
+    def test_swift_pins_the_same_floor(self):
+        # macos side: UsageSnapshot.minimumContract. A client floor above the
+        # host's own number would reject the host that ships with it.
+        source = pathlib.Path(__file__).resolve().parents[1] / (
+            "Shared/HeadroomModels.swift")
+        match = re.search(
+            r"static let minimumContract = (\d+)", source.read_text())
+        self.assertIsNotNone(
+            match, "UsageSnapshot.minimumContract went missing")
+        self.assertLessEqual(int(match.group(1)), host_version.CONTRACT)
 
 
 if __name__ == "__main__":

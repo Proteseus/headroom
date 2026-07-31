@@ -40,10 +40,43 @@ code and the transport have no reason to share a file.
 - **Test the Python floor.** README claims 3.9+, CI only runs 3.12. macOS 14
   ships 3.9.6, so the claim is load-bearing for the bundled host. Add 3.9 to
   the matrix.
-- **CHANGELOG.md.** Releases exist and the workflow already generates notes;
-  a file people can read without clicking through tags is the missing half.
 - **Issue templates.** One bug form that asks for host version, `/health`
   output, and which provider. Most reports will be "provider X went blank".
+
+## Contract and access
+
+Written up in [contract.md](contract.md), [trust.md](trust.md) and
+[product.md](product.md). The docs landed first on purpose — each of these is a
+separate release, and the rule each one implements is now stated somewhere the
+next person can find it.
+
+- **Show the contract mismatch.** `contract` now ships in `/usage`, `/health`
+  and the board projection, and `UsageSnapshot.contractSatisfied` answers the
+  question — but nothing draws the answer yet. The field had to exist before it
+  could be useful, which is why it landed first. What is left is the banner on
+  the phone and the Mac, with copy naming the version to update to.
+- **Generate the mirrored constants.** `MAX_DEPLOYS` / `MAX_COMMITS` /
+  `MAX_SERVERS` / `MAX_SOURCES` / `MAX_PROVIDERS` / `MAX_POOLS` / `FOCUS_LIMIT`
+  exist twice, in two languages, kept in step by a comment. One `contract.json`
+  emitting a firmware header, a Swift file and a Python module. `boot_max.h`
+  and the `HostVersion` golden vector are the two precedents already in the
+  repo.
+- **Audit the non-optional Swift fields.** 39 decoded fields in
+  `HeadroomModels.swift` are non-optional; nine are on the `/usage` path, which
+  decodes all-or-nothing under one `try`. Any the host could plausibly stop
+  emitting should be optional with a default at the use site.
+- **Decide the transport for `agents`.** Approving a command that runs on the
+  Mac currently rides a plaintext bearer token with Face ID enforced only by
+  the client. Three options ranked in [trust.md](trust.md); the cheapest is one
+  predicate restricting the scope to loopback + Tailscale.
+- **A clear-history control.** The ledger now prunes at 30 days
+  (`agent_events.RETENTION_S`), which was the urgent half. The remaining half
+  is a button — deleting a SQLite file with the host stopped is not a thing to
+  ask of anyone, and it is the natural home for a "forget this session" too.
+- **Export and import history.** A new Mac currently costs you every chart.
+  Consolidating the time series into the SQLite that already exists is what
+  turns this from a project into a feature. See
+  [product.md](product.md#history-is-a-user-asset).
 
 ## Product
 

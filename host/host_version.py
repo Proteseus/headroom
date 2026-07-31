@@ -98,6 +98,32 @@ def build(directory: str | None = None) -> str:
     return value
 
 
+# The shape of `/usage`, as a number clients can compare against.
+#
+# `version` and `build` above answer "which host is this?", which is only
+# useful to the menu bar, because it is the only client that ships with a host
+# and can therefore know what it expected. The phone updates on Apple's
+# schedule and the board updates when someone finds a USB cable, so both can be
+# a year behind and have no way to say so — they render blank cards, which to
+# the person holding them is indistinguishable from a broken Mac.
+#
+# So each client pins the lowest CONTRACT it can draw. Older than that, it says
+# which Mac to update instead of showing empty rings. Newer than it knows, it
+# draws what it understands and stays quiet, because the payload is
+# additive-only (docs/contract.md) and unknown keys are always safe to ignore.
+#
+# Bump this when, and only when, a client that does not know about the change
+# would show something WRONG or EMPTY. Adding a field nobody requires is not a
+# bump. Removing a key, repurposing one, or changing what a number means is.
+# Bumping costs every old client its data, so the bar is "they would be
+# misled", not "they would miss out".
+CONTRACT = 1
+
+
 def payload(directory: str | None = None) -> dict:
-    """The two keys /health carries so clients can spot a stale host."""
-    return {"version": version(directory), "build": build(directory)}
+    """The keys /health carries so clients can spot a stale host."""
+    return {
+        "version": version(directory),
+        "build": build(directory),
+        "contract": CONTRACT,
+    }

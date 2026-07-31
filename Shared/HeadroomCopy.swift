@@ -109,6 +109,25 @@ enum HeadroomCopy {
         "Reset credit expires \(label)"
     }
 
+    /// Header over the list of past grants on a pool's detail card. "Recent"
+    /// rather than "All": the list only reaches as far back as the sample log
+    /// was kept, and promising a complete record would be a lie the first time
+    /// retention drops something off the end.
+    static let resetHistory = "Recent resets"
+
+    /// The amount half of a reset history row — the date carries the rest.
+    /// Falls back to the bare noun when a grant handed back too little to
+    /// round to a point, which happens when a window rolls near empty.
+    static func resetPointsBack(_ forgivenPct: Double?) -> String {
+        guard let forgivenPct, forgivenPct >= 1 else { return "reset" }
+        return "\(Int(forgivenPct.rounded())) pts back"
+    }
+
+    /// Shown in place of the list before any grant has been seen. Codex resets
+    /// are something you spend a credit on, so an empty list is the normal
+    /// state, not a missing-data state.
+    static let noResetsYet = "No resets yet"
+
     // MARK: Status
 
     /// Healthy attention summary from the host / Attention card fallback.
@@ -154,6 +173,27 @@ enum HeadroomCopy {
     /// thing you want to say, so every request that has a channel for words
     /// offers one.
     static let agentReplyPlaceholder = "Reply to the agent…"
+    /// A question shows in both places and is answered where it was asked.
+    static let answerInTheTerminal = "Answer in the terminal"
+
+    /// Giving an agent work, rather than answering work it already started.
+    static let startTask = "Start task"
+    static let startTaskAgent = "Agent"
+    static let startTaskFolder = "Folder"
+    static let startTaskPromptPlaceholder = "What should it do?"
+    static let chooseFolder = "Choose folder…"
+    /// A phone cannot browse the Mac's disk, so it waits for the Mac to use
+    /// one first. Says that, rather than showing an empty picker.
+    static let noFoldersYet = "Start one on the Mac first to pick a folder here"
+    static let noAgentCanTakeWork = "No agent is connected to take work"
+
+    /// Said after a start succeeds. Both providers answer `ok` and then work
+    /// quietly, so without this the surface looked like it had done nothing.
+    static func agentIsWorking(_ agent: String, in folder: String) -> String {
+        "\(agent) is working in \(folder)"
+    }
+    /// The Mac has no feed of its own, so it says where the answers arrive.
+    static let watchOnPhone = "Requests appear on your iPhone"
     static func agentFieldsOmitted(_ count: Int) -> String {
         count == 1 ? "1 more field not shown" : "\(count) more fields not shown"
     }

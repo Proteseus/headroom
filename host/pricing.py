@@ -17,6 +17,8 @@ RATES_CHECKED = "2026-07-25"
 
 # base_input / base_output per 1M tokens
 BASE = {
+    "claude-opus-5": (5.00, 25.00),
+    "claude-mythos-5": (10.00, 50.00),
     "claude-opus-4-8": (5.00, 25.00),
     "claude-opus-4-7": (5.00, 25.00),
     "claude-opus-4-6": (5.00, 25.00),

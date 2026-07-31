@@ -468,6 +468,9 @@ the port.
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each tagged version |
 | [docs/glossary.md](docs/glossary.md) | Shared chrome names |
 | [docs/rings.md](docs/rings.md) | Ring / pace semantics |
+| [docs/contract.md](docs/contract.md) | Changing `/usage` without breaking a shipped client |
+| [docs/trust.md](docs/trust.md) | Which callers may reach which routes, and why |
+| [docs/product.md](docs/product.md) | Standing product decisions — scope, settings, retention |
 | [docs/attention.md](docs/attention.md) | Attention rollup policy (not Settings) |
 | [docs/agent-attention.md](docs/agent-attention.md) | Coding-agent attention gateway |
 | [docs/backlog.md](docs/backlog.md) | What's queued and why |

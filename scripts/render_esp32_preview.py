@@ -26,12 +26,11 @@ import device_view
 W, H = 448, 368
 PAD = 28
 
-# sealNativeEdges() in firmware/src/main.cpp repaints the bottom rows of every
-# frame in the frame's own background colour, covering a fringe on the panel's
-# native right edge. Mirror it here — it is invisible on a full-bleed clear, but
-# it means a layout that drifts below H - SEAL_ROWS loses its ink on the board,
-# and the preview must lose it too rather than promise pixels the panel eats.
-SEAL_ROWS = 20
+# Mirrors PANEL_SEAL_ROWS in firmware/src/main.cpp: rows the panel edge seal
+# repaints in the frame's own background colour, which no layout can use. Zero
+# now that the seal only wipes GRAM past our last column. Keep the two in step —
+# a preview that promises rows the board paints over is a preview that lies.
+SEAL_ROWS = 0
 
 COL_BG = (16, 14, 12)
 COL_WHITE = (240, 238, 234)
@@ -452,7 +451,8 @@ def draw_glance_burndown(draw, providers, burns, updated, mid_y, low_bottom):
 
 def seal_edges(img: Image.Image, bg) -> Image.Image:
     """Repaint the bottom band the way the panel does, in the frame's own bg."""
-    ImageDraw.Draw(img).rectangle([0, H - SEAL_ROWS, W - 1, H - 1], fill=bg)
+    if SEAL_ROWS > 0:
+        ImageDraw.Draw(img).rectangle([0, H - SEAL_ROWS, W - 1, H - 1], fill=bg)
     return img
 
 
@@ -472,17 +472,20 @@ def render_glance(
 
     img = Image.new("RGB", (W, H), COL_BG)
     draw = ImageDraw.Draw(img)
-    draw_text(draw, "Headroom", PAD, PAD, FONT3, COL_WHITE)
+    # Home takes more air above the wordmark than the page inset — see `top` in
+    # drawGlancePage(). Paid for out of the slack under the ring labels.
+    top = PAD + 10
+    draw_text(draw, "Headroom", PAD, top, FONT3, COL_WHITE)
 
     mode_name = "Burndown"
     chip_x = PAD + 152
     chip_w = text_w(draw, mode_name, FONT2) + 16
     draw.rounded_rectangle(
-        [chip_x - 8, PAD + 2, chip_x - 8 + chip_w - 1, PAD + 25],
+        [chip_x - 8, top + 2, chip_x - 8 + chip_w - 1, top + 25],
         radius=6,
         outline=COL_DIM,
     )
-    draw_text(draw, mode_name, chip_x, PAD + 6, FONT2, COL_DIM)
+    draw_text(draw, mode_name, chip_x, top + 6, FONT2, COL_DIM)
 
     when = updated[11:16] if len(updated) >= 16 else ""
     if when:
@@ -490,7 +493,7 @@ def render_glance(
             draw,
             when,
             W - PAD - text_w(draw, when, FONT2),
-            PAD + 6,
+            top + 6,
             FONT2,
             COL_DIM,
         )
@@ -502,8 +505,8 @@ def render_glance(
     span = W - PAD * 2
     slot = span // len(providers) if providers else span
     ring_r = 32
-    ring_cy = PAD + 74
-    mid_y = ring_cy + ring_r + 48
+    ring_cy = top + 74
+    mid_y = ring_cy + ring_r + 38
     low_bottom = H - PAD - 15
 
     for index, provider in enumerate(providers):

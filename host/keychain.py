@@ -10,6 +10,17 @@ instead of this process, which is a broader grant and a worse prompt.
 
 Uses the Security framework through ctypes (stdlib) rather than the deprecated
 SecKeychain* C API. Stdlib only.
+
+`synchronizable=True` is what lets this find the PATs the app now stores in
+iCloud Keychain, and it is not optional for those: synchronizable items are a
+separate keyspace, so a query that omits `kSecAttrSynchronizable` defaults to
+`false` and returns "not found" for an item that is plainly there. The value
+used is `kSecAttrSynchronizableAny`, which spans both halves — a Mac still
+holding a local-only copy from before the app migrated it must keep working.
+
+The unentitled host reaching a synchronizable item is not a given and was
+checked on macOS 15 before this shipped: plain `SecItemCopyMatching` finds
+them, with no `kSecUseDataProtectionKeychain` needed.
 """
 
 from __future__ import annotations
@@ -120,12 +131,15 @@ def _cfdata_bytes(cf, ref):
     return ctypes.string_at(ptr, length)
 
 
-def get_generic_password(service, account=None):
+def get_generic_password(service, account=None, synchronizable=False):
     """Return (OSStatus, secret_str_or_None).
 
     Does not raise on the usual miss / cancel / auth-failed outcomes — those
     are what callers need to distinguish. Raises KeychainError only when the
     framework itself is unavailable or a query cannot be built.
+
+    Pass `synchronizable=True` for anything the app stores with iCloud Keychain
+    sync on; see the module docstring for why a default query cannot see it.
     """
     cf, sec = _load()
     owned = []
@@ -146,9 +160,14 @@ def get_generic_password(service, account=None):
              _const(sec, "kSecMatchLimitOne")),
         ]
         if account is not None:
-            pairs.insert(2, (
+            pairs.append((
                 _const(sec, "kSecAttrAccount"),
                 track(_cfstr(cf, account)),
+            ))
+        if synchronizable:
+            pairs.append((
+                _const(sec, "kSecAttrSynchronizable"),
+                _const(sec, "kSecAttrSynchronizableAny"),
             ))
         query = track(_cfdict(cf, pairs))
         status = int(sec.SecItemCopyMatching(query, ctypes.byref(result)))
@@ -166,6 +185,23 @@ def get_generic_password(service, account=None):
         for ref in owned:
             if ref:
                 cf.CFRelease(ref)
+
+
+def read_token(service, account, synchronizable=True):
+    """A stored token as a stripped string, or None for every failure.
+
+    The shape every source's `_keychain_token()` wanted: a miss, a denied
+    prompt and an unavailable framework are all "no token" to a poller that
+    just has to report the source as not connected and move on.
+    """
+    try:
+        status, secret = get_generic_password(
+            service, account, synchronizable=synchronizable)
+    except KeychainError:
+        return None
+    if status != ERR_SEC_SUCCESS or not secret:
+        return None
+    return secret.strip() or None
 
 
 def set_generic_password(service, account, secret):

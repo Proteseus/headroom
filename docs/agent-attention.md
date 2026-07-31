@@ -91,8 +91,20 @@ again — which is why `structured_question` reports `experimental` rather than
 - **`defer` is the default.** Timeout, an unmapped action, or **Ask on Mac**
   all defer, which is the documented way to say "no opinion" and hands the
   question back untouched.
-- **The hook is scoped `"matcher": "AskUserQuestion"`.** `PreToolUse`
-  otherwise fires on every tool call in every session.
+- **The hook is scoped `"matcher": "AskUserQuestion"`, and it is off by
+  default.** `PreToolUse` is the only hook Headroom installs that can block a
+  tool call, and holding a question is not free: it is unanswerable at the Mac
+  for exactly as long as Headroom holds it, and a host that is down or
+  restarting takes every question in every session with it. That is a bad
+  trade unless you actually want to answer from your phone, so it installs
+  only when `agent_remote_questions` is on, and switching the setting off
+  removes the hook rather than leaving a blocker behind.
+- **The wait is short.** A question parks for 25 seconds, not the approval's
+  285. An approval has nowhere else to be answered; a question is sitting in
+  front of you on the Mac the whole time.
+- **No decision is an empty body.** Returning an explicit `permissionDecision`
+  is only as safe as our reading of the enum, and a wrong value there does not
+  degrade — it breaks the tool call.
 - **No duplicate row.** A denied `PreToolUse` stops the chain, so
   `PermissionRequest` never fires for a question that was answered. When the
   phone stays quiet, the deferral lets the ordinary permission flow resume.
@@ -124,7 +136,28 @@ So the adapter today is a working protocol client with nothing plugged into it.
 Everything below it — the ledger, the typed fields, questions, interrupt — is
 tested against synthetic messages and is correct; it simply has no live source.
 
-Two ways to close it, and they are the same two slices this list already has:
+**Slice 2 is now built, and it works.** Headroom starts the thread itself:
+
+```bash
+curl -s -X POST localhost:8737/agents/codex/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"cwd":"/path/to/repo","prompt":"fix the flaky test"}'
+```
+
+`thread/start` runs with `approvalPolicy: "on-request"` and
+`sandbox: "workspace-write"`, which is what makes Codex ask rather than
+proceed silently; `approvalsReviewer` defaults to `user`, and the client is
+Headroom. `turn/start` sends the prompt. `POST /agents/codex/steer` adds to a
+running turn through `turn/steer`, gated on `expectedTurnId` so words meant for
+one turn never land in the next. `GET /agents/codex/task` reports what is live.
+All three are localhost-only: they drive a local executable.
+
+The limitation is unchanged and worth restating — **only work Headroom started
+is visible.** A session you start in a terminal still talks to its own App
+Server. That is an OpenAI-side restriction, not a design choice, and it is
+why the shared-daemon route below is the one to revisit.
+
+Two ways this was approached:
 
 1. **Headroom drives the session** (slice 2). `thread/start`, `turn/start`,
    and the approvals arrive on the socket Headroom already owns. This works

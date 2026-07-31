@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -21,6 +23,10 @@ import claude_hooks
 PROVIDER = "claude-code"
 ADAPTER = "claude-http-hooks"
 DEFAULT_WAIT_SECONDS = 285
+# A question is usually answered at the keyboard. Holding one for the
+# permission wait made it dead air on the Mac for nearly five minutes,
+# which is worse than never offering it on the phone at all.
+QUESTION_WAIT_SECONDS = 25
 MAX_WAIT_SECONDS = 600
 
 APPROVE_ONCE = {
@@ -192,6 +198,35 @@ def _choice_actions(options):
     return actions + [REPLY, ASK_ON_MAC]
 
 
+MAX_PROMPT_CHARS = 8000
+
+# `claude -p` runs headless and its hooks are the ones already installed in
+# ~/.claude/settings.json, so a session Headroom starts reports to Headroom
+# without any extra wiring. `manual` keeps permission requests coming — the
+# whole point is that they arrive on your phone.
+CLAUDE_TASK_MODE = "manual"
+
+
+def _claude_binary():
+    """Find `claude` without assuming an interactive shell's PATH.
+
+    The host is a LaunchAgent, so its PATH is narrow — the same trap the Codex
+    adapter documents.
+    """
+    configured = shutil.which("claude")
+    if configured:
+        return configured
+    for candidate in (
+        os.path.expanduser("~/.claude/local/claude"),
+        os.path.expanduser("~/.local/bin/claude"),
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ):
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
 def _reply_text(value):
     """Typed words, normalised and bounded, or None if there are none."""
     if not isinstance(value, str):
@@ -259,13 +294,14 @@ def _answered(question, answer):
 
 
 def _defer():
-    """No opinion: let Claude's ordinary permission flow take over."""
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "defer",
-        },
-    }
+    """No opinion, said the safest way there is: say nothing.
+
+    An empty body is unambiguously "this hook has no decision" in every
+    version of the hook contract. An explicit `permissionDecision` value is
+    only as safe as our reading of the enum, and a wrong guess there does not
+    degrade — it breaks the tool call.
+    """
+    return {}
 
 
 class _PendingPermission:
@@ -341,6 +377,12 @@ class ClaudeCodeHooks:
             raise agent_events.InvalidEvent("Claude tool_name is required")
         if not isinstance(tool_input, dict):
             raise agent_events.InvalidEvent("Claude tool_input must be an object")
+        # AskUserQuestion arrives here too, but it is a question, not a
+        # request for permission. Rendered as one it offers Allow or Deny for
+        # a choice — answers that mean nothing — so questions are left to the
+        # question hook, which knows how to draw them.
+        if tool_name == "AskUserQuestion":
+            return None
         wait_seconds = max(1, min(MAX_WAIT_SECONDS, int(wait_seconds)))
         provider_request_id = "permission-" + uuid.uuid4().hex
         cwd = payload.get("cwd")
@@ -427,7 +469,8 @@ class ClaudeCodeHooks:
             },
         }
 
-    def question_request(self, payload, wait_seconds=DEFAULT_WAIT_SECONDS):
+    def question_request(self, payload, wait_seconds=QUESTION_WAIT_SECONDS,
+                         mode="notify"):
         """Offer a question's own options as answers, via the deny channel.
 
         Returns `defer` for anything we cannot answer cleanly, which is the
@@ -438,8 +481,13 @@ class ClaudeCodeHooks:
         tool_input = payload.get("tool_input")
         if not isinstance(session_id, str) or not session_id.strip():
             raise agent_events.InvalidEvent("Claude session_id is required")
+        if mode != "answer":
+            self._question_notice(payload, tool_input)
+            return _defer()
         question = _sole_question(tool_input)
         if question is None:
+            # Not answerable from here, but still worth seeing there.
+            self._question_notice(payload, tool_input)
             return _defer()
         wait_seconds = max(1, min(MAX_WAIT_SECONDS, int(wait_seconds)))
         cwd = payload.get("cwd")
@@ -503,6 +551,39 @@ class ClaudeCodeHooks:
             },
         }
 
+    def start_task(self, cwd, prompt):
+        """Run `claude -p` in a folder, headless, and let the hooks report it.
+
+        Claude Code has no "start a session" API, but it does not need one:
+        the hooks Headroom installed are global, so a session started here
+        reports to Headroom exactly like one started in a terminal. The
+        process is detached on purpose — a turn can run for minutes and the
+        HTTP request that started it must not wait for the answer.
+        """
+        folder = os.path.expanduser(str(cwd or "").strip())
+        words = str(prompt or "").strip()
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("a task needs a folder that exists")
+        if not words:
+            raise ValueError("a task needs a prompt")
+        binary = _claude_binary()
+        if binary is None:
+            raise RuntimeError("Claude Code executable not found")
+        status = claude_hooks.inspect()
+        if not status.get("installed"):
+            raise RuntimeError(
+                "Install Claude hooks first, or the task cannot report back")
+        process = subprocess.Popen(
+            [binary, "-p", words[:MAX_PROMPT_CHARS],
+             "--permission-mode", CLAUDE_TASK_MODE],
+            cwd=folder,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"pid": process.pid, "cwd": folder}
+
     def lifecycle_event(self, payload):
         session_id = payload.get("session_id")
         hook = payload.get("hook_event_name")
@@ -547,6 +628,45 @@ class ClaudeCodeHooks:
         return self._passive(
             payload, kind, title,
             _short(payload.get("message"), "Open Claude Code to continue"),
+        )
+
+    def _question_notice(self, payload, tool_input):
+        """Show the question without holding it.
+
+        Every question, whatever its shape — several at once, multi-select,
+        anything. It is read-only by construction: the only way to answer
+        remotely is to block the call, and blocking is exactly what this mode
+        exists to avoid. You answer where Claude already asked you.
+        """
+        questions = (tool_input or {}).get("questions")
+        if not isinstance(questions, list) or not questions:
+            return None
+        first = next(
+            (q.get("question") for q in questions
+             if isinstance(q, dict) and isinstance(q.get("question"), str)
+             and q.get("question").strip()),
+            None,
+        )
+        if not first:
+            return None
+        session_id = payload["session_id"]
+        self.store.supersede(
+            PROVIDER, ADAPTER, session_id, "structured_question")
+        return self.store.create(
+            provider=PROVIDER,
+            adapter=ADAPTER,
+            provider_request_id="question-" + uuid.uuid4().hex,
+            session_id=session_id,
+            kind="structured_question",
+            title=f"Claude is asking you in {_project(payload.get('cwd'))}",
+            summary=_short(" ".join(first.split()), "Claude asked a question"),
+            actions=PASSIVE_ACTIONS,
+            detail={
+                "tool_name": "AskUserQuestion",
+                "request": agent_request.fields(tool_input, "AskUserQuestion"),
+                "answer_on_mac": True,
+                "cwd": payload.get("cwd"),
+            },
         )
 
     def _passive(self, payload, kind, title, summary):

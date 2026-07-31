@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -21,6 +20,7 @@ import urllib.parse
 import app_config
 import cache_util
 import http_util
+import keychain
 
 DEFAULT_HOST = "https://plausible.io"
 CACHE_TTL_S = 2 * 60
@@ -45,21 +45,7 @@ _EMPTY = {
 
 
 def _keychain_token():
-    try:
-        return subprocess.check_output(
-            [
-                "/usr/bin/security", "find-generic-password",
-                "-s", KEYCHAIN_SERVICE,
-                "-a", KEYCHAIN_ACCOUNT,
-                "-w",
-            ],
-            stderr=subprocess.DEVNULL,
-            timeout=4,
-            text=True,
-        ).strip() or None
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-            FileNotFoundError, OSError):
-        return None
+    return keychain.read_token(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
 
 
 def _token():

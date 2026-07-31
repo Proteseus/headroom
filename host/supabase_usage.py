@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-import subprocess
 import time
 import urllib.error
 import urllib.parse
 
 import http_util
 import cache_util
+import keychain
 
 API = "https://api.supabase.com"
 CACHE_TTL_S = 5 * 60
@@ -61,21 +61,7 @@ _EMPTY = {
 
 
 def _keychain_token():
-    try:
-        return subprocess.check_output(
-            [
-                "/usr/bin/security", "find-generic-password",
-                "-s", KEYCHAIN_SERVICE,
-                "-a", KEYCHAIN_ACCOUNT,
-                "-w",
-            ],
-            stderr=subprocess.DEVNULL,
-            timeout=4,
-            text=True,
-        ).strip() or None
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-            FileNotFoundError, OSError):
-        return None
+    return keychain.read_token(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
 
 
 def _token():

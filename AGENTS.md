@@ -53,6 +53,46 @@ half-finished work and cannot tell whose failure you are looking at:
 git worktree add --detach /tmp/verify HEAD
 ```
 
+## The host LaunchAgent is not yours to repoint
+
+`~/Library/LaunchAgents/com.centaur-labs.headroom.plist` runs the host MZ
+actually uses. It was repointed at agent scratchpad paths five times in one
+day, and every time the host died — because the scratchpad had been cleaned up,
+or the build in it was mid-edit. A dead host is not cosmetic: the board stops
+getting data, the phone stops getting rows, and every Claude session sharing
+this Mac loses its Headroom integration at once.
+
+**Verify against your own copy, not the shared service.** The host takes a
+port, so nothing has to touch the plist:
+
+```bash
+HEADROOM_USB_PORT=/dev/null python3 host/headroom_server.py --port 8738
+```
+
+The port keeps you off :8737 and the `HEADROOM_USB_PORT` override keeps you off
+`/dev/cu.usbmodem*`, so the board stays with whoever owns it. Kill it when you
+are done.
+
+If you genuinely must repoint the LaunchAgent — you are testing the packaged
+app, say — point it at a path that will still exist tomorrow, and put it back:
+
+```bash
+./scripts/install-host.sh --app=/Applications/Headroom.app
+```
+
+Two traps that cost real time when the plist does need touching:
+
+- **`install-host.sh` races its own `bootout`.** It unloads the old job and
+  bootstraps the new one immediately, and launchd is asynchronous, so
+  bootstrap fails with `5: Input/output error` and leaves nothing running. The
+  script reports the failure and exits; the host is simply down. Re-run
+  `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.centaur-labs.headroom.plist`
+  after a couple of seconds and it works.
+- **The LaunchAgent runs Xcode's Python 3.9**, not whatever `python3` is on
+  your PATH. `python3 -m unittest` passing under 3.14 says nothing about
+  whether the host will start. Anything newer than 3.9 syntax fails at launch,
+  not in the tests.
+
 ## The board
 
 There is one ESP32 on one desk and it takes one owner at a time. Before you
@@ -229,6 +269,35 @@ Attention rollup scoring is the same kind of contract: `docs/attention.md`.
 Weights and ages stay hardcoded product policy — do not add an Attention
 Settings pane. Gateway prefs live under Coding agents; see
 `docs/agent-attention.md`.
+
+## Contracts, access, and standing decisions
+
+Three docs exist so these are lookups rather than judgment calls. Read the one
+that matches before you change the thing it governs.
+
+**[docs/contract.md](docs/contract.md) — changing `/usage`.** Additive only:
+never remove a key, never repurpose one, never narrow a type. This is not
+style. `fetchUsage()` decodes the whole document under one `try`, and nine
+fields on that path are non-optional, so one missing key blanks the entire
+popover rather than the one card it belongs to. The phone
+updates on Apple's schedule and the board updates when someone finds a cable,
+so both can be a year behind the host. That file also inventories every
+constant mirrored across Python, Swift and C++, and which of them are actually
+enforced (three) versus held together by a comment (four).
+
+**[docs/trust.md](docs/trust.md) — adding a route.** Four classes: Mac-local
+(anything naming credentials or config), ambient read, scoped control, and
+agent control. Pick the class first, then write the handler. A route that can
+cause code to run does not ship under the same gate as one that changes a
+display preference. `SECURITY.md` is the user-facing half; if the two
+disagree, fix `SECURITY.md` first.
+
+**[docs/product.md](docs/product.md) — what to build.** What Headroom is, the
+line under the agent gateway (it answers requests, it does not originate work),
+what earns a Setting versus staying hardcoded, retention as a user asset, the
+stdlib-only exit condition, and the one genuinely undecided question: whether a
+burndown chart is what a Mac watched or what happened to a pool. Decide that
+before implementing the multi-Mac history merge.
 
 ## Multi-Mac
 

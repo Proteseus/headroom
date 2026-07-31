@@ -58,8 +58,190 @@ tag a version that has no entry.
   companies' product names are rendered, and the accessibility sentence order.
   Renames are now stated to be releases, because a stale client replays old
   prose from its cache.
-- `docs/appstore.md` is no longer pinned to a version it outgrew six releases
-  ago. What's New points at `CHANGELOG.md` instead of duplicating it.
+- `docs/appstore.md` is no longer pinned to the version it was written at and
+  then outgrew by ten. What's New points at `CHANGELOG.md` rather than keeping
+  a second copy that drifts, and the listing name's `(Max your Quotas)` suffix
+  is documented as required — "Headroom" alone is taken.
+
+## 1.3.2 — 2026-07-31
+
+### Fixed
+
+- **Claude's questions no longer depend on Headroom being up.** 1.2.7 shipped
+  question-answering as an always-installed `PreToolUse` hook with a 300-second
+  timeout — the one hook Headroom installs that can block a tool call. With the
+  host down or restarting, every `AskUserQuestion` in every session stalled and
+  came back interrupted. The hook is off by default now, carries a 5-second
+  timeout when it only observes, and says "no decision" with an empty body
+  rather than an enum value read from documentation and never verified.
+- **A question shows in both places now.** The default posts it and gets out of
+  the way: Claude renders its own picker in the terminal, and the same question
+  appears on your phone with every option listed, marked **Answer in the
+  terminal**. Nothing is held, so nothing can stall. Holding the call so the
+  phone can answer is still there as a mode, but it is the exception — you
+  cannot both leave the question in the terminal and answer it elsewhere.
+- A question is never drawn as a permission request. `AskUserQuestion` also
+  arrives on the permission hook, so a two-part question rendered as **Claude
+  needs permission** offering *Allow once / Deny / Stop Claude* — answers that
+  mean nothing — with both questions flattened into a wall of text under it.
+- Questions Headroom cannot answer remotely — several at once, multi-select —
+  are shown rather than dropped. They were invisible before, which is worse
+  than read-only.
+- Answering Claude's questions from the phone is now **off by default**, and
+  the hook that does it is only installed when it is on. `PreToolUse` is the
+  one hook Headroom installs that can block a tool call: while it holds a
+  question the question is unanswerable at the Mac, and a host that is down or
+  restarting takes every question in every session with it. Switching the
+  setting off removes the hook rather than leaving a blocker behind.
+- A held question now waits 25 seconds rather than the approval's 285. An
+  approval has nowhere else to be answered; a question is sitting in front of
+  you the whole time.
+- Headroom says "no decision" with an empty body instead of an explicit
+  `permissionDecision` value. A wrong guess at that enum does not degrade — it
+  breaks the tool call.
+
+## 1.3.1 — 2026-07-31
+
+### Fixed
+
+- **The board gets back the 20 rows it was painting over.** A bring-up guess
+  had the firmware repaint the bottom of every frame in the background colour
+  to hide a fringe on the panel's native edge. It was several times what the
+  panel needed, and those rows sat flat while everything else animated. The
+  overscan wipe already covers the real problem without spending a row of
+  picture. If the fringe ever comes back, the comment in the source now says
+  the fix is a column offset on the driver, not painting over our own pixels.
+- Dropping that repaint uncovered a bug it had been hiding by accident. The
+  driver caches the last address window and skips re-sending it when the next
+  call matches, so the raw poke that wipes the overscan columns left the panel
+  addressed to a narrow strip while the driver still believed it was drawing
+  full frames. The window is restored explicitly now.
+
+### Changed
+
+- Every dashboard on the board starts its first ink slightly lower. The bezel
+  curves over the top of the panel and the largest type sits right there, so
+  the side inset alone read as tight. Each page pays for the extra out of slack
+  inside its own header, so nothing below the divider moved and no page lost a
+  row. The desktop previews mirror it, because a preview that promises rows the
+  board paints over is a preview that lies.
+
+## 1.3.0 — 2026-07-31
+
+Nothing in this one changes what the app does. It is the release that stops a
+whole class of silent breakage from reaching you in the next one.
+
+### Added
+
+- **The `/usage` contract is now enforced, not just described.** Five tests pin
+  the parts that fail quietly: a host too old to send a `contract` number is
+  treated as speaking version 1 rather than as broken, one malformed row costs
+  that row instead of blanking the whole popover, and an empty list stays
+  distinguishable from a missing one. All three were already true. None of them
+  was checked, and the popover decodes under a single `try`, so the first
+  regression would have shown up as an empty window with no clue why.
+- **A guard for constants that live in three languages.** Row caps, provider
+  slots and pool counts are written out separately in the Python host, the
+  Swift clients and the ESP32 firmware, kept in step by a comment. When they
+  drift there is no build error, just the board drawing four rows into a
+  five-row buffer. `scripts/check-mirrored-constants.sh` now fails the build
+  instead.
+- **CI runs the host on Python 3.9 as well as 3.12.** 3.9 is the real floor:
+  Headroom.app points a LaunchAgent at the system `python3`, and macOS 14 ships
+  3.9.6. A single 3.10-only line would have passed every check and then failed
+  on every macOS 14 Mac.
+
+## 1.2.9 — 2026-07-31
+
+### Added
+
+- **Headroom can start Codex work, which is what finally makes the Codex
+  gateway do anything.** The adapter has been connecting happily for months
+  and had never raised a single event, because it spawned an App Server and
+  never gave it a thread. `POST /agents/codex/tasks` with a folder and a
+  prompt starts one, `POST /agents/codex/steer` adds to a turn already
+  running, and `GET /agents/codex/task` says what is live. All localhost-only:
+  they drive a local executable.
+- **Send a message into a running turn** — `turn/steer`, gated on
+  `expectedTurnId` so words meant for one turn never land in the next.
+  `send_message` reports supported on Codex for the first time.
+- Codex work that dies now says so. The very first real turn Headroom started
+  ended on "your workspace is out of credits" and told nobody, which is the
+  opposite of a surface for following work. A turn that completes with an
+  error raises a dismissible row carrying the provider's own message and
+  error code.
+
+- **Start a task from the Mac or the phone.** One control on both: pick the
+  agent, pick the folder, say what it should do. `POST /agents/tasks` takes
+  either provider, and `GET /agents/tasks` tells a client which agents can
+  actually take work right now so nothing is offered that would fail.
+- **Claude tasks too.** Claude Code has no "start a session" API and does not
+  need one: `claude -p` runs headless and the hooks Headroom already installed
+  are global, so a session started here reports back exactly like one started
+  in a terminal. Verified end to end.
+- Starting a task says so. Both providers answer `ok` and then work quietly,
+  so a success was indistinguishable from nothing happening — the only thing
+  either surface ever showed was a red line when it failed. A start now
+  confirms **"Claude is working in headroom"**, and the Mac adds where the
+  requests will turn up, because the Mac has no feed of its own. A failed
+  start also keeps the words you typed, instead of clearing them along with
+  the attempt.
+- The Mac gets a folder picker; the phone picks from folders the Mac has used,
+  because a phone cannot browse the Mac's disk. The host remembers the last
+  eight.
+
+### Fixed
+
+
+### Changed
+
+- Starting work from the phone rides the same Mac-granted **Answer coding
+  agents** permission that lets it answer an approval — off by default, and
+  never open to the LAN at large.
+- `docs/agent-attention.md` records what a Codex task needs to be answerable:
+  `approvalPolicy: "on-request"` and `sandbox: "workspace-write"`, because a
+  policy that never asks produces no approvals to answer. It also states the
+  standing limitation plainly — only work Headroom started is visible, which
+  is an OpenAI-side restriction rather than a design choice.
+- **Agent request history is kept for 30 days, and `SECURITY.md` now says so.**
+  The retention window landed with the ledger itself and the disclosure never
+  caught up, so the security notes still promised no expiry on a store that
+  already prunes. Settled requests are dropped 30 days after you answer them;
+  anything still pending is kept until it is answered.
+
+## 1.2.8 — 2026-07-31
+
+### Added
+
+- **Your API tokens follow you to your other Macs.** Retyping a GitHub personal
+  access token on the second Mac was the chore multi-Mac sync was supposed to
+  remove and did not. The three tokens Headroom owns (GitHub, Plausible,
+  Supabase) now travel through iCloud Keychain, end to end encrypted with your
+  own keys. Tokens already saved migrate themselves the next time the app
+  launches, so there is nothing to re-enter.
+
+### Changed
+
+- Tokens do not travel in the multi-Mac sync record, on purpose. `icloud_dir`
+  can aim that same record at Dropbox or Syncthing, where a secret in the record
+  would be a secret sitting in a plaintext file in someone else's folder. The
+  rule that credentials never enter the record is unchanged.
+- The token that authorizes reaching one Mac's host stays on that Mac, because
+  the phone pairs to a single Mac. Claude Code's own Keychain item is left
+  alone: its refresh token rotates, and two Macs refreshing it independently can
+  invalidate each other.
+- GitHub, Plausible and Supabase credentials are read through one path now
+  instead of four. The old one shelled out to `security find-generic-password`,
+  which is the legacy Keychain API and cannot be relied on to see synced items.
+- **`SECURITY.md` and the privacy notes were a release behind.** Neither listed
+  the `agents` permission, and neither said that the agent request ledger keeps
+  commands, paths and code excerpts. Both do now. Nothing about what the app
+  does changed here; the disclosure caught up to it.
+- New reference docs for anyone changing the `/usage` payload, adding a route,
+  or deciding what belongs in the product: `docs/contract.md`, `docs/trust.md`
+  and `docs/product.md`. `docs/agent-attention.md` also records why the Codex
+  shared-daemon route is a dead end in 0.145.0, so the next person spends the
+  twenty minutes elsewhere.
 
 ## 1.2.7 — 2026-07-31
 

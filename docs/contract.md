@@ -1,0 +1,198 @@
+# The data contract
+
+`GET /usage` is the only thing four codebases agree on. The menu bar, the
+widget, the phone, the Watch and the board all render one document produced by
+one Python host, and none of them ship on the same schedule. This file is the
+rule for changing that document without breaking a client that is already in
+the field.
+
+It is about *shape*. [docs/trust.md](trust.md) covers who may call a route,
+[docs/rings.md](rings.md) covers what the numbers mean.
+
+## Why this needs a rule at all
+
+Three of the five clients update independently of the host:
+
+| Client | How it updates | Skew you can get |
+|---|---|---|
+| Menu bar | ships the host inside `Headroom.app` | bounded — `HostVersion` catches it |
+| Widget / Watch | same bundle as the Mac app | none beyond the above |
+| iPhone | TestFlight / App Store, on Apple's schedule | **months** |
+| ESP32 | a human holding a USB cable | **years** |
+
+`host_version.py` already solves the first row. It fingerprints the shipped
+host — a sha256 over the flat `.py` and `VERSION` files, first 12 hex — and
+`macos/Sources/HostVersion.swift` computes the same value over the bundled
+copy, both pinned to a golden vector. That catches an old LaunchAgent still
+running under a new app.
+
+It does nothing for the bottom two rows, and those are the ones that matter.
+A phone from six months ago talking to a host from today has no way to know it
+is behind, and no way to say so.
+
+## The rule: additive only, and it is load-bearing
+
+**Never remove a key. Never repurpose a key. Never narrow a type.** Add new
+keys and let old clients ignore them.
+
+This is not style advice. It is the only thing standing between a schema edit
+and a blank screen, because of how the Swift side decodes:
+
+```swift
+func fetchUsage() async throws -> UsageSnapshot {
+    return try JSONDecoder().decode(UsageSnapshot.self, from: data)
+}
+```
+
+One decoder, one `try`, whole document. `UsageSnapshot`'s own fields are all
+optional, so a *top-level* key going missing degrades gracefully. The nested
+structs are where it bites: `HeadroomModels.swift` has **39 non-optional
+decoded fields**, and exactly one hand-written `init(from:)` in the file. Nine
+of the 39 sit on the `/usage` path — `ActivityItem.id`, `DailyBurnDay.date`,
+`GitHubRun.id`, `PlausibleSite.domain`, `QuotaProviderInfo.id`,
+`SupabaseLint.name`, `SupabaseProject.ref`, `SupabaseService.name`,
+`SyncSource.id` — and the other 30 are on the agent-event path, which decodes
+separately and fails separately.
+
+Every one of the nine is an identity field, which is what makes this feel safe
+and is exactly why it is not: identity fields are the ones a refactor renames.
+
+So:
+
+```jsonc
+// by_day rows lose "date" in some future host
+{ "by_day": [ { "claude": 12.0 } ] }
+```
+
+`DailyBurnDay.date` is `String`, not `String?`. Synthesized decoding throws.
+`fetchUsage()` throws. The user does not lose the burndown chart — they lose
+**the entire popover**, with an error that names a date field nobody was
+looking at.
+
+Two consequences worth stating plainly:
+
+- **A required key is a permanent commitment.** Adding one is cheap; the host
+  starts emitting it and old clients ignore it. Removing one is a breaking
+  change to every client ever shipped.
+- **When you add a field a client will treat as required, make it optional in
+  Swift anyway** and default it at the use site. The decoder cannot tell you
+  which of the two you meant, so it assumes the expensive one.
+
+## What is missing: a version the payload states out loud
+
+Today the document carries no schema version. Compatibility is maintained
+entirely by the convention above plus two hand-rolled shims:
+
+- `device_view.LEGACY_PROVIDER_IDS` keeps emitting flat `claude` / `codex` /
+  `cursor` blocks for boards flashed before `providers[]` existed. ~300 bytes
+  to keep an un-reflashed board on the desk.
+- Every top-level key on `UsageSnapshot` being optional, so a *newer* client
+  against an *older* host draws blanks instead of erroring.
+
+Drawing blanks is the part that should change. A phone that renders empty
+cards is indistinguishable, to the person holding it, from a broken Mac.
+
+**The fix is one integer.** `/usage` gains:
+
+```jsonc
+{
+  "contract": 3,          // bumped when clients must be told
+  "host": "1.2.7",        // marketing version, already there via /health
+  "build": "a1b2c3d4e5f6" // fingerprint, already there
+}
+```
+
+and each client pins the lowest `contract` it can render. Older than that, the
+client says *"This Mac is running an older Headroom than this app needs"* and
+names the version to update to. Newer than the client knows, it renders what it
+understands and says nothing, because additive-only guarantees that is safe.
+
+Bump `contract` when, and only when, a client that does not know about the
+change would show something **wrong or empty**. Adding a field nobody requires
+is not a bump. Changing what `pct` means is.
+
+### Deprecation window
+
+A legacy shim like `LEGACY_PROVIDER_IDS` is not forever, and "forever" is the
+default unless a number is written down. The rule:
+
+| Surface | Owed |
+|---|---|
+| iPhone / iPad | two minor versions, or six months, whichever is longer |
+| ESP32 firmware | **until the shim costs more than a kilobyte or blocks a change** |
+| Menu bar / widget / Watch | nothing; it ships with its host |
+
+The board gets the loosest rule on purpose. Reflashing needs someone at the
+desk with a cable, and `flash-esp32.sh` exists because that operation can brick
+the thing. Cheap compatibility is worth more than clean code here.
+
+When a shim is finally dropped, say so in `CHANGELOG.md` under **Removed**,
+and name the last version that could talk to it.
+
+## Constants that live in more than one language
+
+This is the other half of the contract, and the one that drifts silently.
+
+| Constant | Home | Mirrored in | Checked by |
+|---|---|---|---|
+| `MAX_DEPLOYS` / `MAX_COMMITS` / `MAX_SERVERS` / `MAX_SOURCES` | `firmware/src/main.cpp` | `host/device_view.py` | **a comment** |
+| `MAX_PROVIDERS` (3), `MAX_POOLS` (3) | `firmware/src/main.cpp` | `host/device_view.py` | **a comment** |
+| `FOCUS_LIMIT` (3) | `host/sources_config.py` | firmware `MAX_SLOTS`, menu bar, widget | **a comment** |
+| Ring geometry + pace semantics | `Shared/HeadroomRings.swift` | `firmware/src/main.cpp` | [docs/rings.md](rings.md), by hand |
+| Chrome copy | `Shared/HeadroomCopy.swift` | `docs/glossary.md`, `LABEL_*` in firmware | `scripts/check-glossary-copy.sh` ✅ |
+| Host build fingerprint | `host/host_version.py` | `macos/Sources/HostVersion.swift` | golden vector, both sides ✅ |
+| Boot splash tables | `scripts/render_esp32_boot.py` | `firmware/src/boot_max.h` | **generated** ✅ |
+
+Three rows are enforced. Four are held together by a comment that says
+"mirror of", which works exactly until someone changes one side at 1am.
+
+The repo already knows the answer, twice: `boot_max.h` is generated rather than
+mirrored, and the host fingerprint is pinned by a golden vector in both
+languages. Extend that. A single `contract.json` emitting a firmware header, a
+Swift file and a Python module would delete this table's unenforced half —
+and it is the same idea as `sources_config.py`, which is the best thing in the
+codebase, just carried past Python's edge.
+
+Until that exists, the rule is: **change a mirrored constant and grep for its
+name across `firmware/`, `host/`, `Shared/` before you commit.** Every one of
+them appears in at least two languages under the same name, on purpose.
+
+## The board's projection is not a second contract
+
+`host/device_view.py` is a *trim* of `/usage`, not a parallel document.
+~30KB becomes ~4KB, which is invisible over Wi-Fi and the difference between a
+2.6s stall and a responsive UI over USB CDC at 115200 baud.
+
+Two rules keep it a projection rather than a fork:
+
+- **It only ever removes.** No key in the device view means anything different
+  from the same key in `/usage`. If the board needs a value computed
+  differently, that computation belongs in the host document where every client
+  gets it.
+- **Nulls are dropped, not passed.** ArduinoJson cannot distinguish an absent
+  key from a null one, and the firmware's `.isNull()` guards treat them
+  identically. A null that survives into the device view is a field the board
+  will silently read as zero.
+
+The board also never picks anything. The host chooses which three providers are
+in `focus`, in pinned order, enabled only — so the desk, the menu bar and the
+widget cannot disagree about which three. **The board is a render target.** Any
+feature that requires the firmware to decide something is a feature that
+belongs in the host.
+
+## Checklist for changing `/usage`
+
+1. Is this additive? If not, stop and reread the top of this file.
+2. If a client would show something wrong or blank without knowing about the
+   change, bump `contract` and raise the minimum on the clients that care.
+3. Does the board need it? Add it to `device_view.py` and check the caps.
+4. Does it touch a mirrored constant? Grep all three languages.
+5. Does it add a required Swift field? Make it optional and default it instead.
+6. `host/test_contract.py` and `macos/Tests/ContractTests.swift` are the
+   acceptance test that the document still has the shape everything expects.
+   Run them from both sides — a shape change that only one language notices is
+   the exact failure this file exists to prevent.
+
+```bash
+cd host && python3 -m unittest discover -p "test_*.py"
+```

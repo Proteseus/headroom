@@ -85,16 +85,24 @@ static const uint16_t COL_CRT_SCAN= RGB565(12, 8, 26);     // scanlines
 // Paint over it in-panel after every blit. Also blank a few GRAM columns past
 // LCD_WIDTH in case the panel scans slightly beyond our framebuffer.
 //
-// The seal costs the bottom PANEL_SEAL_ROWS logical rows of every frame, so no
-// layout may put ink below LOG_H - PANEL_SEAL_ROWS. 20 is a bring-up guess and
-// probably several times what the panel needs — the library's own preset for
-// this board declares zero offsets. Worth walking down once there are eyes on
-// the panel; every row recovered is a row of picture.
-static const int16_t PANEL_SEAL_ROWS = 20;
+// The seal costs the bottom PANEL_SEAL_ROWS logical rows of every frame: they
+// carry background instead of picture, so they sit flat while the rest of the
+// frame animates, and they push the whole layout up against the top inset.
+//
+// Now zero. The library's own preset for this board declares 368x448 with all
+// four offsets at 0, so anything the panel scans past our framebuffer lives
+// beyond column LCD_WIDTH — which the GRAM wipe below covers without spending
+// a row of picture. If a green fringe comes back along the bottom edge, that
+// is evidence the visible window really does extend past our last column, and
+// the fix is col_offset1 on the Arduino_SH8601 constructor, not painting over
+// our own pixels.
+static const int16_t PANEL_SEAL_ROWS = 0;
 
 static void sealNativeEdges(uint16_t color) {
   const int16_t fringe = PANEL_SEAL_ROWS;
-  panel->fillRect(LCD_WIDTH - fringe, 0, fringe, LCD_HEIGHT, color);
+  if (fringe > 0) {
+    panel->fillRect(LCD_WIDTH - fringe, 0, fringe, LCD_HEIGHT, color);
+  }
 
   const int16_t extra = 16;
   bus->beginWrite();
@@ -102,6 +110,16 @@ static void sealNativeEdges(uint16_t color) {
   bus->writeC8D16D16(0x2B, 0, LCD_HEIGHT - 1);
   bus->writeCommand(0x2C);
   bus->writeRepeat(color, (uint32_t)extra * LCD_HEIGHT);
+
+  // Put the window back where the driver thinks it is. Arduino_SH8601 caches
+  // the last address window and skips re-sending CASET/PASET when the next
+  // call matches, so a raw poke like the one above leaves the panel addressed
+  // to a 16-column strip while the driver still believes it is full-frame —
+  // and the next blit pours a whole frame into that strip. This used to be
+  // covered by accident: the fillRect above ran through the driver and
+  // invalidated the cache, so dropping it blanked the screen.
+  bus->writeC8D16D16(0x2A, 0, LCD_WIDTH - 1);
+  bus->writeC8D16D16(0x2B, 0, LCD_HEIGHT - 1);
   bus->endWrite();
 }
 
@@ -1380,6 +1398,14 @@ static bool drawProviderMark(const String &id, int16_t x, int16_t y,
 
 // Shared page inset — keep boot chrome + dashboards clear of the corner radius.
 static const int16_t UI_PAD = 28;
+
+// Every dashboard starts its first ink lower than the side inset. The bezel
+// curves over the top of the panel and the biggest type on the board sits
+// right there, so the side inset alone reads as tight. Each page pays for the
+// extra out of slack inside its own header — under the ring labels on home,
+// between the header lines on the sub-pages — so nothing below the divider
+// moves and no page loses a row.
+static const int16_t UI_TOP = UI_PAD + 10;
 
 static void drawStatus(const String &msg, uint16_t col) {
   gfx->clear(COL_CRT_BG);
@@ -2958,7 +2984,8 @@ static void drawGlancePage() {
   const int16_t W = scrW();
   const int16_t H = scrH();
   const int16_t padX = UI_PAD;
-  const int16_t top = UI_PAD;
+  // Paid for out of the slack under the ring labels — see UI_TOP.
+  const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
 
   drawTextAt("Headroom", padX, top, 3, COL_WHITE);
@@ -2982,7 +3009,7 @@ static void drawGlancePage() {
   const int16_t slot = slotN > 0 ? (int16_t)(span / slotN) : span;
   const int16_t ringR = 32;
   const int16_t ringCy = top + 74;
-  const int16_t midY = ringCy + ringR + 48;  // clear labels under rings
+  const int16_t midY = ringCy + ringR + 38;  // clear labels under rings
   // No footer, but the bottom strip belongs to the link glyph — reserve it in
   // both home modes so a long verdict or a sixth port can't run underneath.
   const int16_t lowBottom = (int16_t)(H - bot - LINK_GLYPH_H);
@@ -3032,7 +3059,7 @@ static void drawQuotaPage() {
   const int16_t W = scrW();
   const int16_t H = scrH();
   const int16_t padX = UI_PAD;
-  const int16_t top = UI_PAD;
+  const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
 
   static const ProviderSlot kEmptySlot{};
@@ -3056,13 +3083,13 @@ static void drawQuotaPage() {
   char when[8], updatedLine[20];
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",
            updatedHHMM(when, sizeof when) ? when : "--");
-  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
-  gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
+  drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
+  gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
 
   // Content below the header rule splits evenly: meters on top, burndown below.
   // Glance rings already carry pct/pace, so the detail page's job is readable
   // full-width bars plus a chart large enough to read at desk distance.
-  const int16_t contentTop = top + 72;
+  const int16_t contentTop = top + 62;
   // Down to the page inset. There is no footer on this page — the rule that
   // used to sit here was reserving 22px for page dots nothing draws, which put
   // 50px of nothing under the chart against 28 above the header.
@@ -3132,7 +3159,7 @@ static void drawVercelPage() {
   const int16_t W = scrW();
   const int16_t H = scrH();
   const int16_t padX = UI_PAD;
-  const int16_t top = UI_PAD;
+  const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
 
   drawTextAt("Vercel", padX, top, 3, COL_VERCEL);
@@ -3142,10 +3169,10 @@ static void drawVercelPage() {
   char when[8], updatedLine[20];
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",
            updatedHHMM(when, sizeof when) ? when : "--");
-  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
-  gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
+  drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
+  gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
 
-  int16_t rowY = top + 70;
+  int16_t rowY = top + 60;
   if (vercelOk && vercelN > 0) {
     for (uint8_t i = 0; i < vercelN; i++) {
       const DeployRow &r = vercelRows[i];
@@ -3185,17 +3212,17 @@ static void drawGitPage() {
   const int16_t W = scrW();
   const int16_t H = scrH();
   const int16_t padX = UI_PAD;
-  const int16_t top = UI_PAD;
+  const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
 
   drawTextAt("Git", padX, top, 3, COL_GIT);
   char when[8], updatedLine[20];
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",
            updatedHHMM(when, sizeof when) ? when : "--");
-  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
-  gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
+  drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
+  gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
 
-  int16_t rowY = top + 70;
+  int16_t rowY = top + 60;
   if (gitOk && gitN > 0) {
     for (uint8_t i = 0; i < gitN; i++) {
       const CommitRow &r = gitRows[i];
@@ -3227,7 +3254,7 @@ static void drawLocalPage() {
   const int16_t W = scrW();
   const int16_t H = scrH();
   const int16_t padX = UI_PAD;
-  const int16_t top = UI_PAD;
+  const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
 
   drawTextAt("Local", padX, top, 3, COL_LOCAL);
@@ -3237,10 +3264,10 @@ static void drawLocalPage() {
   char when[8], updatedLine[20];
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",
            updatedHHMM(when, sizeof when) ? when : "--");
-  drawTextAt(updatedLine, padX, top + 32, 2, COL_DIM);
-  gfx->drawFastHLine(padX, top + 56, W - padX * 2, COL_DIM);
+  drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
+  gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
 
-  int16_t rowY = top + 70;
+  int16_t rowY = top + 60;
   if (localOk && localN > 0) {
     for (uint8_t i = 0; i < localN; i++) {
       const ServerRow &r = localRows[i];

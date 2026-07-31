@@ -59,6 +59,8 @@ struct SettingsView: View {
     @State private var codexBinary = "codex"
     @State private var agentProviderStatus: AgentProviderStatus?
     @State private var agentGatewayMessage: String?
+    @State private var agentTaskSurface: AgentTaskSurface?
+    @State private var pickedTaskFolder: String?
     @State private var changingAgentGateway = false
     @State private var claudeHooks: ClaudeHookConfiguration?
     @State private var claudeHooksMessage: String?
@@ -130,6 +132,7 @@ struct SettingsView: View {
             await reloadSources()
             await reloadMobilePermissions()
             await reloadAgentGateway()
+            agentTaskSurface = try? await client.fetchAgentTaskSurface()
             await reloadClaudeHooks()
             await reloadMultiMac()
             await reloadGitHubWatch()
@@ -361,6 +364,20 @@ struct SettingsView: View {
 
     private var codingAgentsPane: some View {
         Form {
+            if let surface = agentTaskSurface, !surface.startable.isEmpty {
+                Section {
+                    StartAgentTaskView(
+                        surface: withPickedFolder(surface),
+                        tint: { HeadroomPalette.providerTint(id: $0) },
+                        addFolder: chooseTaskFolder,
+                        start: startAgentTask
+                    )
+                } header: {
+                    Text(HeadroomCopy.startTask)
+                } footer: {
+                    Text("Claude runs headless and reports through the hooks below. Codex needs a thread of Headroom's own — a session you start in a terminal talks to its own App Server and cannot reach this one.")
+                }
+            }
             Section {
                 LabeledContent(HeadroomCopy.claudeCodeHooks) {
                     if changingClaudeHooks {
@@ -1099,6 +1116,51 @@ struct SettingsView: View {
         } catch {
             agentGatewayMessage = error.localizedDescription
             await reloadAgentGateway()
+        }
+    }
+
+    /// A folder the Mac just picked is offered immediately, before the host
+    /// has been asked to start anything in it.
+    private func withPickedFolder(_ surface: AgentTaskSurface) -> AgentTaskSurface {
+        guard let pickedTaskFolder,
+              !surface.folders.contains(pickedTaskFolder) else { return surface }
+        var copy = surface
+        copy.folders = [pickedTaskFolder] + surface.folders
+        return copy
+    }
+
+    private func chooseTaskFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the folder for the agent to work in"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pickedTaskFolder = url.path
+    }
+
+    private func startAgentTask(
+        provider: String, cwd: String, prompt: String
+    ) async -> AgentTaskOutcome {
+        do {
+            let started = try await client.startAgentTask(
+                provider: provider, cwd: cwd, prompt: prompt)
+            agentTaskSurface = try? await client.fetchAgentTaskSurface()
+            let agent = agentTaskSurface?.providers.first {
+                $0.provider == started.provider
+            }?.title ?? started.provider
+            let folder = (started.task.cwd ?? cwd)
+                .split(separator: "/").last.map(String.init) ?? cwd
+            // The Mac has no feed of its own, so the confirmation also says
+            // where the requests will turn up.
+            return AgentTaskOutcome(
+                ok: true,
+                message: HeadroomCopy.agentIsWorking(agent, in: folder)
+                    + " · " + HeadroomCopy.watchOnPhone
+            )
+        } catch {
+            return AgentTaskOutcome(
+                ok: false, message: error.localizedDescription)
         }
     }
 
