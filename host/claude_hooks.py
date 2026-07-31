@@ -8,17 +8,20 @@ import shutil
 import tempfile
 import urllib.parse
 
-VERSION = 2
+VERSION = 3
 DEFAULT_SETTINGS_PATH = os.path.expanduser("~/.claude/settings.json")
 MANAGED_PATH_PREFIX = "/agents/hooks/claude/"
+# PreToolUse is not in the always-installed set. It is the only hook here that
+# can block a tool call, so it is installed only when remote answering is
+# switched on — see app_config.agent_remote_questions.
 EVENTS = (
     "PermissionRequest",
-    "PreToolUse",
     "UserPromptSubmit",
     "Stop",
     "Notification",
     "SessionEnd",
 )
+OPTIONAL_EVENTS = ("PreToolUse",)
 
 # PreToolUse fires for every tool call, which is far more traffic than the
 # gateway wants. Scoped to the one tool whose answer Headroom can carry back:
@@ -30,8 +33,12 @@ ENDPOINTS = {
     "PreToolUse": "question",
 }
 
-# Hooks that park while a phone decides, versus ones that just post and go.
-SLOW_EVENTS = ("PermissionRequest", "PreToolUse")
+# How long each hook may park while a phone decides. A question waits far less
+# than an approval: the approval has nowhere else to be answered, while a
+# question is sitting unanswerable on the Mac for exactly as long as we hold
+# it. The value must stay above the adapter's own wait so the timeout that
+# fires is ours, with a decision, rather than Claude's, with none.
+TIMEOUTS = {"PermissionRequest": 300, "PreToolUse": 30}
 
 
 def _url(port, event):
@@ -47,7 +54,7 @@ def _entry(port, event):
     hook = {
         "type": "http",
         "url": _url(port, event),
-        "timeout": 300 if event in SLOW_EVENTS else 5,
+        "timeout": TIMEOUTS.get(event, 5),
     }
     return {"matcher": MATCHERS.get(event, ""), "hooks": [hook]}
 
@@ -139,11 +146,27 @@ def inspect(path=DEFAULT_SETTINGS_PATH, port=8737):
     }
 
 
-def install(path=DEFAULT_SETTINGS_PATH, port=8737):
+def install(path=DEFAULT_SETTINGS_PATH, port=8737, remote_questions=False):
+    """Install the observing hooks, and the blocking one only if asked.
+
+    PreToolUse is removed when `remote_questions` is off, so switching the
+    setting back off actually takes the hook out rather than leaving a blocker
+    behind.
+    """
     path = os.path.expanduser(path)
     value = _read(path)
     hooks = value.get("hooks")
     hooks = hooks if isinstance(hooks, dict) else {}
+    for event in OPTIONAL_EVENTS:
+        entries = hooks.get(event)
+        entries = entries if isinstance(entries, list) else []
+        entries = [entry for entry in entries if not _managed(entry)]
+        if remote_questions:
+            entries.append(_entry(port, event))
+        if entries:
+            hooks[event] = entries
+        else:
+            hooks.pop(event, None)
     for event in EVENTS:
         entries = hooks.get(event)
         entries = entries if isinstance(entries, list) else []

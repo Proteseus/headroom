@@ -97,6 +97,21 @@ whole class of silent breakage from reaching you in the next one.
   because a phone cannot browse the Mac's disk. The host remembers the last
   eight.
 
+### Fixed
+
+- Answering Claude's questions from the phone is now **off by default**, and
+  the hook that does it is only installed when it is on. `PreToolUse` is the
+  one hook Headroom installs that can block a tool call: while it holds a
+  question the question is unanswerable at the Mac, and a host that is down or
+  restarting takes every question in every session with it. Switching the
+  setting off removes the hook rather than leaving a blocker behind.
+- A held question now waits 25 seconds rather than the approval's 285. An
+  approval has nowhere else to be answered; a question is sitting in front of
+  you the whole time.
+- Headroom says "no decision" with an empty body instead of an explicit
+  `permissionDecision` value. A wrong guess at that enum does not degrade — it
+  breaks the tool call.
+
 ### Changed
 
 - Starting work from the phone rides the same Mac-granted **Answer coding

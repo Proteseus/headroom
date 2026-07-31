@@ -1730,8 +1730,12 @@ class Handler(BaseHTTPRequestHandler):
             action = payload.get("action")
             try:
                 if action == "install":
+                    remote = payload.get("remote_questions")
+                    if isinstance(remote, bool):
+                        app_config.set_agent_remote_questions(remote)
                     result = claude_hooks.install(
-                        port=self.server.server_port)
+                        port=self.server.server_port,
+                        remote_questions=app_config.agent_remote_questions())
                 elif action == "uninstall":
                     result = claude_hooks.uninstall(
                         port=self.server.server_port)

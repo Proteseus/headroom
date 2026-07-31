@@ -373,14 +373,12 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.answer(event, "ask_on_mac")
         thread.join(timeout=2)
         self.assertEqual(
-            result["value"]["hookSpecificOutput"]["permissionDecision"],
-            "defer",
-        )
+            result["value"], {},
+            "no decision, said the only way that is safe in every version")
 
     def test_unanswered_question_defers_to_the_mac(self):
         result = self.adapter.question_request(self.question(), wait_seconds=1)
-        self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "defer")
+        self.assertEqual(result, {})
         self.assertEqual(self.store.list(state="all")[0]["state"], "expired")
 
     def test_shapes_we_cannot_answer_cleanly_defer_without_a_row(self):
@@ -401,9 +399,8 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             ]},
         }
         for payload in cases + [many]:
-            result = self.adapter.question_request(payload, wait_seconds=1)
             self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"], "defer")
+                self.adapter.question_request(payload, wait_seconds=1), {})
         self.assertEqual(self.store.list(state="all"), [])
 
     def test_finished_notices_replace_rather_than_stack(self):

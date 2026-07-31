@@ -23,6 +23,10 @@ import claude_hooks
 PROVIDER = "claude-code"
 ADAPTER = "claude-http-hooks"
 DEFAULT_WAIT_SECONDS = 285
+# A question is usually answered at the keyboard. Holding one for the
+# permission wait made it dead air on the Mac for nearly five minutes,
+# which is worse than never offering it on the phone at all.
+QUESTION_WAIT_SECONDS = 25
 MAX_WAIT_SECONDS = 600
 
 APPROVE_ONCE = {
@@ -290,13 +294,14 @@ def _answered(question, answer):
 
 
 def _defer():
-    """No opinion: let Claude's ordinary permission flow take over."""
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "defer",
-        },
-    }
+    """No opinion, said the safest way there is: say nothing.
+
+    An empty body is unambiguously "this hook has no decision" in every
+    version of the hook contract. An explicit `permissionDecision` value is
+    only as safe as our reading of the enum, and a wrong guess there does not
+    degrade — it breaks the tool call.
+    """
+    return {}
 
 
 class _PendingPermission:
@@ -458,7 +463,7 @@ class ClaudeCodeHooks:
             },
         }
 
-    def question_request(self, payload, wait_seconds=DEFAULT_WAIT_SECONDS):
+    def question_request(self, payload, wait_seconds=QUESTION_WAIT_SECONDS):
         """Offer a question's own options as answers, via the deny channel.
 
         Returns `defer` for anything we cannot answer cleanly, which is the
