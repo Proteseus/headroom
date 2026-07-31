@@ -44,3 +44,8 @@ firmware/.flashed_build
 # before xcodegen and again as an Xcode build phase). Tracking it meant a
 # dirty working tree after every build, in a file nobody edits.
 macos/Version.xcconfig
+
+# Personal signing overrides — DEVELOPMENT_TEAM and HEADROOM_BUNDLE_PREFIX,
+# #include?d by the generated Version.xcconfig. See README, "Signing as
+# yourself". Per-machine by design, so never committed.
+macos/Local.xcconfig

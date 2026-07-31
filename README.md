@@ -166,6 +166,25 @@ rather than a stale project. **Quit Xcode before regenerating** — replacing th
 project underneath a running Xcode is what produces *"The project “Headroom” is
 not a valid property list"* on a file that is perfectly valid.
 
+### Signing as yourself
+
+Only needed when Xcode actually signs — running on your own iPhone or Watch,
+notarizing, TestFlight. Unsigned builds (`build-app.sh`, the test commands)
+skip signing entirely.
+
+Create `macos/Local.xcconfig` — gitignored, survives pulls and regeneration:
+
+```xcconfig
+DEVELOPMENT_TEAM = ABCDE12345
+
+// Optional — only iOS / watchOS device builds need it, because Apple will
+// not register the maintainer's com.centaur-labs.* App IDs to your team:
+// HEADROOM_BUNDLE_PREFIX = com.example.you
+```
+
+Put overrides there and nowhere else — `macos/Version.xcconfig` is regenerated
+on every build. Device-build details: [docs/ios-companion.md](docs/ios-companion.md).
+
 ### Option C — iPhone
 
 1. Install via the [TestFlight link](docs/install-links.md) when published,
@@ -486,8 +505,10 @@ agreeing about the shape of `/usage`. Security reports go through
 
 Signing identifiers belong to the maintainer: the bundle prefix is
 `com.centaur-labs` (Centaur Labs is the entity behind the App Store listing),
-and `$HEADROOM_TEAM_ID` defaults to that team. Both are overridable, and
-unsigned local builds need neither. See CONTRIBUTING.md.
+and `$HEADROOM_TEAM_ID` defaults to that team. Both are overridable in a
+gitignored `macos/Local.xcconfig` — see
+[Signing as yourself](#signing-as-yourself) — and unsigned local builds need
+neither. See CONTRIBUTING.md.
 
 ## License
 
