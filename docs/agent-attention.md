@@ -91,8 +91,20 @@ again — which is why `structured_question` reports `experimental` rather than
 - **`defer` is the default.** Timeout, an unmapped action, or **Ask on Mac**
   all defer, which is the documented way to say "no opinion" and hands the
   question back untouched.
-- **The hook is scoped `"matcher": "AskUserQuestion"`.** `PreToolUse`
-  otherwise fires on every tool call in every session.
+- **The hook is scoped `"matcher": "AskUserQuestion"`, and it is off by
+  default.** `PreToolUse` is the only hook Headroom installs that can block a
+  tool call, and holding a question is not free: it is unanswerable at the Mac
+  for exactly as long as Headroom holds it, and a host that is down or
+  restarting takes every question in every session with it. That is a bad
+  trade unless you actually want to answer from your phone, so it installs
+  only when `agent_remote_questions` is on, and switching the setting off
+  removes the hook rather than leaving a blocker behind.
+- **The wait is short.** A question parks for 25 seconds, not the approval's
+  285. An approval has nowhere else to be answered; a question is sitting in
+  front of you on the Mac the whole time.
+- **No decision is an empty body.** Returning an explicit `permissionDecision`
+  is only as safe as our reading of the enum, and a wrong value there does not
+  degrade — it breaks the tool call.
 - **No duplicate row.** A denied `PreToolUse` stops the chain, so
   `PermissionRequest` never fires for a question that was answered. When the
   phone stays quiet, the deferral lets the ordinary permission flow resume.

@@ -329,6 +329,25 @@ def remember_task_folder(folder):
     return ordered
 
 
+def agent_remote_questions():
+    """Whether Headroom may hold a Claude question open for a phone answer.
+
+    Off by default, and deliberately so. Intercepting a question at
+    `PreToolUse` is the only way to answer it remotely, but it also makes the
+    question unanswerable at the Mac while Headroom holds it — and if the host
+    is down or restarting, every question in every session pays for it. That
+    is a bad trade unless you actually want to answer from your phone.
+    """
+    return get("agent_remote_questions") is True
+
+
+def set_agent_remote_questions(enabled):
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be true or false")
+    _persist(agent_remote_questions=enabled)
+    return enabled
+
+
 def agent_gateway_enabled():
     """Whether Headroom may launch its supervised coding-agent adapter."""
     return get("agent_gateway_enabled") is True
