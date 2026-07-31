@@ -7,7 +7,7 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
-## Unreleased
+## 1.3.3 — 2026-07-31
 
 ### Added
 
@@ -23,6 +23,22 @@ tag a version that has no entry.
   by default on the Mac, and turning it on is what asks macOS for permission —
   a menu bar app that requests notifications at first launch is asking for
   something it has not earned yet.
+- **Sign builds as yourself.** A gitignored `macos/Local.xcconfig` sets your own
+  Apple team without touching a tracked file, and `HEADROOM_BUNDLE_PREFIX` moves
+  every bundle id off ours for iOS and watchOS device builds, which Apple will
+  not register to a second team. Unsigned builds still need nothing, and CI and
+  the release scripts are unchanged. This is for people building from source; it
+  changes nothing about the app you download.
+
+### Changed
+
+- **A frozen quota says which kind of frozen it is.** "Quota stuck at 17h 44m
+  old" read identically whether the fix was patience or a login. The attention
+  line now names the cause from the error the payload already carried: rate
+  limits and provider errors say the host is retrying on its own, a network
+  failure says to check the connection, and "needs sign-in" gains the remedy of
+  logging in with the tool again. An unrecognized error is shown verbatim rather
+  than swallowed.
 
 ### Fixed
 
