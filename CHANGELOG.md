@@ -7,6 +7,36 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.9 — 2026-07-31
+
+### Added
+
+- **Spend, on the overview.** Headroom has priced every Claude session since
+  1.0, per day and per model, and it keeps 400 days of that. Until now it
+  showed you one line of it. The new card draws the rest: today, the window
+  total, the average per active day, and where the tokens went by model. Every
+  figure is labelled Estimated, because it is. These are local token counts
+  priced by a table in the host, not a bill from anyone. The model split is a
+  share of tokens rather than dollars, since splitting dollars by token share
+  would quietly assume every model costs the same.
+- **A tell for when the price table falls behind.** An unrecognised model was
+  priced at Sonnet rates with nothing to say so, which made an Opus session
+  read 40% cheap and look exactly as confident as a correct figure. Claude
+  Opus 5 and Mythos 5 were both missing from the table, so this was not
+  hypothetical. Both are in, and the card now names any model it had to guess
+  at.
+
+### Changed
+
+- **Meters know what kind of thing they are.** Every quota Headroom watches
+  used to be a percentage of a pool that refills. Anything else got bolted on
+  as loose extra fields. Codex reset credits are now a grant, with their own
+  expiry clock. Cursor on-demand and the Codex spend cap are overage meters,
+  counted in dollars. Nothing looks different yet, and that is deliberate: the
+  new meters carry no ring, and the desk display skips them. What changed is
+  that the next kind, a prepaid balance or a monthly bill, is a row in a table
+  instead of a new set of fields for every client to learn.
+
 ## 1.3.8 — 2026-07-31
 
 ### Fixed
