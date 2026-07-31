@@ -35,7 +35,8 @@ struct AccountsSection: View {
     var body: some View {
         Section {
             if !supported {
-                Text("This host predates multiple accounts — update it from the Setup card above.")
+                // "Predates" is a changelog word. The reader wants the verb.
+                Text("This host is too old for extra accounts. Update it from the Setup card above.")
                     .foregroundStyle(.secondary)
             } else if providers.isEmpty {
                 Text(message ?? "Waiting for host…")

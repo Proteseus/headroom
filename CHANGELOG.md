@@ -7,6 +7,61 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Changed
+
+- **Percent is the only unit Headroom claims.** Daily burn read `pts / day`, a
+  granted reset read `42 pts back`, and the burndown headline read `4 points`.
+  Every provider bills in a real unit of its own called points, credits, or
+  premium requests, so a reader with a billing page open in another tab took
+  those for numbers from somewhere else. They are all `%` now.
+- **The pace delta says which way it is going.** `_points()` ran `abs()` over a
+  signed number, so a pool four percent *behind* an even spend read exactly
+  like one four percent ahead. It is `12% to spare` or `4% over`.
+- **One pair of words for pace.** The verdict said **On track** where the
+  headline said **On pace**, for the same state, on two surfaces a reader moves
+  between. Both say **On pace** / **Over pace** now.
+- **Host prose says when; compact surfaces say how long.** `58% left · 4d 44m.
+  Out tomorrow 04:18` put two time facts in two shapes on one line. The
+  headline is clock form throughout (`resets Thu 14:00`); `resets_in` and the
+  board's verdict keep duration form, which is what a glance wants.
+- **Nothing says "unavailable" except the Mac.** That one word covered a
+  missing key, a failed fetch, a dead host and a provider that never named the
+  plan — four situations, three of them fixable, one sentence for all of them.
+  Services now say **needs a key** or **not reporting**, the menu bar tooltip
+  says **host not answering**, and a missing plan says **Plan unknown**.
+- **Send test attention** is **Add a test row** — it adds one row to the feed,
+  and "attention" is the card's name, not a thing you can have one of.
+- Second person everywhere. The one **we** in the product ("We are pointing at
+  it") is gone, and the Settings footer no longer explains that Welcome calls
+  the same list something else.
+- The iOS App Store name drops its `(Max your Quotas)` suffix, which stuffed
+  keywords into the one field Apple asks you not to and read as *maximise your
+  usage* — the opposite of the app's point. **Needs a review cycle to take
+  effect; it is listing copy, not a shipped string.**
+
+### Fixed
+
+- `scripts/check-glossary-copy.sh` now searches `host/`. The host writes prose,
+  not just data — `verdict` is the only string the ESP32 draws and `headline`
+  is what VoiceOver reads — so the most-read sentence in the product was the
+  one nothing checked. New guards cover the units, the pace pair, the
+  "unavailable" family, and first person in UI strings.
+
+### Documentation
+
+- `docs/glossary.md` gains **the decisions under all of this**: percent as the
+  only claimed unit and what happens if money ever lands, the voice, the
+  metaphor zones (fuel for state, pace for rate, burndown for history,
+  provider vocabulary only where the provider bills that way), the
+  clock-versus-duration rule, the un-localized 24-hour stance, how other
+  companies' product names are rendered, and the accessibility sentence order.
+  Renames are now stated to be releases, because a stale client replays old
+  prose from its cache.
+- `docs/appstore.md` is no longer pinned to a version it outgrew six releases
+  ago. What's New points at `CHANGELOG.md` instead of duplicating it.
+
 ## 1.2.7 — 2026-07-31
 
 ### Added

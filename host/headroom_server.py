@@ -156,7 +156,8 @@ def _reset_activity_rows(burndowns):
                     "status": "granted",
                     "subject": f"{title} {pool_title.lower()} limits reset",
                     "repo": None,
-                    "project": f"{int(round(forgiven))} pts back",
+                    # Percent, matching the burndown caption this row explains.
+                    "project": f"{int(round(forgiven))}% back",
                     "branch": None,
                     "sha": None,
                     "short_sha": None,

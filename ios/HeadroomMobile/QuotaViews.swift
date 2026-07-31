@@ -143,7 +143,7 @@ private struct ProviderQuotaDetail: View {
                         .opacity(provider.readingSuspect ? 0.4 : 1)
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(provider.plan ?? "Plan unavailable")
+                            Text(provider.plan ?? HeadroomCopy.planUnknown)
                                 .foregroundStyle(.secondary)
                             Text(statusLabel)
                                 .foregroundStyle(statusTint)

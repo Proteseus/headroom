@@ -26,7 +26,7 @@ struct PlausibleSection: View {
 
         return DataSection(title: "Plausible") {
             if data?.ok != true {
-                Text(data?.error ?? "Plausible unavailable")
+                Text(data?.error ?? HeadroomCopy.serviceStatus("Plausible", configured: data?.configured))
                     .font(.caption)
                     .foregroundStyle(HeadroomPalette.amber)
             } else {

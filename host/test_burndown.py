@@ -225,13 +225,18 @@ class RateUnitTests(unittest.TestCase):
         self.assertIn("0.2 vs", got["headline"])
         self.assertIn("%/day", got["headline"])
 
-    def test_single_point_is_singular(self):
-        got = burndown.compute("claude", "week", payload(56.14),
-                               now=NOW, tz=TZ, rows=rows(45.0, 43.86))
+    def test_pace_delta_is_percent_and_says_which_way(self):
+        """The old copy ran abs() over a signed delta and called it "points".
+
+        A pool 1 behind and a pool 1 ahead both read "1 point", and "points"
+        collides with the credits and premium requests providers actually bill
+        in. Percent, with the direction attached.
+        """
+        got = burndown.compute("claude", "week", payload(45.0),
+                               now=NOW, tz=TZ, rows=rows(60.0, 55.0))
         self.assertEqual(got["status"], burndown.STATUS_OK)
-        self.assertIn("1 point", got["headline"])
-        self.assertNotIn("1 points", got["headline"])
-        self.assertNotIn("to spare", got["headline"])
+        self.assertIn("12% to spare", got["headline"])
+        self.assertNotIn("point", got["headline"])
 
 
 class PriorTests(unittest.TestCase):
@@ -306,7 +311,10 @@ class ExhaustedTests(unittest.TestCase):
     def test_exhausted_headline_states_the_reset(self):
         got = burndown.compute("claude", "week", payload(100.0),
                                now=NOW, tz=TZ, rows=rows(20.0, 0.0))
-        self.assertEqual(got["headline"], "Exhausted · resets 3d")
+        # Prose says when, not how long: clock form, never "3d".
+        self.assertTrue(got["headline"].startswith("Exhausted · resets "))
+        self.assertNotIn("3d", got["headline"])
+        self.assertEqual(got["resets_in"], "3d")
 
     def test_healthy_pool_is_not_exhausted(self):
         got = burndown.compute("claude", "week", payload(60.0),
@@ -387,11 +395,12 @@ class VerdictTests(unittest.TestCase):
                                now=NOW, tz=TZ, rows=rows(60.0, 40.0))
         self.assertTrue(got["verdict"].startswith("Runs out "))
 
-    def test_on_track_states_the_slack(self):
+    def test_on_pace_states_the_slack(self):
         got = burndown.compute("claude", "week", payload(45.0),
                                now=NOW, tz=TZ, rows=rows(60.0, 55.0))
-        # 55 left against the 42.9 an even spend would leave.
-        self.assertEqual(got["verdict"], "On track · 12%")
+        # 55 left against the 42.9 an even spend would leave. "On pace" pairs
+        # with "Over pace" — one axis, one noun, headline and verdict agreeing.
+        self.assertEqual(got["verdict"], "On pace · 12%")
 
     def test_ahead_of_pace_still_says_whether_it_lasts(self):
         got = burndown.compute("claude", "week", payload(70.0),

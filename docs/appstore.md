@@ -8,8 +8,15 @@ macOS ships via GitHub Releases (Developer ID), not the Mac App Store — yet.
 
 ## App Information
 
-- **App Name**: Headroom (Max your Quotas)
+- **App Name**: Headroom
 - **Subtitle** (30 chars max): Local-first coding quotas
+
+> The name field read `Headroom (Max your Quotas)`. Two problems: it stuffs
+> keywords into the one field Apple asks you not to, and "Max your Quotas"
+> reads as *maximise your usage* — the opposite of what the app is for, which
+> is not running out. The keyword field already carries those words.
+> **Renaming a live listing needs a review cycle**, so this is the copy to
+> submit with next time, not something to push on its own.
 - **Bundle ID**: com.centaur-labs.headroom
 - **SKU**: com.centaur-labs.headroom
 - **Primary Language**: English (U.S.)
@@ -18,7 +25,14 @@ macOS ships via GitHub Releases (Developer ID), not the Mac App Store — yet.
 - **Content Rights**: Does not contain third-party content
 - **Age Rating**: 4+
 
-## Version 1.0.3
+## Listing copy
+
+Not pinned to a version. This file was headed "Version 1.0.3" and sat there
+through 1.2.7, because the description and keywords do not change per release
+and nobody was going to renumber a heading that meant nothing. **What's New is
+the only per-release field, and its source is `CHANGELOG.md`** — copy the
+section for the version being submitted rather than maintaining a second one
+here that drifts.
 
 ### Description (4000 chars max)
 
@@ -56,16 +70,14 @@ app share the same local host — this iOS app is the pocket companion.
 
 quotas,claude,codex,cursor,developer,ci,vercel,supabase,menubar,local,burn
 
-### What's New (Version 1.0.3)
+### What's New
 
-First public GitHub Release for the macOS app (notarized zip). Same iOS
-TestFlight companion: pair with the Mac host for quotas, burndown, activity,
-services, widgets, and attention notifications.
+Take the `CHANGELOG.md` section for the version being submitted.
 
 ### Promotional Text (170 chars max, can be updated without review)
 
-Max your quotas without leaving the flow. Claude, Codex, and Cursor on your
-phone — local-first, no Headroom cloud account.
+Know what's left before you hit the wall. Claude, Codex, and Cursor quotas on
+your phone — local-first, no Headroom cloud account.
 
 ### Support URL
 

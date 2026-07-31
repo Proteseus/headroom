@@ -277,7 +277,9 @@ struct WelcomeView: View {
                     Image(systemName: "arrow.up.right")
                         .font(.title3)
                         .foregroundStyle(HeadroomPalette.green)
-                    Text("Look up there now. We are pointing at it.")
+                    // Second person, like every other line in the product.
+                    // This was the one "we" anywhere in Headroom.
+                    Text("Look up there now. The arrow is pointing at it.")
                         .font(.callout.weight(.medium))
                     Spacer()
                 }

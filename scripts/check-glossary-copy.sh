@@ -12,11 +12,11 @@ search() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
     rg -n --glob '!docs/glossary.md' --glob '!scripts/check-glossary-copy.sh' \
-      --glob '!**/HeadroomCopy.swift' \
+      --glob '!**/HeadroomCopy.swift' --glob '!**/test_*.py' \
       -e "$pattern" "$@" 2>/dev/null || true
   else
     grep -Rn --exclude=glossary.md --exclude=check-glossary-copy.sh \
-      --exclude=HeadroomCopy.swift \
+      --exclude=HeadroomCopy.swift --exclude='test_*.py' \
       -E "$pattern" "$@" 2>/dev/null || true
   fi
 }
@@ -25,7 +25,11 @@ check_absent() {
   local pattern="$1"
   local hint="$2"
   local hits
-  hits="$(search "$pattern" macos/Sources ios/HeadroomMobile widget watch Shared firmware/src)"
+  # `host` is in here because the host writes copy, not just data: `headline`
+  # and `verdict` are prose the clients cannot retitle, and `verdict` is the
+  # only string the ESP32 draws. Leaving Python out of the search path meant
+  # the most-read sentence in the product was the one nothing checked.
+  hits="$(search "$pattern" macos/Sources ios/HeadroomMobile widget watch Shared firmware/src host)"
   if [[ -n "$hits" ]]; then
     echo "Banned phrase found ($hint):"
     echo "$hits"
@@ -62,6 +66,29 @@ check_absent 'Text\("Overall burndown"\)' 'use HeadroomCopy.overallBurndown'
 check_absent 'Text\("Coding quotas"\)' 'use HeadroomCopy.codingQuotas'
 check_absent 'Text\("Burndown"\)' 'use HeadroomCopy.burndown / LABEL_BURNDOWN'
 check_absent '"collecting history"' 'use Collecting history / LABEL_COLLECTING_HISTORY'
+
+# Percent is the only unit Headroom claims. Claude bills in points, Cursor in
+# requests, GitHub in premium requests — a figure this app labels "pts" reads
+# as one of theirs. `pts` stays legal as a JSON key (device_view, firmware);
+# these are the phrasings that reach a reader.
+check_absent 'pts / day' 'use HeadroomCopy.dailyBurnUnit ("% / day")'
+check_absent 'pts back' 'reset grants are a share of the window: "N% back"'
+check_absent '_points\(' 'use burndown._spare — signed, and in percent'
+
+# One axis, one noun. The headline and the verdict say "On pace" / "Over pace"
+# for the same two states; "On track" was a third word for the first of them.
+check_absent '"On track' 'use "On pace" — pairs with "Over pace"'
+
+# "Unavailable" was carrying a missing key, a failed fetch, a dead host, and a
+# provider that just didn't name the plan. Each of those wants a different
+# sentence, and three of them are actionable.
+check_absent '(Supabase|Plausible|Advisors) unavailable' \
+  'use HeadroomCopy.serviceStatus / serviceNotReporting'
+check_absent 'Plan unavailable' 'use HeadroomCopy.planUnknown'
+check_absent 'backend unavailable' 'the user-facing name is the host'
+
+# Headroom speaks in the second person. See docs/glossary.md, "Voice".
+check_absent 'Text\("(We|Our|I) ' 'no first person in UI copy — say "you" or name the thing'
 
 # Quota meters and burndown never alarm. Running out is a reading the words
 # already deliver; red says it a second time, louder. Only exhaustion shifts

@@ -54,7 +54,8 @@ struct ServicesScreen: View {
         if usage?.configured == true {
             Section {
                 if usage?.ok != true {
-                    Label(usage?.error ?? "Supabase unavailable", systemImage: "exclamationmark.triangle")
+                    Label(usage?.error ?? HeadroomCopy.serviceStatus("Supabase", configured: usage?.configured),
+                          systemImage: "exclamationmark.triangle")
                         .foregroundStyle(HeadroomPalette.amber)
                 } else {
                     ForEach(usage?.projects ?? []) { project in
@@ -124,7 +125,7 @@ struct ServicesScreen: View {
     @ViewBuilder
     private func lintRows(_ project: SupabaseProject) -> some View {
         if let failure = project.advisorError {
-            Label("Advisors unavailable · \(failure)", systemImage: "shield.slash")
+            Label("\(HeadroomCopy.serviceNotReporting("Advisors")) · \(failure)", systemImage: "shield.slash")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -173,7 +174,8 @@ struct ServicesScreen: View {
         if usage?.configured == true {
             Section {
                 if usage?.ok != true {
-                    Label(usage?.error ?? "Plausible unavailable", systemImage: "exclamationmark.triangle")
+                    Label(usage?.error ?? HeadroomCopy.serviceStatus("Plausible", configured: usage?.configured),
+                          systemImage: "exclamationmark.triangle")
                         .foregroundStyle(HeadroomPalette.amber)
                 } else {
                     ForEach(

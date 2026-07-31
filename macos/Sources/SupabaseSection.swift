@@ -40,7 +40,7 @@ struct SupabaseSection: View {
 
         return DataSection(title: "Supabase") {
             if data?.ok != true {
-                Text(data?.error ?? "Supabase unavailable")
+                Text(data?.error ?? HeadroomCopy.serviceStatus("Supabase", configured: data?.configured))
                     .font(.caption)
                     .foregroundStyle(HeadroomPalette.amber)
             } else {
@@ -155,7 +155,7 @@ struct SupabaseSection: View {
     private func lintList(_ project: SupabaseProject) -> some View {
         let lints = project.lints ?? []
         if let failure = project.advisorError {
-            Label("Advisors unavailable · \(failure)", systemImage: "shield.slash")
+            Label("\(HeadroomCopy.serviceNotReporting("Advisors")) · \(failure)", systemImage: "shield.slash")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

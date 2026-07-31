@@ -232,12 +232,20 @@ struct HeadroomRings: View {
         ))
     }
 
+    /// Spoken in the order the glossary fixes for every surface: name, then
+    /// value, then state. "Unavailable" is gone from here for the same reason
+    /// it is gone from the service rows — it named a failure where the honest
+    /// fact is that there is no number yet.
+    ///
+    /// `layer.id` is still the raw source id, so a named extra login speaks as
+    /// "claude:work". Carrying a title onto the layer is a model change rather
+    /// than a copy one; until then this is the least wrong thing it can say.
     private var accessibilitySummary: String {
         visibleLayers.map { layer in
             guard let percent = layer.percent else {
-                return "\(layer.id) unavailable"
+                return "\(layer.id), no reading"
             }
-            var value = "\(layer.id) \(Int(percent.rounded())) percent used"
+            var value = "\(layer.id), \(Int(percent.rounded())) percent used"
             if let pace = layer.pacePercent {
                 value += ", \(Int(pace.rounded())) percent pace"
             }
