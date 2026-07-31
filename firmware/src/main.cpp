@@ -341,6 +341,12 @@ struct ProviderQuota {
 static const uint8_t MAX_BURN_PTS = 24;   // mirrors device_view.MAX_BURNDOWN_POINTS
 static const uint8_t MAX_HIST_PTS = 16;   // mirrors device_view.MAX_HISTORY_POINTS
 static const uint8_t MAX_GRANTS = 4;      // mirrors device_view.MAX_GRANT_MARKS
+// How far a provider page's plot may reach back past its own window to show
+// the run a grant cut short, as a percentage of the window. A stub on purpose:
+// the window is what that chart is about, so history gets only enough room to
+// show the drop before the grant. Mirrors BurndownChartAxis.historyFraction
+// (0.15) in Shared/BurndownChartMath.swift — change both together.
+static const uint32_t HISTORY_REACH_PCT = 15;
 struct Burndown {
   bool ok = false;
   uint32_t t0 = 0, t1 = 0;
@@ -2437,6 +2443,12 @@ static void strokeDashedProj(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
 // X-axis matches Mac/iOS BurndownChartAxis: at most seven weekday-named
 // columns (never day-of-month numbers); monthly windows clip to seven days
 // covering "now"; session windows get hour ticks instead of a blank axis.
+// Defined below with the overall-chart helpers; the provider page needs it
+// first, to clip its spent-window curve to the plot.
+static bool clipBurnSeg(uint32_t ta, float ra, uint32_t tb, float rb,
+                        uint32_t tLo, uint32_t tHi,
+                        uint32_t *oa, float *ora, uint32_t *ob, float *orb);
+
 static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
                          int16_t w, int16_t h, uint16_t accent) {
   if (!b.ok || b.t1 <= b.t0) {
@@ -2470,6 +2482,21 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
       plot0 = (plot1 > weekS) ? (plot1 - weekS) : win0;
       if (plot0 < win0) plot0 = win0;
     }
+  }
+  // Reach back past the window's own start toward the spent run, by at most
+  // HISTORY_REACH_PCT of the window. Without this a window that just rolled
+  // draws one point against a full-width budget diagonal, which is the detail
+  // page's version of losing the week.
+  //
+  // Only where the plot already covers the whole window. The branch above is a
+  // moving 7-day slice clamped inside a monthly window; pulling its left edge
+  // outside would put the slice where the budget line does not run.
+  if (winSpan <= weekS + 3600u && b.histN > 0) {
+    const uint32_t reach =
+        (uint32_t)((uint64_t)winSpan * HISTORY_REACH_PCT / 100u);
+    const uint32_t limit = (win0 > reach) ? (win0 - reach) : 0;
+    uint32_t oldest = b.histT[0] > limit ? b.histT[0] : limit;
+    if (oldest < plot0) plot0 = oldest;
   }
   if (plot1 <= plot0) plot1 = plot0 + 3600u;
   const uint32_t plotSpan = plot1 - plot0;
@@ -2609,6 +2636,40 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   // it red would spend the loudest colour on the thing least able to be precise
   // about it (settled for Mac in drained(), for the board as keep-accent).
   const uint16_t line = accent;
+
+  // Spent windows in the stub of plot before this one, and a dotted rule where
+  // each grant landed. Drawn under the live curve, one pixel rather than three:
+  // this budget is gone, so it must never be mistaken for the reading. A
+  // segment straddling a grant is skipped — joining it would climb across the
+  // reset between two budgets that never coexisted.
+  if (b.histN > 1) {
+    const uint16_t ghost = dimToward(accent, COL_BG, 0.55f);
+    for (uint8_t i = 1; i < b.histN; i++) {
+      bool spansGrant = false;
+      for (uint8_t g = 0; g < b.grantN; g++) {
+        if (b.grantT[g] > b.histT[i - 1] && b.grantT[g] <= b.histT[i]) {
+          spansGrant = true;
+          break;
+        }
+      }
+      if (spansGrant) continue;
+      uint32_t ta, tb; float ra, rb;
+      if (!clipBurnSeg(b.histT[i - 1], b.histR[i - 1], b.histT[i], b.histR[i],
+                       plot0, plot1, &ta, &ra, &tb, &rb)) {
+        continue;
+      }
+      gfx->drawLine(px(ta), py(ra), px(tb), py(rb), ghost);
+    }
+    for (uint8_t g = 0; g < b.grantN; g++) {
+      const uint32_t at = b.grantT[g];
+      if (at <= plot0 || at >= plot1) continue;
+      const int16_t gx = px(at);
+      for (int16_t yy = y; yy < (int16_t)(y + plotH); yy += 4) {
+        gfx->drawFastVLine(gx, yy, 2, ghost);
+      }
+    }
+  }
+
   for (uint8_t i = 1; i < b.n; i++) {
     stroke(px(b.t[i - 1]), py(b.remaining[i - 1]),
            px(b.t[i]), py(b.remaining[i]), line);

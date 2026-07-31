@@ -165,6 +165,7 @@ This is the other half of the contract, and the one that drifts silently.
 | `MAX_HISTORY_POINTS` (16) / `MAX_GRANT_MARKS` (4) | `host/device_view.py` | firmware `MAX_HIST_PTS` / `MAX_GRANTS`, `scripts/render_esp32_preview.py` | `scripts/check-mirrored-constants.sh` ✅ |
 | `FOCUS_LIMIT` (3) | `host/sources_config.py` | firmware `MAX_SLOTS`, menu bar, widget | **a comment** |
 | Ring geometry + pace semantics | `Shared/HeadroomRings.swift` | `firmware/src/main.cpp` | [docs/rings.md](rings.md), by hand |
+| `historyFraction` (0.15) | `Shared/BurndownChartMath.swift` | firmware `HISTORY_REACH_PCT` | **a comment** — the checker compares Python to C++, and this pair is Swift to C++ |
 | Chrome copy | `Shared/HeadroomCopy.swift` | `docs/glossary.md`, `LABEL_*` in firmware | `scripts/check-glossary-copy.sh` ✅ |
 | Host build fingerprint | `host/host_version.py` | `macos/Sources/HostVersion.swift` | golden vector, both sides ✅ |
 | Boot splash tables | `scripts/render_esp32_boot.py` | `firmware/src/boot_max.h` | **generated** ✅ |
