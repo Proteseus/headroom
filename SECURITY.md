@@ -57,10 +57,12 @@ Which routes accept which caller, and the rule new routes are classified by, is
   detected, and without TLS the token and the approval cross the segment in
   cleartext. Grant `agents` only if you are on your own network or Tailscale.
   Options for closing this are in [docs/trust.md](docs/trust.md).
-- **Agent request history is kept forever.** `~/.headroom/attention.sqlite3`
-  records the fields of every permission request — commands, paths, code
-  excerpts — with no expiry. Owner-only, never synced, never uploaded. Delete
-  the file with the host stopped to clear it.
+- **Agent request history is kept for 30 days.**
+  `~/.headroom/attention.sqlite3` records the fields of every permission
+  request — commands, paths, code excerpts. Owner-only, never synced, never
+  uploaded, and answered requests are pruned 30 days after you answer them.
+  Anything still pending is kept regardless of age. Delete the file with the
+  host stopped to clear it now.
 - **Loopback is trusted without a token**, which assumes you are the only user
   of the Mac. A second logged-in account can read `/usage` and post to the
   Mac-local routes.
