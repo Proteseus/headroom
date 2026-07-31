@@ -12,6 +12,8 @@
   "mobile_permissions": ["read", "refresh", "sources", "servers"],
   "agent_gateway_enabled": false,
   "codex_binary": "codex",
+  "gemini_oauth_client_id": "",
+  "gemini_oauth_client_secret": "",
   "icloud_sync": false,
   "icloud_dir": ""
 }

@@ -7,6 +7,32 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.8 — 2026-07-31
+
+### Fixed
+
+- **Gemini keeps working an hour after you sign in.** The host reads the CLI's
+  public OAuth client out of the installed package to refresh a token, and it
+  looked in three hardcoded paths that assumed Homebrew's npm prefix and the
+  old unbundled layout. A global install under any other prefix, or a current
+  gemini-cli — which ships as an esbuild bundle with content-hashed chunk
+  names and no `oauth2.js` to find — matched none of them, so sign-in worked,
+  the ring filled, and the source flipped to **Not updating** at the first
+  refresh. The host now resolves the `gemini` command the way a shell would,
+  across the prefixes a LaunchAgent's fixed PATH cannot see, and searches the
+  package it actually lands in. Reported in careful detail, cause and all, by
+  [@Sendar](https://github.com/michellzappa/headroom/issues/18) — thank you.
+- **A CLI that moves or leaves no longer takes the ring with it.** The pair is
+  public and unchanging, so the host keeps the last one it read under
+  `~/.headroom/`. An upgrade that reshuffles the bundle, or an uninstall after
+  you signed in, refreshes from cache instead of going dark.
+- **The escape hatch survives an update.** `GEMINI_OAUTH_CLIENT_ID`/`SECRET`
+  were documented as the way out, but the app rewrites the LaunchAgent plist
+  on every host install and takes anything hand-added to it along.
+  `gemini_oauth_client_id` and `gemini_oauth_client_secret` in
+  `~/.headroom/config.json` are read first and stay put. The env vars still
+  work, and `GEMINI_OAUTH2_JS_PATH` now accepts a folder as well as a file.
+
 ## 1.3.6 — 2026-07-31
 
 ### Changed

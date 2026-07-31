@@ -6,13 +6,17 @@ Reads `~/.gemini/oauth_creds.json`, refreshes when needed, then calls
 
 from __future__ import annotations
 
+import glob
 import json
 import os
+import re
+import shutil
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
+import app_config
 import http_util
 import cache_util
 import quota_util
@@ -32,6 +36,59 @@ TIER_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 UA = "Headroom/1"
 DAY_WINDOW_S = 24 * 3600
+
+# The Gemini CLI ships its OAuth client id and secret in the clear: they name
+# the CLI to Google, not the user, which is why reading them out of the
+# install is a lookup rather than a theft. What moves between releases is
+# where they sit on disk, and a refresh an hour later is where that lands.
+_CLIENT_ID_RE = re.compile(r'OAUTH_CLIENT_ID\s*=\s*["\']([^"\']+)["\']')
+_CLIENT_SECRET_RE = re.compile(r'OAUTH_CLIENT_SECRET\s*=\s*["\']([^"\']+)["\']')
+
+# Pre-bundle layout: the core package sat unbundled inside the CLI's own
+# node_modules, at a path stable enough to hardcode. Current builds are an
+# esbuild bundle whose chunk names are content-hashed, so this file can be
+# absent entirely and no fixed name replaces it — hence the glob below.
+LEGACY_OAUTH_JS = os.path.join(
+    "node_modules", "@google", "gemini-cli-core", "dist", "src",
+    "code_assist", "oauth2.js")
+BUNDLE_GLOBS = (("bundle", "*.js"), ("dist", "*.js"))
+MAX_SCAN_FILES = 60
+# A bundle chunk runs to a few MB. The cap is there so a stray .js of
+# unreasonable size in the same folder cannot be read into memory hourly.
+MAX_SCAN_BYTES = 24 * 1024 * 1024
+
+# The host is a LaunchAgent with a fixed PATH (see HostController.swift), so
+# the shell's own PATH is not available to us and a global npm install under a
+# custom prefix is invisible. These are the prefixes worth looking in anyway.
+EXTRA_BIN_DIRS = (
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "~/.local/bin",
+    "~/.npm-global/bin",
+    "~/.npm-packages/bin",
+    "~/.volta/bin",
+    "~/.bun/bin",
+    "~/Library/pnpm",
+    "~/n/bin",
+)
+EXTRA_BIN_GLOBS = (
+    "~/.local/node/*/bin",
+    "~/.nvm/versions/node/*/bin",
+    "~/.fnm/node-versions/*/installation/bin",
+    "~/Library/Application Support/fnm/node-versions/*/installation/bin",
+    "~/.asdf/installs/nodejs/*/bin",
+)
+STATIC_ROOTS = (
+    "/opt/homebrew/lib/node_modules/@google/gemini-cli",
+    "/usr/local/lib/node_modules/@google/gemini-cli",
+    "/opt/homebrew/opt/gemini-cli/libexec/lib/node_modules/@google/gemini-cli",
+    "~/.local/lib/node_modules/@google/gemini-cli",
+)
+
+# Last known good pair. The CLI is how we learn these, not what we need them
+# for: refreshing a token the user already holds does not depend on the CLI
+# still being installed, or on the next CLI release keeping today's layout.
+CLIENT_CACHE_PATH = os.path.expanduser("~/.headroom/gemini_oauth_client.json")
 
 # One cache per account, keyed by account id ("" is the default login).
 _cache = {"t": 0.0, "data": None, "err": None}
@@ -60,37 +117,158 @@ def signed_in():
     return bool(blob and blob.get("access_token"))
 
 
+def _read_client(path):
+    """Return (id, secret) if this JS file carries both constants."""
+    try:
+        if os.path.getsize(path) > MAX_SCAN_BYTES:
+            return None
+        with open(path, errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return None
+    cid = _CLIENT_ID_RE.search(text)
+    secret = _CLIENT_SECRET_RE.search(text)
+    if cid and secret:
+        return cid.group(1), secret.group(1)
+    return None
+
+
+def _scan_root(root):
+    """Look for the pair inside one candidate package root."""
+    paths = [os.path.join(root, LEGACY_OAUTH_JS)]
+    for parts in BUNDLE_GLOBS:
+        paths.extend(sorted(glob.glob(os.path.join(root, *parts))))
+    for path in paths[:MAX_SCAN_FILES]:
+        pair = _read_client(path)
+        if pair:
+            return pair
+    return None
+
+
+def _search_path():
+    """PATH plus the prefixes a global npm install lands in off Homebrew."""
+    dirs = [d for d in (os.environ.get("PATH") or "").split(os.pathsep) if d]
+    dirs.extend(os.path.expanduser(d) for d in EXTRA_BIN_DIRS)
+    for pattern in EXTRA_BIN_GLOBS:
+        dirs.extend(sorted(glob.glob(os.path.expanduser(pattern)),
+                           reverse=True))
+    seen = set()
+    out = []
+    for path in dirs:
+        if path not in seen:
+            seen.add(path)
+            out.append(path)
+    return os.pathsep.join(out)
+
+
+def _entry_roots(entry):
+    """Every plausible package root above a resolved `gemini` entry point.
+
+    The bin symlink resolves into the package rather than to it — Homebrew
+    lands on `dist/index.js`, a bundled npm install on `bundle/gemini.js` —
+    and `dist/` carries a package.json of its own, so "first ancestor with a
+    package.json" picks the wrong directory on the install we can already
+    read. Hand back the chain and let the file scan settle it.
+    """
+    path = os.path.realpath(entry)
+    roots = []
+    for _ in range(5):
+        parent = os.path.dirname(path)
+        if not parent or parent == path:
+            break
+        path = parent
+        roots.append(path)
+    return roots
+
+
+def _cli_roots():
+    roots = []
+    entry = shutil.which("gemini", path=_search_path())
+    if entry:
+        roots.extend(_entry_roots(entry))
+    roots.extend(os.path.expanduser(root) for root in STATIC_ROOTS)
+    seen = set()
+    out = []
+    for root in roots:
+        if root not in seen:
+            seen.add(root)
+            out.append(root)
+    return out
+
+
+def _cached_client():
+    try:
+        with open(CLIENT_CACHE_PATH) as handle:
+            blob = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(blob, dict):
+        return None
+    cid = blob.get("client_id")
+    secret = blob.get("client_secret")
+    return (str(cid), str(secret)) if cid and secret else None
+
+
+def _cache_client(pair, source):
+    if _cached_client() == pair:
+        return
+    blob = {
+        "client_id": pair[0],
+        "client_secret": pair[1],
+        "source": source,
+        "saved_at": int(time.time()),
+    }
+    tmp = CLIENT_CACHE_PATH + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(CLIENT_CACHE_PATH), exist_ok=True)
+        with open(tmp, "w") as handle:
+            json.dump(blob, handle, indent=2)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, CLIENT_CACHE_PATH)
+    except OSError:
+        pass
+
+
 def _oauth_client():
-    """Return (client_id, client_secret) from env or installed Gemini CLI."""
+    """Return (client_id, client_secret) from env, config, CLI or cache.
+
+    Discovery walks the install the way a shell would rather than guessing at
+    three hardcoded paths: those assumed Homebrew's npm prefix and the old
+    unbundled package layout, and a machine that has neither loses its Gemini
+    ring an hour after signing in, at the first token refresh.
+    """
     env_id = os.environ.get("GEMINI_OAUTH_CLIENT_ID")
     env_secret = os.environ.get("GEMINI_OAUTH_CLIENT_SECRET")
     if env_id and env_secret:
         return env_id, env_secret
 
+    # config.json, because the env vars above do not survive: the app rewrites
+    # the LaunchAgent plist with a fixed EnvironmentVariables dict on every
+    # host install, taking anything hand-added to it with them.
+    cfg_id, cfg_secret = app_config.gemini_oauth_client()
+    if cfg_id and cfg_secret:
+        return cfg_id, cfg_secret
+
     override = os.environ.get("GEMINI_OAUTH2_JS_PATH")
-    candidates = []
     if override:
-        candidates.append(override)
-    candidates.extend((
-        "/opt/homebrew/lib/node_modules/@google/gemini-cli/node_modules/"
-        "@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
-        "/usr/local/lib/node_modules/@google/gemini-cli/node_modules/"
-        "@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
-        "/opt/homebrew/opt/gemini-cli/libexec/lib/node_modules/@google/gemini-cli/"
-        "node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
-    ))
-    import re
-    for path in candidates:
-        try:
-            with open(path) as handle:
-                text = handle.read()
-        except OSError:
-            continue
-        cid = re.search(r'OAUTH_CLIENT_ID\s*=\s*["\']([^"\']+)["\']', text)
-        secret = re.search(
-            r'OAUTH_CLIENT_SECRET\s*=\s*["\']([^"\']+)["\']', text)
-        if cid and secret:
-            return cid.group(1), secret.group(1)
+        override = os.path.expanduser(override)
+        pair = (_scan_root(override) if os.path.isdir(override)
+                else _read_client(override))
+        if pair:
+            _cache_client(pair, override)
+            return pair
+
+    for root in _cli_roots():
+        pair = _scan_root(root)
+        if pair:
+            _cache_client(pair, root)
+            return pair
+
+    # Nothing on disk answers: the CLI moved, or was uninstalled after the
+    # user signed in. The pair we read last time still refreshes their token.
+    pair = _cached_client()
+    if pair:
+        return pair
     return None, None
 
 
@@ -133,7 +311,7 @@ def _refresh(blob, account=None):
     if not client_id or not client_secret:
         raise RuntimeError(
             "Gemini OAuth client not found — install gemini-cli or set "
-            "GEMINI_OAUTH_CLIENT_ID/SECRET")
+            "gemini_oauth_client_id/secret in ~/.headroom/config.json")
     token = http_util.request_json(
         TOKEN_URL,
         form_body={
