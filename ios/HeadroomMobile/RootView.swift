@@ -96,7 +96,8 @@ private struct OverviewScreen: View {
                 MobileStatusCard(store: store)
                 QuotaOverviewCard(
                     providers: store.visibleProviders,
-                    burndown: store.snapshot.burndown ?? [:]
+                    burndown: store.snapshot.burndown ?? [:],
+                    codex: store.snapshot.codex
                 )
                 OverallBurndownChart(
                     providers: store.visibleProviders,

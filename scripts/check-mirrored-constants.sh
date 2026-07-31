@@ -86,6 +86,18 @@ compare "MAX_POOLS" \
   "$(cpp_const MAX_POOLS)" "$(py_const MAX_POOLS "$DEVICE_VIEW")" \
   "$FIRMWARE" "$DEVICE_VIEW"
 
+# The spent-window curve behind a burndown, and the grant rules drawn on it.
+# The firmware sizes fixed arrays from these; the host decides how many points
+# to send. Host larger than firmware is a silently truncated curve.
+compare "MAX_HISTORY_POINTS/MAX_HIST_PTS" \
+  "$(cpp_const MAX_HIST_PTS)" \
+  "$(py_const MAX_HISTORY_POINTS "$DEVICE_VIEW")" \
+  "$FIRMWARE" "$DEVICE_VIEW"
+compare "MAX_GRANT_MARKS/MAX_GRANTS" \
+  "$(cpp_const MAX_GRANTS)" \
+  "$(py_const MAX_GRANT_MARKS "$DEVICE_VIEW")" \
+  "$FIRMWARE" "$DEVICE_VIEW"
+
 if [ "$fail" -ne 0 ]; then
   echo
   echo "A mirrored constant drifted. Both sides have to move together —"

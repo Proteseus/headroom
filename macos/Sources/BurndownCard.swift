@@ -171,24 +171,27 @@ struct OverviewBurndownCard: View {
                                 .drained()
                             : snapshot.tint(forProviderID: entry.providerID)
 
-                        // The run a grant wiped out, behind everything else.
-                        // Faint and thin: it is history that stopped counting,
-                        // and it must never be mistaken for the live curve.
-                        let forgiven = points(
-                            OverallBurndownChartMath.preparedActual(
-                                entry.pool.forgiven, domain: domain
-                            )
-                        ).map {
-                            CGPoint(x: x($0.time), y: y($0.remaining))
-                        }
-                        if forgiven.count >= 2 {
-                            var ghost = Path()
-                            ghost.move(to: forgiven[0])
-                            for point in forgiven.dropFirst() {
-                                ghost.addLine(to: point)
+                        // Windows already spent, behind everything else. Faint
+                        // and thin: this is history that stopped counting, and
+                        // it must never be mistaken for the live curve. Split
+                        // per window so no stroke climbs across a reset.
+                        let spent = OverallBurndownChartMath.preparedHistory(
+                            entry.pool.history ?? entry.pool.forgiven,
+                            splitAt: entry.pool.resets?.compactMap(\.t) ?? [],
+                            domain: domain
+                        )
+                        for segment in spent {
+                            let ghost = points(segment).map {
+                                CGPoint(x: x($0.time), y: y($0.remaining))
+                            }
+                            guard ghost.count >= 2 else { continue }
+                            var path = Path()
+                            path.move(to: ghost[0])
+                            for point in ghost.dropFirst() {
+                                path.addLine(to: point)
                             }
                             context.stroke(
-                                ghost,
+                                path,
                                 with: .color(tint.opacity(0.3)),
                                 style: StrokeStyle(
                                     lineWidth: 1.5, lineJoin: .round)
@@ -492,10 +495,12 @@ struct BurndownPlot: View {
         pool.kind == .exhausted ? tint.drained() : tint
     }
 
-    /// Newest mid-window grant on this pool — names the solid rule the canvas
-    /// already draws. Overview leaves this to the Codex tab.
-    private var latestGrantedReset: BurndownReset? {
-        (pool.resets ?? []).max { ($0.t ?? 0) < ($1.t ?? 0) }
+    /// Every mid-window grant on this pool, newest first — the same events the
+    /// canvas draws as solid rules. Overview leaves these to the Codex tab.
+    private var grantedResets: [BurndownReset] {
+        (pool.resets ?? [])
+            .filter { $0.t != nil }
+            .sorted { ($0.t ?? 0) > ($1.t ?? 0) }
     }
 
     /// Sample count is a confidence signal, not a user fact, so it lives in
@@ -526,21 +531,14 @@ struct BurndownPlot: View {
                 .frame(height: 100)
 
             BurndownVerdict(pool: pool, tint: statusTint)
-            if let granted = latestGrantedReset {
-                let caption = HeadroomCopy.resetGranted(
-                    forgivenPct: granted.forgivenPct)
-                if let note = resetNoteURL {
-                    Link(caption, destination: note)
-                        .font(.caption)
-                        .monospacedDigit()
-                } else {
-                    Text(caption)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
             BurndownStats(pool: pool)
+            if !grantedResets.isEmpty {
+                ResetHistoryList(
+                    resets: grantedResets,
+                    tint: statusTint,
+                    noteURL: resetNoteURL
+                )
+            }
         }
         .help(help)
         .accessibilityElement(children: .combine)
@@ -577,10 +575,11 @@ struct MultiBurndownCanvas: View {
                 }
             }
             let now = sampleTimes.max() ?? Date().timeIntervalSince1970
-            // Oldest forgiven sample across the overlaid pools. The domain
+            // Oldest pre-window sample across the overlaid pools. The domain
             // only reaches back toward it — see `historyFraction`.
+            // `forgiven` is the fallback for a host older than `history`.
             let historyStart = pools
-                .compactMap { $0.forgiven?.first?.first }
+                .compactMap { ($0.history ?? $0.forgiven)?.first?.first }
                 .min()
             guard let domain = BurndownChartAxis.domain(
                 windowStart: start, windowEnd: end, now: now,
@@ -643,13 +642,19 @@ struct MultiBurndownCanvas: View {
                 let isApi = pool.pool == "api"
                 let seriesTint = isApi ? base.opacity(0.75) : base
 
-                // The burn a grant wiped out, in the stub of plot that sits
-                // before the window. Faint, and never fitted or measured
-                // against the budget line — that budget no longer exists.
-                let ghost = OverallBurndownChartMath.clipPolyline(
-                    pool.forgiven ?? [], start: plotStart, end: plotEnd
-                ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
-                if ghost.count >= 2 {
+                // Spent windows, in the stub of plot that sits before this one.
+                // Faint, and never fitted or measured against the budget line —
+                // those budgets no longer exist. One run per window, so the
+                // stroke never climbs across a reset.
+                let spent = OverallBurndownChartMath.historySegments(
+                    pool.history ?? pool.forgiven,
+                    splitAt: pool.resets?.compactMap(\.t) ?? []
+                )
+                for segment in spent {
+                    let ghost = OverallBurndownChartMath.clipPolyline(
+                        segment, start: plotStart, end: plotEnd
+                    ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
+                    guard ghost.count >= 2 else { continue }
                     var path = Path()
                     path.move(to: ghost[0])
                     for point in ghost.dropFirst() { path.addLine(to: point) }

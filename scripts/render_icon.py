@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Render the Headroom app icon and write every size the catalogs reference.
 
-The icon is the ring glyph itself: three provider bands at 90 / 60 / 30 percent,
-same 20% tinted track and round-ended usage arc as `Shared/HeadroomRings.swift`
-and `drawPaceRing()` in the firmware. No pace ticks — at icon sizes a hairline
-reads as a defect.
+The icon is the ring glyph itself: three provider bands at 70 / 80 / 90 percent
+carrying pace dots at 30 / 60 / 90, same 20% tinted track, round-ended usage arc
+and white pace disc as `Shared/HeadroomRings.swift` and `drawPaceRing()` in the
+firmware. No pace ticks — at icon sizes a hairline reads as a defect.
 
 The Mac icon sits on Apple's icon grid — an 824-of-1024 rounded square with
 transparent margins — because macOS does not round anything for you. A
@@ -43,14 +43,26 @@ OUTER_RADIUS = 360
 MACOS_TILE = 824
 SQUIRCLE_EXPONENT = 5.0
 
-# Accent + percent per band, outside in. The live rings keep provider brand
-# accents; the icon uses process CMY so the three arcs stay distinct at every
-# catalog size instead of collapsing into muddy terracotta / teal / periwinkle.
+# Accent, usage percent, pace percent per band, outside in. The live rings keep
+# provider brand accents; the icon uses process CMY so the three arcs stay
+# distinct at every catalog size instead of collapsing into muddy terracotta /
+# teal / periwinkle.
+#
+# Usage climbs 70 / 80 / 90 inward and pace climbs 30 / 60 / 90 with it, so
+# every ring is ahead of pace by a shrinking margin. The innermost is ahead by
+# nothing: its dot lands on its own arc cap and reads as a notch at the end of
+# the magenta rather than a mark on the track. Deliberate.
 BANDS = [
-    ((255, 214, 0), 90.0),    # Yellow
-    ((0, 200, 220), 60.0),    # Cyan
-    ((230, 45, 140), 30.0),   # Magenta
+    ((255, 214, 0), 70.0, 30.0),    # Yellow
+    ((0, 200, 220), 80.0, 60.0),    # Cyan
+    ((230, 45, 140), 90.0, 90.0),   # Magenta
 ]
+
+# The pace dot is `.primary` on every Swift surface and COL_WHITE on the board.
+# Diameter is the same 5/7 of band thickness, which leaves a sliver of band on
+# each side so the dot never overhangs into the gap between rings.
+DOT = (255, 255, 255)
+DOT_RATIO = 5.0 / 7.0
 
 # macOS catalog filenames by pixel size. A @2x slot holds twice its nominal
 # size, so most pixel sizes serve two names — 256 pixels is both
@@ -69,6 +81,17 @@ IOS_ICON = ROOT / "ios/HeadroomMobile/Assets.xcassets/AppIcon.appiconset/Headroo
 WATCH_ICON = ROOT / "watch/HeadroomWatch/Assets.xcassets/AppIcon.appiconset/HeadroomIcon.png"
 APPSTORE_ICON = ROOT / "docs/appstore/icon-1024.png"
 
+# The About window and the macOS welcome screen cannot load AppIcon.appiconset
+# as a named image, and a menu-bar LSUIElement app has no usable
+# `applicationIconImage`, so both draw this copy of the same full-bleed artwork
+# and round the corner themselves. It is generated here for exactly one reason:
+# a hand-copied duplicate silently keeps the previous icon after every redesign,
+# and the only place it shows is a window nobody opens while iterating.
+ABOUT_ICONS = [
+    ROOT / "macos/Assets.xcassets/AboutAppIcon.imageset/AboutAppIcon.png",
+    ROOT / "ios/HeadroomMobile/Assets.xcassets/AboutAppIcon.imageset/AboutAppIcon.png",
+]
+
 SUPERSAMPLE = 4
 
 
@@ -77,30 +100,36 @@ def mix(color, factor):
     return tuple(int(round(b + (c - b) * factor)) for c, b in zip(color, BG))
 
 
-def band(draw, cx, cy, radius, thick, sweep_deg, color):
-    """Track plus a round-ended usage arc, drawn as one filled outline."""
+def disc(draw, cx, cy, r, color):
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+
+
+def band(draw, cx, cy, radius, thick, sweep_deg, color, pace_deg):
+    """Track, round-ended usage arc, and the white pace disc on top."""
     outer = radius
     inner = radius - thick
-    draw.ellipse([cx - outer, cy - outer, cx + outer, cy + outer],
-                 fill=mix(color, TRACK_MIX))
-    draw.ellipse([cx - inner, cy - inner, cx + inner, cy + inner], fill=BG)
-    if sweep_deg <= 0:
-        return
-
     mid = radius - thick / 2
     cap = thick / 2
-    cap_deg = math.degrees(cap / mid)
-    start, end = -90 + cap_deg, -90 + sweep_deg - cap_deg
-    if end > start:
-        draw.pieslice([cx - outer, cy - outer, cx + outer, cy + outer],
-                      start, end, fill=color)
-        draw.ellipse([cx - inner, cy - inner, cx + inner, cy + inner], fill=BG)
-    else:
-        start = end = -90 + sweep_deg / 2
-    for angle in (math.radians(start), math.radians(end)):
-        px = cx + mid * math.cos(angle)
-        py = cy + mid * math.sin(angle)
-        draw.ellipse([px - cap, py - cap, px + cap, py + cap], fill=color)
+    disc(draw, cx, cy, outer, mix(color, TRACK_MIX))
+    disc(draw, cx, cy, inner, BG)
+
+    if sweep_deg > 0:
+        cap_deg = math.degrees(cap / mid)
+        start, end = -90 + cap_deg, -90 + sweep_deg - cap_deg
+        if end > start:
+            draw.pieslice([cx - outer, cy - outer, cx + outer, cy + outer],
+                          start, end, fill=color)
+            disc(draw, cx, cy, inner, BG)
+        else:
+            start = end = -90 + sweep_deg / 2
+        for angle in (math.radians(start), math.radians(end)):
+            disc(draw, cx + mid * math.cos(angle), cy + mid * math.sin(angle),
+                 cap, color)
+
+    if pace_deg is not None:
+        angle = math.radians(-90 + pace_deg)
+        disc(draw, cx + mid * math.cos(angle), cy + mid * math.sin(angle),
+             thick * DOT_RATIO / 2, DOT)
 
 
 def render(side: int = SIDE) -> Image.Image:
@@ -110,9 +139,9 @@ def render(side: int = SIDE) -> Image.Image:
     draw = ImageDraw.Draw(image)
     centre = canvas / 2
     radius = OUTER_RADIUS
-    for color, percent in BANDS:
+    for color, percent, pace in BANDS:
         band(draw, centre, centre, radius * scale, THICK * scale,
-             percent * 3.6, color)
+             percent * 3.6, color, pace * 3.6)
         radius -= THICK + GAP
     return image.resize((side, side), Image.LANCZOS)
 
@@ -170,7 +199,7 @@ def main():
             image.save(MACOS_DIR / name, format="PNG")
             written.append(MACOS_DIR / name)
     full = render(SIDE)
-    for path in (IOS_ICON, WATCH_ICON, APPSTORE_ICON):
+    for path in (IOS_ICON, WATCH_ICON, APPSTORE_ICON, *ABOUT_ICONS):
         full.save(path)
         written.append(path)
     for path in written:

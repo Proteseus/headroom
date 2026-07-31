@@ -54,4 +54,12 @@ so a full-bleed square stays a square in a Dock full of rounded tiles. iPhone,
 Watch and the App Store PNG stay square and opaque — those are masked by the
 system, and App Store Connect rejects alpha.
 
+`AboutAppIcon.imageset` on Mac and iPhone is a fifth copy of that same
+full-bleed artwork, because an appiconset is not loadable as a named image and a
+menu-bar `LSUIElement` app has no usable `applicationIconImage`. The About
+window and the macOS welcome screen draw it and round the corner themselves.
+`render_icon.py` writes it too — it was hand-copied once and sat a redesign
+behind, which nothing catches, since it only shows in a window nobody opens
+while iterating on the icon.
+
 User-facing names for charts and sections live in [`docs/glossary.md`](glossary.md).

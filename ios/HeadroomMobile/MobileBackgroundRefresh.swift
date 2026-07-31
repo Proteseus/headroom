@@ -37,6 +37,7 @@ enum MobileBackgroundRefresh {
                 let snapshot = try await client.fetchAndArchiveUsage()
                 HeadroomWidgetCache.save(snapshot)
                 await MobileNotifications.notifyIfNeeded(snapshot.attention)
+                await MobileNotifications.notifyIfNeeded(resets: snapshot)
                 if let permissions = try? await client.fetchMobilePermissions(),
                    permissions.read,
                    let events = try? await client.fetchAgentAttentionEvents() {

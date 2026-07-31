@@ -50,6 +50,11 @@ DEFICIT_PCT = 5.0
 # How far back the forgiven curve reaches. Matches the overview chart's
 # lookback, since that is the only chart wide enough to draw it.
 PREVIOUS_LOOKBACK_S = 3 * 24 * 3600
+# How far back `history` reaches. The overview chart's own lookback plus a day
+# of slack, so its left edge is always fed rather than starting mid-air. Not
+# the full retention window: this rides the same document the board pulls over
+# CDC, and nothing draws a domain wider than that week.
+HISTORY_LOOKBACK_S = 4 * 24 * 3600
 
 STATUS_OK = "ok"
 STATUS_AHEAD = "ahead"
@@ -290,6 +295,29 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
             forgiven = _downsample(
                 forgiven, points, forgiven[0][0], forgiven[-1][0])
 
+    # Every reading in the recent past, window boundaries and all.
+    #
+    # `actual` is clipped to the live window because that is what the budget
+    # diagonal is drawn against, and a curve that spanned a reset would be
+    # measured against a budget that no longer exists. But the moment a window
+    # rolls that clip leaves a single point, and a chart with one point draws
+    # nothing — which is why spending a reset credit looks like the app
+    # forgetting the week you just had.
+    #
+    # This is the same readings unclipped: a sawtooth that climbs at every
+    # reset, because that is what happened. Nothing fits a slope through it and
+    # nothing measures pace against it. Consumers split it at `resets` so no
+    # stroke spans a boundary, and draw it faint behind `actual`.
+    history_floor = now - HISTORY_LOOKBACK_S
+    history = sorted(
+        (int(row["t"]), max(0.0, 100.0 - float(row["pct"])))
+        for row in rows
+        if row.get("t") is not None and row.get("pct") is not None
+        and int(row["t"]) >= history_floor
+    )
+    if history:
+        history = _downsample(history, points, history[0][0], now)
+
     # --- forecast -------------------------------------------------------
     lookback = max(FIT_LOOKBACK_MIN_S, min(FIT_LOOKBACK_MAX_S, window_s // 3))
     # Never reach back past the window's own start. A slice that straddles a
@@ -384,8 +412,14 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
         "ideal": [[window_start, 100.0], [window_end, 0.0]],
         "resets": resets,
         # The burn a grant wiped out, drawn faint behind the live curve. Empty
-        # unless this window began with one.
+        # unless this window began with one. Superseded by `history`, which
+        # covers the same ground without needing a grant to exist — kept on the
+        # wire because a phone or a board can be a year behind this host.
         "forgiven": [[t, round(r, 2)] for t, r in forgiven],
+        # The unclipped sawtooth behind `actual` — see where it is built.
+        # Spans window boundaries on purpose; split it at `resets` before
+        # stroking, or the line jumps vertically at every reset.
+        "history": [[t, round(r, 2)] for t, r in history],
         # Thinned across the range that actually has samples, not across the
         # whole window — a window we only joined halfway through would
         # otherwise spend most of the point budget on empty time.

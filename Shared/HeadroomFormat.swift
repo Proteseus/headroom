@@ -39,4 +39,19 @@ enum HeadroomFormat {
         }
         return weekday.string(from: date)
     }
+
+    /// "Fri 31 Jul, 11:05" — a past event that needs naming to the minute.
+    ///
+    /// Localised rather than POSIX, unlike the chart formatters above: this one
+    /// is read as a sentence rather than matched against a key, and the day
+    /// order is the reader's own.
+    private static let eventMoment: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM HH:mm")
+        return formatter
+    }()
+
+    static func eventMoment(_ date: Date) -> String {
+        eventMoment.string(from: date)
+    }
 }
