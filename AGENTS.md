@@ -45,6 +45,23 @@ xcodebuild build -project macos/Headroom.xcodeproj -scheme HeadroomWatch -destin
 ./scripts/check-glossary-copy.sh
 ```
 
+**A green suite here can be red on CI, and the gap is your own machine's
+data.** Parts of `/usage` only exist when the local state behind them does:
+`history` needs `~/.claude` session logs, Supabase and Plausible need keys. A
+runner has none of it, so a contract assertion that passes against *your*
+served document can fail against a bare one. This has already shipped a red
+main once — six `history` keys looked served on a Mac with 400 days of them
+and were absent everywhere else.
+
+`docs/demo_usage.json` is the fix and the reason it exists: it keeps the floor
+the same on every machine. When a test's coverage depends on a section that
+local state can remove, add that section to the fixture and check your work
+**against the fixture alone**, which is all CI gets:
+
+```bash
+cd host && python3 -c "import test_contract as t; print(sorted(t._demo_doc()))"
+```
+
 When several agents share the tree, verify in a worktree at your own commit
 rather than in the shared checkout — otherwise you are building someone else's
 half-finished work and cannot tell whose failure you are looking at:
@@ -317,7 +334,7 @@ Settings pane. Gateway prefs live under Coding agents; see
 
 ## Contracts, access, and standing decisions
 
-Three docs exist so these are lookups rather than judgment calls. Read the one
+Four docs exist so these are lookups rather than judgment calls. Read the one
 that matches before you change the thing it governs.
 
 **[docs/contract.md](docs/contract.md) — changing `/usage`.** Additive only:
@@ -343,6 +360,19 @@ what earns a Setting versus staying hardcoded, retention as a user asset, the
 stdlib-only exit condition, and the one genuinely undecided question: whether a
 burndown chart is what a Mac watched or what happened to a pool. Decide that
 before implementing the multi-Mac history merge.
+
+**[docs/metering.md](docs/metering.md) — adding a meter.** Seven kinds, of
+which four are implemented: a meter declares whether it is a `window`, a
+`grant`, an `overage`, a `calendar`, a `balance`, a `rate` or a `seat`, and
+that decides what its numbers mean and which mark draws it. Reach for it
+before adding another `cost_*` or `_remaining_usd` field to a provider
+payload, because that is how the first three forms arrived and each one cost
+five hand-written integrations while inheriting no ring, no burndown and no
+history. Two rules it is worth knowing without reading: **a kind earns its
+place by having a level or a headroom that means something** (attribution has
+neither and is deliberately not a meter), and **anything printing a dollar
+says whether the figure was observed or estimated**, because nobody audits a
+percentage against a card statement and everybody audits a dollar.
 
 ## Multi-Mac
 
