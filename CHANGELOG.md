@@ -7,6 +7,43 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.2 — 2026-07-31
+
+### Fixed
+
+- **Claude's questions no longer depend on Headroom being up.** 1.2.7 shipped
+  question-answering as an always-installed `PreToolUse` hook with a 300-second
+  timeout — the one hook Headroom installs that can block a tool call. With the
+  host down or restarting, every `AskUserQuestion` in every session stalled and
+  came back interrupted. The hook is off by default now, carries a 5-second
+  timeout when it only observes, and says "no decision" with an empty body
+  rather than an enum value read from documentation and never verified.
+- **A question shows in both places now.** The default posts it and gets out of
+  the way: Claude renders its own picker in the terminal, and the same question
+  appears on your phone with every option listed, marked **Answer in the
+  terminal**. Nothing is held, so nothing can stall. Holding the call so the
+  phone can answer is still there as a mode, but it is the exception — you
+  cannot both leave the question in the terminal and answer it elsewhere.
+- A question is never drawn as a permission request. `AskUserQuestion` also
+  arrives on the permission hook, so a two-part question rendered as **Claude
+  needs permission** offering *Allow once / Deny / Stop Claude* — answers that
+  mean nothing — with both questions flattened into a wall of text under it.
+- Questions Headroom cannot answer remotely — several at once, multi-select —
+  are shown rather than dropped. They were invisible before, which is worse
+  than read-only.
+- Answering Claude's questions from the phone is now **off by default**, and
+  the hook that does it is only installed when it is on. `PreToolUse` is the
+  one hook Headroom installs that can block a tool call: while it holds a
+  question the question is unanswerable at the Mac, and a host that is down or
+  restarting takes every question in every session with it. Switching the
+  setting off removes the hook rather than leaving a blocker behind.
+- A held question now waits 25 seconds rather than the approval's 285. An
+  approval has nowhere else to be answered; a question is sitting in front of
+  you the whole time.
+- Headroom says "no decision" with an empty body instead of an explicit
+  `permissionDecision` value. A wrong guess at that enum does not degrade — it
+  breaks the tool call.
+
 ## 1.3.1 — 2026-07-31
 
 ### Fixed
@@ -99,31 +136,6 @@ whole class of silent breakage from reaching you in the next one.
 
 ### Fixed
 
-- **A question shows in both places now.** The default posts it and gets out of
-  the way: Claude renders its own picker in the terminal, and the same question
-  appears on your phone with every option listed, marked **Answer in the
-  terminal**. Nothing is held, so nothing can stall. Holding the call so the
-  phone can answer is still there as a mode, but it is the exception — you
-  cannot both leave the question in the terminal and answer it elsewhere.
-- A question is never drawn as a permission request. `AskUserQuestion` also
-  arrives on the permission hook, so a two-part question rendered as **Claude
-  needs permission** offering *Allow once / Deny / Stop Claude* — answers that
-  mean nothing — with both questions flattened into a wall of text under it.
-- Questions Headroom cannot answer remotely — several at once, multi-select —
-  are shown rather than dropped. They were invisible before, which is worse
-  than read-only.
-- Answering Claude's questions from the phone is now **off by default**, and
-  the hook that does it is only installed when it is on. `PreToolUse` is the
-  one hook Headroom installs that can block a tool call: while it holds a
-  question the question is unanswerable at the Mac, and a host that is down or
-  restarting takes every question in every session with it. Switching the
-  setting off removes the hook rather than leaving a blocker behind.
-- A held question now waits 25 seconds rather than the approval's 285. An
-  approval has nowhere else to be answered; a question is sitting in front of
-  you the whole time.
-- Headroom says "no decision" with an empty body instead of an explicit
-  `permissionDecision` value. A wrong guess at that enum does not degrade — it
-  breaks the tool call.
 
 ### Changed
 
