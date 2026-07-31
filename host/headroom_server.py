@@ -1419,7 +1419,8 @@ class Handler(BaseHTTPRequestHandler):
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch",
                         "/agents/capabilities", "/agents/config",
-                        "/agents/claude/config", "/machines/config",
+                        "/agents/claude/config", "/agents/codex/task",
+                        "/machines/config",
                         "/attention/events"):
             self.send_error(404)
             return
@@ -1440,6 +1441,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
             self._send_json(200, _accounts_payload())
+            return
+        if path == "/agents/codex/task":
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            self._send_json(200, agent_gateway.get().codex_task())
             return
         if path == "/agents/config":
             if not self._is_loopback():
@@ -1548,6 +1555,8 @@ class Handler(BaseHTTPRequestHandler):
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
+            "/agents/codex/tasks",
+            "/agents/codex/steer",
             "/machines/config",
             "/machines/sync",
         ) and event_response_id is None:
@@ -1598,7 +1607,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
-        elif path == "/agents/claude/config":
+        elif path in ("/agents/claude/config", "/agents/codex/tasks",
+                      "/agents/codex/steer"):
+            # These start or steer a local executable, so they never answer
+            # over the LAN — same rule as /agents/config.
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
@@ -1640,6 +1652,23 @@ class Handler(BaseHTTPRequestHandler):
             # No decision deliberately hands control back to Claude's ordinary
             # local permission dialog.
             self._send_json(200, result or {})
+            return
+
+        if path in ("/agents/codex/tasks", "/agents/codex/steer"):
+            gateway = agent_gateway.get()
+            try:
+                if path == "/agents/codex/tasks":
+                    result = gateway.codex_start_task(
+                        payload.get("cwd"), payload.get("prompt"))
+                else:
+                    result = gateway.codex_steer(payload.get("text"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            except RuntimeError as error:
+                self._send_json(409, {"ok": False, "error": str(error)})
+                return
+            self._send_json(200, result)
             return
 
         if claude_question:

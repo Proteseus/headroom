@@ -7,6 +7,34 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- **Headroom can start Codex work, which is what finally makes the Codex
+  gateway do anything.** The adapter has been connecting happily for months
+  and had never raised a single event, because it spawned an App Server and
+  never gave it a thread. `POST /agents/codex/tasks` with a folder and a
+  prompt starts one, `POST /agents/codex/steer` adds to a turn already
+  running, and `GET /agents/codex/task` says what is live. All localhost-only:
+  they drive a local executable.
+- **Send a message into a running turn** — `turn/steer`, gated on
+  `expectedTurnId` so words meant for one turn never land in the next.
+  `send_message` reports supported on Codex for the first time.
+- Codex work that dies now says so. The very first real turn Headroom started
+  ended on "your workspace is out of credits" and told nobody, which is the
+  opposite of a surface for following work. A turn that completes with an
+  error raises a dismissible row carrying the provider's own message and
+  error code.
+
+### Changed
+
+- `docs/agent-attention.md` records what a Codex task needs to be answerable:
+  `approvalPolicy: "on-request"` and `sandbox: "workspace-write"`, because a
+  policy that never asks produces no approvals to answer. It also states the
+  standing limitation plainly — only work Headroom started is visible, which
+  is an OpenAI-side restriction rather than a design choice.
+
 ## 1.2.7 — 2026-07-31
 
 ### Added

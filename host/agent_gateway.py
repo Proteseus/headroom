@@ -67,6 +67,21 @@ class AgentGateway:
         replacement.start()
         return self.configuration()
 
+    def codex_start_task(self, cwd, prompt):
+        with self._adapter_lock:
+            codex = self.codex
+        return {"ok": True, "task": codex.start_task(cwd, prompt)}
+
+    def codex_steer(self, text):
+        with self._adapter_lock:
+            codex = self.codex
+        return {"ok": True, "task": codex.steer(text)}
+
+    def codex_task(self):
+        with self._adapter_lock:
+            codex = self.codex
+        return {"ok": True, "task": codex.active_task()}
+
     def claude_permission(self, payload, wait_seconds=None):
         with self._adapter_lock:
             claude = self.claude

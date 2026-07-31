@@ -124,7 +124,28 @@ So the adapter today is a working protocol client with nothing plugged into it.
 Everything below it — the ledger, the typed fields, questions, interrupt — is
 tested against synthetic messages and is correct; it simply has no live source.
 
-Two ways to close it, and they are the same two slices this list already has:
+**Slice 2 is now built, and it works.** Headroom starts the thread itself:
+
+```bash
+curl -s -X POST localhost:8737/agents/codex/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"cwd":"/path/to/repo","prompt":"fix the flaky test"}'
+```
+
+`thread/start` runs with `approvalPolicy: "on-request"` and
+`sandbox: "workspace-write"`, which is what makes Codex ask rather than
+proceed silently; `approvalsReviewer` defaults to `user`, and the client is
+Headroom. `turn/start` sends the prompt. `POST /agents/codex/steer` adds to a
+running turn through `turn/steer`, gated on `expectedTurnId` so words meant for
+one turn never land in the next. `GET /agents/codex/task` reports what is live.
+All three are localhost-only: they drive a local executable.
+
+The limitation is unchanged and worth restating — **only work Headroom started
+is visible.** A session you start in a terminal still talks to its own App
+Server. That is an OpenAI-side restriction, not a design choice, and it is
+why the shared-daemon route below is the one to revisit.
+
+Two ways this was approached:
 
 1. **Headroom drives the session** (slice 2). `thread/start`, `turn/start`,
    and the approvals arrive on the socket Headroom already owns. This works

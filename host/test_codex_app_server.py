@@ -178,6 +178,100 @@ class CodexAppServerTests(unittest.TestCase):
             "params": {"threadId": "thread-1", "turnId": "turn-1"},
         }])
 
+    def answer_calls(self, replies):
+        """Answer the adapter's own client requests, the way Codex would."""
+        def send(message):
+            self.sent.append(message)
+            method = message.get("method")
+            if method in replies:
+                self.adapter.ingest_for_test(
+                    {"id": message["id"], "result": replies[method]})
+        self.adapter._send = send
+
+    def test_starting_a_task_is_what_gives_approvals_somewhere_to_come_from(self):
+        self.adapter._status = "ready"
+        self.answer_calls({
+            codex_app_server.THREAD_START: {"thread": {"id": "thread-9"}},
+            codex_app_server.TURN_START: {"turn": {"id": "turn-9"}},
+        })
+        task = self.adapter.start_task(self.tmp.name, "  fix the flaky test  ")
+        self.assertEqual(task["thread_id"], "thread-9")
+        self.assertEqual(task["turn_id"], "turn-9")
+
+        start = next(m for m in self.sent
+                     if m.get("method") == codex_app_server.THREAD_START)
+        self.assertEqual(start["params"]["cwd"], self.tmp.name)
+        self.assertEqual(
+            start["params"]["approvalPolicy"], "on-request",
+            "approvals only reach Headroom when Codex is told to ask")
+
+        turn = next(m for m in self.sent
+                    if m.get("method") == codex_app_server.TURN_START)
+        self.assertEqual(
+            turn["params"]["input"],
+            [{"type": "text", "text": "fix the flaky test"}])
+
+    def test_steering_names_the_turn_it_was_meant_for(self):
+        self.adapter._status = "ready"
+        self.adapter._active_thread = "thread-9"
+        self.adapter._active_turn = "turn-9"
+        self.answer_calls({codex_app_server.TURN_STEER: {}})
+        self.adapter.steer("  also update the changelog ")
+        steer = next(m for m in self.sent
+                     if m.get("method") == codex_app_server.TURN_STEER)
+        self.assertEqual(steer["params"]["expectedTurnId"], "turn-9")
+        self.assertEqual(
+            steer["params"]["input"],
+            [{"type": "text", "text": "also update the changelog"}])
+
+    def test_a_finished_turn_is_no_longer_steerable(self):
+        self.adapter._active_thread = "thread-9"
+        self.adapter._active_turn = "turn-9"
+        self.adapter.ingest_for_test({
+            "method": codex_app_server.TURN_COMPLETED,
+            "params": {"turn": {"id": "turn-9"}},
+        })
+        with self.assertRaises(RuntimeError):
+            self.adapter.steer("too late")
+
+    def test_a_task_needs_a_real_folder_and_words(self):
+        self.adapter._status = "ready"
+        with self.assertRaises(ValueError):
+            self.adapter.start_task("/nope/not/here", "do a thing")
+        with self.assertRaises(ValueError):
+            self.adapter.start_task(self.tmp.name, "   ")
+
+    def test_no_task_while_the_app_server_is_down(self):
+        self.adapter._status = "disconnected"
+        with self.assertRaises(RuntimeError):
+            self.adapter.start_task(self.tmp.name, "do a thing")
+
+    def test_a_turn_that_dies_says_so_instead_of_going_quiet(self):
+        """The first real turn this adapter started stopped on out-of-credits
+        and told nobody."""
+        self.adapter.ingest_for_test({
+            "method": codex_app_server.TURN_COMPLETED,
+            "params": {"threadId": "thread-9", "turn": {
+                "id": "turn-9",
+                "error": {
+                    "message": "Your workspace is out of credits.",
+                    "codexErrorInfo": {"type": "usage_limit_exceeded"},
+                },
+            }},
+        })
+        row = self.store.list(state="open")[0]
+        self.assertEqual(row["title"], "Codex stopped")
+        self.assertIn("out of credits", row["summary"])
+        self.assertEqual(row["detail"]["reasons"], ["usage_limit_exceeded"])
+        self.assertEqual([a["id"] for a in row["actions"]], ["dismiss"])
+
+    def test_a_clean_turn_raises_no_row(self):
+        self.adapter.ingest_for_test({
+            "method": codex_app_server.TURN_COMPLETED,
+            "params": {"threadId": "t", "turn": {"id": "turn-ok"}},
+        })
+        self.assertEqual(self.store.list(state="open"), [])
+
     def test_file_approval_is_normalized_separately(self):
         event = self.approval(codex_app_server.FILE_APPROVAL)
         self.assertEqual(event["kind"], "file_approval")
