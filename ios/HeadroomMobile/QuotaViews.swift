@@ -245,10 +245,10 @@ private struct BurndownChart: View {
             return rawPoints(
                 ideal: pool.ideal, actual: pool.actual,
                 projected: pool.croppedProjected,
-                spent: OverallBurndownChartMath.historySegments(
+                spent: [OverallBurndownChartMath.historyPolyline(
                     pool.history ?? pool.forgiven,
-                    splitAt: pool.resets?.compactMap(\.t) ?? []
-                )
+                    risersAt: pool.resets?.compactMap(\.t) ?? []
+                )]
             )
         }
         // Clip series to the (possibly 7-day-capped) plot domain so monthly
@@ -266,16 +266,17 @@ private struct BurndownChart: View {
             start: domain.startEpoch, end: domain.endEpoch
         )
         // Windows already spent, in the stub before this one. Never fitted and
-        // never measured against the budget — those budgets are gone. One run
-        // per window, so no stroke climbs across a reset.
-        let spent = OverallBurndownChartMath.historySegments(
-            pool.history ?? pool.forgiven,
-            splitAt: pool.resets?.compactMap(\.t) ?? []
-        ).map {
+        // never measured against the budget — those budgets are gone. The climb
+        // at each reset is drawn: that is the recharge.
+        let spent = [
             OverallBurndownChartMath.clipPolyline(
-                $0, start: domain.startEpoch, end: domain.endEpoch
+                OverallBurndownChartMath.historyPolyline(
+                    pool.history ?? pool.forgiven,
+                    risersAt: pool.resets?.compactMap(\.t) ?? []
+                ),
+                start: domain.startEpoch, end: domain.endEpoch
             )
-        }
+        ]
         return rawPoints(ideal: ideal, actual: actual, projected: projected,
                          spent: spent)
     }

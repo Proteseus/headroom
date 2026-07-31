@@ -175,8 +175,8 @@ struct OverviewBurndownCard: View {
 
                         // Windows already spent, behind everything else. Faint
                         // and thin: this is history that stopped counting, and
-                        // it must never be mistaken for the live curve. Split
-                        // per window so no stroke climbs across a reset.
+                        // it must never be mistaken for the live curve. The
+                        // climb at each reset is drawn — that is the recharge.
                         let spent = OverallBurndownChartMath.preparedHistory(
                             entry.pool.history ?? entry.pool.forgiven,
                             splitAt: entry.pool.resets?.compactMap(\.t) ?? [],
@@ -645,17 +645,16 @@ struct MultiBurndownCanvas: View {
 
                 // Spent windows, in the stub of plot that sits before this one.
                 // Faint, and never fitted or measured against the budget line —
-                // those budgets no longer exist. One run per window, so the
-                // stroke never climbs across a reset.
-                let spent = OverallBurndownChartMath.historySegments(
-                    pool.history ?? pool.forgiven,
-                    splitAt: pool.resets?.compactMap(\.t) ?? []
-                )
-                for segment in spent {
-                    let ghost = OverallBurndownChartMath.clipPolyline(
-                        segment, start: plotStart, end: plotEnd
-                    ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
-                    guard ghost.count >= 2 else { continue }
+                // those budgets no longer exist. The climb at each reset is
+                // drawn: it is the recharge, and it is the thing worth seeing.
+                let ghost = OverallBurndownChartMath.clipPolyline(
+                    OverallBurndownChartMath.historyPolyline(
+                        pool.history ?? pool.forgiven,
+                        risersAt: pool.resets?.compactMap(\.t) ?? []
+                    ),
+                    start: plotStart, end: plotEnd
+                ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
+                if ghost.count >= 2 {
                     var path = Path()
                     path.move(to: ghost[0])
                     for point in ghost.dropFirst() { path.addLine(to: point) }

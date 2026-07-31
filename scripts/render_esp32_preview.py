@@ -299,7 +299,7 @@ def draw_overall_series(draw, burn, accent, x, y, w, h, t_lo, t_hi):
     # two samples straddle a grant is skipped rather than joined.
     grants = [int(mark[0]) for mark in (burn.get("rsts") or []) if mark]
     if len(history) > 1:
-        ghost = dim(accent, 0.55)
+        ghost = dim(accent, 0.70)
         for a, b in zip(history, history[1:]):
             # A pair straddling a grant is the recharge — squared off on the
             # grant instant rather than drawn as a raw diagonal. Mirrors

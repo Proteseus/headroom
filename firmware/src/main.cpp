@@ -2643,7 +2643,7 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   // segment straddling a grant is skipped — joining it would climb across the
   // reset between two budgets that never coexisted.
   if (b.histN > 1) {
-    const uint16_t ghost = dimToward(accent, COL_BG, 0.55f);
+    const uint16_t ghost = dimToward(accent, COL_BG, 0.70f);
     for (uint8_t i = 1; i < b.histN; i++) {
       // A pair straddling a grant is the recharge. Square it off on the grant
       // instant — level up to it, vertical through it — rather than letting
@@ -2923,7 +2923,7 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
   // straddles a reset, and joining them would draw a diagonal climbing across
   // the chart between two budgets that never existed at the same time.
   if (b.histN > 1) {
-    const uint16_t ghost = dimToward(accent, COL_BG, 0.55f);
+    const uint16_t ghost = dimToward(accent, COL_BG, 0.70f);
     for (uint8_t i = 1; i < b.histN; i++) {
       // A pair straddling a grant is the recharge. Square it off on the grant
       // instant — level up to it, vertical through it — rather than letting
