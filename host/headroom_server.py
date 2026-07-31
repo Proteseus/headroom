@@ -939,6 +939,32 @@ def _bodies():
         return _cache["usage"], _cache["device"]
 
 
+def _stale_cause(error):
+    """One clause naming why a quota froze and whether waiting fixes it.
+
+    The glossary splits staleness into things you wait out (rate limits,
+    outages — the host is already retrying) and things you go fix. The
+    attention line has to say which one this is, or "stuck at 17h old"
+    reads as equally mysterious either way.
+    """
+    text = str(error or "")
+    low = text.lower()
+    if "429" in low or "too many requests" in low:
+        return "provider is rate-limiting, retrying"
+    if ("http error 5" in low or "usage http 5" in low
+            or "bad gateway" in low or "service unavailable" in low):
+        return "provider error, retrying"
+    if any(mark in low for mark in (
+            "timed out", "timeout", "unreachable", "connection",
+            "getaddrinfo", "nodename", "network", "temporary failure")):
+        return "no route to provider — check network"
+    if text:
+        # An error nothing above recognizes is exactly the one worth
+        # showing verbatim, clipped to fit a menu-bar subtitle.
+        return text if len(text) <= 48 else text[:47] + "…"
+    return "no error recorded — try Refresh all"
+
+
 def _build_attention(doc):
     """Single glance score for menu-bar warning light + Overview card."""
     reasons = []
@@ -1035,7 +1061,12 @@ def _build_attention(doc):
         # meter reads plausibly and is not being refreshed by anyone, and no
         # amount of waiting fixes it — outranking stale for the same reason.
         if provider.get("auth_required"):
-            add("warn", "signin", f"{title} needs sign-in", 45)
+            add(
+                "warn",
+                "signin",
+                f"{title} needs sign-in — log in with the tool again",
+                45,
+            )
             continue
         held = provider.get("stale_for_s")
         if not provider.get("stale") or not isinstance(held, (int, float)):
@@ -1045,7 +1076,8 @@ def _build_attention(doc):
         add(
             "warn",
             "stale",
-            f"{title} quota stuck at {oauth_usage.fmt_resets(held)} old",
+            f"{title} quota stuck at {oauth_usage.fmt_resets(held)} old"
+            f" — {_stale_cause(provider.get('error'))}",
             30,
         )
 
