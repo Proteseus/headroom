@@ -301,7 +301,28 @@ def draw_overall_series(draw, burn, accent, x, y, w, h, t_lo, t_hi):
     if len(history) > 1:
         ghost = dim(accent, 0.55)
         for a, b in zip(history, history[1:]):
-            if any(a[0] < at <= b[0] for at in grants):
+            # A pair straddling a grant is the recharge — squared off on the
+            # grant instant rather than drawn as a raw diagonal. Mirrors
+            # drawOverallSeries() in firmware/src/main.cpp.
+            spans = [at for at in grants if a[0] < at <= b[0]]
+            if spans:
+                at = spans[-1]
+                for seg in (
+                    (int(a[0]), float(a[1]), int(at), float(a[1])),
+                    (int(at), float(b[1]), int(b[0]), float(b[1])),
+                ):
+                    clipped = clip_burn_segment(*seg, t_lo, t_hi)
+                    if clipped:
+                        ta, ra, tb, rb = clipped
+                        draw.line(
+                            [(px(ta), py(ra)), (px(tb), py(rb))],
+                            fill=ghost, width=1,
+                        )
+                if t_lo < at < t_hi:
+                    draw.line(
+                        [(px(at), py(a[1])), (px(at), py(b[1]))],
+                        fill=ghost, width=1,
+                    )
                 continue
             clipped = clip_burn_segment(
                 int(a[0]), float(a[1]), int(b[0]), float(b[1]), t_lo, t_hi
