@@ -7,7 +7,7 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
-## Unreleased
+## 1.2.9 — 2026-07-31
 
 ### Added
 
@@ -56,6 +56,11 @@ tag a version that has no entry.
   policy that never asks produces no approvals to answer. It also states the
   standing limitation plainly — only work Headroom started is visible, which
   is an OpenAI-side restriction rather than a design choice.
+- **Agent request history is kept for 30 days, and `SECURITY.md` now says so.**
+  The retention window landed with the ledger itself and the disclosure never
+  caught up, so the security notes still promised no expiry on a store that
+  already prunes. Settled requests are dropped 30 days after you answer them;
+  anything still pending is kept until it is answered.
 
 ## 1.2.8 — 2026-07-31
 
