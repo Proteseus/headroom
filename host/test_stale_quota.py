@@ -418,6 +418,48 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertFalse(out["auth_required"])
         self.assertIn("429", out["error"])
 
+    def test_a_rate_limit_backs_off_and_says_for_how_long(self):
+        blob = {"claudeAiOauth": {"accessToken": "t", "refreshToken": "r"}}
+        boom = urllib.error.HTTPError(
+            oauth_usage.USAGE_URL, 429, "Too Many Requests", None, None)
+        calls = []
+
+        def _boom(token):
+            calls.append(token)
+            raise boom
+
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=("keychain", blob)), \
+             patch.object(oauth_usage, "_http_get_usage", side_effect=_boom):
+            first = oauth_usage.fetch_quota(force=True)
+            # A user leaning on refresh must not become the traffic that
+            # caused the 429. The second call is served from cache.
+            second = oauth_usage.fetch_quota(force=True)
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("retrying in", first["error"])
+        self.assertEqual(second["error"], first["error"])
+
+    def test_the_endpoint_is_asked_again_once_the_backoff_expires(self):
+        blob = {"claudeAiOauth": {"accessToken": "t", "refreshToken": "r"}}
+        boom = urllib.error.HTTPError(
+            oauth_usage.USAGE_URL, 429, "Too Many Requests", None, None)
+        calls = []
+
+        def _boom(token):
+            calls.append(token)
+            raise boom
+
+        later = time.time() + cache_util.RATE_LIMIT_BACKOFF_S[0] + 1
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=("keychain", blob)), \
+             patch.object(oauth_usage, "_http_get_usage", side_effect=_boom):
+            oauth_usage.fetch_quota(force=True)
+            with patch.object(oauth_usage.time, "time", return_value=later):
+                oauth_usage.fetch_quota()
+
+        self.assertEqual(len(calls), 2)
+
     def test_the_flag_reaches_providers_and_sources(self):
         state = {"claude": quota_payload(
             stale=True, auth_required=True, error="no plan token")}
@@ -455,4 +497,34 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertIn("signin", kinds)
         self.assertNotIn("stale", kinds)
         summary = next(r["summary"] for r in reasons if r["kind"] == "signin")
-        self.assertEqual(summary, "Claude needs sign-in")
+        self.assertEqual(
+            summary, "Claude needs sign-in — log in with the tool again")
+
+    def test_stale_attention_names_the_cause(self):
+        # "Stuck at 17h old" alone reads the same whether the fix is patience
+        # or a login — the line has to say which. The recorded error is on the
+        # provider row already; the reason phrases it.
+        def summary_for(error):
+            doc = {"providers": [{
+                "id": "claude", "title": "Claude", "kind": "quota",
+                "enabled": True, "ok": True, "stale": True,
+                "stale_for_s": cache_util.STALE_ALERT_S + 60,
+                "error": error,
+            }]}
+            reasons = headroom_server._build_attention(doc)["reasons"]
+            return next(
+                r["summary"] for r in reasons if r["kind"] == "stale")
+
+        self.assertIn(
+            "provider is rate-limiting, retrying",
+            summary_for("HTTP Error 429: Too Many Requests"))
+        self.assertIn(
+            "provider error, retrying",
+            summary_for("HTTP Error 503: Service Unavailable"))
+        self.assertIn(
+            "check network",
+            summary_for("<urlopen error [Errno 8] nodename nor servname "
+                        "provided, or not known>"))
+        # An unrecognized error shows verbatim rather than vanishing.
+        self.assertIn("keychain said no", summary_for("keychain said no"))
+        self.assertIn("try Refresh all", summary_for(None))
