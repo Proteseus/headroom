@@ -18,9 +18,9 @@ pay in, and the registry can only say one of them out loud.
 
 | Meter | Level | Headroom | Resets | Who | Today |
 |---|---|---|---|---|---|
-| **window** | % of an opaque pool | time to exhaustion | rolling or calendar clock | Claude Max, Codex, Cursor, Copilot, Gemini, Windsurf, JetBrains, Zed | ✅ `PoolSpec` |
-| **grant** | countable items | next expiry | per item | Codex reset credits, promo grants, free-tier allotments | ✅ but hand-rolled |
-| **overage** | window, then dollars | both | window resets, bill doesn't | Cursor on-demand, Codex spend control | ⚠️ two halves, no join |
+| **window** | % of an opaque pool | points to spare | rolling or calendar clock | Claude Max, Codex, Cursor, Copilot, Gemini, Windsurf, JetBrains, Zed | ✅ `KIND_WINDOW` |
+| **grant** | — (a count is not a fraction) | items held, + next expiry | per item | Codex reset credits, promo grants, free-tier allotments | ✅ `KIND_GRANT` |
+| **overage** | dollars spent ÷ cap | dollars to the cap | when the cap does | Cursor on-demand, Codex spend control | ✅ `KIND_OVERAGE` |
 | **calendar** | dollars accrued | budget or hard cap | month boundary | API orgs billed in arrears, Bedrock, Vertex, Foundry | ⚠️ keys, no meter |
 | **balance** | dollars remaining | **runway in days** | **never** — down until you top up | Anthropic Console, OpenAI, OpenRouter, Together, Groq, Fireworks | ❌ |
 | **rate** | per-minute utilisation | requests left this minute | every minute | every API, every tier | ❌ (sourcing unsolved) |
@@ -176,7 +176,7 @@ the mark that suits it and they all read from the same two fields.
 | kind | mark | why not a ring |
 |---|---|---|
 | window | **ring** — unchanged | — |
-| overage | ring, then a bar past 100% | the overage is a different unit; the join is the story |
+| overage | a dollar bar beside the plan meters, not among them | it starts moving *because* the window ran out; an arc would read as more of the same thing |
 | grant | pips, one per item, dimming toward expiry | a count is not a proportion |
 | calendar | bar against the budget, month as the axis | proportion of a *self-set* budget, not a pool |
 | balance | depletion bar, runway date under it | no window means no arc to sweep |
@@ -394,17 +394,17 @@ fetcher, the same as a new provider is today.
 
 | # | What | Why here |
 |---|---|---|
-| 1 | `MeterSpec` with `kind` + `basis`; every existing row `kind=window`, `basis=observed` | ✅ **landed.** Pure refactor, zero behaviour change — both contract suites passed unchanged. `level`/`headroom` deferred to step 2 on purpose (decision 1) |
-| 2a | `Source.windows()`; every consumer says whether it means windows or all meters | ✅ **landed.** The five that assume percentages — headline, log line, `pool_rows()` → `quota_samples` — now say so. None of them failed loudly when handed anything else |
-| 2b-i | Codex credits become a `grant` meter; `level` + `headroom` land | ✅ **landed.** First non-window meter. `headroom` carries its unit (`pct`/`count`/`usd`) because that is the part that differs; `level` is null for a grant, because a count has no denominator |
-| 2b-ii | Cursor on-demand and Codex spend control become `overage` meters | Second kind, and the real test of whether `headroom` generalizes to dollars. Keeps emitting the flat `cost_*` / `on_demand_*` keys for shipped clients |
-| 3 | `attribution` becomes a meter; the Spend view draws it | 400 days of per-model cost already computed and shown as one string. First real payoff, still no new credential |
-| 4 | `balance` — first API source, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check by hand against a console |
-| 5 | `calendar` — same source's month-to-date against a budget | Nearly free once 4 lands; the two together are how an API account actually reads |
-| 6 | A second provider | The only real test of whether the abstraction held |
-| 7 | `seat` — manual entry, no gauge | Cheap, and it is what makes a monthly total true rather than partial |
-| 8 | CSV export | Closes the retention gap while the data is still small |
-| 9 | The board, if the semantics have settled | Last, because it is the one that cannot be taken back cheaply |
+| 1 | `MeterSpec` with `kind` + `basis`; every existing row `kind=window`, `basis=observed` | ✅ **landed.** Pure refactor, zero behaviour change — both contract suites passed unchanged |
+| 2 | `Source.windows()`; every consumer says whether it means windows or all meters | ✅ **landed.** The three that assume percentages — headline, log line, `pool_rows()` → `quota_samples` — now say so. None failed loudly when handed anything else |
+| 3 | Codex credits become a `grant`; `level` + `headroom` land | ✅ **landed.** First non-window meter, and the first moment `level`/`headroom` could be designed against something that is not a percentage |
+| 4 | Cursor on-demand and Codex spend control become `overage` | ✅ **landed.** Second kind, first in dollars — and it needed **no new wire keys**, which is the abstraction paying for itself |
+| 5 | `attribution` becomes a meter; the Spend view draws it | 400 days of per-model cost already computed and shown as one string. First real payoff, still no new credential |
+| 6 | `balance` — first API source, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check by hand against a console |
+| 7 | `calendar` — same source's month-to-date against a budget | Nearly free once 6 lands: the arithmetic is already shared with `overage`. The two together are how an API account actually reads |
+| 8 | A second provider | The only real test of whether the abstraction held |
+| 9 | `seat` — manual entry, no gauge | Cheap, and it is what makes a monthly total true rather than partial |
+| 10 | CSV export | Closes the retention gap while the data is still small |
+| 11 | The board, if the semantics have settled | Last, because it is the one that cannot be taken back cheaply |
 
 Step 1 is the one that has to be right. Everything after it is a registry row,
 a fetcher and a renderer — which is the point of doing it.

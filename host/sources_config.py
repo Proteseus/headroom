@@ -448,11 +448,20 @@ _CODEX_POOLS = (
     # `reset_credits_*` keys, which keep shipping for clients that read them.
     MeterSpec("credits", "reset_credits", "Credits",
               kind=KIND_GRANT, ring=False),
+    # The workspace spend cap, same shape as Cursor's on-demand and for the
+    # same reason. Already on the wire as the flat `cost_*` keys.
+    MeterSpec("spend", "spend", "Spend", kind=KIND_OVERAGE, ring=False),
 )
 _CURSOR_POOLS = (
-    PoolSpec("total", "total", "Total"),
-    PoolSpec("auto", "auto", "Auto", ring=False),
-    PoolSpec("api", "api", "API"),
+    MeterSpec("total", "total", "Total"),
+    MeterSpec("auto", "auto", "Auto", ring=False),
+    MeterSpec("api", "api", "API"),
+    # What you pay once the plan above is spent. Dollars against a cap, so
+    # `ring=False` — an arc would put it next to the plan meters as if it were
+    # more of the same thing, and it is the opposite: the plan running out is
+    # what makes this one start moving. Already on the wire as `on_demand_*`.
+    MeterSpec("on_demand", "on_demand", "On-demand",
+              kind=KIND_OVERAGE, ring=False),
 )
 _COPILOT_POOLS = (
     PoolSpec("premium", "premium", "Premium", jetbrains_usage.MONTH_WINDOW_S),

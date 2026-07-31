@@ -80,9 +80,43 @@ def _grant(bucket):
     return None, {"value": int(count), "unit": UNIT_COUNT}
 
 
+def _dollars(bucket):
+    """Dollars spent against a dollar limit.
+
+    Shared by `overage` and `calendar`, because the arithmetic genuinely is
+    the same and only the reading differs: an overage says you are paying past
+    a plan that ran out, a calendar says how much of the month's budget is
+    gone. That difference is a rendering decision, not a sum, so it lives in
+    the kind rather than in two near-identical functions here.
+
+    `docs/metering.md` describes overage as "a window, then dollars". The
+    payloads say otherwise, and they win: Codex's spend control and Cursor's
+    on-demand are each just dollars against a cap. The window half is the plan
+    meters sitting next to them on the same source — a relationship between
+    two meters, not two halves of one.
+    """
+    used = _number(bucket.get("used_usd"))
+    limit = _number(bucket.get("limit_usd"))
+    remaining = _number(bucket.get("remaining_usd"))
+    if remaining is None and used is not None and limit is not None:
+        remaining = limit - used
+
+    level = None
+    if used is not None and limit is not None and limit > 0:
+        level = round(min(1.0, max(0.0, used / limit)), 4)
+
+    if remaining is None:
+        # No cap, or one the provider did not report. Zero would read as
+        # "spent"; absent reads as "uncapped", which is what it is.
+        return level, None
+    return level, {"value": round(max(0.0, remaining), 2), "unit": UNIT_USD}
+
+
 _BY_KIND = {
     sources_config.KIND_WINDOW: _window,
     sources_config.KIND_GRANT: _grant,
+    sources_config.KIND_OVERAGE: _dollars,
+    sources_config.KIND_CALENDAR: _dollars,
 }
 
 

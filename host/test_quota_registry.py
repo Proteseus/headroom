@@ -152,6 +152,85 @@ class GrantMeterTests(unittest.TestCase):
         self.assertEqual(week["headroom"], {"value": 0.0, "unit": "pct"})
 
 
+class OverageMeterTests(unittest.TestCase):
+    """Dollars against a cap: Cursor's on-demand, Codex's spend control."""
+
+    def setUp(self):
+        sources_config.reset_for_tests()
+        self.addCleanup(sources_config.reset_for_tests)
+        self.state = sources_config.blank_state()
+        self.state["cursor"] = {
+            "ok": True,
+            "plan": "Pro",
+            # Cursor really does report one billing cycle for every pool.
+            # This is the live case the window fallback exists for, which
+            # makes it the live case an overage must not be caught by.
+            "resets_in_s": 9999,
+            "total": {"pct": 55},
+            "on_demand": {
+                "used_usd": 8.0, "limit_usd": 20.0, "remaining_usd": 12.0,
+            },
+        }
+
+    def _pools(self, provider="cursor"):
+        rows = headroom_server._providers_payload(self.state)
+        return next(r for r in rows if r["id"] == provider)["pools"]
+
+    def test_an_overage_reads_as_dollars_against_its_cap(self):
+        on_demand = self._pools()["on_demand"]
+        self.assertEqual(on_demand["kind"], sources_config.KIND_OVERAGE)
+        self.assertAlmostEqual(on_demand["level"], 0.4)
+        self.assertEqual(on_demand["headroom"], {"value": 12.0, "unit": "usd"})
+
+    def test_an_overage_does_not_inherit_the_billing_cycle(self):
+        pools = self._pools()
+        self.assertIsNone(pools["on_demand"]["resets_in_s"])
+        self.assertIsNone(pools["on_demand"]["pace_pct"])
+        # ...and the window beside it still does, which is the whole reason
+        # that fallback exists.
+        self.assertEqual(pools["total"]["resets_in_s"], 9999)
+
+    def test_an_uncapped_spend_reports_no_headroom_rather_than_zero(self):
+        # Absent reads as uncapped. Zero would read as spent, which is the
+        # opposite of what an unlimited cap means.
+        self.state["cursor"]["on_demand"] = {"used_usd": 8.0}
+        on_demand = self._pools()["on_demand"]
+        self.assertIsNone(on_demand["headroom"])
+        self.assertIsNone(on_demand["level"])
+
+    def test_headroom_is_derived_when_the_provider_only_sends_two_numbers(self):
+        self.state["cursor"]["on_demand"] = {"used_usd": 5.0, "limit_usd": 20.0}
+        self.assertEqual(
+            self._pools()["on_demand"]["headroom"],
+            {"value": 15.0, "unit": "usd"})
+
+    def test_codex_spend_control_is_the_same_shape(self):
+        # Two providers, two vocabularies, one kind. If these ever need
+        # different arithmetic, the kind was wrong.
+        self.state["codex"] = {
+            "ok": True, "plan": "Pro",
+            "spend": {"used_usd": 30.0, "limit_usd": 50.0,
+                      "remaining_usd": 20.0},
+        }
+        spend = self._pools("codex")["spend"]
+        self.assertEqual(spend["kind"], sources_config.KIND_OVERAGE)
+        self.assertAlmostEqual(spend["level"], 0.6)
+        self.assertEqual(spend["headroom"], {"value": 20.0, "unit": "usd"})
+
+    def test_an_overage_is_not_sampled_as_a_window(self):
+        cursor = sources_config.BY_ID["cursor"]
+        self.assertIn("on_demand", [m.id for m in cursor.pools])
+        self.assertNotIn("on_demand", [m.id for m in cursor.windows()])
+
+    def test_the_flat_keys_shipped_clients_read_still_ship(self):
+        # A phone or a board from before meter kinds reads these and nothing
+        # else. Removing them is the breaking change docs/contract.md exists
+        # to prevent.
+        flat = headroom_server._flatten_cursor(self.state["cursor"])
+        self.assertEqual(flat["on_demand_remaining_usd"], 12.0)
+        self.assertEqual(flat["on_demand_limit_usd"], 20.0)
+
+
 class QuotaRegistryTests(unittest.TestCase):
     def setUp(self):
         # providers[] follows the pinned order; keep it off this machine's.
