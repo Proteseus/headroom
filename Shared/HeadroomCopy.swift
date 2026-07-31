@@ -117,6 +117,9 @@ enum HeadroomCopy {
     /// state, not a missing-data state.
     static let noResetsYet = "No resets yet"
 
+    /// Settings toggle, both platforms.
+    static let notifyOnQuotaReset = "Notify when a quota resets"
+
     // MARK: Status
 
     /// Healthy attention summary from the host / Attention card fallback.

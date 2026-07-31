@@ -122,6 +122,7 @@ final class MobileUsageStore: ObservableObject {
             // WatchConnectivity — the watch's, which no other surface can fill.
             WatchBridge.shared.push(HeadroomWidgetCache.save(snapshot))
             await MobileNotifications.notifyIfNeeded(snapshot.attention)
+            await MobileNotifications.notifyIfNeeded(resets: snapshot)
         } catch {
             // Keep whatever is on screen. Losing a week of burndown because the
             // Mac went to sleep is worse than showing it with its age attached.

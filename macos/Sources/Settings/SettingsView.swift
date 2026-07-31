@@ -19,6 +19,8 @@ struct SettingsView: View {
     private var supabaseRowLimit = 6
     @AppStorage("plausibleRowLimit")
     private var plausibleRowLimit = 6
+    @AppStorage(ResetNotifications.defaultsKey)
+    private var notifyOnQuotaReset = false
 
     @State private var sources: [SyncSource] = []
     @State private var sourcesMessage: String?
@@ -194,6 +196,20 @@ struct SettingsView: View {
                 }
             }
             .onAppear(perform: refreshOpenAtLogin)
+
+            Section {
+                Toggle(
+                    HeadroomCopy.notifyOnQuotaReset,
+                    isOn: $notifyOnQuotaReset
+                )
+                .onChange(of: notifyOnQuotaReset) { _, enabled in
+                    if enabled {
+                        Task { await ResetNotifications.requestAuthorization() }
+                    }
+                }
+            } footer: {
+                Text("Codex hands a window back when you spend a reset credit. Turning this on is what asks macOS for permission.")
+            }
 
             Section {
                 NavigationLink(value: SettingsDestination.otherMacs) {

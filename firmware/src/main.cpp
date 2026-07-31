@@ -321,6 +321,8 @@ struct ProviderQuota {
 // (t1,0), so the host never sends it — we derive it here.
 // Cursor may carry a second series (API) overlaid on the same axis.
 static const uint8_t MAX_BURN_PTS = 24;   // mirrors device_view.MAX_BURNDOWN_POINTS
+static const uint8_t MAX_HIST_PTS = 16;   // mirrors device_view.MAX_HISTORY_POINTS
+static const uint8_t MAX_GRANTS = 4;      // mirrors device_view.MAX_GRANT_MARKS
 struct Burndown {
   bool ok = false;
   uint32_t t0 = 0, t1 = 0;
@@ -330,6 +332,17 @@ struct Burndown {
   uint8_t projN = 0;
   uint32_t projT[2];
   float projR[2];
+  // Windows already spent, drawn faint behind the live curve. `pts` stops at
+  // t0, so without this a provider whose window just rolled draws a single
+  // point — which is nothing — and the desk looks like it lost the week.
+  // Split at `grantT` before stroking: this series climbs at every reset.
+  uint8_t histN = 0;
+  uint32_t histT[MAX_HIST_PTS];
+  float histR[MAX_HIST_PTS];
+  // When a grant handed a window back, and by how much. Oldest first.
+  uint8_t grantN = 0;
+  uint32_t grantT[MAX_GRANTS];
+  float grantPct[MAX_GRANTS];
   bool warn = false;       // pace runs out before the window resets
   bool exhausted = false;
   bool estimated = false;  // projection from token history, not from samples
@@ -954,6 +967,29 @@ static void applyBurndownDoc(JsonObject b, Burndown &out) {
     }
   }
 
+  JsonArray hist = b["hist"].as<JsonArray>();
+  if (!hist.isNull()) {
+    for (JsonVariant v : hist) {
+      if (out.histN >= MAX_HIST_PTS) break;
+      JsonArray pair = v.as<JsonArray>();
+      if (pair.isNull() || pair.size() < 2) continue;
+      out.histT[out.histN] = (uint32_t)(pair[0] | 0);
+      out.histR[out.histN] = (float)(pair[1] | 0.0);
+      out.histN++;
+    }
+  }
+  JsonArray rsts = b["rsts"].as<JsonArray>();
+  if (!rsts.isNull()) {
+    for (JsonVariant v : rsts) {
+      if (out.grantN >= MAX_GRANTS) break;
+      JsonArray pair = v.as<JsonArray>();
+      if (pair.isNull() || pair.size() < 2) continue;
+      out.grantT[out.grantN] = (uint32_t)(pair[0] | 0);
+      out.grantPct[out.grantN] = (float)(pair[1] | 0.0);
+      out.grantN++;
+    }
+  }
+
   // Optional Cursor API overlay.
   JsonArray pts2 = b["pts2"].as<JsonArray>();
   if (!pts2.isNull()) {
@@ -981,7 +1017,10 @@ static void applyBurndownDoc(JsonObject b, Burndown &out) {
       }
     }
   }
-  out.ok = out.n > 0;
+  // History alone is enough to draw. A window that rolled minutes ago has one
+  // live point and nothing to join it to, and that is exactly the moment the
+  // spent curve behind it is the only thing on the panel worth showing.
+  out.ok = out.n > 0 || out.histN > 0;
 }
 
 static bool applyUsageDoc(JsonDocument &doc) {
@@ -2277,7 +2316,8 @@ static int32_t updatedTzOffsetS();
 
 static bool burnHistoryReady() {
   for (uint8_t i = 0; i < slotN; i++) {
-    if (slots[i].burn.ok && slots[i].burn.n > 0) return true;
+    const Burndown &b = slots[i].burn;
+    if (b.ok && (b.n > 0 || b.histN > 0)) return true;
   }
   return false;
 }
@@ -2751,7 +2791,7 @@ static bool clipBurnSeg(uint32_t ta, float ra, uint32_t tb, float rb,
 static void drawOverallSeries(const Burndown &b, uint16_t accent,
                               int16_t x, int16_t y, int16_t w, int16_t h,
                               uint32_t tLo, uint32_t tHi) {
-  if (!b.ok || b.n < 1 || tHi <= tLo) return;
+  if (!b.ok || (b.n < 1 && b.histN < 1) || tHi <= tLo) return;
   const uint32_t span = tHi - tLo;
   auto px = [&](uint32_t t) -> int16_t {
     if (t <= tLo) return x;
@@ -2772,6 +2812,43 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
   };
 
   const uint16_t line = accent;
+
+  // Spent windows first, so the live curve covers them where they overlap.
+  // A segment is skipped when a grant sits between its two samples: that pair
+  // straddles a reset, and joining them would draw a diagonal climbing across
+  // the chart between two budgets that never existed at the same time.
+  if (b.histN > 1) {
+    const uint16_t ghost = dimToward(accent, COL_BG, 0.55f);
+    for (uint8_t i = 1; i < b.histN; i++) {
+      bool spansGrant = false;
+      for (uint8_t g = 0; g < b.grantN; g++) {
+        if (b.grantT[g] > b.histT[i - 1] && b.grantT[g] <= b.histT[i]) {
+          spansGrant = true;
+          break;
+        }
+      }
+      if (spansGrant) continue;
+      uint32_t ta, tb; float ra, rb;
+      if (!clipBurnSeg(b.histT[i - 1], b.histR[i - 1], b.histT[i], b.histR[i],
+                       tLo, tHi, &ta, &ra, &tb, &rb)) {
+        continue;
+      }
+      // One pixel, not the three `stroke` lays down: this is context behind
+      // the reading, and at three it competes with the live curve.
+      gfx->drawLine(px(ta), py(ra), px(tb), py(rb), ghost);
+    }
+    // A dotted rule where each grant landed — the moment the curve above it
+    // jumps back to full.
+    for (uint8_t g = 0; g < b.grantN; g++) {
+      const uint32_t at = b.grantT[g];
+      if (at <= tLo || at >= tHi) continue;
+      const int16_t gx = px(at);
+      for (int16_t yy = y; yy < (int16_t)(y + h); yy += 4) {
+        gfx->drawFastVLine(gx, yy, 2, ghost);
+      }
+    }
+  }
+
   for (uint8_t i = 1; i < b.n; i++) {
     uint32_t ta, tb; float ra, rb;
     if (!clipBurnSeg(b.t[i - 1], b.remaining[i - 1], b.t[i], b.remaining[i],
@@ -2840,10 +2917,13 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
   uint8_t ready = 0;
   for (uint8_t i = 0; i < slotN; i++) {
     const Burndown &b = slots[i].burn;
-    if (b.ok && b.n > 0) {
-      ready++;
-      if (b.t[b.n - 1] > nowT) nowT = b.t[b.n - 1];
-    }
+    if (!b.ok) continue;
+    // History alone counts: a provider whose window rolled this poll has one
+    // live sample and a spent curve behind it, which is a chart, not a gap.
+    if (b.n > 0 || b.histN > 0) ready++;
+    // "Now" still comes from the live series only — the spent curve reaches
+    // into the past, and letting it set the marker would drag it left.
+    if (b.n > 0 && b.t[b.n - 1] > nowT) nowT = b.t[b.n - 1];
   }
 
   // Day labels between chart and verdicts so curves keep the plot area.

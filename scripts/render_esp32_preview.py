@@ -279,7 +279,8 @@ def stroke_dashed(draw, p0, p1, fill):
 
 def draw_overall_series(draw, burn, accent, x, y, w, h, t_lo, t_hi):
     points = burn.get("pts") or []
-    if not points or t_hi <= t_lo:
+    history = burn.get("hist") or []
+    if (not points and not history) or t_hi <= t_lo:
         return
     span = t_hi - t_lo
 
@@ -293,6 +294,30 @@ def draw_overall_series(draw, burn, accent, x, y, w, h, t_lo, t_hi):
     def py(remaining):
         remaining = max(0.0, min(100.0, float(remaining)))
         return y + h - 1 - int(remaining * (h - 1) / 100.0)
+
+    # Spent windows first, so the live curve covers them where they overlap.
+    # Mirrors drawOverallSeries() in firmware/src/main.cpp — a segment whose
+    # two samples straddle a grant is skipped rather than joined.
+    grants = [int(mark[0]) for mark in (burn.get("rsts") or []) if mark]
+    if len(history) > 1:
+        ghost = dim(accent, 0.55)
+        for a, b in zip(history, history[1:]):
+            if any(a[0] < at <= b[0] for at in grants):
+                continue
+            clipped = clip_burn_segment(
+                int(a[0]), float(a[1]), int(b[0]), float(b[1]), t_lo, t_hi
+            )
+            if clipped:
+                ta, ra, tb, rb = clipped
+                draw.line(
+                    [(px(ta), py(ra)), (px(tb), py(rb))], fill=ghost, width=1
+                )
+        for at in grants:
+            if not t_lo < at < t_hi:
+                continue
+            gx = px(at)
+            for yy in range(y, y + h, 4):
+                draw.line([(gx, yy), (gx, yy + 1)], fill=ghost)
 
     line = accent
     for a, b in zip(points, points[1:]):
@@ -355,17 +380,22 @@ def draw_overall_series(draw, burn, accent, x, y, w, h, t_lo, t_hi):
 
 def draw_glance_burndown(draw, providers, burns, updated, mid_y, low_bottom):
     span = W - PAD * 2
+    # History alone counts as ready — mirrors drawGlanceBurndown() in main.cpp.
     ready = [
         burns.get(provider.get("id"), {})
         for provider in providers
-        if (burns.get(provider.get("id"), {}).get("pts") or [])
+        if (burns.get(provider.get("id"), {}).get("pts")
+            or burns.get(provider.get("id"), {}).get("hist"))
     ]
     if not ready:
         draw_text(draw, "Collecting history", PAD + 8, mid_y + 36,
                   FONT2, COL_DIM)
         return
 
-    now_t = max(int(burn["pts"][-1][0]) for burn in ready)
+    # "Now" comes from the live series only; the spent curve reaches back.
+    live = [burn for burn in ready if burn.get("pts")]
+    now_t = max(int(burn["pts"][-1][0]) for burn in live) if live else int(
+        max(int(burn["hist"][-1][0]) for burn in ready))
     axis_h = 12
     row_h = 16
     legend_h = len(providers) * row_h + 2

@@ -68,11 +68,15 @@ WINDOW_TOLERANCE_S = 15 * 60
 # `rolled_window` for why either alone is ambiguous.
 RESET_MIN_DROP_PCT = 1.0
 RESET_MIN_GAIN_S = 15 * 60
-# How far back `rolls` looks, and how many it hands to a caller. The span
-# covers the overview chart's week so a grant stays marked for as long as the
-# history it interrupts is still on screen.
-ROLL_LOOKBACK_S = 7 * 24 * 3600
-MAX_ROLLS = 8
+# How far back `rolls` looks, and how many it hands to a caller. The span is
+# the whole retention window rather than the overview chart's week: a grant is
+# also a log entry, and the reset list answers "when did I last spend a credit"
+# over as much history as the store actually kept. Charts clip to their own
+# domain anyway, so widening this costs them nothing.
+ROLL_LOOKBACK_S = RETENTION_S
+# Codex grants cluster — four in six days on a normal week of use — so a cap of
+# 8 would drop the oldest off a two-week list.
+MAX_ROLLS = 24
 # How far ahead of its held reset a window has to roll before `rolls` calls it
 # a grant, as a fraction of the window. Flat minutes are the wrong bar: a 5h
 # session that rolls 18 minutes early is the source rounding, while a weekly
