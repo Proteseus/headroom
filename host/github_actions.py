@@ -26,6 +26,7 @@ import urllib.request
 import app_config
 import http_util
 import cache_util
+import keychain
 
 API = "https://api.github.com"
 CACHE_TTL_S = 90
@@ -59,21 +60,7 @@ _EMPTY = {
 
 
 def _keychain_token():
-    try:
-        return subprocess.check_output(
-            [
-                "/usr/bin/security", "find-generic-password",
-                "-s", KEYCHAIN_SERVICE,
-                "-a", KEYCHAIN_ACCOUNT,
-                "-w",
-            ],
-            stderr=subprocess.DEVNULL,
-            timeout=4,
-            text=True,
-        ).strip() or None
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-            FileNotFoundError, OSError):
-        return None
+    return keychain.read_token(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
 
 
 def _gh_token():

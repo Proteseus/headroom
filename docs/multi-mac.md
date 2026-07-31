@@ -261,16 +261,64 @@ pinned order naming a provider that only exists on the other Mac — is not
 mistaken for a fresh local edit next round and bounced back. `test_icloud_sync.py`
 asserts settling in one round and staying settled.
 
-## What never syncs
+## What never travels in the record
 
 Credentials, of any kind. `shared_prefs` reaches `config.json` only through
 `SHARED_CONFIG_KEYS` in `app_config.py`, so the host token cannot be written to
 the shared folder even by accident, and there is a test that greps the produced
 files for one.
 
+That rule is absolute and stays absolute, because `icloud_dir` can point the
+same code at Dropbox or Syncthing. A secret in the record is a secret in a
+plaintext file in a third party's folder.
+
 Also never synced: anything describing one machine's disk or moment —
 `dev_root`, `codex_binary`, extra-account credential roots, the mobile pairing
 token, local servers, git commits, the Claude token log, attention events.
+
+## PATs travel, by a different road
+
+Retyping a GitHub PAT on the second Mac is the chore this feature exists to
+remove, so the three tokens Headroom owns are stored with
+`kSecAttrSynchronizable` and travel through **iCloud Keychain** — end-to-end
+encrypted with the user's own keys, never through the record above:
+
+| Service | Synced |
+|---|---|
+| `com.centaur-labs.headroom.github` | yes |
+| `com.centaur-labs.headroom.plausible` | yes |
+| `com.centaur-labs.headroom.supabase` | yes |
+| `com.centaur-labs.headroom.host` | **no** — authorizes one Mac's host, and the phone pairs to one Mac |
+
+Not the Claude OAuth credentials either. `Claude Code-credentials` belongs to
+the CLI, not to us, and its refresh token rotates — two Macs refreshing one
+rotating token independently can invalidate each other.
+
+**Synchronizable items are a separate keyspace, not a flag on a row.** A query
+that omits `kSecAttrSynchronizable` defaults to `false` and returns *item not
+found* for an item that is plainly in Keychain Access. This is the whole trap:
+
+- Reads use `kSecAttrSynchronizableAny`, which spans both halves. A Mac that
+  stored a token before this shipped has a local-only copy that must keep
+  working. `KeychainScope` in `macos/Sources/Keychain.swift` names the three
+  cases; `keychain.read_token()` is the host's side.
+- `/usr/bin/security find-generic-password` is the legacy SecKeychain API and
+  cannot be relied on to see synced items. The three sources that shelled out
+  to it now go through `host/keychain.py`, which was already there for the
+  argv-leak reason and is the only credential read path left.
+- `TokenStore.adoptSync()` migrates an old local-only token at launch, ordered
+  **add-then-delete**. The local copy is the only copy until the synced one is
+  confirmed written. Reversing that order loses a token the user pasted in
+  months ago and cannot re-derive.
+- The accessible class cannot be a `…ThisDeviceOnly` variant; those are refused
+  outright for a synchronizable item.
+
+The unentitled Python host reaching a synchronizable item is not a given, and
+was checked on macOS 15 before this shipped: plain `SecItemCopyMatching` finds
+them, with no `kSecUseDataProtectionKeychain` needed. Worth re-checking if a
+future macOS moves generic passwords further into the data-protection keychain,
+because the symptom would be every PAT source going *not connected* at once
+while Keychain Access shows the tokens sitting right there.
 
 ## Layout
 

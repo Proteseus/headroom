@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         store.start()
+        // Tokens stored before iCloud Keychain sync shipped are local-only, and
+        // a local-only item is invisible to the synced query the host now runs.
+        TokenStore.adoptSyncForStoredTokens()
         // After sleep the poll loop may still be on the idle cadence, and the
         // host's own poller is cold — force a source sync so bars move again.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
