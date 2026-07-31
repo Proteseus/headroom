@@ -7,6 +7,24 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Fixed
+
+- **A rate limit from Claude no longer feeds itself.** The usage endpoint
+  answers 429 when it has had enough, and the host's only response was to keep
+  its poll cadence and let every forced refresh past the cache on top of that.
+  A 429 now starts a backoff (1m, 2m, 5m, 15m on consecutive strikes, cleared
+  by any good fetch), and the wait is honoured even by a forced refresh, since
+  Settings, the phone and the board's long-press are exactly what someone
+  reaches for when the numbers look wrong, which is exactly when the limit is
+  in effect.
+- A `Retry-After` header, in either of the two forms the spec allows, now
+  outranks that schedule. Nothing was reading it before. It is capped at an
+  hour so one bad header cannot park the source for a day.
+- The message says how long the wait is. "Too Many Requests" on its own reads
+  as something broken and invites the refresh button, which was the problem.
+
 ## 1.3.2 — 2026-07-31
 
 ### Fixed

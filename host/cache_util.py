@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import email.utils
 import json
 import os
 import tempfile
 import time
+from datetime import timezone
 
 CACHE_DIR = os.path.expanduser("~/.headroom/cache")
+
+# How long to wait after a 429 before asking that provider again, indexed by
+# consecutive strike. A rate limit is the one failure where retrying at the
+# usual cadence makes the problem worse, and the usual cadence was all we had:
+# the poll interval kept knocking and every forced refresh went straight past
+# the TTL on top of it, so one 429 sustained itself.
+RATE_LIMIT_BACKOFF_S = (60, 120, 300, 900)
+
+# A server-supplied Retry-After outranks the schedule above, since it is the
+# only party that knows the real window. The ceiling is there so one absurd
+# header cannot park a source for a day.
+RATE_LIMIT_CEILING_S = 3600
 
 # How long last-good data may be replayed before it stops being a hiccup.
 # Fetchers poll on the order of a minute, so anything past this is a provider
@@ -65,14 +79,67 @@ def save_disk(name: str, data: dict) -> None:
         pass
 
 
+def parse_retry_after(value, now=None):
+    """Seconds to wait from a Retry-After header value, or None.
+
+    The header is either a count of seconds or an HTTP date, and both are
+    allowed. A date already in the past means wait zero, not wait forever.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return max(0.0, float(int(text)))
+    except ValueError:
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, when.timestamp() - (time.time() if now is None else float(now)))
+
+
+def note_rate_limit(cache, now, retry_after=None):
+    """Record a 429 against this cache and return the seconds to wait.
+
+    Consecutive strikes walk up `RATE_LIMIT_BACKOFF_S`; any good fetch clears
+    them, so a provider that recovers is not punished for an old strike.
+    """
+    strikes = int(cache.get("rl_strikes", 0)) + 1
+    cache["rl_strikes"] = strikes
+    wait = parse_retry_after(retry_after, now)
+    if wait is None:
+        wait = RATE_LIMIT_BACKOFF_S[
+            min(strikes, len(RATE_LIMIT_BACKOFF_S)) - 1]
+    wait = min(float(wait), RATE_LIMIT_CEILING_S)
+    cache["retry_at"] = now + wait
+    return wait
+
+
 def fresh(cache, now, ttl_s, fail_ttl_s, force=False):
     """True when the in-memory copy is young enough to serve as-is.
 
-    A cache holding an error retries on the shorter `fail_ttl_s`, so a 429 or
-    a dropped VPN clears in seconds rather than making the meter sit wrong for
-    a full TTL.
+    A cache holding an error retries on the shorter `fail_ttl_s`, so a dropped
+    VPN clears in seconds rather than making the meter sit wrong for a full
+    TTL.
+
+    A 429 backoff is the exception, and it outranks `force`. The forced paths
+    are Settings refresh, the phone, and the board's long-press: exactly what
+    someone reaches for when the numbers look wrong, which is exactly when a
+    rate limit is in effect. Letting them through turns a user's frustration
+    into more of the traffic that caused it.
     """
-    if force or cache.get("data") is None:
+    if cache.get("data") is None:
+        return False
+    if now < cache.get("retry_at", 0.0):
+        return True
+    if force:
         return False
     return now - cache.get("t", 0.0) < (
         fail_ttl_s if cache.get("err") else ttl_s
@@ -98,7 +165,9 @@ def store(cache, now, data, disk_name=None):
         data["auth_required"] = False
     if disk_name:
         save_disk(disk_name, data)
-    cache.update(t=now, data=data, err=None)
+    # A good fetch also ends any 429 backoff: the provider answered, so the
+    # strike count that would otherwise keep escalating starts over.
+    cache.update(t=now, data=data, err=None, rl_strikes=0, retry_at=0.0)
     return data
 
 
