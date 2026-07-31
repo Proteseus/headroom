@@ -11,6 +11,20 @@ tag a version that has no entry.
 
 ### Changed
 
+- **A reset is drawn as the recharge, not as a gap where one happened.** Every
+  chart used to cut the series at each grant, leaving one falling run per window
+  and no sign of the moment the pool came back: the curve ended at nothing and
+  restarted at full with nothing to explain it. The line now runs level to the
+  reset instant, rises there, and carries on, landing on the same mark the chart
+  already draws for the grant. Joining the two samples raw was never an option
+  because they sit a bucket apart and the diagonal reads as an impossibly fast
+  refill. A boundary the host never flagged as a grant keeps its plain diagonal,
+  which is the honest picture when nothing pinned the instant.
+- **The board and the apps agree about it.** The ESP32 got the recharge first
+  and the Mac, phone and widgets were still splitting the same series, which is
+  two renderings of one contract. Ghost curves also dim a little further into the
+  background than before: with a riser in them they carry more ink, and at the
+  old value they competed with the live curve.
 - **Every burndown now says which seven days it is drawing.** There have always
   been two rules — the overview spans three days either side of today, a
   provider chart spans that pool's own window — and neither chart said so, so
