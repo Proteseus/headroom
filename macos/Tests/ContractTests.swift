@@ -438,4 +438,83 @@ final class ContractTests: XCTestCase {
         let client = HeadroomClient(endpoint: "http://127.0.0.1:8737/usage")
         XCTAssertNil(client.token)
     }
+
+    // MARK: - Contract handshake and lossy rows (docs/contract.md)
+
+    func testContractDecodesAndOlderHostsStillCount() throws {
+        let stated = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(#"{"contract": 7}"#.utf8))
+        XCTAssertEqual(stated.contract, 7)
+        XCTAssertTrue(stated.contractSatisfied)
+
+        // A host predating the field speaks contract 1 by definition. Treating
+        // nil as failure would have blanked every desk the day this shipped.
+        let silent = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(#"{"plan": "max"}"#.utf8))
+        XCTAssertNil(silent.contract)
+        XCTAssertTrue(silent.contractSatisfied)
+    }
+
+    func testTheDemoFixtureSatisfiesThisBuildsFloor() throws {
+        XCTAssertTrue(try decodeDemo().contractSatisfied)
+    }
+
+    func testOneMalformedRowCostsTheRowNotTheDocument() throws {
+        // by_day rows require `date`. Before lossy decoding, a single row
+        // missing it threw past the chart and blanked the whole popover.
+        let json = """
+        {
+          "plan": "max",
+          "by_day": [
+            {"date": "2026-07-30", "total": 12.0},
+            {"total": 9.0},
+            {"date": "2026-07-31", "total": 3.0}
+          ]
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+
+        XCTAssertEqual(snapshot.plan, "max", "the document survived")
+        XCTAssertEqual(snapshot.byDay?.count, 2, "only the bad row was lost")
+        XCTAssertEqual(
+            snapshot.byDay?.map(\.date), ["2026-07-30", "2026-07-31"])
+    }
+
+    func testLossyRowsApplyToNestedListsToo() throws {
+        // SupabaseProject.ref, SupabaseLint.name and GitHubRun.id are all
+        // required, and all sit inside a parent that is itself optional.
+        let json = """
+        {
+          "github": {"ok": true, "runs": [{"id": "1"}, {"repo": "no-id"}]},
+          "supabase": {
+            "ok": true,
+            "projects": [
+              {"ref": "abc", "lints": [{"name": "rls"}, {"title": "nameless"}]},
+              {"name": "refless"}
+            ]
+          }
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+
+        XCTAssertEqual(snapshot.github?.runs?.count, 1)
+        XCTAssertEqual(snapshot.supabase?.projects?.count, 1)
+        XCTAssertEqual(snapshot.supabase?.projects?.first?.lints?.count, 1)
+        XCTAssertEqual(snapshot.supabase?.projects?.first?.ref, "abc")
+    }
+
+    func testAnEmptyListStaysEmptyAndAMissingListStaysNil() throws {
+        // Lossy decoding must not invent a list where the host sent none —
+        // "no activity yet" and "this host is too old to say" are different
+        // states and several surfaces branch on the difference.
+        let empty = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(#"{"activity": []}"#.utf8))
+        XCTAssertEqual(empty.activity?.count, 0)
+
+        let absent = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(#"{}"#.utf8))
+        XCTAssertNil(absent.activity)
+    }
 }

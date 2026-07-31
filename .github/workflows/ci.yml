@@ -12,13 +12,21 @@ concurrency:
 
 jobs:
   host:
-    name: Host (Python)
+    name: Host (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor the bundled host actually runs on: Headroom.app
+        # points a LaunchAgent at the system python3, and macOS 14 ships
+        # 3.9.6. A 3.10+ syntax feature would pass on 3.12 and break every
+        # macOS 14 install. See docs/product.md, "The support floor".
+        python: ["3.9", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Compile every module
         # The host is stdlib-only by design; this catches syntax errors in
         # files no test imports.
@@ -28,6 +36,8 @@ jobs:
         run: python -m unittest discover -p "test_*.py" -v
       - name: Glossary copy guard
         run: ./scripts/check-glossary-copy.sh
+      - name: Mirrored constants guard
+        run: ./scripts/check-mirrored-constants.sh
       - name: Version stamp
         run: |
           ./scripts/version-env.sh
