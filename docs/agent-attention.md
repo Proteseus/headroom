@@ -131,10 +131,27 @@ Two ways to close it, and they are the same two slices this list already has:
    with today's transport and needs no new Codex feature — but Headroom
    becomes the place you start Codex work, which is a product decision, not a
    plumbing one.
-2. **Share one App Server** (slice 1). Codex now ships `codex app-server
-   daemon start` and `codex app-server proxy --sock PATH`, both
-   `[experimental]`. A single daemon with Headroom and the CLI both attached is
-   the shape that lets you keep starting sessions the way you do now.
+2. **Share one App Server** (slice 1). This is the shape you want — you keep
+   starting sessions the way you do now and Headroom watches — but as of Codex
+   0.145.0 it does not work, and this was established by trying it rather than
+   by reading:
+
+   - `codex app-server daemon start` runs and creates
+     `~/.codex/app-server-control/app-server-control.sock`.
+   - `daemon enable-remote-control` reports `remoteControlEnabled: true`.
+   - A second client that connects to that socket and sends the documented
+     `initialize` gets **zero bytes back and the socket closed**.
+   - Going through `codex app-server proxy`, which exists to relay stdio to
+     that socket, produces no response either.
+
+   The name is the clue: it is a *control* socket, and `daemon version` speaks
+   a management protocol over it. Whatever negotiation `proxy` is meant to
+   perform is undocumented, and both subcommands are `[experimental]`. Until
+   that settles, a second client cannot attach.
+
+   The blocker is transport, not design. When the daemon does answer, the rest
+   of the adapter is ready: the ledger, typed fields, questions and interrupt
+   are all provider-neutral and already tested.
 
 Until one of those lands, **Settings → Coding agents should not imply the Codex
 gateway is doing anything.** It connects, and that is all it does.
