@@ -61,8 +61,46 @@ GROUP_DEVTOOLS = "devtools"  # everything else you point Headroom at
 GROUP_IDS = (GROUP_AI, GROUP_DEVTOOLS)
 
 
-class PoolSpec(NamedTuple):
-    """One quota meter on a provider payload (session, week, total, …)."""
+# ---------------------------- meter kinds ----------------------------
+# What shape a meter is, which is what decides what its numbers mean and which
+# mark draws it. Ships as `providers[].pools.<id>.kind`; see docs/metering.md.
+#
+# **Not** `Source.kind` below. That one is a different axis entirely — it says
+# whether a *source* feeds the quota machinery at all (quota vs activity). The
+# two words are unavoidable: one describes a service, one describes a meter.
+#
+# Only KIND_WINDOW is implemented. The rest are named anyway, because the set
+# *is* the design: a form with no name here is a form that arrives as flat keys
+# bolted onto a provider payload, which is the thing docs/metering.md exists to
+# stop. Naming one costs a string; discovering you needed it costs a schema.
+KIND_WINDOW = "window"      # % of a pool that refills on a clock
+KIND_GRANT = "grant"        # countable items, each with its own expiry
+KIND_OVERAGE = "overage"    # a window, then dollars once the window is spent
+KIND_CALENDAR = "calendar"  # dollars accrued against a month boundary
+KIND_BALANCE = "balance"    # dollars remaining; depletes and never refills
+KIND_RATE = "rate"          # per-minute utilisation, true for sixty seconds
+KIND_SEAT = "seat"          # a flat licence — no meter at all, and that is the
+                            # point: a monthly total that omits it is wrong
+METER_KINDS = (KIND_WINDOW, KIND_GRANT, KIND_OVERAGE, KIND_CALENDAR,
+               KIND_BALANCE, KIND_RATE, KIND_SEAT)
+
+# Where a meter's numbers came from. Orthogonal to kind — any kind can be
+# either. `observed` is the provider's own reading. `estimated` is one this
+# host derived from local token counts, and it never reaches a surface without
+# saying so, because nobody audits a percentage against a card statement but
+# everybody audits a dollar. See docs/metering.md decision 3.
+BASIS_OBSERVED = "observed"
+BASIS_ESTIMATED = "estimated"
+
+
+class MeterSpec(NamedTuple):
+    """One meter on a provider payload (session, week, total, …).
+
+    Every meter that exists today is a window, which is why `kind` defaults to
+    the honest answer instead of being a required argument: the registry rows
+    below are unchanged by this field existing, and that is the whole point of
+    landing it before anything needs it.
+    """
 
     id: str
     key: str
@@ -70,6 +108,14 @@ class PoolSpec(NamedTuple):
     default_window_s: Optional[int] = None
     # Sampled for burndown history even when False; False hides the ring.
     ring: bool = True
+    kind: str = KIND_WINDOW
+    basis: str = BASIS_OBSERVED
+
+
+# The wire key stays `pools`, and so does `Source.pools`; this rename is
+# Python-side only. Kept as an alias so an in-flight branch that imported the
+# old name still resolves — several agents work in this tree at once.
+PoolSpec = MeterSpec
 
 
 class Source(NamedTuple):
