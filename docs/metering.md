@@ -395,7 +395,9 @@ fetcher, the same as a new provider is today.
 | # | What | Why here |
 |---|---|---|
 | 1 | `MeterSpec` with `kind` + `basis`; every existing row `kind=window`, `basis=observed` | ✅ **landed.** Pure refactor, zero behaviour change — both contract suites passed unchanged. `level`/`headroom` deferred to step 2 on purpose (decision 1) |
-| 2 | Migrate the two forms that already exist — Codex credits to `grant`, Cursor/Codex dollars to `overage` | Proves the abstraction against two real shapes before betting a new source on it. Keeps emitting the flat keys for shipped clients; deletes the *bespoke* handling behind them |
+| 2a | `Source.windows()`; every consumer says whether it means windows or all meters | ✅ **landed.** The five that assume percentages — headline, log line, `pool_rows()` → `quota_samples` — now say so. None of them failed loudly when handed anything else |
+| 2b-i | Codex credits become a `grant` meter; `level` + `headroom` land | ✅ **landed.** First non-window meter. `headroom` carries its unit (`pct`/`count`/`usd`) because that is the part that differs; `level` is null for a grant, because a count has no denominator |
+| 2b-ii | Cursor on-demand and Codex spend control become `overage` meters | Second kind, and the real test of whether `headroom` generalizes to dollars. Keeps emitting the flat `cost_*` / `on_demand_*` keys for shipped clients |
 | 3 | `attribution` becomes a meter; the Spend view draws it | 400 days of per-model cost already computed and shown as one string. First real payoff, still no new credential |
 | 4 | `balance` — first API source, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check by hand against a console |
 | 5 | `calendar` — same source's month-to-date against a budget | Nearly free once 4 lands; the two together are how an API account actually reads |

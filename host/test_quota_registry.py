@@ -76,6 +76,82 @@ class MeterKindSelectionTests(unittest.TestCase):
         self.assertIn("week", blank)
 
 
+class GrantMeterTests(unittest.TestCase):
+    """Codex's banked limit resets, as a meter rather than four flat keys."""
+
+    def setUp(self):
+        sources_config.reset_for_tests()
+        self.addCleanup(sources_config.reset_for_tests)
+        self.state = sources_config.blank_state()
+        self.state["codex"] = {
+            "ok": True,
+            "plan": "Pro",
+            # Provider-wide cycle, the way Cursor reports one. A window with
+            # no reading of its own is meant to inherit this.
+            "resets_in_s": 4242,
+            "week": {"pct": 40},
+            "reset_credits": {
+                "available": 2,
+                # Deliberately not soonest-first: the sort is one fetcher's
+                # detail, not a contract meters.py may lean on.
+                "credits": [{"expires_in_s": 600}, {"expires_in_s": 120}],
+            },
+        }
+
+    def _codex(self):
+        rows = headroom_server._providers_payload(self.state)
+        return next(r for r in rows if r["id"] == "codex")
+
+    def test_a_grant_reports_a_count_and_refuses_to_invent_a_level(self):
+        credits = self._codex()["pools"]["credits"]
+        self.assertEqual(credits["kind"], sources_config.KIND_GRANT)
+        self.assertEqual(credits["headroom"], {"value": 2, "unit": "count"})
+        self.assertIsNone(credits["level"])
+
+    def test_a_grant_carries_no_pct_which_is_what_spares_the_board(self):
+        # device_view drops a pool with no pct — see
+        # test_device_view_sends_only_ring_pools_with_readings in
+        # test_contract. That drop is the entire reason a board flashed
+        # before meter kinds survives them with no cable.
+        self.assertIsNone(self._codex()["pools"]["credits"]["pct"])
+
+    def test_a_grant_does_not_inherit_the_providers_reset_clock(self):
+        # The nastiest available bug: the grant picks up the provider-wide
+        # cycle, and the UI counts down to a refill that is never coming. It
+        # would look completely plausible.
+        pools = self._codex()["pools"]
+        credits = pools["credits"]
+        self.assertIsNone(credits["resets_in_s"])
+        self.assertIsNone(credits["resets_in"])
+        self.assertIsNone(credits["pace_pct"])
+        self.assertIsNone(credits["window_s"])
+        # ...while the window it sits next to still inherits it.
+        self.assertEqual(pools["week"]["resets_in_s"], 4242)
+
+    def test_a_grants_clock_is_its_soonest_expiry(self):
+        self.assertEqual(self._codex()["pools"]["credits"]["expires_in_s"], 120)
+
+    def test_a_window_reports_level_and_headroom_in_points(self):
+        week = self._codex()["pools"]["week"]
+        self.assertAlmostEqual(week["level"], 0.4)
+        self.assertEqual(week["headroom"], {"value": 60.0, "unit": "pct"})
+
+    def test_a_meter_with_nothing_in_it_reads_as_unmeasured(self):
+        self.state["codex"]["reset_credits"] = None
+        credits = self._codex()["pools"]["credits"]
+        self.assertIsNone(credits["level"])
+        self.assertIsNone(credits["headroom"])
+        self.assertIsNone(credits["expires_in_s"])
+
+    def test_an_over_hundred_window_still_reads_as_a_gauge(self):
+        # A provider reporting 104% has said something true about the account
+        # and nothing usable about an arc.
+        self.state["codex"]["week"] = {"pct": 104}
+        week = self._codex()["pools"]["week"]
+        self.assertEqual(week["level"], 1.0)
+        self.assertEqual(week["headroom"], {"value": 0.0, "unit": "pct"})
+
+
 class QuotaRegistryTests(unittest.TestCase):
     def setUp(self):
         # providers[] follows the pinned order; keep it off this machine's.
@@ -100,12 +176,16 @@ class QuotaRegistryTests(unittest.TestCase):
         self.assertEqual(quota_samples.PROVIDERS, sources_config.BURN_SOURCE_IDS)
         self.assertTrue({"claude", "codex", "cursor"}.issubset(
             set(sources_config.BURN_SOURCE_IDS)))
+        # Windows, not every meter. The sample store records percentages
+        # against a refilling window; a grant has neither. If this ever reads
+        # `source.pools` again, Codex's credits start appending null-pct rows
+        # to quota_samples.jsonl.
         self.assertEqual(
             {p.id for p in quota_samples.POOLS},
             {
-                (source.id, pool.id)
+                (source.id, meter.id)
                 for source in sources_config.QUOTA_SOURCES
-                for pool in source.pools
+                for meter in source.windows()
             },
         )
 

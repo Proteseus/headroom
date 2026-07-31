@@ -60,6 +60,7 @@ import github_actions
 import host_version
 import icloud_sync
 import local_servers
+import meters
 import oauth_usage
 import plausible_usage
 import quota_samples
@@ -1204,20 +1205,41 @@ def _providers_payload(state, burndowns=None):
         # and burndown charts can all sort by the one order defined here.
         for pool_rank, spec in enumerate(source.pools):
             bucket = payload.get(spec.key) or {}
-            raw = bucket.get("resets_in_s")
-            if raw is None:
-                raw = payload.get("resets_in_s")
-            resets = _held_resets(burndowns, source.id, spec.id, raw, trusted)
-            window = bucket.get("window_s") or spec.default_window_s
+            level, headroom = meters.readings(spec, bucket)
+            if spec.kind == sources_config.KIND_WINDOW:
+                raw = bucket.get("resets_in_s")
+                if raw is None:
+                    # Cursor reports one billing cycle at the top level for
+                    # every pool, so a bucket with no reading of its own
+                    # inherits it.
+                    raw = payload.get("resets_in_s")
+                resets = _held_resets(
+                    burndowns, source.id, spec.id, raw, trusted)
+                window = bucket.get("window_s") or spec.default_window_s
+            else:
+                # Windows only, and the fallback above is why. A grant has no
+                # reading of its own, so it would inherit the provider's
+                # cycle and count down to a refill that is not coming — a
+                # countdown that is wrong but entirely plausible, which is the
+                # worst kind. Same reasoning as `_held_resets(trusted=False)`.
+                resets = None
+                window = None
             pools[spec.id] = {
                 "title": spec.title,
                 "rank": pool_rank,
                 # What shape this meter is, and where its numbers came from.
-                # Every meter here is a window today, so both are constant —
-                # they exist so the next kind is a registry row rather than a
-                # new family of flat keys. See docs/metering.md.
+                # What shape this meter is, and where its numbers came from.
+                # See docs/metering.md.
                 "kind": spec.kind,
                 "basis": spec.basis,
+                # The kind-agnostic pair. A client that wants to draw any
+                # meter reads these; the window-shaped fields below stay for
+                # the ones that were built before other kinds existed.
+                "level": level,
+                "headroom": headroom,
+                # Window-shaped, and null on every other kind — which is what
+                # keeps an old client (and the board) from drawing them: both
+                # already skip a pool with no pct. See docs/contract.md.
                 "pct": bucket.get("pct"),
                 "window_s": window,
                 "resets_in_s": resets,
@@ -1226,6 +1248,11 @@ def _providers_payload(state, burndowns=None):
                     oauth_usage.pace_pct(resets, window) if window else None),
                 "ring": bool(spec.ring),
             }
+            # A grant's clock is per item and counts toward losing something,
+            # so it is its own field rather than a second meaning for
+            # `resets_in_s`. Only emitted where it exists.
+            if spec.kind == sources_config.KIND_GRANT:
+                pools[spec.id]["expires_in_s"] = meters.next_expiry_s(bucket)
         age = payload.get("stale_for_s")
         if not isinstance(age, (int, float)):
             age = _age_seconds(payload)

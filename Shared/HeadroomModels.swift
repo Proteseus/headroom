@@ -1172,14 +1172,40 @@ struct QuotaPoolInfo: Decodable, Sendable {
     /// derived from local token counts. Read it through `meterBasis`; nil
     /// means `observed`, for the same reason as above.
     var basis: String?
+    /// How much of this meter is spent, 0…1. Nil where there is no
+    /// denominator — a count of credits is not a fraction of anything, and a
+    /// gauge drawn from a substituted zero would read full for someone
+    /// holding none.
+    var level: Double?
+    /// How much is left, carrying the unit it is counted in, because the unit
+    /// is the part that differs between kinds. Nil when the meter has no
+    /// reading yet.
+    var headroom: MeterHeadroom?
+    /// Seconds until the soonest item in a `grant` expires. Deliberately not
+    /// `resetsInS`: a reset is relief arriving, an expiry is value leaving.
+    var expiresInS: Double?
 
     enum CodingKeys: String, CodingKey {
-        case title, rank, pct, ring, kind, basis
+        case title, rank, pct, ring, kind, basis, level, headroom
+        case expiresInS = "expires_in_s"
         case pacePct = "pace_pct"
         case windowS = "window_s"
         case resetsInS = "resets_in_s"
         case resetsIn = "resets_in"
     }
+}
+
+/// How much of a meter is left, in the unit that meter is counted in.
+///
+/// The unit travels with the number because it is the part that differs:
+/// percentage points for a window, credits for a grant, dollars for anything
+/// billed. Carries no label — a label is copy, and copy lives in
+/// `HeadroomCopy.swift` where `check-glossary-copy.sh` can see it.
+struct MeterHeadroom: Decodable, Sendable {
+    var value: Double?
+    /// `pct` | `count` | `usd`. A unit this build does not recognise is a
+    /// number it cannot honestly label, so render nothing rather than guess.
+    var unit: String?
 }
 
 extension QuotaPoolInfo {

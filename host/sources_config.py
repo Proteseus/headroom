@@ -438,8 +438,16 @@ _CLAUDE_POOLS = (
     PoolSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
 )
 _CODEX_POOLS = (
-    PoolSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
-    PoolSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
+    MeterSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
+    MeterSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
+    # Banked limit resets. A grant, not a window: you hold a count of them,
+    # each expires on its own clock, and none of it is a percentage of
+    # anything. Declared after the windows so `_headline_pool` is unaffected
+    # even for a row that did not pin `headline` — and `ring=False` because
+    # there is no arc to sweep. Already on the wire as the flat
+    # `reset_credits_*` keys, which keep shipping for clients that read them.
+    MeterSpec("credits", "reset_credits", "Credits",
+              kind=KIND_GRANT, ring=False),
 )
 _CURSOR_POOLS = (
     PoolSpec("total", "total", "Total"),
