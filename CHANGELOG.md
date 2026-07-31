@@ -22,6 +22,17 @@ tag a version that has no entry.
   surfaces with no model layer to ask. The empty glyph now speaks
   "Quotas, no reading", following the same rule as 1.3.4.
 
+### Fixed
+
+- **The board's provider pages keep their history across a reset too.** 1.3.3
+  taught the home chart to draw the spent window behind the live curve, but the
+  page behind a tile is a separate draw path and never learned it, so tapping
+  into Codex just after a reset still showed a single point against a full-width
+  budget diagonal. Those pages now reach back far enough to show the drop before
+  the grant, and draw the same faint curve and dotted grant rules. The monthly
+  view is left alone on purpose: it is a moving slice inside a longer window, and
+  pulling its edge outward would put it where the budget line does not run.
+
 ## 1.3.4 — 2026-07-31
 
 ### Changed
