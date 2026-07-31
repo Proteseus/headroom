@@ -230,6 +230,35 @@ Weights and ages stay hardcoded product policy — do not add an Attention
 Settings pane. Gateway prefs live under Coding agents; see
 `docs/agent-attention.md`.
 
+## Contracts, access, and standing decisions
+
+Three docs exist so these are lookups rather than judgment calls. Read the one
+that matches before you change the thing it governs.
+
+**[docs/contract.md](docs/contract.md) — changing `/usage`.** Additive only:
+never remove a key, never repurpose one, never narrow a type. This is not
+style. `fetchUsage()` decodes the whole document under one `try`, and nine
+fields on that path are non-optional, so one missing key blanks the entire
+popover rather than the one card it belongs to. The phone
+updates on Apple's schedule and the board updates when someone finds a cable,
+so both can be a year behind the host. That file also inventories every
+constant mirrored across Python, Swift and C++, and which of them are actually
+enforced (three) versus held together by a comment (four).
+
+**[docs/trust.md](docs/trust.md) — adding a route.** Four classes: Mac-local
+(anything naming credentials or config), ambient read, scoped control, and
+agent control. Pick the class first, then write the handler. A route that can
+cause code to run does not ship under the same gate as one that changes a
+display preference. `SECURITY.md` is the user-facing half; if the two
+disagree, fix `SECURITY.md` first.
+
+**[docs/product.md](docs/product.md) — what to build.** What Headroom is, the
+line under the agent gateway (it answers requests, it does not originate work),
+what earns a Setting versus staying hardcoded, retention as a user asset, the
+stdlib-only exit condition, and the one genuinely undecided question: whether a
+burndown chart is what a Mac watched or what happened to a pool. Decide that
+before implementing the multi-Mac history merge.
+
 ## Multi-Mac
 
 Settings sync between Macs over CloudKit, one record per machine, written by
