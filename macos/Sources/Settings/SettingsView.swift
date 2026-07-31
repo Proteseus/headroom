@@ -1137,14 +1137,26 @@ struct SettingsView: View {
 
     private func startAgentTask(
         provider: String, cwd: String, prompt: String
-    ) async -> String? {
+    ) async -> AgentTaskOutcome {
         do {
-            try await client.startAgentTask(
+            let started = try await client.startAgentTask(
                 provider: provider, cwd: cwd, prompt: prompt)
             agentTaskSurface = try? await client.fetchAgentTaskSurface()
-            return nil
+            let agent = agentTaskSurface?.providers.first {
+                $0.provider == started.provider
+            }?.title ?? started.provider
+            let folder = (started.task.cwd ?? cwd)
+                .split(separator: "/").last.map(String.init) ?? cwd
+            // The Mac has no feed of its own, so the confirmation also says
+            // where the requests will turn up.
+            return AgentTaskOutcome(
+                ok: true,
+                message: HeadroomCopy.agentIsWorking(agent, in: folder)
+                    + " · " + HeadroomCopy.watchOnPhone
+            )
         } catch {
-            return error.localizedDescription
+            return AgentTaskOutcome(
+                ok: false, message: error.localizedDescription)
         }
     }
 

@@ -2144,6 +2144,34 @@ struct AgentTaskProvider: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// What the host says came of a start. Both providers return `ok`, so a
+/// silent success was indistinguishable from nothing happening at all —
+/// which is what it looked like.
+struct AgentStartTaskResponse: Codable, Sendable {
+    var ok: Bool
+    var provider: String
+    var task: AgentStartedTask
+}
+
+struct AgentStartedTask: Codable, Sendable {
+    var cwd: String?
+    var pid: Int?
+    var threadID: String?
+    var turnID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case cwd, pid
+        case threadID = "thread_id"
+        case turnID = "turn_id"
+    }
+}
+
+/// The result of asking an agent to start, in words a person can read.
+struct AgentTaskOutcome: Sendable, Equatable {
+    var ok: Bool
+    var message: String
+}
+
 struct AgentStartTaskRequest: Codable, Sendable {
     var provider: String
     var cwd: String

@@ -35,6 +35,13 @@ tag a version that has no entry.
   need one: `claude -p` runs headless and the hooks Headroom already installed
   are global, so a session started here reports back exactly like one started
   in a terminal. Verified end to end.
+- Starting a task says so. Both providers answer `ok` and then work quietly,
+  so a success was indistinguishable from nothing happening — the only thing
+  either surface ever showed was a red line when it failed. A start now
+  confirms **"Claude is working in headroom"**, and the Mac adds where the
+  requests will turn up, because the Mac has no feed of its own. A failed
+  start also keeps the words you typed, instead of clearing them along with
+  the attempt.
 - The Mac gets a folder picker; the phone picks from folders the Mac has used,
   because a phone cannot browse the Mac's disk. The host remembers the last
   eight.

@@ -151,6 +151,14 @@ enum HeadroomCopy {
     /// one first. Says that, rather than showing an empty picker.
     static let noFoldersYet = "Start one on the Mac first to pick a folder here"
     static let noAgentCanTakeWork = "No agent is connected to take work"
+
+    /// Said after a start succeeds. Both providers answer `ok` and then work
+    /// quietly, so without this the surface looked like it had done nothing.
+    static func agentIsWorking(_ agent: String, in folder: String) -> String {
+        "\(agent) is working in \(folder)"
+    }
+    /// The Mac has no feed of its own, so it says where the answers arrive.
+    static let watchOnPhone = "Requests appear on your iPhone"
     static func agentFieldsOmitted(_ count: Int) -> String {
         count == 1 ? "1 more field not shown" : "\(count) more fields not shown"
     }

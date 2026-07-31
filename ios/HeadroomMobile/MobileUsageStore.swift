@@ -150,23 +150,30 @@ final class MobileUsageStore: ObservableObject {
         agentTaskSurface = try? await client.taskSurface()
     }
 
-    /// Returns a message when it failed, nil when the agent took the work.
     func startTask(
         provider: String, cwd: String, prompt: String
-    ) async -> String? {
-        guard mobilePermissions.agents else { return "Not allowed" }
+    ) async -> AgentTaskOutcome {
+        guard mobilePermissions.agents else {
+            return AgentTaskOutcome(ok: false, message: "Not allowed")
+        }
         let client = MobileHeadroomClient(
             endpoint: MobileConnection.endpoint,
             token: MobileTokenStore.read() ?? ""
         )
         do {
-            try await client.startTask(
+            let started = try await client.startTask(
                 provider: provider, cwd: cwd, prompt: prompt)
             await loadTaskSurface()
             await refresh(forceServerSync: true)
-            return nil
+            let agent = agentTaskSurface?.providers.first {
+                $0.provider == started.provider
+            }?.title ?? started.provider
+            let folder = (started.task.cwd ?? cwd)
+                .split(separator: "/").last.map(String.init) ?? cwd
+            return AgentTaskOutcome(
+                ok: true, message: HeadroomCopy.agentIsWorking(agent, in: folder))
         } catch {
-            return error.localizedDescription
+            return AgentTaskOutcome(ok: false, message: error.localizedDescription)
         }
     }
 

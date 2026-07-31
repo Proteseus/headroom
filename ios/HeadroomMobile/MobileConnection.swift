@@ -229,15 +229,18 @@ struct MobileHeadroomClient: Sendable {
             AgentTaskSurface.self, from: try await send(url: url, method: "GET"))
     }
 
+    @discardableResult
     func startTask(
         provider: String, cwd: String, prompt: String
-    ) async throws {
+    ) async throws -> AgentStartTaskResponse {
         let url = try usageURL.deletingLastPathComponent()
             .appending(path: "agents")
             .appending(path: "tasks")
         let body = try JSONEncoder().encode(AgentStartTaskRequest(
             provider: provider, cwd: cwd, prompt: prompt))
-        _ = try await send(url: url, method: "POST", body: body)
+        return try JSONDecoder().decode(
+            AgentStartTaskResponse.self,
+            from: try await send(url: url, method: "POST", body: body))
     }
 
     func setSources(_ enabled: [String: Bool]) async throws -> [String: Bool] {

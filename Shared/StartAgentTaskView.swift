@@ -15,13 +15,13 @@ struct StartAgentTaskView: View {
     let surface: AgentTaskSurface
     let tint: (String) -> Color
     var addFolder: (() -> Void)?
-    var start: (String, String, String) async -> String?
+    var start: (String, String, String) async -> AgentTaskOutcome
 
     @State private var provider = ""
     @State private var folder = ""
     @State private var prompt = ""
     @State private var busy = false
-    @State private var message: String?
+    @State private var outcome: AgentTaskOutcome?
 
     private var providers: [AgentTaskProvider] { surface.startable }
 
@@ -58,13 +58,18 @@ struct StartAgentTaskView: View {
             )
             .lineLimit(2...6)
             .textFieldStyle(.roundedBorder)
+            .onChange(of: prompt) { outcome = nil }
 
             HStack(spacing: 8) {
                 Button(HeadroomCopy.startTask) {
                     Task {
                         busy = true
-                        message = await start(provider, folder, prompt)
-                        if message == nil { prompt = "" }
+                        let result = await start(provider, folder, prompt)
+                        outcome = result
+                        // Only clear the prompt when the agent took it —
+                        // otherwise the words you typed are gone and the
+                        // failure is all you have left.
+                        if result.ok { prompt = "" }
                         busy = false
                     }
                 }
@@ -74,10 +79,18 @@ struct StartAgentTaskView: View {
                 if busy { ProgressView().controlSize(.small) }
                 Spacer()
             }
-            if let message {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(HeadroomPalette.red)
+            if let outcome {
+                Label {
+                    Text(outcome.message)
+                } icon: {
+                    Image(systemName: outcome.ok
+                          ? "checkmark.circle.fill"
+                          : "exclamationmark.triangle.fill")
+                }
+                .font(.caption)
+                .foregroundStyle(outcome.ok
+                                 ? HeadroomPalette.green
+                                 : HeadroomPalette.red)
             }
         }
         .onAppear {

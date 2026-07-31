@@ -306,9 +306,10 @@ struct HeadroomClient: Sendable {
             AgentTaskSurface.self, from: try await send(request(url, timeout: 5)))
     }
 
+    @discardableResult
     func startAgentTask(
         provider: String, cwd: String, prompt: String
-    ) async throws {
+    ) async throws -> AgentStartTaskResponse {
         let url = try base()
             .appendingPathComponent("agents")
             .appendingPathComponent("tasks")
@@ -317,7 +318,8 @@ struct HeadroomClient: Sendable {
         post.setValue("application/json", forHTTPHeaderField: "Content-Type")
         post.httpBody = try JSONEncoder().encode(AgentStartTaskRequest(
             provider: provider, cwd: cwd, prompt: prompt))
-        _ = try await send(post)
+        return try JSONDecoder().decode(
+            AgentStartTaskResponse.self, from: try await send(post))
     }
 
     func fetchAgentGatewayConfiguration() async throws
