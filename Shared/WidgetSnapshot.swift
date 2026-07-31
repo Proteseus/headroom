@@ -73,6 +73,10 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
     struct Provider: Codable, Identifiable, Sendable {
         struct Layer: Codable, Sendable {
             var id: String
+            /// The pool's title. Optional because a cache written before this
+            /// field existed carried the title in `id`, which is what the
+            /// fallback reads — see `WidgetSnapshotPresentation`.
+            var name: String?
             var percent: Double?
             var pacePercent: Double?
         }
@@ -91,7 +95,14 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
         }
 
         var id: String
+        /// Drawn beside the mark, so it is the host's short `label` —
+        /// `Work` for `claude:work`.
         var title: String
+        /// The full title for surfaces with no mark to lean on, which in
+        /// practice means anything spoken: `Claude · Work`. Optional for the
+        /// same reason `Layer.name` is — an older app's cache has no such key,
+        /// and `title` is the closest thing it holds.
+        var name: String?
         var percent: Double
         var accent: String?
         /// Optional so widgets can still decode a cache written by an older app.
@@ -158,22 +169,36 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
             Provider(
                 id: "claude",
                 title: "Claude",
+                name: "Claude",
                 percent: 42,
                 accent: "#D97757",
                 layers: [
-                    Provider.Layer(id: "Session", percent: 42, pacePercent: 35),
-                    Provider.Layer(id: "Weekly", percent: 28, pacePercent: 31),
+                    Provider.Layer(
+                        id: "session", name: "Session",
+                        percent: 42, pacePercent: 35
+                    ),
+                    Provider.Layer(
+                        id: "weekly", name: "Weekly",
+                        percent: 28, pacePercent: 31
+                    ),
                 ],
                 burndown: demoBurndown(remaining: 72, perDay: 16)
             ),
             Provider(
                 id: "codex",
                 title: "Codex",
+                name: "Codex",
                 percent: 28,
                 accent: "#10A37F",
                 layers: [
-                    Provider.Layer(id: "Session", percent: 28, pacePercent: 35),
-                    Provider.Layer(id: "Weekly", percent: 18, pacePercent: 31),
+                    Provider.Layer(
+                        id: "session", name: "Session",
+                        percent: 28, pacePercent: 35
+                    ),
+                    Provider.Layer(
+                        id: "weekly", name: "Weekly",
+                        percent: 18, pacePercent: 31
+                    ),
                 ],
                 burndown: demoBurndown(remaining: 82, perDay: 9)
             ),

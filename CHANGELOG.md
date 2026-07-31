@@ -7,6 +7,21 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.5 — 2026-07-31
+
+### Changed
+
+- **The rings say a provider's name, not its id.** A ring band carried one
+  string that was both its identity and the words VoiceOver read, so a named
+  extra login spoke as "claude colon work" and the empty glyph named nothing at
+  all. Bands now carry a display name of their own: the pool's title where the
+  bands are one provider's windows, and the provider's full `Claude · Work`
+  where a band *is* the provider — the watch's combined dial, which has no
+  label beside it to lean on. The widget cache carries the full title alongside
+  the short one for the same reason; the widget and the watch are the two
+  surfaces with no model layer to ask. The empty glyph now speaks
+  "Quotas, no reading", following the same rule as 1.3.4.
+
 ## 1.3.4 — 2026-07-31
 
 ### Changed

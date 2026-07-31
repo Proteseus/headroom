@@ -6,17 +6,32 @@ import SwiftUI
 // layers, and which of them is the one worth naming are decided once.
 
 extension HeadroomWidgetSnapshot.Provider {
+    /// What VoiceOver calls this provider: the full title where the cache
+    /// carries one, and the mark title otherwise — which is what an app older
+    /// than the `name` key wrote, and the same string it already draws.
+    var spokenTitle: String { name ?? title }
+
     var ringLayers: [HeadroomRingLayer] {
         if let layers, !layers.isEmpty {
             return layers.map {
                 HeadroomRingLayer(
                     id: $0.id,
+                    // Older caches put the pool's title in `id`, so the
+                    // fallback speaks the same words it always did.
+                    name: $0.name ?? $0.id,
                     percent: $0.percent,
                     pacePercent: $0.pacePercent
                 )
             }
         }
-        return [HeadroomRingLayer(id: title, percent: percent, pacePercent: nil)]
+        return [
+            HeadroomRingLayer(
+                id: id,
+                name: spokenTitle,
+                percent: percent,
+                pacePercent: nil
+            ),
+        ]
     }
 
     var tint: Color {

@@ -37,6 +37,23 @@ complication draws in, where the system flattens the view to a single tint:
   ratios. A third band at a third of the diameter needs thicker strokes and
   tighter gaps or it falls under the minimum and is dropped.
 
+## What a band says out loud
+
+Every band carries a `name` beside its number, and the glyph speaks them in the
+order the glossary fixes: name, value, state. What the name holds depends on
+what the bands are:
+
+- **Pools of one provider** (Mac, iPhone, widgets) — the pool's title, because
+  each of those surfaces already names the provider beside the glyph.
+- **One band per provider** (the watch's combined dial) — the provider's full
+  `title`, `Claude · Work`. Speech has no mark to lean on, so the `label` the
+  face draws would leave three accounts all saying "Work".
+
+The name is separate from the layer's `id` for exactly that reason: an id is
+`claude:work`, which VoiceOver reads as "claude colon work". The widget cache
+carries both, and a cache written before it had a name falls back to the id —
+where an older app happened to leave the title anyway.
+
 The watch app itself renders full colour and keeps the brand hues; only the
 complications go monochrome.
 

@@ -29,7 +29,11 @@ extension QuotaProviderInfo {
         let layers = visiblePools.compactMap { entry -> HeadroomRingLayer? in
             guard let percent = entry.pool.pct else { return nil }
             return HeadroomRingLayer(
-                id: entry.pool.title ?? entry.id.capitalized,
+                id: entry.id,
+                // The pool, not the provider: these bands are one provider's
+                // windows, and every surface that draws them names the
+                // provider beside the glyph.
+                name: entry.pool.title ?? entry.id.capitalized,
                 percent: percent,
                 pacePercent: paceByPool[entry.id] ?? entry.pool.pacePct
             )

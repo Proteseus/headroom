@@ -316,6 +316,12 @@ text-only surfaces (Settings, menu bar, the board). The host also ships
 dashboard tabs, rings, iPhone rows, widgets — clients draw `label` instead so
 three Claude accounts do not all truncate to "Claude…".
 
+That rule is about what is *drawn*. Spoken strings are text-only by
+definition — there is no mark beside them — so VoiceOver gets the full `title`
+even on those same surfaces (see [`docs/rings.md`](rings.md)). Neither string
+is the id: `claude:work` is identity, and reading it aloud gives "claude colon
+work".
+
 ## Source groups
 
 Membership comes from `host/sources_config.py` (`GROUP_AI` / `GROUP_DEVTOOLS`,

@@ -30,6 +30,10 @@ enum HeadroomWidgetCache {
                 return HeadroomWidgetSnapshot.Provider(
                     id: provider.id,
                     title: provider.markTitle,
+                    // Carried alongside the mark title because the widget and
+                    // the watch are the two surfaces with no model layer to
+                    // ask, and VoiceOver needs the full name there.
+                    name: provider.displayTitle,
                     percent: percent,
                     accent: provider.accent,
                     layers: provider.ringLayers(
@@ -39,6 +43,7 @@ enum HeadroomWidgetCache {
                     ).map {
                         HeadroomWidgetSnapshot.Provider.Layer(
                             id: $0.id,
+                            name: $0.name,
                             percent: $0.percent,
                             pacePercent: $0.pacePercent
                         )

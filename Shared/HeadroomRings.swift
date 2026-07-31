@@ -7,7 +7,20 @@ import SwiftUI
 /// spends its bands on providers instead, which is what `tint` is for — one
 /// glyph, one hue per band.
 struct HeadroomRingLayer: Identifiable, Sendable {
+    /// Stable identity — a pool id, a provider id. Never spoken or drawn.
     let id: String
+    /// What this band is called out loud.
+    ///
+    /// Speech is a text-only surface, so this is the host's full `title`
+    /// (`Claude · Work`) wherever a band stands for a provider, not the `label`
+    /// the glyph draws beside its mark. Where the bands are one provider's
+    /// pools, it is the pool's title and the provider is named next to the
+    /// glyph — see `docs/glossary.md`, "Sources (host registry titles)".
+    ///
+    /// It has no default on purpose. A band that arrives without a name would
+    /// fall back to `id` and speak `claude:work` as "claude colon work", which
+    /// is the thing this exists to stop.
+    let name: String
     let percent: Double?
     let pacePercent: Double?
     /// Band colour when one glyph mixes providers. Nil falls back to the view's
@@ -16,15 +29,32 @@ struct HeadroomRingLayer: Identifiable, Sendable {
 
     init(
         id: String,
+        name: String,
         percent: Double?,
         pacePercent: Double?,
         tint: Color? = nil
     ) {
         self.id = id
+        self.name = name
         self.percent = percent
         self.pacePercent = pacePercent
         self.tint = tint
     }
+
+    /// The one empty band a glyph draws when it has nothing to show.
+    ///
+    /// Shared with the watch, which reaches the same state by its own route.
+    /// Spoken it is "Quotas, no reading" — the id used to stand in for the name
+    /// here too, which named nothing at all. The state word follows the rest of
+    /// the product rather than saying "unavailable", which the glossary guard
+    /// rejects and which named a failure where the fact is that no number has
+    /// arrived yet.
+    static let empty = HeadroomRingLayer(
+        id: "unavailable",
+        name: HeadroomCopy.quotas,
+        percent: nil,
+        pacePercent: nil
+    )
 }
 
 /// The visual contract shared by macOS, iOS, widgets, and mirrored in firmware.
@@ -107,7 +137,7 @@ struct HeadroomRings: View {
     private var visibleLayers: [HeadroomRingLayer] {
         let values = Array(layers.prefix(profile.maximumLayerCount))
         return values.isEmpty
-            ? [HeadroomRingLayer(id: "unavailable", percent: nil, pacePercent: nil)]
+            ? [HeadroomRingLayer.empty]
             : values
     }
 
@@ -233,19 +263,20 @@ struct HeadroomRings: View {
     }
 
     /// Spoken in the order the glossary fixes for every surface: name, then
-    /// value, then state. "Unavailable" is gone from here for the same reason
-    /// it is gone from the service rows — it named a failure where the honest
-    /// fact is that there is no number yet.
+    /// value, then state.
     ///
-    /// `layer.id` is still the raw source id, so a named extra login speaks as
-    /// "claude:work". Carrying a title onto the layer is a model change rather
-    /// than a copy one; until then this is the least wrong thing it can say.
+    /// `layer.name` is the band's own title, which is the model change the copy
+    /// pass named and deferred — until it landed this read `layer.id` and spoke
+    /// a named extra login as "claude colon work".
+    ///
+    /// "Unavailable" stays gone, here as in the service rows: it named a
+    /// failure where the honest fact is that there is no number yet.
     private var accessibilitySummary: String {
         visibleLayers.map { layer in
             guard let percent = layer.percent else {
-                return "\(layer.id), no reading"
+                return "\(layer.name), no reading"
             }
-            var value = "\(layer.id), \(Int(percent.rounded())) percent used"
+            var value = "\(layer.name), \(Int(percent.rounded())) percent used"
             if let pace = layer.pacePercent {
                 value += ", \(Int(pace.rounded())) percent pace"
             }

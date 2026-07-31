@@ -23,11 +23,15 @@ struct WatchRingsGlyph: View {
     private var layers: [HeadroomRingLayer] {
         let ordered = providers.sorted { $0.percent > $1.percent }
         guard !ordered.isEmpty else {
-            return [HeadroomRingLayer(id: "unavailable", percent: nil, pacePercent: nil)]
+            return [HeadroomRingLayer.empty]
         }
         return ordered.map { provider in
             HeadroomRingLayer(
-                id: provider.title,
+                id: provider.id,
+                // The band is the whole of what this dial says about a
+                // provider — there is no label beside it — so it speaks the
+                // full title rather than the "Work" the face has room to draw.
+                name: provider.spokenTitle,
                 percent: provider.percent,
                 // The binding pool's pace, which is the pool the band is
                 // filled to. Falls back to the provider's own layers when the

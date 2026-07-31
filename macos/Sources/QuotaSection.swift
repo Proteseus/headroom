@@ -273,7 +273,8 @@ struct ProviderQuotaRing: View {
         // headline window as the only thing there is to draw.
         return [
             HeadroomRingLayer(
-                id: headline.title,
+                id: headline.id ?? "headline",
+                name: headline.title,
                 percent: headline.percent,
                 pacePercent: headline.pacePercent
             ),
