@@ -301,6 +301,34 @@ def set_mobile_permissions(values):
     return frozenset(ordered)
 
 
+MAX_TASK_FOLDERS = 8
+
+
+def task_folders():
+    """Folders you have started agent work in, most recent first.
+
+    The Mac can open a folder picker; a phone cannot browse the Mac's disk, so
+    it picks from what the Mac has already used.
+    """
+    value = get("agent_task_folders")
+    if not isinstance(value, list):
+        return []
+    return [entry for entry in value
+            if isinstance(entry, str) and entry][:MAX_TASK_FOLDERS]
+
+
+def remember_task_folder(folder):
+    """Move a folder to the front of the list, without duplicating it."""
+    if not isinstance(folder, str) or not folder.strip():
+        return task_folders()
+    folder = folder.strip()
+    remaining = [entry for entry in task_folders() if entry != folder]
+    ordered = [folder] + remaining
+    ordered = ordered[:MAX_TASK_FOLDERS]
+    _persist(agent_task_folders=ordered)
+    return ordered
+
+
 def agent_gateway_enabled():
     """Whether Headroom may launch its supervised coding-agent adapter."""
     return get("agent_gateway_enabled") is True

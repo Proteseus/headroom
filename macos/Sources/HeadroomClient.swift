@@ -298,6 +298,28 @@ struct HeadroomClient: Sendable {
             .permissions
     }
 
+    func fetchAgentTaskSurface() async throws -> AgentTaskSurface {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("tasks")
+        return try JSONDecoder().decode(
+            AgentTaskSurface.self, from: try await send(request(url, timeout: 5)))
+    }
+
+    func startAgentTask(
+        provider: String, cwd: String, prompt: String
+    ) async throws {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("tasks")
+        var post = request(url, timeout: 30)
+        post.httpMethod = "POST"
+        post.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        post.httpBody = try JSONEncoder().encode(AgentStartTaskRequest(
+            provider: provider, cwd: cwd, prompt: prompt))
+        _ = try await send(post)
+    }
+
     func fetchAgentGatewayConfiguration() async throws
         -> AgentGatewayConfiguration {
         let url = try base()

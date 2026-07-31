@@ -50,10 +50,11 @@ Written up in [contract.md](contract.md), [trust.md](trust.md) and
 separate release, and the rule each one implements is now stated somewhere the
 next person can find it.
 
-- **Ship `contract` in `/usage`.** One integer, plus a floor pinned on each
-  client, so a phone six months behind its Mac says *"this Mac is older than
-  this app needs"* instead of drawing empty cards. Additive, so it can land
-  alone. See [contract.md](contract.md).
+- **Show the contract mismatch.** `contract` now ships in `/usage`, `/health`
+  and the board projection, and `UsageSnapshot.contractSatisfied` answers the
+  question — but nothing draws the answer yet. The field had to exist before it
+  could be useful, which is why it landed first. What is left is the banner on
+  the phone and the Mac, with copy naming the version to update to.
 - **Generate the mirrored constants.** `MAX_DEPLOYS` / `MAX_COMMITS` /
   `MAX_SERVERS` / `MAX_SOURCES` / `MAX_PROVIDERS` / `MAX_POOLS` / `FOCUS_LIMIT`
   exist twice, in two languages, kept in step by a comment. One `contract.json`
@@ -68,9 +69,10 @@ next person can find it.
   Mac currently rides a plaintext bearer token with Face ID enforced only by
   the client. Three options ranked in [trust.md](trust.md); the cheapest is one
   predicate restricting the scope to loopback + Tailscale.
-- **Prune the agent ledger.** `attention.sqlite3` keeps commands, paths and
-  code excerpts with no expiry. Needs a retention window and a clear control,
-  and `docs/privacy.md` says so until it has one.
+- **A clear-history control.** The ledger now prunes at 30 days
+  (`agent_events.RETENTION_S`), which was the urgent half. The remaining half
+  is a button — deleting a SQLite file with the host stopped is not a thing to
+  ask of anyone, and it is the natural home for a "forget this session" too.
 - **Export and import history.** A new Mac currently costs you every chart.
   Consolidating the time series into the SQLite that already exists is what
   turns this from a project into a feature. See

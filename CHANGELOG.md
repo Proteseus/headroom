@@ -27,8 +27,23 @@ tag a version that has no entry.
   error raises a dismissible row carrying the provider's own message and
   error code.
 
+- **Start a task from the Mac or the phone.** One control on both: pick the
+  agent, pick the folder, say what it should do. `POST /agents/tasks` takes
+  either provider, and `GET /agents/tasks` tells a client which agents can
+  actually take work right now so nothing is offered that would fail.
+- **Claude tasks too.** Claude Code has no "start a session" API and does not
+  need one: `claude -p` runs headless and the hooks Headroom already installed
+  are global, so a session started here reports back exactly like one started
+  in a terminal. Verified end to end.
+- The Mac gets a folder picker; the phone picks from folders the Mac has used,
+  because a phone cannot browse the Mac's disk. The host remembers the last
+  eight.
+
 ### Changed
 
+- Starting work from the phone rides the same Mac-granted **Answer coding
+  agents** permission that lets it answer an approval — off by default, and
+  never open to the LAN at large.
 - `docs/agent-attention.md` records what a Codex task needs to be answerable:
   `approvalPolicy: "on-request"` and `sandbox: "workspace-write"`, because a
   policy that never asks produces no approvals to answer. It also states the

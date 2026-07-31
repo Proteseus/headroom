@@ -140,6 +140,17 @@ enum HeadroomCopy {
     /// thing you want to say, so every request that has a channel for words
     /// offers one.
     static let agentReplyPlaceholder = "Reply to the agent…"
+
+    /// Giving an agent work, rather than answering work it already started.
+    static let startTask = "Start task"
+    static let startTaskAgent = "Agent"
+    static let startTaskFolder = "Folder"
+    static let startTaskPromptPlaceholder = "What should it do?"
+    static let chooseFolder = "Choose folder…"
+    /// A phone cannot browse the Mac's disk, so it waits for the Mac to use
+    /// one first. Says that, rather than showing an empty picker.
+    static let noFoldersYet = "Start one on the Mac first to pick a folder here"
+    static let noAgentCanTakeWork = "No agent is connected to take work"
     static func agentFieldsOmitted(_ count: Int) -> String {
         count == 1 ? "1 more field not shown" : "\(count) more fields not shown"
     }

@@ -1,7 +1,45 @@
 import Foundation
 
+/// An element that decodes to nil instead of throwing.
+///
+/// Decoding it always succeeds, which is the point: the outer array's index
+/// advances even for a row that failed, so the sequence cannot stall.
+private struct Failable<Wrapped: Decodable>: Decodable {
+    let value: Wrapped?
+
+    init(from decoder: Decoder) throws {
+        value = try? Wrapped(from: decoder)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// Decode a list, dropping rows that fail rather than failing the document.
+    ///
+    /// `/usage` is decoded whole, under one `try`, by every client. A single
+    /// required key missing from a single row of `by_day` would otherwise
+    /// throw past the chart, past the snapshot, and blank the entire popover —
+    /// over one row of one list. Losing the row loses a bar in a chart, which
+    /// is the proportionate failure. See docs/contract.md.
+    ///
+    /// A row that fails is dropped silently on purpose: the host is the only
+    /// thing that can produce one, this is the client's last line of defence,
+    /// and there is no screen on which "row 4 of by_day was malformed" is
+    /// something to say to the person holding the phone.
+    func decodeLossyArrayIfPresent<Element: Decodable>(
+        _ type: Element.Type, forKey key: Key
+    ) throws -> [Element]? {
+        guard let rows = try decodeIfPresent(
+            [Failable<Element>].self, forKey: key) else { return nil }
+        return rows.compactMap(\.value)
+    }
+}
+
 struct UsageSnapshot: Decodable, Sendable {
     var updated: String?
+    /// Shape of the document this host speaks, compared against
+    /// ``UsageSnapshot/minimumContract``. Absent from any host older than the
+    /// release that introduced it, which is itself the answer: nil means old.
+    var contract: Int?
     var plan: String?
     var quotaOK: Bool?
     var quotaError: String?
@@ -40,8 +78,27 @@ struct UsageSnapshot: Decodable, Sendable {
 
     static let empty = UsageSnapshot()
 
+    /// Oldest `/usage` shape this build can draw correctly.
+    ///
+    /// Raise this only alongside a `host_version.CONTRACT` bump, and only when
+    /// this build would show something *wrong or empty* against the older
+    /// shape. Raising it costs every user on an older host their data until
+    /// they update the Mac, so the bar is "they would be misled", not "they
+    /// would miss out". See docs/contract.md.
+    static let minimumContract = 1
+
+    /// Whether the host that produced this snapshot is new enough to trust.
+    ///
+    /// A host predating the field reports nil. That is treated as satisfied,
+    /// not as failure: those hosts speak contract 1 by definition, and the
+    /// alternative would blank a working desk the day this shipped.
+    var contractSatisfied: Bool {
+        (contract ?? Self.minimumContract) >= Self.minimumContract
+    }
+
     init(
         updated: String? = nil,
+        contract: Int? = nil,
         plan: String? = nil,
         quotaOK: Bool? = nil,
         quotaError: String? = nil,
@@ -71,6 +128,7 @@ struct UsageSnapshot: Decodable, Sendable {
         machines: [MachineSummary]? = nil
     ) {
         self.updated = updated
+        self.contract = contract
         self.plan = plan
         self.quotaOK = quotaOK
         self.quotaError = quotaError
@@ -101,7 +159,7 @@ struct UsageSnapshot: Decodable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case updated, plan, today, codex, cursor, providers, vercel, git, github, activity, local
+        case updated, contract, plan, today, codex, cursor, providers, vercel, git, github, activity, local
         case supabase, plausible, sources, attention, focus, burndown, machines
         case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
@@ -114,6 +172,52 @@ struct UsageSnapshot: Decodable, Sendable {
         case weekPct = "week_pct"
         case weekPacePct = "week_pace_pct"
         case weekResetsIn = "week_resets_in"
+    }
+
+    /// Hand-written so the list-valued fields can decode lossily. Everything
+    /// else is what the compiler would have synthesized.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+
+        updated = try value(.updated)
+        contract = try value(.contract)
+        plan = try value(.plan)
+        quotaOK = try value(.quotaOK)
+        quotaError = try value(.quotaError)
+        sessionPct = try value(.sessionPct)
+        sessionPacePct = try value(.sessionPacePct)
+        sessionResetsIn = try value(.sessionResetsIn)
+        weekPct = try value(.weekPct)
+        weekPacePct = try value(.weekPacePct)
+        weekResetsIn = try value(.weekResetsIn)
+        today = try value(.today)
+        codex = try value(.codex)
+        cursor = try value(.cursor)
+        vercel = try value(.vercel)
+        git = try value(.git)
+        github = try value(.github)
+        local = try value(.local)
+        supabase = try value(.supabase)
+        plausible = try value(.plausible)
+        claudeStatus = try value(.claudeStatus)
+        attention = try value(.attention)
+        focus = try value(.focus)
+        burndown = try value(.burndown)
+        burndownPrimary = try value(.burndownPrimary)
+
+        byDay = try container.decodeLossyArrayIfPresent(
+            DailyBurnDay.self, forKey: .byDay)
+        providers = try container.decodeLossyArrayIfPresent(
+            QuotaProviderInfo.self, forKey: .providers)
+        activity = try container.decodeLossyArrayIfPresent(
+            ActivityItem.self, forKey: .activity)
+        sources = try container.decodeLossyArrayIfPresent(
+            SyncSource.self, forKey: .sources)
+        machines = try container.decodeLossyArrayIfPresent(
+            MachineSummary.self, forKey: .machines)
     }
 
     /// Enabled coding-quota providers from the host registry (string ids).
@@ -1226,6 +1330,24 @@ struct GitHubUsage: Decodable, Sendable {
         case failCount = "fail_count"
         case runningCount = "running_count"
     }
+
+    /// Hand-written so one malformed run does not cost the whole document.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        failCount = try value(.failCount)
+        runningCount = try value(.runningCount)
+        repos = try value(.repos)
+        runs = try container.decodeLossyArrayIfPresent(
+            GitHubRun.self, forKey: .runs)
+    }
 }
 
 struct GitHubRun: Decodable, Identifiable, Sendable {
@@ -1317,6 +1439,27 @@ struct SupabaseUsage: Decodable, Sendable {
         case lintErrorCount = "lint_error_count"
         case lintWarnCount = "lint_warn_count"
         case lintTotal = "lint_total"
+    }
+
+    /// Hand-written so one malformed project does not cost the whole document.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        projectCount = try value(.projectCount)
+        healthyCount = try value(.healthyCount)
+        alertCount = try value(.alertCount)
+        lintErrorCount = try value(.lintErrorCount)
+        lintWarnCount = try value(.lintWarnCount)
+        lintTotal = try value(.lintTotal)
+        projects = try container.decodeLossyArrayIfPresent(
+            SupabaseProject.self, forKey: .projects)
     }
 }
 
@@ -1449,6 +1592,37 @@ struct SupabaseProject: Decodable, Identifiable, Sendable {
         case lintTotal = "lint_total"
         case advisorError = "advisor_error"
     }
+
+    /// Hand-written for the two lossy lists. `SupabaseService` and
+    /// `SupabaseLint` both carry a required name, so one nameless row would
+    /// otherwise take the whole document with it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+
+        ref = try container.decode(String.self, forKey: .ref)
+        name = try value(.name)
+        organizationID = try value(.organizationID)
+        region = try value(.region)
+        status = try value(.status)
+        healthy = try value(.healthy)
+        unhealthyServices = try value(.unhealthyServices)
+        healthError = try value(.healthError)
+        dashboardURL = try value(.dashboardURL)
+        lintTruncated = try value(.lintTruncated)
+        lintErrorCount = try value(.lintErrorCount)
+        lintWarnCount = try value(.lintWarnCount)
+        lintInfoCount = try value(.lintInfoCount)
+        lintTotal = try value(.lintTotal)
+        advisorError = try value(.advisorError)
+
+        services = try container.decodeLossyArrayIfPresent(
+            SupabaseService.self, forKey: .services)
+        lints = try container.decodeLossyArrayIfPresent(
+            SupabaseLint.self, forKey: .lints)
+    }
 }
 
 /// One security advisor finding — `rls_disabled_in_public` and friends.
@@ -1500,6 +1674,26 @@ struct PlausibleUsage: Decodable, Sendable {
         case siteCount = "site_count"
         case visitorsToday = "visitors_today"
         case rangeLabel = "range_label"
+    }
+
+    /// Hand-written so one malformed site does not cost the whole document.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        siteCount = try value(.siteCount)
+        visitorsToday = try value(.visitorsToday)
+        realtime = try value(.realtime)
+        range = try value(.range)
+        rangeLabel = try value(.rangeLabel)
+        sites = try container.decodeLossyArrayIfPresent(
+            PlausibleSite.self, forKey: .sites)
     }
 }
 
@@ -1916,6 +2110,44 @@ struct AgentAttentionEventsResponse: Codable, Sendable {
         case ok, events
         case nextAfterMS = "next_after_ms"
     }
+}
+
+/// What a client needs to offer "start a task" without guessing: which
+/// providers can take work right now, and which folders the Mac has used.
+/// A phone cannot browse the Mac's disk, so it picks from that list.
+struct AgentTaskSurface: Codable, Sendable {
+    var ok: Bool
+    var providers: [AgentTaskProvider]
+    var folders: [String]
+
+    var startable: [AgentTaskProvider] {
+        providers.filter { $0.canStart && $0.connection == "ready" }
+    }
+}
+
+struct AgentTaskProvider: Codable, Sendable, Identifiable, Equatable {
+    var provider: String
+    var canStart: Bool
+    var connection: String?
+
+    var id: String { provider }
+
+    /// Gateway providers name the adapter; the palette and marks are keyed by
+    /// the tool. Same mapping an event row uses.
+    var iconID: String { provider == "claude-code" ? "claude" : provider }
+
+    var title: String { provider == "claude-code" ? "Claude Code" : "Codex" }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, connection
+        case canStart = "can_start"
+    }
+}
+
+struct AgentStartTaskRequest: Codable, Sendable {
+    var provider: String
+    var cwd: String
+    var prompt: String
 }
 
 struct AgentAttentionResponseRequest: Codable, Sendable {

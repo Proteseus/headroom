@@ -18,6 +18,22 @@ struct ActivityScreen: View {
         }
         List {
             ArchivedDataNotice(store: store)
+            if store.mobilePermissions.agents, let surface = store.agentTaskSurface {
+                Section(HeadroomCopy.startTask) {
+                    StartAgentTaskView(
+                        surface: surface,
+                        tint: { id in
+                            (store.snapshot.providers ?? [])
+                                .accentTint(forProvider: id)
+                        },
+                        start: { provider, cwd, prompt in
+                            await store.startTask(
+                                provider: provider, cwd: cwd, prompt: prompt)
+                        }
+                    )
+                    .padding(.vertical, 4)
+                }
+            }
             if !store.agentAttentionEvents.isEmpty {
                 Section(HeadroomCopy.answerCodingAgents) {
                     ForEach(store.agentAttentionEvents) { event in
@@ -70,6 +86,7 @@ struct ActivityScreen: View {
         }
         .navigationTitle(HeadroomCopy.activity)
         .refreshable { await store.refresh(forceServerSync: true) }
+        .task { await store.loadTaskSurface() }
     }
 
     private func agentRow(_ event: AgentAttentionEvent) -> some View {

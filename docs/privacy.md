@@ -68,10 +68,13 @@ record includes the fields of the request itself — commands, file paths, and
 excerpts of code — each capped in length. The provider's raw request object is
 not stored, and secrets are never recorded at all.
 
-This file lives only on your Mac, is never synced, and is never uploaded. Note
-that it currently has **no automatic expiry**: it grows until you delete it.
-Deleting `~/.headroom/attention.sqlite3` while the host is stopped clears the
-history and costs you nothing but the record.
+This file lives only on your Mac, is never synced, and is never uploaded.
+Answered requests are **deleted automatically after 30 days**, counted from
+when you answered. A request still waiting on you is kept regardless of age,
+because something is still blocked on the answer.
+
+To clear it by hand, delete `~/.headroom/attention.sqlite3` with the host
+stopped. That costs you nothing but the record.
 
 Multi-Mac sync writes one small file per Mac into a folder in *your* iCloud
 Drive so a second Mac can pick up your settings and show what the first one is

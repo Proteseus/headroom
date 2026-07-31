@@ -1,6 +1,7 @@
 """Durability and concurrency tests for coding-agent attention events."""
 
 import os
+import sqlite3
 import tempfile
 import threading
 import time
@@ -121,6 +122,111 @@ class EventStoreTests(unittest.TestCase):
         self.assertEqual(
             adapter.responses, [(event["id"], "approve_once", None)])
         self.assertEqual(result["event"]["state"], "responding")
+
+
+class RetentionTests(unittest.TestCase):
+    """The ledger holds commands and code excerpts, so it has to forget."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = agent_events.EventStore(
+            os.path.join(self.tmp.name, "attention.sqlite3"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def create(self, request_id):
+        return self.store.create(
+            provider="codex", adapter="test",
+            provider_request_id=request_id, session_id="thread-1",
+            kind="command_approval", title="Approval needed",
+            summary="Run tests", actions=ACTIONS,
+            detail={"command": "rm -rf ~/secrets"})
+
+    def settle(self, request_id, days_ago):
+        """Resolve an event and backdate when it settled."""
+        event = self.create(request_id)
+        self.store.resolve(event["id"])
+        connection = sqlite3.connect(self.store.path)
+        try:
+            connection.execute(
+                "UPDATE attention_events SET updated_at_ms = ? WHERE id = ?",
+                (int((time.time() - days_ago * 24 * 3600) * 1000),
+                 event["id"]))
+            connection.commit()
+        finally:
+            connection.close()
+        return event
+
+    def test_settled_events_past_the_window_are_dropped(self):
+        now = time.time()
+        old = self.settle("old", days_ago=90)
+        recent = self.settle("recent", days_ago=1)
+
+        self.assertEqual(self.store.prune(now=now), 1)
+        with self.assertRaises(agent_events.EventNotFound):
+            self.store.get(old["id"])
+        self.assertIsNotNone(self.store.get(recent["id"]))
+
+    def test_the_clock_runs_from_settlement_not_creation(self):
+        # Raised in March, answered today: a record of what you approved
+        # today, and it keeps a full window from then.
+        now = time.time()
+        event = self.store.create(
+            provider="codex", adapter="test", provider_request_id="ancient",
+            session_id="thread-1", kind="command_approval",
+            title="Approval needed", summary="Run tests", actions=ACTIONS,
+            created_at_ms=int((now - 200 * 24 * 3600) * 1000))
+        self.store.resolve(event["id"])
+
+        self.assertEqual(self.store.prune(now=now), 0)
+        self.assertIsNotNone(self.store.get(event["id"]))
+
+    def test_an_open_event_is_never_pruned_however_old(self):
+        # Still pending means something is waiting on the answer; age says
+        # nothing about whether it is live.
+        now = time.time()
+        stale = self.create("stale")
+        connection = sqlite3.connect(self.store.path)
+        try:
+            connection.execute(
+                "UPDATE attention_events SET updated_at_ms = ?",
+                (int((now - 400 * 24 * 3600) * 1000),))
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.assertEqual(self.store.prune(now=now), 0)
+        self.assertIsNotNone(self.store.get(stale["id"]))
+
+    def test_responses_go_with_the_event(self):
+        now = time.time()
+        event = self.create("old")
+        self.store.claim(
+            event["id"], event["revision"], "approve_once", "key-1")
+        self.store.resolve(event["id"])
+        connection = sqlite3.connect(self.store.path)
+        try:
+            connection.execute(
+                "UPDATE attention_events SET updated_at_ms = ?",
+                (int((now - 90 * 24 * 3600) * 1000),))
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.store.prune(now=now)
+        connection = sqlite3.connect(self.store.path)
+        try:
+            remaining = connection.execute(
+                "SELECT COUNT(*) FROM attention_responses").fetchone()[0]
+        finally:
+            connection.close()
+        self.assertEqual(remaining, 0)
+
+    def test_pruning_a_missing_file_is_not_an_error(self):
+        store = agent_events.EventStore(
+            os.path.join(self.tmp.name, "nested", "gone.sqlite3"))
+        self.assertEqual(store.prune(), 0)
 
 
 if __name__ == "__main__":
