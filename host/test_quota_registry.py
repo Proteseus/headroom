@@ -132,6 +132,35 @@ class QuotaRegistryTests(unittest.TestCase):
         cursor = next(r for r in rows if r["id"] == "cursor")
         self.assertFalse(cursor["pools"]["auto"]["ring"])
 
+    def test_every_meter_declares_a_known_kind_and_basis(self):
+        # A meter kind is a string, so a typo is a meter no client can draw:
+        # the Swift side falls back to `window` for anything it does not
+        # recognise, which would silently hand a balance to a ring. Registry-
+        # tied on purpose — a new kind passes the moment it is named in
+        # METER_KINDS, and a misspelled one never does.
+        for source in sources_config.QUOTA_SOURCES:
+            for spec in source.pools:
+                with self.subTest(source=source.id, meter=spec.id):
+                    self.assertIn(spec.kind, sources_config.METER_KINDS)
+                    self.assertIn(
+                        spec.basis,
+                        (sources_config.BASIS_OBSERVED,
+                         sources_config.BASIS_ESTIMATED))
+
+    def test_providers_payload_carries_meter_kind_and_basis(self):
+        # The fields have no consumer yet, which is exactly why they need a
+        # test: nothing else would notice them falling out of the payload
+        # between now and the release that reads them.
+        state = sources_config.blank_state()
+        state["claude"] = {
+            "ok": True,
+            "plan": "Max",
+            "week": {"pct": 40, "resets_in_s": 86400, "window_s": 7 * 86400},
+        }
+        week = headroom_server._providers_payload(state)[0]["pools"]["week"]
+        self.assertEqual(week["kind"], sources_config.KIND_WINDOW)
+        self.assertEqual(week["basis"], sources_config.BASIS_OBSERVED)
+
     def test_providers_carry_staleness_not_just_ok(self):
         # A replayed payload keeps ok=True, so a client checking only `ok`
         # draws frozen numbers as live ones. Settings has always had the flag;

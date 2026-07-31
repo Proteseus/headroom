@@ -1212,6 +1212,12 @@ def _providers_payload(state, burndowns=None):
             pools[spec.id] = {
                 "title": spec.title,
                 "rank": pool_rank,
+                # What shape this meter is, and where its numbers came from.
+                # Every meter here is a window today, so both are constant —
+                # they exist so the next kind is a registry row rather than a
+                # new family of flat keys. See docs/metering.md.
+                "kind": spec.kind,
+                "basis": spec.basis,
                 "pct": bucket.get("pct"),
                 "window_s": window,
                 "resets_in_s": resets,

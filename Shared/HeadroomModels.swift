@@ -1163,14 +1163,39 @@ struct QuotaPoolInfo: Decodable, Sendable {
     var resetsInS: Double?
     var resetsIn: String?
     var ring: Bool?
+    /// What shape this meter is — `window`, `balance`, `grant`, … Read it
+    /// through `meterKind`, never directly: a host older than the field sends
+    /// nil, and nil is not "unknown" here, it is "window". Every meter that
+    /// existed before this field was one. See docs/metering.md.
+    var kind: String?
+    /// Whether these numbers are the provider's reading or one this host
+    /// derived from local token counts. Read it through `meterBasis`; nil
+    /// means `observed`, for the same reason as above.
+    var basis: String?
 
     enum CodingKeys: String, CodingKey {
-        case title, rank, pct, ring
+        case title, rank, pct, ring, kind, basis
         case pacePct = "pace_pct"
         case windowS = "window_s"
         case resetsInS = "resets_in_s"
         case resetsIn = "resets_in"
     }
+}
+
+extension QuotaPoolInfo {
+    /// Defaulted at the use site, per docs/contract.md: the host may stop
+    /// sending a key, and an older host never sent this one at all.
+    var meterKind: String { kind ?? "window" }
+    var meterBasis: String { basis ?? "observed" }
+
+    /// True when this meter is the shape the rings were built for. The guard
+    /// every ring-drawing surface puts in front of itself once other kinds
+    /// exist — a balance has no arc to sweep and must not be handed to one.
+    var isWindow: Bool { meterKind == "window" }
+
+    /// True when the numbers were computed here rather than read from the
+    /// provider. A surface showing a figure this is true for has to say so.
+    var isEstimated: Bool { meterBasis == "estimated" }
 }
 
 struct CodexUsage: Decodable, Sendable {

@@ -13,15 +13,37 @@ pool that resets on a clock. Rings, pace, burndown, daily burn, the menu-bar
 tanks and the board's three slots are all built on that one shape
 ([docs/rings.md](rings.md)).
 
-It is a good abstraction. It covers one of the four ways people actually pay
-for this stuff.
+It is a good abstraction. It is also one of **eight** shapes people actually
+pay in, and the registry can only say one of them out loud.
 
-| Meter | Unit | Resets | Who | In Headroom |
-|---|---|---|---|---|
-| **Plan window** | % of an opaque pool | on a rolling or calendar clock | Claude Max, Codex, Cursor, Copilot, Gemini, Windsurf, JetBrains, Zed | ✅ this is the whole app |
-| **Prepaid balance** | dollars remaining | **never** — it only goes down until you top up | Anthropic Console credits, OpenAI credits, OpenRouter, Together, Groq, Fireworks | ❌ no model at all |
-| **Postpaid bill** | dollars accrued | calendar month | Anthropic/OpenAI postpaid orgs, Bedrock, Vertex, Foundry | ⚠️ half — see below |
-| **Rate limit** | requests and tokens per minute | every minute | every API, every tier | ❌ and deliberately so |
+| Meter | Level | Headroom | Resets | Who | Today |
+|---|---|---|---|---|---|
+| **window** | % of an opaque pool | time to exhaustion | rolling or calendar clock | Claude Max, Codex, Cursor, Copilot, Gemini, Windsurf, JetBrains, Zed | ✅ `PoolSpec` |
+| **grant** | countable items | next expiry | per item | Codex reset credits, promo grants, free-tier allotments | ✅ but hand-rolled |
+| **overage** | window, then dollars | both | window resets, bill doesn't | Cursor on-demand, Codex spend control | ⚠️ two halves, no join |
+| **calendar** | dollars accrued | budget or hard cap | month boundary | API orgs billed in arrears, Bedrock, Vertex, Foundry | ⚠️ keys, no meter |
+| **balance** | dollars remaining | **runway in days** | **never** — down until you top up | Anthropic Console, OpenAI, OpenRouter, Together, Groq, Fireworks | ❌ |
+| **rate** | per-minute utilisation | requests left this minute | every minute | every API, every tier | ❌ (sourcing unsolved) |
+| **seat** | — | — | — | Copilot Business, Cursor Business | ❌ (and it has no meter) |
+| **attribution** | dollars per unit of work | — | — | "what did that run cost" | ✅ computed, unshown |
+
+Three of those are already implemented, one is half-implemented, and the
+implementations don't know they're the same kind of thing. `PoolSpec` covers
+**window**. Codex reset credits are a **grant** — `reset_credits_available`,
+`reset_credits_expiries`, `reset_credits_expire_at`, all hand-rolled flat keys
+with a bespoke fetcher, a bespoke flattener and bespoke firmware labels.
+`claude_history` computes **attribution** at 400-day retention. And Cursor and
+Codex both carry the **overage** shape as loose `cost_*` and `on_demand_*` keys
+bolted onto their payloads.
+
+That is the actual problem, and it is bigger than "balances are missing."
+**Every metering form past the first one has been added by bolting flat keys
+onto a provider payload.** Each new form costs a fetcher change, a flattener
+change, a Swift decodable, a firmware label, and a row in every doc — and gets
+no ring, no burndown, no pace, no history, no attention rollup, because those
+are wired to `pools` and nothing else. Add balances that way and it works. Add
+the sixth form that way and `/usage` is a hundred keys with no structure and
+five UIs that each know a different subset.
 
 The postpaid row is half-done and worth looking at, because it shows the
 pattern. `codex_usage._parse_spend_control` and `cursor_usage._on_demand`
@@ -64,38 +86,109 @@ Two of those five are things Headroom already computes and hides. Start there.
 
 ## Decisions
 
-### 1. A pool gains a reset discriminator. It does not gain a second kind.
+### 1. `PoolSpec` becomes `MeterSpec`, and a meter declares its kind.
 
-`PoolSpec` gets `reset`, one of:
+Not "add a field for balances." The registry gains the concept it has been
+missing since the second metering form arrived: **a source has one or more
+meters, and a meter has a kind.**
 
-| `reset` | Meaning | Countdown | Pace |
-|---|---|---|---|
-| `window` | rolling window, current behaviour | `resets_in_s` | yes |
-| `calendar` | resets at a month/day boundary | `resets_in_s` | yes |
-| `none` | a balance; depletes and stays depleted | **null** | **null**, replaced by runway |
+```python
+class MeterSpec(NamedTuple):
+    id: str
+    key: str
+    title: str
+    kind: str = KIND_WINDOW      # window | grant | overage | calendar
+                                 # | balance | rate | seat
+    basis: str = BASIS_OBSERVED  # observed | estimated
+    default_window_s: Optional[int] = None
+    ring: bool = True
+```
 
-Additive, one field, and every downstream consumer branches on it once instead
-of guessing from whether `resets_in_s` happened to be null. The alternative —
-a parallel `balance` meter kind next to `quota` — duplicates the sampler, the
-burndown, the daily-burn rollup and the flatteners, and those would drift.
+`kind=KIND_WINDOW` is every meter that exists today, so the registry rows do
+not change and neither does anything reading them. The point of the field is
+that the six other forms stop being flat keys and become meters — which means
+each one inherits sampling, burndown, daily-burn rollup, history, focus order,
+colour override and attention rollup **by existing**, instead of by five
+hand-written integrations per form.
 
-A `reset: none` pool reports **runway**: days remaining at the trailing burn
-rate, computed from the samples already being stored. Runway is to a balance
-what pace is to a window: the number that turns a level into a warning.
+The unification that makes one set of machinery serve all seven: **every meter,
+whatever its kind, answers the same two questions.**
 
-### 2. A balance does not get a ring.
+| | `level` — where am I | `headroom` — what is left |
+|---|---|---|
+| window | % of pool used | time to exhaustion |
+| grant | items held | seconds to next expiry |
+| overage | % of window, then $ of cap | whichever half is binding |
+| calendar | $ accrued this month | $ to budget, days to boundary |
+| balance | $ remaining ÷ last top-up | **days of runway at trailing burn** |
+| rate | % of RPM/TPM this minute | requests left now |
+| seat | — | — |
+
+`level` normalizes to 0–1 wherever it means anything, alongside the native unit
+and its label. `headroom` is the number that turns a level into a warning —
+pace is what window calls it, runway is what balance calls it, and they are the
+same slot. Everything downstream sorts, charts, warns and rolls up on those two
+without knowing the kind.
+
+**`basis` is orthogonal to kind, not a kind of its own.** Any meter's numbers
+are either observed from the provider or computed locally from token counts.
+A `calendar` meter is `observed` when it comes from a billing endpoint and
+`estimated` when `pricing.py` derived it. Putting it on the spec rather than
+folding it into `kind` is what keeps decision 3 enforceable at every surface
+instead of at each call site.
+
+**`seat` is in the list on purpose.** A flat per-seat licence has no meter at
+all — no level, no headroom, nothing to chart. It is still how a lot of people
+pay for AI coding, and a monthly total that omits it is wrong. Accommodating it
+means a row that renders as a plain figure with no gauge. That is the test of
+whether the abstraction is honest: it has to be able to say *this one has no
+meter* without pretending otherwise.
+
+**`rate` is in the list, and its fetcher is not.** Defining the kind costs
+nothing and reserves the shape. Sourcing it is the unsolved part — see decision
+6, which is unchanged.
+
+**`level` and `headroom` are deliberately not on the wire yet.** They landed in
+this document before they landed in the payload, and that gap is on purpose:
+every meter that exists today is a window, so `level` is `pct / 100` and
+`headroom` is `resets_in_s`. Shipping them now would commit the contract to two
+keys with no consumer that duplicate two keys that already work — and
+[docs/contract.md](contract.md) is explicit that a key is a permanent
+commitment. Worse, `headroom` carries a unit that changes by kind (seconds,
+days, dollars, items), and designing that shape against seven window meters and
+zero of anything else is how you get a schema that fits nothing real. They ship
+with the first non-window kind, which is the first moment they can be designed
+honestly. `kind` and `basis` are what had to land early, because everything
+else is gated on being able to ask what a meter is.
+
+### 2. One renderer per kind. The ring becomes one of them, and does not change.
 
 Ring and pace semantics are a cross-platform contract — `docs/rings.md`,
 `Shared/HeadroomRings.swift` and the firmware constants move together or not at
-all. Stretching "% of this window remaining" to cover "dollars left, no window"
-means editing that contract in three languages to express something it was not
-built to say.
+all. The temptation with seven kinds is to generalize the ring until it can
+draw all of them. That means editing a three-language contract to express
+things it was not built to say, and it ends with a ring whose meaning depends
+on what it is drawing — which is the one thing a glance surface cannot afford.
 
-Don't. A balance is a depletion bar with a runway date under it. That is a new
-component on the Mac and the phone, and it is cheaper than renegotiating the
-ring across three codebases and a firmware deprecation window.
+Instead: `level` + `headroom` is a shape any mark can render, so each kind gets
+the mark that suits it and they all read from the same two fields.
 
-The rings keep meaning exactly what they mean today. That is the point.
+| kind | mark | why not a ring |
+|---|---|---|
+| window | **ring** — unchanged | — |
+| overage | ring, then a bar past 100% | the overage is a different unit; the join is the story |
+| grant | pips, one per item, dimming toward expiry | a count is not a proportion |
+| calendar | bar against the budget, month as the axis | proportion of a *self-set* budget, not a pool |
+| balance | depletion bar, runway date under it | no window means no arc to sweep |
+| rate | a live tick, not persisted | it is true for sixty seconds |
+| seat | plain figure, no gauge | there is nothing to measure |
+
+The ring keeps meaning exactly what it means today. It stops being *the* view
+and becomes the view for `kind: window`, which is what it always actually was.
+
+This is also what keeps the board out of the blast radius. The firmware draws
+rings for the three focus providers; as long as `window` renders identically,
+a board flashed today keeps working through all of this without a cable.
 
 ### 3. Estimated dollars and billed dollars are different kinds of number.
 
@@ -273,20 +366,47 @@ using Headroom the same correct way need different values:
 
 No Spend Settings pane. If a threshold is wrong, our number is wrong.
 
+## How this lands without breaking a shipped client
+
+The whole design is additive under [docs/contract.md](contract.md), and the
+mechanism is one sentence: **`pools` keeps emitting exactly the window-shaped
+object it emits today, and every meter of a new kind carries `pct`,
+`window_s`, `resets_in_s` and `pace_pct` as null.**
+
+An old client iterating `pools` sees a meter with no percentage and draws
+nothing for it — the same thing it already does for a provider that is off or
+unconfigured. A new client reads `kind` and renders properly. No key is
+removed, no key is repurposed, no type is narrowed. `contract` moves only when
+a client that ignores `kind` would show something *wrong* rather than absent,
+which for the emission above it would not.
+
+The board is the strongest case for this shape. `MAX_POOLS` is 3 and the
+firmware draws rings; a balance meter that arrives as a null-`pct` pool is
+skipped by exactly the `.isNull()` guards already in `main.cpp`. A board
+flashed today survives all seven kinds without a cable, which is the standard
+`LEGACY_PROVIDER_IDS` already sets.
+
 ## Order of work
 
-Each row is a release, and each one is useful on its own.
+The architecture lands whole; the sources land one at a time. Steps 1 and 2 are
+the accommodation — after them, a new metering form is a registry row and a
+fetcher, the same as a new provider is today.
 
-| # | What | Why it is first / next |
+| # | What | Why here |
 |---|---|---|
-| 0 | Price table fix; mark fallback-priced records; label estimates as estimated; unknown-model attention reason | No new sources, no contract change, and it stops the app being confidently wrong about money it already displays |
-| 1 | Surface `claude_history` cost that already exists — today, this week, by model | The single largest gap between what the host knows and what it says. Still no new sources |
-| 2 | `PoolSpec.reset` in the contract, plus runway on the host | Additive, no UI, lets one client at a time catch up |
-| 3 | One API source end to end — balance and month-to-date cost, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check against a console by hand |
-| 4 | A second provider | The only real test of whether the abstraction held |
-| 5 | CSV export of daily cost | Closes the retention gap while the data is still small |
-| 6 | The board, if the semantics have settled | Last, because it is the one that cannot be taken back cheaply |
+| 1 | `MeterSpec` with `kind` + `basis`; every existing row `kind=window`, `basis=observed` | ✅ **landed.** Pure refactor, zero behaviour change — both contract suites passed unchanged. `level`/`headroom` deferred to step 2 on purpose (decision 1) |
+| 2 | Migrate the two forms that already exist — Codex credits to `grant`, Cursor/Codex dollars to `overage` | Proves the abstraction against two real shapes before betting a new source on it. Keeps emitting the flat keys for shipped clients; deletes the *bespoke* handling behind them |
+| 3 | `attribution` becomes a meter; the Spend view draws it | 400 days of per-model cost already computed and shown as one string. First real payoff, still no new credential |
+| 4 | `balance` — first API source, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check by hand against a console |
+| 5 | `calendar` — same source's month-to-date against a budget | Nearly free once 4 lands; the two together are how an API account actually reads |
+| 6 | A second provider | The only real test of whether the abstraction held |
+| 7 | `seat` — manual entry, no gauge | Cheap, and it is what makes a monthly total true rather than partial |
+| 8 | CSV export | Closes the retention gap while the data is still small |
+| 9 | The board, if the semantics have settled | Last, because it is the one that cannot be taken back cheaply |
 
-Deliberately not on this list: rate limits (decision 6), a spend Settings pane
-(above), summing estimated and billed (decision 3), and stretching the ring to
-cover balances (decision 2).
+Step 1 is the one that has to be right. Everything after it is a registry row,
+a fetcher and a renderer — which is the point of doing it.
+
+Deliberately not on this list: a `rate` fetcher (decision 6 — the kind is
+reserved, the sourcing is not solved), a spend Settings pane (above), summing
+estimated and billed (decision 3), and generalizing the ring (decision 2).
