@@ -25,7 +25,7 @@ pay in, and the registry can only say one of them out loud.
 | **balance** | dollars remaining | **runway in days** | **never** — down until you top up | Anthropic Console, OpenAI, OpenRouter, Together, Groq, Fireworks | ❌ |
 | **rate** | per-minute utilisation | requests left this minute | every minute | every API, every tier | ❌ (sourcing unsolved) |
 | **seat** | — | — | — | Copilot Business, Cursor Business | ❌ (and it has no meter) |
-| **attribution** | dollars per unit of work | — | — | "what did that run cost" | ✅ computed, unshown |
+| **attribution** | dollars per unit of work | — | — | "what did that run cost" | ✅ computed, and drawn — but **not a meter**, see below |
 
 Three of those are already implemented, one is half-implemented, and the
 implementations don't know they're the same kind of thing. `PoolSpec` covers
@@ -147,6 +147,26 @@ meter* without pretending otherwise.
 **`rate` is in the list, and its fetcher is not.** Defining the kind costs
 nothing and reserves the shape. Sourcing it is the unsolved part — see decision
 6, which is unchanged.
+
+**`attribution` is in the table above, and it is not a meter.** This document
+said it would become one. Building it proved otherwise, and the correction is
+worth keeping rather than quietly editing out.
+
+A meter answers `level` and `headroom`. Per-run cost answers neither: there is
+no denominator — a fraction of *what?* — and nothing is remaining. Making it a
+`MeterSpec` would have meant inventing a shape so the abstraction could claim
+it, which is the same error as bolting flat keys onto a payload, pointed the
+other way. It is history, and it surfaces as history.
+
+The lesson generalises: a kind earns its place by having a level or a headroom
+that means something. `seat` is the boundary case that proves it — it has
+neither, is named anyway, and renders as a plain figure precisely *because*
+the model can say "this one has no gauge" out loud.
+
+There is a meter hiding nearby, and it is not this one: **estimated spend
+against a monthly budget** is a `calendar` meter with `basis: estimated`, and
+it arrives when someone sets a budget. Until there is a budget there is no
+denominator, and the honest reading is the history.
 
 **`level` and `headroom` are deliberately not on the wire yet.** They landed in
 this document before they landed in the payload, and that gap is on purpose:
@@ -398,7 +418,7 @@ fetcher, the same as a new provider is today.
 | 2 | `Source.windows()`; every consumer says whether it means windows or all meters | ✅ **landed.** The three that assume percentages — headline, log line, `pool_rows()` → `quota_samples` — now say so. None failed loudly when handed anything else |
 | 3 | Codex credits become a `grant`; `level` + `headroom` land | ✅ **landed.** First non-window meter, and the first moment `level`/`headroom` could be designed against something that is not a percentage |
 | 4 | Cursor on-demand and Codex spend control become `overage` | ✅ **landed.** Second kind, first in dollars — and it needed **no new wire keys**, which is the abstraction paying for itself |
-| 5 | `attribution` becomes a meter; the Spend view draws it | 400 days of per-model cost already computed and shown as one string. First real payoff, still no new credential |
+| 5 | The Spend card draws the cost history, and `pricing` gains a tell | ✅ **landed.** 400 days of per-model cost that reached one string. See *attribution is not a meter* below — this step corrected its own plan |
 | 6 | `balance` — first API source, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check by hand against a console |
 | 7 | `calendar` — same source's month-to-date against a budget | Nearly free once 6 lands: the arithmetic is already shared with `overage`. The two together are how an API account actually reads |
 | 8 | A second provider | The only real test of whether the abstraction held |
