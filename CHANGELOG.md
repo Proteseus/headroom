@@ -7,6 +7,83 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.8 — 2026-07-31
+
+### Fixed
+
+- **Gemini keeps working an hour after you sign in.** The host reads the CLI's
+  public OAuth client out of the installed package to refresh a token, and it
+  looked in three hardcoded paths that assumed Homebrew's npm prefix and the
+  old unbundled layout. A global install under any other prefix, or a current
+  gemini-cli — which ships as an esbuild bundle with content-hashed chunk
+  names and no `oauth2.js` to find — matched none of them, so sign-in worked,
+  the ring filled, and the source flipped to **Not updating** at the first
+  refresh. The host now resolves the `gemini` command the way a shell would,
+  across the prefixes a LaunchAgent's fixed PATH cannot see, and searches the
+  package it actually lands in. Reported in careful detail, cause and all, by
+  [@Sendar](https://github.com/michellzappa/headroom/issues/18) — thank you.
+- **A CLI that moves or leaves no longer takes the ring with it.** The pair is
+  public and unchanging, so the host keeps the last one it read under
+  `~/.headroom/`. An upgrade that reshuffles the bundle, or an uninstall after
+  you signed in, refreshes from cache instead of going dark.
+- **The escape hatch survives an update.** `GEMINI_OAUTH_CLIENT_ID`/`SECRET`
+  were documented as the way out, but the app rewrites the LaunchAgent plist
+  on every host install and takes anything hand-added to it along.
+  `gemini_oauth_client_id` and `gemini_oauth_client_secret` in
+  `~/.headroom/config.json` are read first and stay put. The env vars still
+  work, and `GEMINI_OAUTH2_JS_PATH` now accepts a folder as well as a file.
+
+## 1.3.7 — 2026-07-31
+
+Thanks to [@leolobato](https://github.com/leolobato), who built the Sources
+redesign below. He also found the rate-limit loop and wrote the contributor
+signing support that went out in 1.3.3, both of which shipped without a word
+here; this fixes that too.
+
+### Changed
+
+- **Sources is two zones now.** The flat list of fourteen toggles is gone.
+  **Active** holds what you track, as reorderable rows with live usage bars and
+  ①②③ badges marking the menu-bar slots, with extra accounts grouped under the
+  service they belong to.
+  **Library** holds everything else as compact chips, split into AI providers
+  and Dev tools. A chip whose credential leaves no local trace dims and says
+  **not detected**, unless the service takes accounts, in which case it offers
+  **Add account…** rather than dead-ending. Tracking several accounts stopped
+  being a Claude special case and became something any service can declare.
+- **The enable switch stopped doing two jobs at once.** The toggle now pauses:
+  the service stays in Active, dimmed, and nothing polls it, while its
+  configuration, its place in the order and its accounts all survive. The ✕
+  moves it to Library and stops tracking it. Neither one touches a credential,
+  because Headroom has no sign-ins of its own to revoke, and the copy says so
+  where you make the choice. Tapping a Library chip brings a service back to
+  Active switched on, as a single write rather than two settings to find.
+- **You can drop one extra account without disturbing its siblings**, from the
+  row it sits in.
+
+### Added
+
+- **A meter now says what kind of thing it is.** Headroom measures four ways
+  and had a word for one of them: windows. Reset credits, dollar overages and
+  historical attribution were each bolted on as flat keys, and each inherited
+  no ring, no burndown, no history and no place in the attention rollup,
+  because all of that was wired to pools and nothing else. `PoolSpec` is now
+  `MeterSpec`, carrying a kind and a basis. Nothing moves on screen yet: every
+  meter that exists today is a window, so both fields are constant and the
+  registry is untouched. The point is the next kind, which should be a registry
+  row and a fetcher, the way a new provider already is.
+
+### Fixed
+
+- **Consumers that meant "window" now ask for one.** Averaging a percentage,
+  sampling into the burndown store and picking the line a row speaks for were
+  all written when a pool could only be a window. Handed anything else they
+  would not have failed loudly; they would have logged an empty percentage
+  every poll, or appended a null row to the sample store, which is an
+  append-only record of your own history and the wrong place to discover a
+  mistake months later.
+
+
 ## 1.3.6 — 2026-07-31
 
 ### Changed

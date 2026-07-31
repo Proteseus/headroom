@@ -34,6 +34,14 @@ DEFAULTS = {
     # never launch a coding agent behind the user's back.
     "agent_gateway_enabled": False,
     "codex_binary": "codex",
+    # Escape hatch for a Gemini CLI install the host cannot find, or a future
+    # layout it cannot read. The equivalent env vars are documented but do not
+    # survive: the app rewrites the LaunchAgent plist on every host install.
+    # These name the CLI to Google and are public constants, not a credential
+    # of the user's — but they describe one machine's install, so they stay
+    # out of SHARED_CONFIG_KEYS with the other paths.
+    "gemini_oauth_client_id": "",
+    "gemini_oauth_client_secret": "",
     # Multi-Mac. Off until asked for: sync writes usage data to a folder that
     # leaves the machine, and installing Headroom must not start doing that on
     # its own. See icloud_sync.py and docs/multi-mac.md.
@@ -366,6 +374,13 @@ def codex_binary():
     """Executable used for the Codex App Server child process."""
     value = str(get("codex_binary") or DEFAULTS["codex_binary"]).strip()
     return os.path.expanduser(value or DEFAULTS["codex_binary"])
+
+
+def gemini_oauth_client():
+    """Return (client_id, client_secret) overrides, empty strings if unset."""
+    cid = str(get("gemini_oauth_client_id") or "").strip()
+    secret = str(get("gemini_oauth_client_secret") or "").strip()
+    return cid, secret
 
 
 def set_agent_gateway(enabled=None, codex_binary_value=None):

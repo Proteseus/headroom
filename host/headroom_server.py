@@ -1132,6 +1132,7 @@ def _build_attention(doc):
 
 def _sources_payload(state):
     enabled = sources_config.enabled_map()
+    dismissed = sources_config.dismissed_map()
     now = time.time()
     with _lock:
         times = dict(_source_times)
@@ -1157,6 +1158,10 @@ def _sources_payload(state):
             # from the shipped color.
             "accent_default": source.accent,
             "enabled": bool(enabled.get(source.id, True)),
+            # Library vs Active membership. Off-but-not-dismissed is paused:
+            # the row stays in Active, dimmed, and nothing polls it.
+            "dismissed": bool(dismissed.get(
+                source.id, not enabled.get(source.id, True))),
             "ok": bool(payload.get("ok")),
             "stale": bool(payload.get("stale")),
             # The login is gone or rejected. Distinct from `stale`, which this
@@ -1983,6 +1988,28 @@ class Handler(BaseHTTPRequestHandler):
             enabled = payload.get("enabled")
             order = payload.get("order")
             accents = payload.get("accents")
+            dismissed = payload.get("dismissed")
+            if dismissed is not None:
+                if not isinstance(dismissed, dict):
+                    self._send_json(
+                        400, {"ok": False, "error": "dismissed map required"})
+                    return
+                # Before `enabled`, so "back to Active, switched on" — the
+                # Library chip tap — lands as un-dismiss then enable, and
+                # set_enabled's on-implies-tracked invariant can't be undone
+                # by a later dismiss write in the same request.
+                sources_config.set_dismissed(dismissed)
+                publish()
+                if enabled is None and order is None and accents is None:
+                    self._send_json(200, {
+                        "ok": True,
+                        "enabled": sources_config.enabled_map(),
+                        "dismissed": sources_config.dismissed_map(),
+                        "order": sources_config.order_ids(),
+                        "focus": sources_config.focus_ids(),
+                        "accents": sources_config.accent_overrides(),
+                    })
+                    return
             if accents is not None:
                 if not isinstance(accents, dict):
                     self._send_json(
@@ -2001,6 +2028,7 @@ class Handler(BaseHTTPRequestHandler):
                         "ok": True,
                         "accents": stored,
                         "enabled": sources_config.enabled_map(),
+                        "dismissed": sources_config.dismissed_map(),
                         "order": sources_config.order_ids(),
                         "focus": sources_config.focus_ids(),
                     })
@@ -2016,6 +2044,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {
                     "ok": True,
                     "enabled": sources_config.enabled_map(),
+                    "dismissed": sources_config.dismissed_map(),
                     "order": result_order,
                     "focus": sources_config.focus_ids(),
                     "accents": sources_config.accent_overrides(),
@@ -2033,6 +2062,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 "ok": True,
                 "enabled": result,
+                "dismissed": sources_config.dismissed_map(),
                 "order": sources_config.order_ids(),
                 "focus": sources_config.focus_ids(),
                 "accents": sources_config.accent_overrides(),
