@@ -36,10 +36,9 @@ tag a version that has no entry.
 - Second person everywhere. The one **we** in the product ("We are pointing at
   it") is gone, and the Settings footer no longer explains that Welcome calls
   the same list something else.
-- The iOS App Store name drops its `(Max your Quotas)` suffix, which stuffed
-  keywords into the one field Apple asks you not to and read as *maximise your
-  usage* — the opposite of the app's point. **Needs a review cycle to take
-  effect; it is listing copy, not a shipped string.**
+- The App Store listing name keeps its `(Max your Quotas)` suffix, and
+  `docs/appstore.md` now says why: "Headroom" alone is taken, listing names
+  must be unique, and `CFBundleDisplayName` is plain `Headroom` anyway.
 
 ### Fixed
 

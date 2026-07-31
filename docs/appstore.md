@@ -8,15 +8,18 @@ macOS ships via GitHub Releases (Developer ID), not the Mac App Store — yet.
 
 ## App Information
 
-- **App Name**: Headroom
+- **App Name**: Headroom (Max your Quotas)
 - **Subtitle** (30 chars max): Local-first coding quotas
 
-> The name field read `Headroom (Max your Quotas)`. Two problems: it stuffs
-> keywords into the one field Apple asks you not to, and "Max your Quotas"
-> reads as *maximise your usage* — the opposite of what the app is for, which
-> is not running out. The keyword field already carries those words.
-> **Renaming a live listing needs a review cycle**, so this is the copy to
-> submit with next time, not something to push on its own.
+> The suffix is load-bearing: **"Headroom" alone is taken on the App Store**,
+> and listing names have to be unique. It is not keyword stuffing and it is not
+> up for tidying — a shorter name is not available. `CFBundleDisplayName` is
+> plain `Headroom` on both platforms, so the home screen and the menu bar are
+> unaffected by whatever the listing has to be called.
+>
+> "Max" reads two ways — the Claude Max plan, and *maximise your usage* — and
+> the first is the one the audience searching for this lands on. Recorded here
+> so the ambiguity stops being rediscovered as a bug.
 - **Bundle ID**: com.centaur-labs.headroom
 - **SKU**: com.centaur-labs.headroom
 - **Primary Language**: English (U.S.)
