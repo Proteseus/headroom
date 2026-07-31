@@ -7,6 +7,32 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.3.1 — 2026-07-31
+
+### Fixed
+
+- **The board gets back the 20 rows it was painting over.** A bring-up guess
+  had the firmware repaint the bottom of every frame in the background colour
+  to hide a fringe on the panel's native edge. It was several times what the
+  panel needed, and those rows sat flat while everything else animated. The
+  overscan wipe already covers the real problem without spending a row of
+  picture. If the fringe ever comes back, the comment in the source now says
+  the fix is a column offset on the driver, not painting over our own pixels.
+- Dropping that repaint uncovered a bug it had been hiding by accident. The
+  driver caches the last address window and skips re-sending it when the next
+  call matches, so the raw poke that wipes the overscan columns left the panel
+  addressed to a narrow strip while the driver still believed it was drawing
+  full frames. The window is restored explicitly now.
+
+### Changed
+
+- Every dashboard on the board starts its first ink slightly lower. The bezel
+  curves over the top of the panel and the largest type sits right there, so
+  the side inset alone read as tight. Each page pays for the extra out of slack
+  inside its own header, so nothing below the divider moved and no page lost a
+  row. The desktop previews mirror it, because a preview that promises rows the
+  board paints over is a preview that lies.
+
 ## 1.3.0 — 2026-07-31
 
 Nothing in this one changes what the app does. It is the release that stops a
