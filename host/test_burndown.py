@@ -83,6 +83,66 @@ class ShapeTests(unittest.TestCase):
         self.assertIsNone(got["burn_rate_pct"])
 
 
+class HistoryTests(unittest.TestCase):
+    """`history` is what keeps a rolled window from drawing an empty chart."""
+
+    # The live window opened a day ago, so a spent run two days back sits
+    # clearly outside it and still inside HISTORY_LOOKBACK_S.
+    ROLLED_RESETS = 6 * DAY_S
+    ROLLED_START = int(NOW - DAY_S)
+
+    def _rolled(self):
+        """Samples spanning a grant: a window burned to 20, then handed back.
+
+        The second run carries a later `window_start`, which is what `rolls`
+        reads the boundary out of.
+        """
+        before = rows(100.0, 20.0, span_s=DAY_S)
+        for row in before:
+            row["t"] -= 2 * DAY_S
+            row["window_start"] = self.ROLLED_START - WEEK_S
+            row["window_end"] = self.ROLLED_START
+            row["resets_in_s"] = self.ROLLED_RESETS
+        after = rows(100.0, 95.0, span_s=3600,
+                     resets_in_s=self.ROLLED_RESETS)
+        for row in after:
+            row["window_start"] = self.ROLLED_START
+            row["window_end"] = self.ROLLED_START + WEEK_S
+        return before + after
+
+    def test_history_reaches_back_past_the_window(self):
+        got = burndown.compute("claude", "week",
+                               payload(5.0, resets_in_s=self.ROLLED_RESETS),
+                               now=NOW, tz=TZ, rows=self._rolled())
+        window_start = got["window_start"]
+        # `actual` is clipped to the live window by design.
+        self.assertTrue(all(p[0] >= window_start for p in got["actual"]))
+        # `history` is not — that is the whole point of it.
+        self.assertTrue(any(p[0] < window_start for p in got["history"]))
+
+    def test_history_is_ordered_and_capped(self):
+        got = burndown.compute("claude", "week",
+                               payload(5.0, resets_in_s=self.ROLLED_RESETS),
+                               now=NOW, tz=TZ, rows=self._rolled(), points=48)
+        history = got["history"]
+        self.assertLessEqual(len(history), 49)
+        self.assertEqual([p[0] for p in history],
+                         sorted(p[0] for p in history))
+
+    def test_history_is_empty_without_samples(self):
+        got = burndown.compute("claude", "week", payload(60.0),
+                               now=NOW, tz=TZ, rows=[])
+        self.assertEqual(got["history"], [])
+
+    def test_forgiven_survives_alongside_history(self):
+        """Superseded, never removed — old phones and boards still read it."""
+        got = burndown.compute("claude", "week",
+                               payload(5.0, resets_in_s=self.ROLLED_RESETS),
+                               now=NOW, tz=TZ, rows=self._rolled())
+        self.assertIn("forgiven", got)
+        self.assertIn("history", got)
+
+
 class ForecastTests(unittest.TestCase):
     def test_exhaustion_before_reset_is_critical(self):
         # 60% -> 40% over 24h is 20 points/day; 40 left runs out in 2 days,

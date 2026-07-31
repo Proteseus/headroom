@@ -4,6 +4,11 @@ import SwiftUI
 struct QuotaOverviewCard: View {
     let providers: [QuotaProviderInfo]
     let burndown: [String: [String: Burndown]]
+    /// Banked reset credits live in the flattened `codex` block rather than on
+    /// a provider row, so they have to be handed down separately. Built for the
+    /// default login, which is why only `codex` shows the line — an extra Codex
+    /// account gets its meters without it, same as on the board.
+    var codex: CodexUsage? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -22,7 +27,8 @@ struct QuotaOverviewCard: View {
                             provider: provider,
                             burndown: provider.orderedBurndown(
                                 from: burndown[provider.id]
-                            )
+                            ),
+                            codex: provider.id == "codex" ? codex : nil
                         )
                     } label: {
                         HStack(spacing: 10) {
@@ -116,6 +122,8 @@ private struct ProviderQuotaDetail: View {
     /// Already in `visiblePools` order — one chart per progress bar, same
     /// sequence. Do not re-sort here.
     let burndown: [Burndown]
+    /// Nil unless this is the default Codex login — see `QuotaOverviewCard`.
+    var codex: CodexUsage? = nil
 
     /// "Connected" is a claim about right now, and a provider whose numbers
     /// stopped arriving is in no position to make it. `ok` alone would let it.
@@ -176,6 +184,21 @@ private struct ProviderQuotaDetail: View {
                             .foregroundStyle(.secondary)
                         }
                     }
+
+                    if let credits = codex?.resetCreditsLabel {
+                        HStack {
+                            Text(credits)
+                            Spacer()
+                            if let expiry = codex?.resetCreditsExpiryLabel {
+                                Text(expiry)
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .headroomCard()
 
@@ -200,7 +223,13 @@ private struct BurndownPoint: Identifiable {
     let id: String
     let date: Date
     let remaining: Double
+    /// Style key — indexes `chartForegroundStyleScale`.
     let series: String
+    /// Which polyline this point belongs to. Usually the same as `series`, but
+    /// spent windows share one style across several separate lines: Charts
+    /// joins every point of a series into one stroke, and a stroke that spans a
+    /// reset would climb across the jump instead of stopping at it.
+    let lineID: String
 }
 
 private struct BurndownChart: View {
@@ -208,11 +237,6 @@ private struct BurndownChart: View {
     let tint: Color
     /// Codex mid-window grant note. Nil → plain caption, no link.
     var resetNoteURL: URL? = nil
-
-    /// Newest mid-window grant — names the solid rule on this provider chart.
-    private var latestGrantedReset: BurndownReset? {
-        (pool.resets ?? []).max { ($0.t ?? 0) < ($1.t ?? 0) }
-    }
 
     private var axisDomain: BurndownChartAxis.Domain? {
         guard let start = pool.windowStart, let end = pool.windowEnd else {
@@ -223,17 +247,23 @@ private struct BurndownChart: View {
         }.max() ?? Date().timeIntervalSince1970
         return BurndownChartAxis.domain(
             windowStart: start, windowEnd: end, now: now,
-            // Reaches back toward the forgiven burn by a stub of the window
-            // — see `historyFraction`.
-            historyStart: pool.forgiven?.first?.first
+            // Reaches back toward the spent windows by a stub of the window
+            // — see `historyFraction`. `forgiven` is the fallback for a host
+            // older than `history`.
+            historyStart: (pool.history ?? pool.forgiven)?.first?.first
         )
     }
 
     private var points: [BurndownPoint] {
         guard let domain = axisDomain else {
-            return rawPoints(ideal: pool.ideal, actual: pool.actual,
-                             projected: pool.croppedProjected,
-                             forgiven: pool.forgiven)
+            return rawPoints(
+                ideal: pool.ideal, actual: pool.actual,
+                projected: pool.croppedProjected,
+                spent: OverallBurndownChartMath.historySegments(
+                    pool.history ?? pool.forgiven,
+                    splitAt: pool.resets?.compactMap(\.t) ?? []
+                )
+            )
         }
         // Clip series to the (possibly 7-day-capped) plot domain so monthly
         // pools don't smear past the weekday columns.
@@ -249,37 +279,50 @@ private struct BurndownChart: View {
             pool.croppedProjected,
             start: domain.startEpoch, end: domain.endEpoch
         )
-        // The burn a grant wiped out, in the stub before the window. Never
-        // fitted and never measured against the budget — it is spent.
-        let forgiven = OverallBurndownChartMath.clipPolyline(
-            pool.forgiven ?? [],
-            start: domain.startEpoch, end: domain.endEpoch
-        )
+        // Windows already spent, in the stub before this one. Never fitted and
+        // never measured against the budget — those budgets are gone. One run
+        // per window, so no stroke climbs across a reset.
+        let spent = OverallBurndownChartMath.historySegments(
+            pool.history ?? pool.forgiven,
+            splitAt: pool.resets?.compactMap(\.t) ?? []
+        ).map {
+            OverallBurndownChartMath.clipPolyline(
+                $0, start: domain.startEpoch, end: domain.endEpoch
+            )
+        }
         return rawPoints(ideal: ideal, actual: actual, projected: projected,
-                         forgiven: forgiven)
+                         spent: spent)
     }
 
     private func rawPoints(
         ideal: [[Double]]?,
         actual: [[Double]]?,
         projected: [[Double]]?,
-        forgiven: [[Double]]? = nil
+        spent: [[[Double]]] = []
     ) -> [BurndownPoint] {
-        func rows(_ values: [[Double]]?, series: String) -> [BurndownPoint] {
-            (values ?? []).enumerated().compactMap { index, pair in
+        func rows(
+            _ values: [[Double]]?,
+            series: String,
+            lineID: String? = nil
+        ) -> [BurndownPoint] {
+            let line = lineID ?? series
+            return (values ?? []).enumerated().compactMap { index, pair in
                 guard pair.count >= 2 else { return nil }
                 return BurndownPoint(
-                    id: "\(series)-\(index)",
+                    id: "\(line)-\(index)",
                     date: Date(timeIntervalSince1970: pair[0]),
                     remaining: min(max(pair[1], 0), 100),
-                    series: series
+                    series: series,
+                    lineID: line
                 )
             }
         }
         return rows(ideal, series: "Budget")
             + rows(actual, series: "Actual")
             + rows(projected, series: "Projected")
-            + rows(forgiven, series: "Forgiven")
+            + spent.enumerated().flatMap { index, segment in
+                rows(segment, series: "Forgiven", lineID: "Forgiven-\(index)")
+            }
     }
 
     var body: some View {
@@ -330,7 +373,8 @@ private struct BurndownChart: View {
                     ForEach(points) { point in
                         LineMark(
                             x: .value("Time", point.date),
-                            y: .value("Remaining", point.remaining)
+                            y: .value("Remaining", point.remaining),
+                            series: .value("Line", point.lineID)
                         )
                         .foregroundStyle(by: .value("Series", point.series))
                         .lineStyle(
@@ -409,19 +453,10 @@ private struct BurndownChart: View {
                 }
                 .frame(height: 190)
 
-                if let granted = latestGrantedReset {
-                    let caption = HeadroomCopy.resetGranted(
-                        forgivenPct: granted.forgivenPct)
-                    if let note = resetNoteURL {
-                        Link(caption, destination: note)
-                            .font(.caption)
-                            .monospacedDigit()
-                    } else {
-                        Text(caption)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+                if let resets = pool.resets, !resets.isEmpty {
+                    ResetHistoryList(
+                        resets: resets, tint: tint, noteURL: resetNoteURL
+                    )
                 }
             }
         }

@@ -81,9 +81,15 @@ CURSOR_FIELDS = (
 # (t1, 0), so it is derived on the board rather than sent. Keys are short
 # because this rides CDC. Secondary series (Cursor API) use *2 suffixes.
 MAX_BURNDOWN_POINTS = 24
-# The forgiven curve is a stub at the left edge of the panel — context, not a
-# reading. A third of the live budget is enough to show the drop.
-MAX_GHOST_POINTS = 8
+# Spent windows behind the live curve. The home chart draws a fixed
+# today−3…today+4 week, so this is what fills the left half of it after a reset
+# — without it the provider's line starts at the reset and the board looks like
+# it forgot. Fewer points than `pts` because it is context rather than a
+# reading, and it rides the same CDC frame.
+MAX_HISTORY_POINTS = 16
+# Grant rules the home chart's calendar week can carry before they stop
+# reading as events and start reading as grid.
+MAX_GRANT_MARKS = 4
 BURNDOWN_FIELDS = (
     "pool", "status", "t0", "t1", "pts", "proj", "warn", "est", "verdict",
     "pool2", "status2", "pts2", "proj2", "warn2", "est2",
@@ -204,29 +210,31 @@ def _trim_burndown(pool):
         # ~25 bytes for the phrase the Mac shows, so the desk and the menu bar
         # answer "do I make it" with the same words.
         "verdict": _board_text(pool.get("verdict")),
-        # The burn a grant wiped out, and when it landed. Both only exist on a
-        # window a grant opened, so on any ordinary week these are [] and None
-        # and cost the frame nothing. Thinned harder than `pts`: the ghost is
-        # context for the live curve, not a second reading of it.
-        "gpts": _thin(pool.get("forgiven"), MAX_GHOST_POINTS),
-        "rst": _grant_mark(pool.get("resets")),
+        # Windows already spent, and the grants that ended them. The board
+        # splits `hist` at these instants so no stroke climbs across a reset,
+        # and draws a rule at each. On a week with no grants `rsts` is [] and
+        # `hist` is simply the run before this window opened.
+        "hist": _thin(pool.get("history"), MAX_HISTORY_POINTS),
+        "rsts": _grant_marks(pool.get("resets")),
     }
 
 
-def _grant_mark(resets):
-    """[t, forgiven_pct] for the newest granted reset, or None.
+def _grant_marks(resets):
+    """[[t, forgiven_pct], …] for granted resets, oldest first.
 
-    One, not the list: the board draws a single window, so the only grant it
-    can place on that axis is the one that opened it.
+    The list, not the newest: the home chart draws a fixed calendar week rather
+    than one billing window, and Codex hands back a window often enough that
+    three can sit inside it at once. Capped at what that week can hold — a
+    fourth rule on a 400px panel is ink, not information.
     """
-    newest = None
+    out = []
     for event in (resets or []):
         at = event.get("t")
         if at is None:
             continue
-        if newest is None or at > newest[0]:
-            newest = [int(at), round(float(event.get("forgiven_pct") or 0), 1)]
-    return newest
+        out.append([int(at), round(float(event.get("forgiven_pct") or 0), 1)])
+    out.sort(key=lambda mark: mark[0])
+    return out[-MAX_GRANT_MARKS:]
 
 
 def _ordered_pools(pools):

@@ -144,6 +144,56 @@ enum OverallBurndownChartMath {
         )
     }
 
+    /// Split a cross-window series into runs that never span a reset.
+    ///
+    /// `history` climbs at every boundary — a reset is a vertical jump *upward*
+    /// in remaining percent. Stroked as one polyline, that jump draws a
+    /// diagonal joining two budgets which never coexisted, and a burndown that
+    /// rises reads as a bug. Cutting at the reset instants leaves one falling
+    /// run per window, which is what actually happened.
+    ///
+    /// Runs shorter than two points are dropped: a single sample has no line to
+    /// draw, and keeping it would put a lone dot where a window used to be.
+    static func historySegments(
+        _ pairs: [[Double]]?,
+        splitAt resets: [Double]
+    ) -> [[[Double]]] {
+        let points = (pairs ?? [])
+            .filter { $0.count >= 2 }
+            .sorted { $0[0] < $1[0] }
+        guard !points.isEmpty else { return [] }
+
+        let cuts = resets.sorted()
+        var segments: [[[Double]]] = []
+        var current: [[Double]] = []
+        var cutIndex = 0
+        for point in points {
+            while cutIndex < cuts.count && cuts[cutIndex] <= point[0] {
+                if current.count >= 2 { segments.append(current) }
+                current = []
+                cutIndex += 1
+            }
+            current.append(point)
+        }
+        if current.count >= 2 { segments.append(current) }
+        return segments
+    }
+
+    /// `historySegments` clipped to a chart domain, ready to stroke.
+    static func preparedHistory(
+        _ pairs: [[Double]]?,
+        splitAt resets: [Double],
+        domain: Domain
+    ) -> [[[Double]]] {
+        historySegments(pairs, splitAt: resets)
+            .map {
+                clipPolyline(
+                    $0, start: domain.startEpoch, end: domain.endEpoch
+                )
+            }
+            .filter { $0.count >= 2 }
+    }
+
     static func cropProjection(
         _ pairs: [[Double]]?,
         windowEnd: Double?

@@ -38,6 +38,12 @@ final class StatusItemController: NSObject {
 
         store.onSnapshotChange = { [weak self] snapshot, healthy in
             self?.update(snapshot: snapshot, healthy: healthy)
+            // Only off a healthy document: a failed poll replays the last good
+            // one, and re-announcing a grant off a stale copy is how a reset
+            // gets celebrated twice.
+            if healthy {
+                Task { await ResetNotifications.announce(snapshot) }
+            }
         }
         preferencesObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,

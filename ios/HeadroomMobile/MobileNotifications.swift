@@ -29,6 +29,45 @@ enum MobileNotifications {
         }
     }
 
+    /// A quota pool that came back early — on Codex, usually a reset credit the
+    /// reader spent. Shares the "is this new" rule with the Mac
+    /// (`ResetAnnouncer`) so the two devices agree on which grants are news.
+    ///
+    /// Rides the same `notificationsEnabled` toggle as attention: a second
+    /// switch for one event a week is a settings screen nobody can hold in
+    /// their head.
+    static func notifyIfNeeded(
+        resets snapshot: UsageSnapshot
+    ) async {
+        guard UserDefaults.standard.bool(forKey: "notificationsEnabled") else {
+            return
+        }
+        let defaults = UserDefaults.standard
+        let titles = Dictionary(
+            uniqueKeysWithValues: (snapshot.providers ?? []).map {
+                ($0.id, $0.title ?? $0.id.capitalized)
+            }
+        )
+        let pending = ResetAnnouncer.pending(
+            burndown: snapshot.burndown,
+            providerTitles: titles,
+            seen: { defaults.bool(forKey: $0) }
+        )
+        for grant in pending {
+            let content = UNMutableNotificationContent()
+            content.title = ResetAnnouncer.title(grant)
+            content.body = ResetAnnouncer.body(grant)
+            content.sound = .default
+            let request = UNNotificationRequest(
+                identifier: grant.key, content: content, trigger: nil
+            )
+            if (try? await UNUserNotificationCenter.current().add(request))
+                != nil {
+                defaults.set(true, forKey: grant.key)
+            }
+        }
+    }
+
     static func notifyIfNeeded(_ events: [AgentAttentionEvent]) async {
         guard UserDefaults.standard.bool(forKey: "notificationsEnabled") else {
             return

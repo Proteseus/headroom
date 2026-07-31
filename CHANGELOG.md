@@ -7,6 +7,40 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- **A reset is an event with a history now, not a caption.** Every grant the
+  sample log still holds is listed under the pool's burndown — when it landed
+  and how many points it handed back — instead of only the newest one being
+  named in a line of prose. `rolls()` had been finding all of them for months;
+  every consumer read `[-1]` and dropped the rest.
+- Banked Codex reset credits show on iPhone. The board has drawn "1 reset
+  credits" for a while and the Mac shows it too; the phone was the one surface
+  that knew the number and never said it.
+- Optional notification when a pool comes back, on the Mac and the phone. Off
+  by default on the Mac, and turning it on is what asks macOS for permission —
+  a menu bar app that requests notifications at first launch is asking for
+  something it has not earned yet.
+
+### Fixed
+
+- **Spending a reset credit no longer looks like the app forgetting your
+  week.** `actual` stops at the live window's start, which is correct — the
+  budget diagonal is drawn against that window — but the moment one rolls it
+  holds a single point, and a chart with one point draws nothing. Codex granted
+  four resets in six days here, so the curve kept vanishing. A new `history`
+  series carries the readings unclipped and every surface draws it faint behind
+  the live curve, split at each reset so no stroke climbs across one.
+- The ESP32 lost the provider's line entirely at a reset, rather than dimming
+  it. `device_view` had been sending the ghost curve and the grant mark since
+  the feature landed and `main.cpp` never read either key, so the board went
+  from a three-day curve to nothing. It reads them now, and draws a dotted rule
+  where each grant landed.
+- `rolls()` looked back seven days while the sample store keeps fourteen, and
+  capped at eight — enough to drop grants off a list that had room for them.
+
 ## 1.3.2 — 2026-07-31
 
 ### Fixed

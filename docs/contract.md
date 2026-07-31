@@ -78,6 +78,31 @@ Two consequences worth stating plainly:
   Swift anyway** and default it at the use site. The decoder cannot tell you
   which of the two you meant, so it assumes the expensive one.
 
+### A worked example: superseding a key without removing it
+
+`burndown.*.forgiven` was the burn a granted reset wiped out — one run, drawn
+faint, present only on a window a grant had opened. `burndown.*.history`
+replaced it: the same curve, but spanning every window in the last four days
+rather than needing a grant to exist, which is what stops a rolled window from
+drawing a chart with one point in it.
+
+`forgiven` is still emitted, and by the rule above it always will be. A phone
+two versions back and a board nobody has held a cable to still read it and
+still get their ghost. New clients read `history` and fall back:
+
+```swift
+pool.history ?? pool.forgiven
+```
+
+That fallback is the whole cost of the rule, and it is two words. The
+alternative — deleting `forgiven` because nothing in *this* checkout reads it —
+is a silently degraded chart on every surface that updates on someone else's
+schedule.
+
+The board is the exception the deprecation window above describes. Its `gpts`
+key had one writer and zero readers, so it was replaced outright by `hist` /
+`rsts` rather than carried: there was no shipped firmware to break.
+
 ## What is missing: a version the payload states out loud
 
 Today the document carries no schema version. Compatibility is maintained
@@ -137,6 +162,7 @@ This is the other half of the contract, and the one that drifts silently.
 |---|---|---|---|
 | `MAX_DEPLOYS` / `MAX_COMMITS` / `MAX_SERVERS` / `MAX_SOURCES` | `firmware/src/main.cpp` | `host/device_view.py` | **a comment** |
 | `MAX_PROVIDERS` (3), `MAX_POOLS` (3) | `firmware/src/main.cpp` | `host/device_view.py` | **a comment** |
+| `MAX_HISTORY_POINTS` (16) / `MAX_GRANT_MARKS` (4) | `host/device_view.py` | firmware `MAX_HIST_PTS` / `MAX_GRANTS`, `scripts/render_esp32_preview.py` | `scripts/check-mirrored-constants.sh` ✅ |
 | `FOCUS_LIMIT` (3) | `host/sources_config.py` | firmware `MAX_SLOTS`, menu bar, widget | **a comment** |
 | Ring geometry + pace semantics | `Shared/HeadroomRings.swift` | `firmware/src/main.cpp` | [docs/rings.md](rings.md), by hand |
 | Chrome copy | `Shared/HeadroomCopy.swift` | `docs/glossary.md`, `LABEL_*` in firmware | `scripts/check-glossary-copy.sh` ✅ |
