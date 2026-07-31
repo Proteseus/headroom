@@ -418,6 +418,48 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertFalse(out["auth_required"])
         self.assertIn("429", out["error"])
 
+    def test_a_rate_limit_backs_off_and_says_for_how_long(self):
+        blob = {"claudeAiOauth": {"accessToken": "t", "refreshToken": "r"}}
+        boom = urllib.error.HTTPError(
+            oauth_usage.USAGE_URL, 429, "Too Many Requests", None, None)
+        calls = []
+
+        def _boom(token):
+            calls.append(token)
+            raise boom
+
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=("keychain", blob)), \
+             patch.object(oauth_usage, "_http_get_usage", side_effect=_boom):
+            first = oauth_usage.fetch_quota(force=True)
+            # A user leaning on refresh must not become the traffic that
+            # caused the 429. The second call is served from cache.
+            second = oauth_usage.fetch_quota(force=True)
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("retrying in", first["error"])
+        self.assertEqual(second["error"], first["error"])
+
+    def test_the_endpoint_is_asked_again_once_the_backoff_expires(self):
+        blob = {"claudeAiOauth": {"accessToken": "t", "refreshToken": "r"}}
+        boom = urllib.error.HTTPError(
+            oauth_usage.USAGE_URL, 429, "Too Many Requests", None, None)
+        calls = []
+
+        def _boom(token):
+            calls.append(token)
+            raise boom
+
+        later = time.time() + cache_util.RATE_LIMIT_BACKOFF_S[0] + 1
+        with patch.object(oauth_usage, "_read_creds_blob",
+                          return_value=("keychain", blob)), \
+             patch.object(oauth_usage, "_http_get_usage", side_effect=_boom):
+            oauth_usage.fetch_quota(force=True)
+            with patch.object(oauth_usage.time, "time", return_value=later):
+                oauth_usage.fetch_quota()
+
+        self.assertEqual(len(calls), 2)
+
     def test_the_flag_reaches_providers_and_sources(self):
         state = {"claude": quota_payload(
             stale=True, auth_required=True, error="no plan token")}

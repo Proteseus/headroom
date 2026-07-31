@@ -491,6 +491,23 @@ def _http_get_usage(token):
     )
 
 
+def _rate_limited(cache, now, error):
+    """Start a 429 backoff and return the message the surfaces will show.
+
+    The wait goes in the text because "Too Many Requests" alone reads as
+    something broken. Naming the interval says the host already knows, and
+    stops the reflex of hammering the refresh button, which is what turns one
+    rate limit into a run of them.
+    """
+    header = None
+    headers = getattr(error, "headers", None)
+    if headers is not None:
+        header = headers.get("Retry-After")
+    wait = cache_util.note_rate_limit(cache, now, header)
+    return (f"HTTP Error {error.code}: {error.reason}, "
+            f"retrying in {fmt_resets(wait)}")
+
+
 def _iso_to_unix(s):
     if not s:
         return None
@@ -661,9 +678,21 @@ def fetch_quota(force=False, account=None):
                     # failure, when it is the same dead login as a missing
                     # token and wants the same fix.
                     return _keep_stale(str(exc), auth_required=True)
-                status, body = _http_get_usage(oauth["accessToken"])
+                try:
+                    status, body = _http_get_usage(oauth["accessToken"])
+                except urllib.error.HTTPError as again:
+                    # The refreshed token is fine and the quota is not: this
+                    # arm reaches the same endpoint, so it owes the same
+                    # backoff. Left to the outer handler it read as a generic
+                    # failure and kept its poll cadence.
+                    if again.code == 429:
+                        return _keep_stale(_rate_limited(cache, now, again))
+                    return _keep_stale(
+                        f"HTTP Error {again.code}: {again.reason}")
+            elif e.code == 429:
+                return _keep_stale(_rate_limited(cache, now, e))
             else:
-                # 429 / 5xx — keep last good bars instead of wiping the page.
+                # 5xx — keep last good bars instead of wiping the page.
                 return _keep_stale(f"HTTP Error {e.code}: {e.reason}")
 
         if status != 200:
@@ -721,6 +750,6 @@ def reset_for_tests():
         _oauth_mem.clear()
     with _deny_lock:
         _keychain_denied.clear()
-    _cache.update(t=0.0, data=None, err=None)
+    _cache.update(t=0.0, data=None, err=None, rl_strikes=0, retry_at=0.0)
     _caches.clear()
     _caches[""] = _cache
