@@ -497,4 +497,34 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertIn("signin", kinds)
         self.assertNotIn("stale", kinds)
         summary = next(r["summary"] for r in reasons if r["kind"] == "signin")
-        self.assertEqual(summary, "Claude needs sign-in")
+        self.assertEqual(
+            summary, "Claude needs sign-in — log in with the tool again")
+
+    def test_stale_attention_names_the_cause(self):
+        # "Stuck at 17h old" alone reads the same whether the fix is patience
+        # or a login — the line has to say which. The recorded error is on the
+        # provider row already; the reason phrases it.
+        def summary_for(error):
+            doc = {"providers": [{
+                "id": "claude", "title": "Claude", "kind": "quota",
+                "enabled": True, "ok": True, "stale": True,
+                "stale_for_s": cache_util.STALE_ALERT_S + 60,
+                "error": error,
+            }]}
+            reasons = headroom_server._build_attention(doc)["reasons"]
+            return next(
+                r["summary"] for r in reasons if r["kind"] == "stale")
+
+        self.assertIn(
+            "provider is rate-limiting, retrying",
+            summary_for("HTTP Error 429: Too Many Requests"))
+        self.assertIn(
+            "provider error, retrying",
+            summary_for("HTTP Error 503: Service Unavailable"))
+        self.assertIn(
+            "check network",
+            summary_for("<urlopen error [Errno 8] nodename nor servname "
+                        "provided, or not known>"))
+        # An unrecognized error shows verbatim rather than vanishing.
+        self.assertIn("keychain said no", summary_for("keychain said no"))
+        self.assertIn("try Refresh all", summary_for(None))
