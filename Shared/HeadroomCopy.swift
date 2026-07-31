@@ -75,6 +75,22 @@ enum HeadroomCopy {
     static let windowSliceFrame = "7 days of this window"
 
     static let dailyBurn = "Daily burn"
+
+    /// The token-value card. "Spend" and not "Cost", because on a
+    /// subscription this is what the same work would have cost on the API,
+    /// which is a value and not a bill.
+    static let spend = "Spend"
+    /// Every figure on that card is derived from local token counts and a
+    /// price table, never from a provider's billing. It says so on the card
+    /// rather than in a tooltip: nobody audits a percentage against a card
+    /// statement, and everybody audits a dollar. See docs/metering.md.
+    static let spendEstimated = "Estimated"
+    static let spendToday = "today"
+    static let spendPerActiveDay = "per active day"
+    /// Shown only when a model burned tokens that `pricing.py` has no rates
+    /// for, so part of the figure came from the fallback rate. The names are
+    /// the fix, so the names are what it shows.
+    static let spendUnpriced = "Unpriced"
     /// Percentage points of a quota window, per day — the same quantity the
     /// host writes as `%/day`. Never "pts": every provider bills in a real
     /// unit of its own called points, credits, or premium requests, and a
@@ -368,6 +384,7 @@ enum HeadroomCopy {
 
     static let noHistoryYet = "No history yet"
     static let noBurnHistoryYet = "No burn history yet"
+    static let noSpendYet = "No spend recorded yet"
     static let noCodingSources = "No coding sources"
     static let noActivityYet = "No activity yet"
     static let noLocalServers = "No local servers"

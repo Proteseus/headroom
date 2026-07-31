@@ -331,6 +331,21 @@ def summary(days=30):
             ({"model": m, "tokens": t} for m, t in by_model.items()),
             key=lambda row: -row["tokens"],
         )[:4],
+        # Models in this window that pricing.py has no rates for, so their
+        # share of the cost above came from the Sonnet-tier fallback. Almost
+        # always means a model shipped and the table has not caught up.
+        #
+        # It is a list rather than a flag because the names are the fix: they
+        # are exactly what someone needs to add to BASE. Empty is the normal
+        # case and the one worth being able to see.
+        #
+        # Zero-token entries are excluded, and that is not tidying. Claude Code
+        # logs a `<synthetic>` model for injected messages that never hit the
+        # API; it carries no tokens, so it costs nothing at any rate, and
+        # listing it would report a pricing problem that does not exist. A
+        # model only matters here if it actually spent something.
+        "unpriced_models": sorted(
+            m for m, t in by_model.items() if t and not pricing.is_known(m)),
     }
 
 

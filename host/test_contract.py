@@ -383,12 +383,11 @@ DYNAMIC_MAP_PATHS = {
     "burndown[]",
 }
 
-# Subtrees skipped whole, by path. `history` is long-range Claude token detail
-# the host aggregates for its own burn priors and for `curl`; enumerating its
-# dozen inner fields here would be noise, not coverage.
-UNDECODED_SUBTREES = {
-    "history",
-}
+# Subtrees skipped whole, by path. Empty since the Spend card: `history` used
+# to be skipped as "detail nobody decodes", and the moment something decoded it
+# that exemption became the exact trapdoor this file warns about — a host-side
+# rename of `total_cost_usd` would blank the card and pass every test.
+UNDECODED_SUBTREES = set()
 
 # Individual keys the host emits that no Swift client decodes.
 #
@@ -418,6 +417,15 @@ UNDECODED_KEYS = {
     "runs_out_in_s",
     "session_resets_in_s",
     "week_resets_in_s",
+    # `history` fields the Spend card does not draw. It shows spend, the
+    # per-model split and the price-table warning; these are the shape of the
+    # window rather than what it cost, and the card is a glance, not a report.
+    "days_covered",
+    "first_day",
+    "last_day",
+    "avg_tokens_per_active_day",
+    "avg_sessions_per_active_day",
+    "avg_active_minutes",
 }
 
 

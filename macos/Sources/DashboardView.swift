@@ -68,6 +68,10 @@ struct DashboardView: View {
                                 providerIDs: visibleProviders.map(\.id),
                                 tintFor: store.snapshot.tint(forProviderID:)
                             )
+                            SpendCard(
+                                history: store.snapshot.history,
+                                today: store.snapshot.today
+                            )
                         } else {
                             let meter = store.snapshot.meter(
                                 forProviderID: selectedDashboardRaw)

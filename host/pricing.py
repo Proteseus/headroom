@@ -37,6 +37,23 @@ CACHE_WRITE_5M_MULT = 1.25
 CACHE_WRITE_1H_MULT = 2.00
 
 
+def is_known(model):
+    """True when this model has rates here rather than the Sonnet-tier default.
+
+    The fallback is the right default — a new model costing something
+    approximate beats it costing zero. What it cannot do is tell you it
+    happened, and an unrecognised Opus priced as a Sonnet is wrong by 40% while
+    looking exactly as confident as a correct figure.
+
+    So anything that prints a dollar amount asks this first. A percentage
+    nobody audits can absorb a silent guess; a number someone compares against
+    a card statement cannot. See docs/metering.md decision 4.
+    """
+    if model in BASE:
+        return True
+    return any(model and model.startswith(key) for key in BASE)
+
+
 def _base(model):
     if model in BASE:
         return BASE[model]

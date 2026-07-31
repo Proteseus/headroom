@@ -51,6 +51,10 @@ struct UsageSnapshot: Decodable, Sendable {
     var weekResetsIn: String?
     var today: TokenBucket?
     var byDay: [DailyBurnDay]?
+    /// Long-range Claude token history the host aggregates from session logs.
+    /// Emitted since 1.0 and decoded by nobody until the Spend card; a host
+    /// too old to send it leaves this nil and the card does not draw.
+    var history: UsageHistory?
     var codex: CodexUsage?
     var cursor: CursorUsage?
     /// Normalized quota providers from the host registry (additive).
@@ -164,6 +168,7 @@ struct UsageSnapshot: Decodable, Sendable {
         case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
+        case history
         case quotaOK = "quota_ok"
         case quotaError = "quota_error"
         case sessionPct = "session_pct"
@@ -1150,6 +1155,41 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         }
         return visiblePools.compactMap { byPool[$0.id] }
     }
+}
+
+/// What Claude usage cost over the trailing window, derived from session logs.
+///
+/// Every dollar figure here is **estimated**: local token counts priced by
+/// `host/pricing.py`, never a provider's billing. Anything rendering one says
+/// so — see `HeadroomCopy.spendEstimated` and docs/metering.md decision 3.
+struct UsageHistory: Decodable, Sendable {
+    var activeDays: Int?
+    var totalTokens: Double?
+    var totalCostUSD: Double?
+    var avgCostPerActiveDay: Double?
+    /// Share of read context served from cache. Low means sessions keep
+    /// rebuilding context from cold instead of building on it.
+    var cacheHitPct: Double?
+    var topModels: [HistoryModel]?
+    /// Models that burned tokens which `pricing.py` has no rates for, so part
+    /// of the total above came from the fallback rate. Empty is normal; a name
+    /// here is the price table being out of date, and is the thing to add.
+    var unpricedModels: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case activeDays = "active_days"
+        case totalTokens = "total_tokens"
+        case totalCostUSD = "total_cost_usd"
+        case avgCostPerActiveDay = "avg_cost_per_active_day"
+        case cacheHitPct = "cache_hit_pct"
+        case topModels = "top_models"
+        case unpricedModels = "unpriced_models"
+    }
+}
+
+struct HistoryModel: Decodable, Sendable {
+    var model: String?
+    var tokens: Double?
 }
 
 struct QuotaPoolInfo: Decodable, Sendable {
