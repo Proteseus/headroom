@@ -59,13 +59,26 @@ _DEFAULT_TEAM_ID=992N457T8D
 # every other case the include must stay the last word, so an edit to
 # Local.xcconfig takes effect on the next build without waiting for this
 # script to regenerate a value it baked in earlier.
-_TEAM_FROM_ENV="${HEADROOM_TEAM_ID:+1}"
+#
+# That answer has to survive a process boundary. We export HEADROOM_TEAM_ID
+# below, and sync-embedded-host.sh sources this file and then runs it again as
+# a child — which inherits the export and cannot tell our own default from a
+# team the caller asked for. It pinned every time, so on the one path
+# contributors use (scripts/gen-project.sh) Local.xcconfig could never win.
+# Carrying the provenance explicitly is what closes that: set-but-empty means
+# "asked already, nobody set it", which is different from unset.
+if [[ -n "${HEADROOM_TEAM_EXPLICIT+set}" ]]; then
+  _TEAM_FROM_ENV="$HEADROOM_TEAM_EXPLICIT"
+else
+  _TEAM_FROM_ENV="${HEADROOM_TEAM_ID:+1}"
+fi
 if [[ -z "${HEADROOM_TEAM_ID:-}" && -f "$_LOCAL_XCCONFIG" ]]; then
   HEADROOM_TEAM_ID="$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$_LOCAL_XCCONFIG" | tail -n 1 | tr -d '[:space:]')"
 fi
 HEADROOM_TEAM_ID="${HEADROOM_TEAM_ID:-$_DEFAULT_TEAM_ID}"
 
 export HEADROOM_VERSION HEADROOM_BUILD HEADROOM_TEAM_ID
+export HEADROOM_TEAM_EXPLICIT="$_TEAM_FROM_ENV"
 
 _write_xcconfig() {
   # Defaults first, the Local.xcconfig include last, so an edit there wins at
