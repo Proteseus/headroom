@@ -2643,16 +2643,34 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
   // segment straddling a grant is skipped — joining it would climb across the
   // reset between two budgets that never coexisted.
   if (b.histN > 1) {
-    const uint16_t ghost = dimToward(accent, COL_BG, 0.55f);
+    const uint16_t ghost = dimToward(accent, COL_BG, 0.70f);
     for (uint8_t i = 1; i < b.histN; i++) {
-      bool spansGrant = false;
+      // A pair straddling a grant is the recharge. Square it off on the grant
+      // instant — level up to it, vertical through it — rather than letting
+      // the raw diagonal imply the pool refilled over the sample gap. The
+      // riser lands on the same x as the dotted rule below, so they agree.
+      uint32_t grantAt = 0;
       for (uint8_t g = 0; g < b.grantN; g++) {
         if (b.grantT[g] > b.histT[i - 1] && b.grantT[g] <= b.histT[i]) {
-          spansGrant = true;
-          break;
+          grantAt = b.grantT[g];
         }
       }
-      if (spansGrant) continue;
+      if (grantAt != 0) {
+        uint32_t la, lb; float lra, lrb;
+        if (clipBurnSeg(b.histT[i - 1], b.histR[i - 1], grantAt, b.histR[i - 1],
+                        plot0, plot1, &la, &lra, &lb, &lrb)) {
+          gfx->drawLine(px(la), py(lra), px(lb), py(lrb), ghost);
+        }
+        if (grantAt > plot0 && grantAt < plot1) {
+          gfx->drawLine(px(grantAt), py(b.histR[i - 1]),
+                        px(grantAt), py(b.histR[i]), ghost);
+        }
+        if (clipBurnSeg(grantAt, b.histR[i], b.histT[i], b.histR[i],
+                        plot0, plot1, &la, &lra, &lb, &lrb)) {
+          gfx->drawLine(px(la), py(lra), px(lb), py(lrb), ghost);
+        }
+        continue;
+      }
       uint32_t ta, tb; float ra, rb;
       if (!clipBurnSeg(b.histT[i - 1], b.histR[i - 1], b.histT[i], b.histR[i],
                        plot0, plot1, &ta, &ra, &tb, &rb)) {
@@ -2905,16 +2923,34 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
   // straddles a reset, and joining them would draw a diagonal climbing across
   // the chart between two budgets that never existed at the same time.
   if (b.histN > 1) {
-    const uint16_t ghost = dimToward(accent, COL_BG, 0.55f);
+    const uint16_t ghost = dimToward(accent, COL_BG, 0.70f);
     for (uint8_t i = 1; i < b.histN; i++) {
-      bool spansGrant = false;
+      // A pair straddling a grant is the recharge. Square it off on the grant
+      // instant — level up to it, vertical through it — rather than letting
+      // the raw diagonal imply the pool refilled over the sample gap. The
+      // riser lands on the same x as the dotted rule below, so they agree.
+      uint32_t grantAt = 0;
       for (uint8_t g = 0; g < b.grantN; g++) {
         if (b.grantT[g] > b.histT[i - 1] && b.grantT[g] <= b.histT[i]) {
-          spansGrant = true;
-          break;
+          grantAt = b.grantT[g];
         }
       }
-      if (spansGrant) continue;
+      if (grantAt != 0) {
+        uint32_t la, lb; float lra, lrb;
+        if (clipBurnSeg(b.histT[i - 1], b.histR[i - 1], grantAt, b.histR[i - 1],
+                        tLo, tHi, &la, &lra, &lb, &lrb)) {
+          gfx->drawLine(px(la), py(lra), px(lb), py(lrb), ghost);
+        }
+        if (grantAt > tLo && grantAt < tHi) {
+          gfx->drawLine(px(grantAt), py(b.histR[i - 1]),
+                        px(grantAt), py(b.histR[i]), ghost);
+        }
+        if (clipBurnSeg(grantAt, b.histR[i], b.histT[i], b.histR[i],
+                        tLo, tHi, &la, &lra, &lb, &lrb)) {
+          gfx->drawLine(px(la), py(lra), px(lb), py(lrb), ghost);
+        }
+        continue;
+      }
       uint32_t ta, tb; float ra, rb;
       if (!clipBurnSeg(b.histT[i - 1], b.histR[i - 1], b.histT[i], b.histR[i],
                        tLo, tHi, &ta, &ra, &tb, &rb)) {

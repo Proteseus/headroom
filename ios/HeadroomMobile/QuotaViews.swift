@@ -238,31 +238,17 @@ private struct BurndownChart: View {
     /// Codex mid-window grant note. Nil → plain caption, no link.
     var resetNoteURL: URL? = nil
 
-    private var axisDomain: BurndownChartAxis.Domain? {
-        guard let start = pool.windowStart, let end = pool.windowEnd else {
-            return nil
-        }
-        let now = (pool.actual ?? []).compactMap { pair -> Double? in
-            pair.count >= 2 ? pair[0] : nil
-        }.max() ?? Date().timeIntervalSince1970
-        return BurndownChartAxis.domain(
-            windowStart: start, windowEnd: end, now: now,
-            // Reaches back toward the spent windows by a stub of the window
-            // — see `historyFraction`. `forgiven` is the fallback for a host
-            // older than `history`.
-            historyStart: (pool.history ?? pool.forgiven)?.first?.first
-        )
-    }
+    private var axisDomain: BurndownChartAxis.Domain? { pool.chartDomain }
 
     private var points: [BurndownPoint] {
         guard let domain = axisDomain else {
             return rawPoints(
                 ideal: pool.ideal, actual: pool.actual,
                 projected: pool.croppedProjected,
-                spent: OverallBurndownChartMath.historySegments(
+                spent: [OverallBurndownChartMath.historyPolyline(
                     pool.history ?? pool.forgiven,
-                    splitAt: pool.resets?.compactMap(\.t) ?? []
-                )
+                    risersAt: pool.resets?.compactMap(\.t) ?? []
+                )]
             )
         }
         // Clip series to the (possibly 7-day-capped) plot domain so monthly
@@ -280,16 +266,17 @@ private struct BurndownChart: View {
             start: domain.startEpoch, end: domain.endEpoch
         )
         // Windows already spent, in the stub before this one. Never fitted and
-        // never measured against the budget — those budgets are gone. One run
-        // per window, so no stroke climbs across a reset.
-        let spent = OverallBurndownChartMath.historySegments(
-            pool.history ?? pool.forgiven,
-            splitAt: pool.resets?.compactMap(\.t) ?? []
-        ).map {
+        // never measured against the budget — those budgets are gone. The climb
+        // at each reset is drawn: that is the recharge.
+        let spent = [
             OverallBurndownChartMath.clipPolyline(
-                $0, start: domain.startEpoch, end: domain.endEpoch
+                OverallBurndownChartMath.historyPolyline(
+                    pool.history ?? pool.forgiven,
+                    risersAt: pool.resets?.compactMap(\.t) ?? []
+                ),
+                start: domain.startEpoch, end: domain.endEpoch
             )
-        }
+        ]
         return rawPoints(ideal: ideal, actual: actual, projected: projected,
                          spent: spent)
     }
@@ -338,6 +325,13 @@ private struct BurndownChart: View {
                                 ? AnyShapeStyle(HeadroomPalette.amber)
                                 : AnyShapeStyle(.secondary)
                         )
+                    // Under the headline, not above it: the headline is the
+                    // reading, this is only what the axis spans.
+                    if let axisDomain {
+                        Text(axisDomain.frameLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer()
                 if let remaining = pool.remainingPct {
@@ -578,13 +572,14 @@ struct OverallBurndownChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            // Frame under the title, tertiary — same slot and weight as the
+            // provider charts, so the two rules read as a labelled pair.
+            VStack(alignment: .leading, spacing: 2) {
                 Text(HeadroomCopy.overallBurndown)
                     .font(.headline)
-                Spacer()
-                Text(HeadroomCopy.overallBurndownSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(domain.frameLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             if series.isEmpty {

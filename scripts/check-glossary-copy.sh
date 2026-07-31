@@ -65,6 +65,13 @@ check_absent 'Text\("Daily burn"\)' 'use HeadroomCopy.dailyBurn'
 check_absent 'Text\("Overall burndown"\)' 'use HeadroomCopy.overallBurndown'
 check_absent 'Text\("Coding quotas"\)' 'use HeadroomCopy.codingQuotas'
 check_absent 'Text\("Burndown"\)' 'use HeadroomCopy.burndown / LABEL_BURNDOWN'
+
+# A burndown says which of the two frames it draws, and the words come from
+# `frameLabel` on the domain — never typed into a view. A surface that hardcodes
+# one is a surface that keeps saying "This window" after the domain has been
+# clipped to a seven-day slice inside it. See docs/glossary.md, "Charts".
+check_absent 'Text\("(This window|7 days( around today| of this window)?)"\)' \
+  'use Domain.frameLabel — the domain knows which frame it drew'
 check_absent '"collecting history"' 'use Collecting history / LABEL_COLLECTING_HISTORY'
 
 # Percent is the only unit Headroom claims. Claude bills in points, Cursor in

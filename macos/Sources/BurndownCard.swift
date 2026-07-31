@@ -124,11 +124,13 @@ struct OverviewBurndownCard: View {
                 now: Date(timeIntervalSince1970: now)
             )
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                // Frame under the title, tertiary — the same slot and weight
+                // the provider plots use, so the two rules read as a labelled
+                // pair rather than as one chart that moved its axis.
+                VStack(alignment: .leading, spacing: 2) {
                     Text(HeadroomCopy.overallBurndown)
                         .font(.headline)
-                    Spacer()
-                    Text(HeadroomCopy.overallBurndownSubtitle)
+                    Text(domain.frameLabel)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -173,8 +175,8 @@ struct OverviewBurndownCard: View {
 
                         // Windows already spent, behind everything else. Faint
                         // and thin: this is history that stopped counting, and
-                        // it must never be mistaken for the live curve. Split
-                        // per window so no stroke climbs across a reset.
+                        // it must never be mistaken for the live curve. The
+                        // climb at each reset is drawn — that is the recharge.
                         let spent = OverallBurndownChartMath.preparedHistory(
                             entry.pool.history ?? entry.pool.forgiven,
                             splitAt: entry.pool.resets?.compactMap(\.t) ?? [],
@@ -425,34 +427,37 @@ struct MultiBurndownPlot: View {
         pools.first(where: { $0.pool == "total" }) ?? pools.first
     }
 
-    private var window: (start: Double, end: Double, reset: String?)? {
-        guard let anchor,
-              let start = anchor.windowStart,
-              let end = anchor.windowEnd,
-              end > start
-        else { return nil }
-        return (start, end, anchor.resetsIn)
+    /// The one domain the header names and the canvas draws.
+    private var domain: BurndownChartAxis.Domain? {
+        Burndown.chartDomain(pools: pools, anchor: anchor)
     }
 
     private var headline: String? { anchor?.headline }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                HStack(spacing: 10) {
-                    ForEach(pools) { pool in
-                        HStack(spacing: 5) {
-                            Capsule()
-                                .fill(seriesTint(pool))
-                                .frame(width: pool.pool == "api" ? 10 : 12,
-                                       height: pool.pool == "api" ? 2 : 3)
-                            Text(pool.poolTitle)
-                                .font(.subheadline.weight(.medium))
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 10) {
+                        ForEach(pools) { pool in
+                            HStack(spacing: 5) {
+                                Capsule()
+                                    .fill(seriesTint(pool))
+                                    .frame(width: pool.pool == "api" ? 10 : 12,
+                                           height: pool.pool == "api" ? 2 : 3)
+                                Text(pool.poolTitle)
+                                    .font(.subheadline.weight(.medium))
+                            }
                         }
+                    }
+                    if let domain {
+                        Text(domain.frameLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
                 Spacer()
-                if let reset = window?.reset {
+                if let reset = anchor?.resetsIn {
                     Text(reset)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -460,10 +465,11 @@ struct MultiBurndownPlot: View {
                 }
             }
 
-            if let window {
-                MultiBurndownCanvas(pools: pools, tint: tint,
-                                    start: window.start, end: window.end)
-                    .frame(height: 100)
+            if let domain {
+                MultiBurndownCanvas(
+                    pools: pools, tint: tint, domain: domain
+                )
+                .frame(height: 100)
             }
 
             if let anchor {
@@ -515,9 +521,16 @@ struct BurndownPlot: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(pool.poolTitle)
-                    .font(.subheadline.weight(.medium))
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pool.poolTitle)
+                        .font(.subheadline.weight(.medium))
+                    if let domain = pool.chartDomain {
+                        Text(domain.frameLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
                 Spacer()
                 if let reset = pool.resetsIn {
                     Text(reset)
@@ -551,21 +564,19 @@ struct BurndownCanvas: View {
     let tint: Color
 
     var body: some View {
-        MultiBurndownCanvas(
-            pools: [pool],
-            tint: tint,
-            start: pool.windowStart ?? 0,
-            end: pool.windowEnd ?? 0
-        )
-        .accessibilityLabel(pool.headline ?? HeadroomCopy.burndown)
+        if let domain = pool.chartDomain {
+            MultiBurndownCanvas(pools: [pool], tint: tint, domain: domain)
+                .accessibilityLabel(pool.headline ?? HeadroomCopy.burndown)
+        }
     }
 }
 
 struct MultiBurndownCanvas: View {
     let pools: [Burndown]
     let tint: Color
-    let start: Double
-    let end: Double
+    /// Handed in rather than derived here, so the frame label in the header
+    /// above and the axis drawn below are provably the same domain.
+    let domain: BurndownChartAxis.Domain
 
     var body: some View {
         Canvas { context, size in
@@ -575,16 +586,6 @@ struct MultiBurndownCanvas: View {
                 }
             }
             let now = sampleTimes.max() ?? Date().timeIntervalSince1970
-            // Oldest pre-window sample across the overlaid pools. The domain
-            // only reaches back toward it — see `historyFraction`.
-            // `forgiven` is the fallback for a host older than `history`.
-            let historyStart = pools
-                .compactMap { ($0.history ?? $0.forgiven)?.first?.first }
-                .min()
-            guard let domain = BurndownChartAxis.domain(
-                windowStart: start, windowEnd: end, now: now,
-                historyStart: historyStart
-            ) else { return }
 
             let plotStart = domain.startEpoch
             let plotEnd = domain.endEpoch
@@ -644,17 +645,16 @@ struct MultiBurndownCanvas: View {
 
                 // Spent windows, in the stub of plot that sits before this one.
                 // Faint, and never fitted or measured against the budget line —
-                // those budgets no longer exist. One run per window, so the
-                // stroke never climbs across a reset.
-                let spent = OverallBurndownChartMath.historySegments(
-                    pool.history ?? pool.forgiven,
-                    splitAt: pool.resets?.compactMap(\.t) ?? []
-                )
-                for segment in spent {
-                    let ghost = OverallBurndownChartMath.clipPolyline(
-                        segment, start: plotStart, end: plotEnd
-                    ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
-                    guard ghost.count >= 2 else { continue }
+                // those budgets no longer exist. The climb at each reset is
+                // drawn: it is the recharge, and it is the thing worth seeing.
+                let ghost = OverallBurndownChartMath.clipPolyline(
+                    OverallBurndownChartMath.historyPolyline(
+                        pool.history ?? pool.forgiven,
+                        risersAt: pool.resets?.compactMap(\.t) ?? []
+                    ),
+                    start: plotStart, end: plotEnd
+                ).map { CGPoint(x: x($0[0]), y: y($0[1])) }
+                if ghost.count >= 2 {
                     var path = Path()
                     path.move(to: ghost[0])
                     for point in ghost.dropFirst() { path.addLine(to: point) }

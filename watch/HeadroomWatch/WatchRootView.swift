@@ -34,9 +34,16 @@ struct WatchRootView: View {
 
             if !snapshot.charted.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(HeadroomCopy.overallBurndown)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(HeadroomCopy.overallBurndown)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        // Duration form: the long subtitle the Mac and phone
+                        // show wraps to two lines at this width.
+                        Text(HeadroomCopy.overallBurndownSubtitleShort)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                     WatchRundownChart(snapshot: snapshot)
                         .frame(height: 62)
                 }

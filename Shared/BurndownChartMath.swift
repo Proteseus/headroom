@@ -15,7 +15,20 @@ import Foundation
 ///    off-canvas so the axis never stretches and compresses history.
 /// 3. **Clip** strokes to that domain with edge interpolation — `chartXScale`
 ///    alone still paints past the plot into the gutter.
+///
+/// This is the **clock-anchored** frame, and it is the only one available to
+/// the overview: provider windows open and reset at different times, so there
+/// is no single window to hang an axis on — which is also why this chart has
+/// no budget diagonal. `BurndownChartAxis` is the **reset-anchored** frame for
+/// a single pool. Two rules, two answers to two questions; every surface says
+/// which one it is drawing (`frameLabel`) so the pair never reads as drift.
 enum OverallBurndownChartMath {
+    /// Whole calendar days of history in the frame.
+    ///
+    /// The domain runs from midnight this many days back for `spanDays`, so it
+    /// covers today plus three days either side — seven whole calendar days,
+    /// symmetric about today. `HeadroomCopy.overallBurndownSubtitle` says that
+    /// in words; change one and change the other.
     static let lookbackDays = 3
     static let spanDays = 7
 
@@ -27,6 +40,10 @@ enum OverallBurndownChartMath {
         var startEpoch: Double { start.timeIntervalSince1970 }
         var endEpoch: Double { end.timeIntervalSince1970 }
         var nowEpoch: Double { now.timeIntervalSince1970 }
+
+        /// What the X-axis covers, for the subtitle beside the chart's title.
+        /// Always the same words here — this frame does not vary.
+        var frameLabel: String { HeadroomCopy.overallBurndownSubtitle }
     }
 
     /// Fixed calendar week for the overview chart (today−3 … today+4).
@@ -83,8 +100,17 @@ enum OverallBurndownChartMath {
             let from = max(a.t, start)
             let to = min(b.t, end)
             guard from <= to else { continue }
-            for edge in [from, to] where out.last?.t != edge {
-                out.append(between(a, b, at: edge))
+            for edge in [from, to] {
+                let candidate = between(a, b, at: edge)
+                // Deduped on the whole point, not on time alone. A reset riser
+                // is two samples sharing one instant, and dropping either
+                // because "we already have that x" flattens the climb the
+                // chart exists to show.
+                if let last = out.last,
+                   last.t == candidate.t, last.r == candidate.r {
+                    continue
+                }
+                out.append(candidate)
             }
         }
         return out.map { [$0.t, $0.r] }
@@ -144,54 +170,63 @@ enum OverallBurndownChartMath {
         )
     }
 
-    /// Split a cross-window series into runs that never span a reset.
+    /// A cross-window series as one polyline, with the recharge drawn.
     ///
-    /// `history` climbs at every boundary — a reset is a vertical jump *upward*
-    /// in remaining percent. Stroked as one polyline, that jump draws a
-    /// diagonal joining two budgets which never coexisted, and a burndown that
-    /// rises reads as a bug. Cutting at the reset instants leaves one falling
-    /// run per window, which is what actually happened.
+    /// `history` climbs at every boundary, because a reset *is* a jump upward in
+    /// remaining percent. That climb is the point: the moment the pool came back
+    /// is the most legible thing on the chart, and hiding it leaves a curve that
+    /// ends at nothing and restarts at full with no visible cause.
     ///
-    /// Runs shorter than two points are dropped: a single sample has no line to
-    /// draw, and keeping it would put a lone dot where a window used to be.
-    static func historySegments(
+    /// The samples either side of a boundary are a bucket apart, so joining them
+    /// raw draws a steep diagonal that reads as an implausibly fast refill. This
+    /// squares it off instead: at each known reset the line runs level to the
+    /// reset instant, rises vertically there, and carries on. The rise lands on
+    /// the same x as the rule the chart already draws, so the two agree.
+    ///
+    /// Boundaries the host did not flag as grants still show their climb — the
+    /// diagonal is simply not squared off, which is the honest rendering when
+    /// nothing pinned the instant.
+    static func historyPolyline(
         _ pairs: [[Double]]?,
-        splitAt resets: [Double]
-    ) -> [[[Double]]] {
+        risersAt resets: [Double]
+    ) -> [[Double]] {
         let points = (pairs ?? [])
             .filter { $0.count >= 2 }
             .sorted { $0[0] < $1[0] }
-        guard !points.isEmpty else { return [] }
+        guard points.count >= 2 else { return points }
 
         let cuts = resets.sorted()
-        var segments: [[[Double]]] = []
-        var current: [[Double]] = []
-        var cutIndex = 0
-        for point in points {
-            while cutIndex < cuts.count && cuts[cutIndex] <= point[0] {
-                if current.count >= 2 { segments.append(current) }
-                current = []
-                cutIndex += 1
+        var out: [[Double]] = [points[0]]
+        for (previous, point) in zip(points, points.dropFirst()) {
+            // At most one reset can sit between two adjacent samples; if the
+            // host reported several, the last one is the boundary that stuck.
+            if let cut = cuts.last(where: { $0 > previous[0] && $0 <= point[0] }) {
+                out.append([cut, previous[1]])
+                out.append([cut, point[1]])
             }
-            current.append(point)
+            out.append(point)
         }
-        if current.count >= 2 { segments.append(current) }
-        return segments
+        return out
     }
 
-    /// `historySegments` clipped to a chart domain, ready to stroke.
+    /// `historyPolyline` clipped to a chart domain, ready to stroke.
+    ///
+    /// Returned as an array of runs because clipping can only ever produce one —
+    /// the shape callers already draw, kept so a future domain that drops a gap
+    /// in the middle does not change every call site.
     static func preparedHistory(
         _ pairs: [[Double]]?,
         splitAt resets: [Double],
         domain: Domain
     ) -> [[[Double]]] {
-        historySegments(pairs, splitAt: resets)
-            .map {
-                clipPolyline(
-                    $0, start: domain.startEpoch, end: domain.endEpoch
-                )
-            }
-            .filter { $0.count >= 2 }
+        [
+            clipPolyline(
+                historyPolyline(pairs, risersAt: resets),
+                start: domain.startEpoch,
+                end: domain.endEpoch
+            )
+        ]
+        .filter { $0.count >= 2 }
     }
 
     static func cropProjection(
@@ -253,6 +288,15 @@ enum OverallBurndownChartMath {
 enum BurndownChartAxis {
     static let maxDays = 7
     static let daySeconds: TimeInterval = 24 * 60 * 60
+    /// Where the moving slice starts inside a window too long to draw whole.
+    ///
+    /// Its own number, not `OverallBurndownChartMath.lookbackDays`, though the
+    /// two currently agree. One centres a fixed week on today; this one places
+    /// a seven-day slice inside a month and is then clamped by the window's
+    /// edges, so it is not symmetric about today and the copy must not claim
+    /// it is. Sharing the constant meant a change to the overview silently
+    /// moved every monthly chart.
+    static let sliceLookbackDays = 3
     /// Below this, weekday columns don't apply (session windows).
     static let dayAxisMinSpan: TimeInterval = 2 * daySeconds
     /// How far a plot may reach back past its own window to show the burn a
@@ -280,6 +324,25 @@ enum BurndownChartAxis {
         var windowEndEpoch: Double { windowEnd.timeIntervalSince1970 }
         var showsDayAxis: Bool {
             endEpoch - startEpoch >= dayAxisMinSpan
+        }
+
+        /// Whether the plot spans the pool's whole window.
+        ///
+        /// True for session, daily and weekly pools; false for a monthly one,
+        /// where the plot is a seven-day slice inside the window and the
+        /// budget diagonal runs off both edges. Derived rather than stored so
+        /// it cannot disagree with the domain `domain(…)` actually returned.
+        var showsWholeWindow: Bool {
+            startEpoch <= windowStartEpoch && endEpoch >= windowEndEpoch
+        }
+
+        /// What the X-axis covers, for the subtitle beside the chart's title.
+        /// The counterpart to `OverallBurndownChartMath.Domain.frameLabel`:
+        /// the two rules are told apart here, in words, exactly once.
+        var frameLabel: String {
+            showsWholeWindow
+                ? HeadroomCopy.windowFrame
+                : HeadroomCopy.windowSliceFrame
         }
     }
 
@@ -312,8 +375,7 @@ enum BurndownChartAxis {
             )
         }
         // Monthly+: seven days covering now, clamped inside the window.
-        var lo = now - TimeInterval(OverallBurndownChartMath.lookbackDays)
-            * daySeconds
+        var lo = now - TimeInterval(sliceLookbackDays) * daySeconds
         var hi = lo + week
         if lo < windowStart {
             lo = windowStart

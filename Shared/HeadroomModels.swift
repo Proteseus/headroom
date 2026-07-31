@@ -647,6 +647,55 @@ struct Burndown: Decodable, Sendable, Identifiable {
         OverallBurndownChartMath.cropProjection(pairs, windowEnd: windowEnd)
     }
 
+    /// The plot domain this pool's chart draws — window, history stub, and the
+    /// seven-day clip a monthly pool needs.
+    ///
+    /// Here rather than in `BurndownChartMath` because it reads the model, and
+    /// that file stays model-free so the widget target can compile it. Every
+    /// surface drawing a provider burndown goes through this: the Mac canvas,
+    /// the Mac header that names the frame, and the phone. Three copies of the
+    /// `now`/`historyStart` derivation is how a header ends up describing a
+    /// different axis from the one underneath it.
+    var chartDomain: BurndownChartAxis.Domain? {
+        Self.chartDomain(pools: [self])
+    }
+
+    /// The shared domain for pools overlaid on one axis — Cursor's Total and
+    /// API. The window comes from `anchor` alone; the others contribute their
+    /// samples and history, which is what keeps the overlaid curves registered
+    /// against one plot.
+    ///
+    /// Cursor's pools are one billing cycle but each holds its own reset, so
+    /// spanning min-start to max-end would draw the budget diagonal across a
+    /// window none of them has. `anchor` defaults to the first pool that names
+    /// a window; `MultiBurndownPlot` passes Total explicitly.
+    static func chartDomain(
+        pools: [Burndown],
+        anchor: Burndown? = nil
+    ) -> BurndownChartAxis.Domain? {
+        let anchored = anchor ?? pools.first {
+            $0.windowStart != nil && $0.windowEnd != nil
+        }
+        guard let anchored,
+              let start = anchored.windowStart,
+              let end = anchored.windowEnd
+        else { return nil }
+        let now = pools
+            .flatMap { ($0.actual ?? []).compactMap { $0.count >= 2 ? $0[0] : nil } }
+            .max() ?? Date().timeIntervalSince1970
+        return BurndownChartAxis.domain(
+            windowStart: start,
+            windowEnd: end,
+            now: now,
+            // Reaches back toward the spent windows by a stub of the window —
+            // see `historyFraction`. `forgiven` is the fallback for a host
+            // older than `history`.
+            historyStart: pools
+                .compactMap { ($0.history ?? $0.forgiven)?.first?.first }
+                .min()
+        )
+    }
+
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
         case exhausted, verdict, resets, forgiven, history
