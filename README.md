@@ -382,6 +382,7 @@ entry expand into several rows — see **Extra accounts** above.
 | `plausible_sites` | Optional domain filter / fallback when the key cannot list sites |
 | `plausible_host` | Cloud or self-hosted base URL (default `https://plausible.io`) |
 | `plausible_range` | Primary window: `day`, `24h` (default), `7d`, or `30d` |
+| `gemini_oauth_client_id` / `_secret` | Only if Gemini refreshes fail: the public client constants the host normally reads out of the installed `gemini` CLI |
 | `auth_token` | Override the generated **host token** |
 | `require_auth` | `false` opens `/usage` to the whole network (default `true`) |
 | `mobile_permissions` | iOS grants: `read`, `refresh`, `sources`, `servers` |
