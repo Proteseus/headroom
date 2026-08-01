@@ -374,8 +374,14 @@ enum HeadroomCopy {
     static let activityLocal = "Local"
     static let activityCommitted = "Committed"
 
-    /// "2 need attention" — the feed's own count, above the rows, so the
-    /// answer to "is anything broken" doesn't depend on scanning dots.
+    /// The feed's section title on the iOS Activity tab, where it shares a
+    /// screen with the service panels. "Recent" rather than "Activity", which
+    /// is the tab it is already sitting in.
+    static let recentActivity = "Recent"
+
+    /// "2 need attention" — the count the Activity tab shows in place of the
+    /// rows themselves, which live on Attention. Also the header above them
+    /// there, so the number and the list say the same thing.
     static func needsAttention(count: Int) -> String {
         count == 1 ? "1 needs attention" : "\(count) need attention"
     }

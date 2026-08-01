@@ -1,166 +1,109 @@
 import SwiftUI
 
-/// The phone's copy of the merged feed. Same reading order as the Mac card:
-/// what is broken, under a count, above everything that merely happened —
-/// with the status vocabulary coming from `Shared/ActivityStatus.swift` so the
-/// two surfaces can't drift into different ideas of green.
+/// What the Mac has been doing, and what it is running: the merged deploy /
+/// commit / Actions feed above the service panels that used to be a tab of
+/// their own.
+///
+/// Nothing on this screen is waiting for an answer. Rows that failed live on
+/// `AttentionScreen`, which is also the one place that decides which those are
+/// — this screen takes the complement, so the two can't disagree.
 struct ActivityScreen: View {
     @ObservedObject var store: MobileUsageStore
-    @Environment(\.openURL) private var openURL
+    /// Tapping the "N need attention" line jumps to the tab holding them,
+    /// rather than reprinting the rows it just moved away.
+    var showAttention: () -> Void
+    @State private var serverToStop: LocalServer?
+    @State private var controlError: String?
 
     var body: some View {
-        let rows = store.snapshot.activity ?? []
-        let attention = rows.filter {
-            ActivityStatusStyle.resolve($0.status).needsAttention
-        }
-        let routine = rows.filter {
+        let waiting = AttentionScreen.failures(in: store.snapshot).count
+        let rows = (store.snapshot.activity ?? []).filter {
             !ActivityStatusStyle.resolve($0.status).needsAttention
         }
         List {
             ArchivedDataNotice(store: store)
-            if store.mobilePermissions.agents, let surface = store.agentTaskSurface {
-                Section(HeadroomCopy.startTask) {
-                    StartAgentTaskView(
-                        surface: surface,
-                        tint: { id in
-                            (store.snapshot.providers ?? [])
-                                .accentTint(forProvider: id)
-                        },
-                        start: { provider, cwd, prompt in
-                            await store.startTask(
-                                provider: provider, cwd: cwd, prompt: prompt)
-                        }
-                    )
-                    .padding(.vertical, 4)
-                }
-            }
-            if !store.agentAttentionEvents.isEmpty {
-                Section(HeadroomCopy.answerCodingAgents) {
-                    ForEach(store.agentAttentionEvents) { event in
-                        agentRow(event)
-                            // Only rows whose sole answer is "dismiss" can be
-                            // swiped. A swipe that denied a permission would
-                            // send Claude a real answer by accident.
-                            .swipeActions(edge: .trailing) {
-                                if event.isDismissOnly,
-                                   let dismiss = event.actions.first {
-                                    Button(dismiss.label) {
-                                        Task {
-                                            await store.answer(
-                                                event, with: dismiss)
-                                        }
-                                    }
-                                    .tint(HeadroomPalette.dim)
-                                }
-                            }
-                    }
-                }
-            }
-            // One list, failures first, uniform rows — same reading order as
-            // the Mac card. Splitting it into sections put a gap in the middle
-            // of what is really one timeline.
-            if !rows.isEmpty {
-                Section {
-                    ForEach(attention + routine) { row($0) }
-                } header: {
-                    if attention.isEmpty {
-                        Label(HeadroomCopy.allClear, systemImage: "checkmark.circle")
-                            .foregroundStyle(HeadroomPalette.green)
-                    } else {
+            if waiting > 0 {
+                Button(action: showAttention) {
+                    HStack {
                         Label(
-                            HeadroomCopy.needsAttention(count: attention.count),
+                            HeadroomCopy.needsAttention(count: waiting),
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .foregroundStyle(HeadroomPalette.red)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
                     }
                 }
+                .buttonStyle(.plain)
             }
-        }
-        .overlay {
-            if rows.isEmpty {
-                ContentUnavailableView(
-                    HeadroomCopy.noActivityYet,
-                    systemImage: "bolt.horizontal.circle"
-                )
+            Section(HeadroomCopy.recentActivity) {
+                if rows.isEmpty {
+                    Text(HeadroomCopy.noActivityYet)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(rows) { ActivityRow(item: $0) }
+                }
             }
+            ServiceSections(store: store) { serverToStop = $0 }
         }
         .navigationTitle(HeadroomCopy.activity)
         .refreshable { await store.refresh(forceServerSync: true) }
-        .task { await store.loadTaskSurface() }
-    }
-
-    private func agentRow(_ event: AgentAttentionEvent) -> some View {
-        let tint = (store.snapshot.providers ?? [])
-            .accentTint(forProvider: event.providerIconID)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(event.title)
-                    .font(.headline)
-                Spacer(minLength: 6)
-                // Same treatment as an activity row's age, so the two halves
-                // of one feed read as one feed.
-                Text(HeadroomCopy.ago(event.age))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                // The mark rides in the corner rather than in front of the
-                // title: which agent asked is a property of the row, not the
-                // first thing to read in the sentence.
-                ProviderMark(providerID: event.providerIconID, size: 14)
-                    .foregroundStyle(tint)
-                    .alignmentGuide(.firstTextBaseline) { $0.height - 2 }
+        .confirmationDialog(
+            "Stop \(serverToStop?.name ?? "server")?",
+            isPresented: Binding(
+                get: { serverToStop != nil },
+                set: { if !$0 { serverToStop = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Stop server", role: .destructive) {
+                guard let server = serverToStop else { return }
+                serverToStop = nil
+                Task { await authenticateAndStop(server) }
             }
-            Text(event.summary)
-                .font(.subheadline)
-            if let reasons = event.detail.reasons, !reasons.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(HeadroomCopy.agentWhyAsking)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(reasons, id: \.self) { reason in
-                        Text(reason)
-                            .font(.caption)
-                            .foregroundStyle(HeadroomPalette.amber)
-                    }
-                }
-            }
-            AgentRequestView(fields: event.detail.requestFields)
-            if event.detail.answerOnMac == true {
-                Label(HeadroomCopy.answerInTheTerminal,
-                      systemImage: "desktopcomputer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            // Wraps: three options no longer run off the edge of the row.
-            FlowingActions(
-                actions: event.actions,
-                tint: tint,
-                disabled: !store.mobilePermissions.agents
-                    || store.respondingAgentEventID != nil,
-                responding: store.respondingAgentEventID == event.id
-            ) { action, text in
-                Task { await store.answer(event, with: action, text: text) }
-            }
-            if event.actions.contains(where: { $0.id == "approve_always" }),
-               let rule = event.detail.permissionRule {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(HeadroomCopy.agentWouldSaveRule)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Text(rule)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
+            Button("Cancel", role: .cancel) { serverToStop = nil }
+        } message: {
+            Text("Stops the process on your Mac.")
         }
-        .padding(.vertical, 4)
+        .alert(
+            "Couldn’t complete action",
+            isPresented: Binding(
+                get: { controlError != nil },
+                set: { if !$0 { controlError = nil } }
+            )
+        ) {
+            Button("OK") { controlError = nil }
+        } message: {
+            Text(controlError ?? "")
+        }
     }
 
-    @ViewBuilder
-    private func row(_ item: ActivityItem) -> some View {
+    @MainActor
+    private func authenticateAndStop(_ server: LocalServer) async {
+        do {
+            try await MobileControlAuthorizer.authorize(
+                reason: "Stop \(server.name ?? "this server") on your Mac"
+            )
+            await store.stopServer(server)
+        } catch {
+            controlError = error.localizedDescription
+        }
+    }
+}
+
+/// One feed row, drawn the same on both tabs. Status vocabulary comes from
+/// `Shared/ActivityStatus.swift` so the phone and the Mac card can't drift
+/// into different ideas of green.
+struct ActivityRow: View {
+    let item: ActivityItem
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
         let style = ActivityStatusStyle.resolve(item.status)
         Button {
-            open(item)
+            if let target = url { openURL(target) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: style.symbol)
@@ -173,7 +116,7 @@ struct ActivityScreen: View {
                     Text(item.subject ?? "Event")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text(caption(item, style))
+                    Text(caption(style))
                         .font(.caption)
                         .foregroundStyle(style.needsAttention
                                          ? AnyShapeStyle(style.tint)
@@ -194,12 +137,12 @@ struct ActivityScreen: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
-        .disabled(url(item) == nil)
+        .disabled(url == nil)
     }
 
     /// "Failed · headroom · Release · main · 1901f54" — state first, then the
     /// coordinates. Matches the Mac card word for word.
-    private func caption(_ item: ActivityItem, _ style: ActivityStatusStyle) -> String {
+    private func caption(_ style: ActivityStatusStyle) -> String {
         var parts = [style.label]
         let repo = leafName(item.repo)
         if let repo { parts.append(repo) }
@@ -218,14 +161,8 @@ struct ActivityScreen: View {
         return raw.split(separator: "/").last.map(String.init)
     }
 
-    private func url(_ item: ActivityItem) -> URL? {
+    private var url: URL? {
         guard let raw = item.inspectorURL ?? item.url, !raw.isEmpty else { return nil }
         return URL(string: raw.contains("://") ? raw : "https://\(raw)")
-    }
-
-    private func open(_ item: ActivityItem) {
-        if let target = url(item) {
-            openURL(target)
-        }
     }
 }

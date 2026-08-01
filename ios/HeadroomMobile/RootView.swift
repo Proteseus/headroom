@@ -1,9 +1,13 @@
 import SwiftUI
 
+/// Three tabs, split by what they ask of you rather than by where the data
+/// came from: a summary, a queue, and a log. Services stopped being a tab of
+/// its own in that split — a Supabase project and a deploy are both "what the
+/// Mac is doing", and neither is waiting for an answer.
 enum MobileTab: String, CaseIterable, Hashable {
     case overview
+    case attention
     case activity
-    case services
 }
 
 struct RootView: View {
@@ -28,18 +32,24 @@ struct RootView: View {
                     .tag(MobileTab.overview)
 
                     NavigationStack {
-                        ActivityScreen(store: store)
+                        AttentionScreen(store: store)
                             .settingsToolbar($showsSettings)
+                    }
+                    .tabItem {
+                        Label(HeadroomCopy.attention,
+                              systemImage: "exclamationmark.bubble")
+                    }
+                    .badge(waitingCount)
+                    .tag(MobileTab.attention)
+
+                    NavigationStack {
+                        ActivityScreen(store: store) {
+                            selectedTab = .attention
+                        }
+                        .settingsToolbar($showsSettings)
                     }
                     .tabItem { Label(HeadroomCopy.activity, systemImage: "bolt.horizontal.circle") }
                     .tag(MobileTab.activity)
-
-                    NavigationStack {
-                        ServicesScreen(store: store)
-                            .settingsToolbar($showsSettings)
-                    }
-                    .tabItem { Label(HeadroomCopy.services, systemImage: "server.rack") }
-                    .tag(MobileTab.services)
                 }
             } else {
                 NavigationStack {
@@ -62,6 +72,14 @@ struct RootView: View {
             guard let exportDirectory else { return }
             await runScreenshotExport(to: exportDirectory)
         }
+    }
+
+    /// What the Attention tab is holding, for the badge. Rollup reasons are
+    /// deliberately not added in: several of them are a reading of the same
+    /// failed rows, so counting both reports one broken build twice.
+    private var waitingCount: Int {
+        store.agentAttentionEvents.count
+            + AttentionScreen.failures(in: store.snapshot).count
     }
 
     /// Signal each tab after Charts settle so `simctl io screenshot` can grab it.
@@ -103,7 +121,6 @@ private struct OverviewScreen: View {
                     providers: store.visibleProviders,
                     snapshot: store.snapshot
                 )
-                MobileAttentionCard(store: store)
                 DailyBurnChart(
                     days: store.snapshot.byDay ?? [],
                     providers: store.visibleProviders
@@ -219,45 +236,6 @@ struct ArchivedDataNotice: View {
                     .foregroundStyle(HeadroomPalette.amber)
             }
         }
-    }
-}
-
-private struct MobileAttentionCard: View {
-    @ObservedObject var store: MobileUsageStore
-
-    var body: some View {
-        let attention = store.snapshot.attention
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(HeadroomCopy.attention)
-                    .font(.headline)
-                Spacer()
-                if attention?.isWarning == true {
-                    Button(HeadroomCopy.clearAttention, systemImage: "xmark.circle") {
-                        Task { await store.acknowledgeAttention() }
-                    }
-                    .labelStyle(.titleAndIcon)
-                }
-            }
-            let reasons = attention?.reasons ?? []
-            if reasons.isEmpty {
-                Label(HeadroomCopy.allClear, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(HeadroomPalette.green)
-            } else {
-                ForEach(reasons.prefix(5)) { reason in
-                    HStack(alignment: .top, spacing: 9) {
-                        Circle()
-                            .fill(HeadroomPalette.attention(reason.level))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 5)
-                        Text(reason.summary ?? HeadroomCopy.needsAttention)
-                            .font(.subheadline)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .headroomCard()
     }
 }
 

@@ -93,8 +93,10 @@ surface-specific (see the end of this file), but the shape does not.
 | **Overview** | Home summary | macOS tab, iOS tab |
 | **Quotas** | Coding quota detail, reached from Overview (no longer its own iOS tab) | iOS |
 | **Coding quotas** | Section title above the rings | macOS, iOS |
-| **Activity** | Merged deploys / commits / Actions feed | iOS tab, macOS section, ESP32 home mode |
-| **Services** | Supabase, Plausible, local servers | iOS tab (Mac stacks the same panels without a tab) |
+| **Attention** | The queue: agent questions, rollup reasons, failed rows | iOS tab |
+| **Activity** | Merged deploys / commits / Actions feed, over the service panels | iOS tab, macOS section, ESP32 home mode |
+| **Recent** | The feed's section title inside the iOS Activity tab | iOS |
+| **Services** | Supabase, Plausible, local servers | Sections on the iOS Activity tab (Mac stacks the same panels) |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
 | **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs | macOS Settings |
@@ -109,7 +111,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
 | **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
-| **Attention** | Warning / status card (scoring policy: `docs/attention.md`) | macOS, iOS |
+| **Attention** | Warning / status card on the Mac, and the iOS tab it became (scoring policy: `docs/attention.md`) | macOS, iOS |
 | **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
 | **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
 | **Coding agents** | Provider setup and attention gateway settings | macOS |

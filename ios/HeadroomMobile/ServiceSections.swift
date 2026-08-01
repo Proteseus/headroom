@@ -1,49 +1,23 @@
 import LocalAuthentication
 import SwiftUI
 
-struct ServicesScreen: View {
+/// Supabase, Plausible and the listening ports, as sections rather than a
+/// screen. They were their own tab until the phone was split by urgency
+/// instead of by source; now they sit under the feed on `ActivityScreen`,
+/// which owns the list and therefore the confirmation dialogs too — a
+/// `confirmationDialog` hung off a `Section` presents from nowhere in
+/// particular.
+struct ServiceSections: View {
     @ObservedObject var store: MobileUsageStore
     @Environment(\.openURL) private var openURL
-    @State private var serverToStop: LocalServer?
-    @State private var controlError: String?
+    /// Asking to stop a server is this view's whole outbound surface. The
+    /// screen above it owns the confirm, the biometric check and the failure.
+    var requestStop: (LocalServer) -> Void
 
     var body: some View {
-        List {
-            ArchivedDataNotice(store: store)
-            supabaseSection
-            plausibleSection
-            localServersSection
-        }
-        .navigationTitle(HeadroomCopy.services)
-        .refreshable { await store.refresh(forceServerSync: true) }
-        .confirmationDialog(
-            "Stop \(serverToStop?.name ?? "server")?",
-            isPresented: Binding(
-                get: { serverToStop != nil },
-                set: { if !$0 { serverToStop = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Stop server", role: .destructive) {
-                guard let server = serverToStop else { return }
-                serverToStop = nil
-                Task { await authenticateAndStop(server) }
-            }
-            Button("Cancel", role: .cancel) { serverToStop = nil }
-        } message: {
-            Text("Stops the process on your Mac.")
-        }
-        .alert(
-            "Couldn’t complete action",
-            isPresented: Binding(
-                get: { controlError != nil },
-                set: { if !$0 { controlError = nil } }
-            )
-        ) {
-            Button("OK") { controlError = nil }
-        } message: {
-            Text(controlError ?? "")
-        }
+        supabaseSection
+        plausibleSection
+        localServersSection
     }
 
     @ViewBuilder
@@ -258,7 +232,7 @@ struct ServicesScreen: View {
                             ProgressView()
                         } else if server.pid != nil {
                             Button("Stop", systemImage: "stop.circle") {
-                                serverToStop = server
+                                requestStop(server)
                             }
                             .labelStyle(.iconOnly)
                             .foregroundStyle(HeadroomPalette.red)
@@ -297,18 +271,6 @@ struct ServicesScreen: View {
             server.latencyMS.map { "\($0)ms" },
             server.cmd,
         ].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    @MainActor
-    private func authenticateAndStop(_ server: LocalServer) async {
-        do {
-            try await MobileControlAuthorizer.authorize(
-                reason: "Stop \(server.name ?? "this server") on your Mac"
-            )
-            await store.stopServer(server)
-        } catch {
-            controlError = error.localizedDescription
-        }
     }
 }
 

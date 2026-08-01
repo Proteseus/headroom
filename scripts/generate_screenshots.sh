@@ -96,7 +96,7 @@ IOS_APP="$(find "$IOS_DERIVED" -type d -name 'HeadroomMobile.app' | head -1)"
   exit 1
 }
 
-echo "→ export iOS tabs (overview / activity / services)"
+echo "→ export iOS tabs (overview / attention / activity)"
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl uninstall "$UDID" com.centaur-labs.headroom 2>/dev/null || true
@@ -106,7 +106,7 @@ xcrun simctl launch "$UDID" com.centaur-labs.headroom \
   --export-screenshots "$OUT" \
   --fixture "$FIXTURE" >/dev/null
 
-for tab in overview activity services; do
+for tab in overview attention activity; do
   marker="$OUT/.ios-shot-ready-$tab"
   for _ in $(seq 1 50); do
     [[ -f "$marker" ]] && break

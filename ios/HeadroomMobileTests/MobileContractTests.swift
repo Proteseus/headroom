@@ -147,10 +147,48 @@ final class MobileContractTests: XCTestCase {
         )
     }
 
+    /// Attention and Activity are a partition of one feed, not two filters
+    /// that happen to agree. Every row lands on exactly one tab, and the
+    /// failing ones land on Attention — the tab bar's badge counts the same
+    /// call, so a disagreement here is a row nobody can reach.
+    func testAttentionAndActivitySplitTheFeedExactlyOnce() throws {
+        let data = Data(
+            """
+            {
+              "activity": [
+                {"id": "a1", "status": "failure", "subject": "Release"},
+                {"id": "a2", "status": "ready", "subject": "Deploy"},
+                {"id": "a3", "status": "pushed", "subject": "Push"},
+                {"id": "a4", "status": "error", "subject": "Tests"}
+              ]
+            }
+            """.utf8
+        )
+        let snapshot = try JSONDecoder().decode(UsageSnapshot.self, from: data)
+        let failing = AttentionScreen.failures(in: snapshot)
+        let rest = (snapshot.activity ?? []).filter {
+            !ActivityStatusStyle.resolve($0.status).needsAttention
+        }
+        XCTAssertEqual(failing.map(\.id), ["a1", "a4"])
+        XCTAssertEqual(failing.count + rest.count, snapshot.activity?.count)
+        XCTAssertTrue(Set(failing.map(\.id)).isDisjoint(with: rest.map(\.id)))
+    }
+
+    /// Tab order is the reading order the split exists for: what is going on,
+    /// what wants you, what happened.
+    func testTabsRunSummaryThenQueueThenLog() {
+        XCTAssertEqual(
+            MobileTab.allCases.map(\.rawValue),
+            ["overview", "attention", "activity"]
+        )
+    }
+
     func testHeadroomCopyMatchesGlossaryTerms() {
         XCTAssertEqual(HeadroomCopy.dailyBurn, "Daily burn")
         XCTAssertEqual(HeadroomCopy.overallBurndown, "Overall burndown")
         XCTAssertEqual(HeadroomCopy.activity, "Activity")
+        XCTAssertEqual(HeadroomCopy.attention, "Attention")
+        XCTAssertEqual(HeadroomCopy.recentActivity, "Recent")
         XCTAssertEqual(HeadroomCopy.services, "Services")
         XCTAssertEqual(HeadroomCopy.allClear, "All clear")
         XCTAssertEqual(HeadroomCopy.connected, "Connected")
