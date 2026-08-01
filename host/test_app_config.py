@@ -117,6 +117,59 @@ class AppConfigTests(unittest.TestCase):
         app_config.set_github_watch(prefixes=[])
         self.assertEqual(app_config.github_org_prefixes(), ())
 
+    def test_git_config_stores_the_root_unexpanded(self):
+        # Settings shows this field back to whoever typed it. Expanding on the
+        # way in makes an edit of "~/Dev" look like the save rewrote it.
+        result = app_config.set_git_config(root="~/", authors=["Ada", " ", "Ada"])
+        self.assertEqual(result["dev_root"], "~/")
+        self.assertEqual(result["dev_root_path"], os.path.expanduser("~/"))
+        self.assertEqual(result["authors"], ["Ada"])
+        self.assertEqual(app_config.dev_root_setting(), "~/")
+
+    def test_a_dev_root_that_is_not_there_is_refused(self):
+        app_config.set_git_config(root="~/")
+        with self.assertRaises(ValueError) as caught:
+            app_config.set_git_config(root="/nope/not/a/folder")
+        self.assertIn("/nope/not/a/folder", str(caught.exception))
+        # The previous root survives — a rejected save must not strand the
+        # scanner on a path nobody chose.
+        self.assertEqual(app_config.dev_root_setting(), "~/")
+
+    def test_an_empty_dev_root_is_refused(self):
+        with self.assertRaises(ValueError):
+            app_config.set_git_config(root="   ")
+
+    def test_git_config_omitted_keys_are_left_alone(self):
+        app_config.set_git_config(root="~/", authors=["Ada"])
+        app_config.set_git_config(authors=["Grace"])
+        self.assertEqual(app_config.dev_root_setting(), "~/")
+        self.assertEqual(app_config.git_authors(), ["Grace"])
+
+    def test_vercel_teams_are_lowercased_and_deduped(self):
+        result = app_config.set_vercel_teams(slugs=["Acme", "acme", " ", "Ada"])
+        self.assertEqual(result["teams"], ["acme", "ada"])
+        self.assertEqual(app_config.vercel_team_slugs(), ("acme", "ada"))
+
+    def test_clearing_vercel_teams_reads_every_team(self):
+        app_config.set_vercel_teams(slugs=["acme"])
+        app_config.set_vercel_teams(slugs=[])
+        self.assertEqual(app_config.vercel_team_slugs(), ())
+
+    def test_git_and_vercel_writes_leave_other_config(self):
+        with open(self.path, "w") as handle:
+            json.dump({"timezone": "Europe/Amsterdam"}, handle)
+        app_config.set_git_config(root="~/", authors=["Ada"])
+        app_config.set_vercel_teams(slugs=["acme"])
+        self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
+        self.assertEqual(app_config.git_authors(), ["Ada"])
+
+    def test_dev_root_stays_out_of_the_multi_mac_merge(self):
+        # A path describing one machine's disk must never follow a settings
+        # sync to a Mac where it does not exist.
+        self.assertNotIn("dev_root", app_config.SHARED_CONFIG_KEYS)
+        self.assertIn("git_authors", app_config.SHARED_CONFIG_KEYS)
+        self.assertIn("vercel_team_slugs", app_config.SHARED_CONFIG_KEYS)
+
     def test_persists_mobile_permissions_without_losing_other_config(self):
         with open(self.path, "w") as handle:
             json.dump({"timezone": "Europe/Amsterdam"}, handle)

@@ -31,6 +31,19 @@ genuinely different per machine and a merged list of them would describe a
 computer that does not exist. Each Mac publishes a summary of its own and the
 others show it with an owner and an age.
 
+## iPhone connections
+
+The iPhone can keep more than one Mac paired. Each saved computer has its own
+endpoint and token; the endpoint is ordinary metadata, while the token stays
+in that iPhone's device-only Keychain. Settings → Connection shows the saved
+computers and lets the user switch which one supplies live data. The iPhone's
+Local servers section names that selected Mac, so a port is never presented as
+an unexplained machine-local fact.
+
+This first step is deliberately a switcher, not a merged live feed. Combining
+attention events or server rows from several Macs comes next, once each row can
+retain its owning endpoint for replies and controls.
+
 ## Turning it on
 
 **Settings → Other Macs → Share settings between my Macs**, on each Mac. The
@@ -310,6 +323,11 @@ found* for an item that is plainly in Keychain Access. This is the whole trap:
   **add-then-delete**. The local copy is the only copy until the synced one is
   confirmed written. Reversing that order loses a token the user pasted in
   months ago and cannot re-derive.
+- `TokenStore.save()` tries the synced write first and **falls back to local**
+  when it fails. Ad-hoc / unsigned builds (no Team ID) and iCloud Keychain
+  being off both refuse `kSecAttrSynchronizable`; without the fallback,
+  Settings → Supabase/GitHub/Plausible Connect hard-fails with
+  "Could not save … token" even though a this-Mac-only item would work.
 - The accessible class cannot be a `…ThisDeviceOnly` variant; those are refused
   outright for a synchronizable item.
 

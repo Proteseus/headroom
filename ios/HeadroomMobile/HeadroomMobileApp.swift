@@ -8,9 +8,10 @@ struct HeadroomMobileApp: App {
     private let exportDirectory = Self.argValue("--export-screenshots")
 
     init() {
+        MobileNotifications.installDelegate()
         if CommandLine.arguments.contains("--export-screenshots") {
             // Skip BGTask registration during headless screenshot export.
-            // Mark paired before the first frame so RootView shows Overview,
+            // Mark paired before the first frame so RootView shows Usage,
             // not the pairing sheet.
             UserDefaults.standard.set(true, forKey: MobileConnection.configuredKey)
             UserDefaults.standard.set(

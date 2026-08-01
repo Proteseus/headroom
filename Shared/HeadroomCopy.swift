@@ -10,13 +10,21 @@ enum HeadroomCopy {
 
     // MARK: Navigation & sections
 
-    static let overview = "Overview"
+    static let usage = "Usage"
+    static let summary = "Summary"
     static let quotas = "Quotas"
     static let codingQuotas = "Coding quotas"
     static let activity = "Activity"
     static let services = "Services"
+    static let supabase = "Supabase"
+    static let plausible = "Plausible"
     static let localServers = "Local servers"
     static let otherMacs = "Other Macs"
+    static let computers = "Computers"
+    static let addComputer = "Add computer"
+    static let noComputersPaired = "No computers paired yet."
+    static let computerPairingHint =
+        "Each computer keeps its own token in this iPhone’s Keychain. The selected computer supplies live data."
     static let settings = "Settings"
     static let about = "About"
     static let attention = "Attention"
@@ -30,6 +38,10 @@ enum HeadroomCopy {
     static let settingsSources = "Sources"
     static let settingsiPhone = "iPhone"
     static let settingsIntegrations = "Integrations"
+    /// The two halves of Integrations that are not agents. Code is where work
+    /// lands; services are what you point a key at.
+    static let integrationsCode = "Code and deploys"
+    static let integrationsServices = "Services"
     static let settingsConnection = "Connection"
     static let settingsPermissions = "Permissions"
     /// macOS Settings → General. Matches System Settings → Login Items wording.
@@ -51,20 +63,21 @@ enum HeadroomCopy {
     static let overallBurndown = "Overall burndown"
 
     // Every burndown says which frame it draws, because there are two and they
-    // disagree on purpose. The overview is anchored to the clock (it has no
+    // disagree on purpose. Usage is anchored to the clock (it has no
     // single window to anchor to, which is also why it has no budget line); a
     // provider chart is anchored to its window. Unlabelled, the pair reads as
     // one chart that keeps changing its mind. `frameLabel` on each Domain
     // picks the string, so no surface writes these words itself.
 
-    /// Overview subtitle. Says the anchor, not just the span: the old "7 days"
+    /// Usage subtitle. Says the anchor, not just the span: the old "7 days"
     /// left a reader guessing whether that meant the week behind, the week
-    /// ahead, or the one around them. The domain is three days either side of
-    /// today, so say so — see `OverallBurndownChartMath.lookbackDays`.
+    /// ahead, or the one around them. The domain is three and a half days either
+    /// side of today
+    /// today, so say so — see `OverallBurndownChartMath`'s history extension.
     static let overallBurndownSubtitle = "7 days around today"
     /// Duration form of the same fact, for the watch, where the long form
     /// wraps to two lines under a chart 62pt tall.
-    static let overallBurndownSubtitleShort = "±3d"
+    static let overallBurndownSubtitleShort = "±3.5d"
     /// Provider-chart subtitle: the plot spans this pool's whole window, from
     /// its start to its reset, which is what the budget diagonal measures.
     static let windowFrame = "This window"
@@ -133,7 +146,7 @@ enum HeadroomCopy {
     }
 
     /// "Reset granted · 42% back" — caption on the Codex burndown when a
-    /// mid-window grant restarted the curve. Not shown on Overview.
+    /// mid-window grant restarted the curve. Not shown on Usage.
     ///
     /// Percent, not "pts", even though Codex itself grants credits: the number
     /// here is a share of the window this chart draws, and borrowing the
@@ -185,9 +198,21 @@ enum HeadroomCopy {
     /// In-flight poll / sync while the link is already healthy.
     static let refreshing = "Refreshing…"
     static let clearAttention = "Clear"
+    static let dismiss = "Dismiss"
+    /// Bulk clear on either Attention section: passive agent notices, or the
+    /// warnings the rollup and the feed put in the queue.
+    static let dismissAll = "Dismiss all"
     static let refreshAll = "Refresh all"
     static let answerCodingAgents = "Answer coding agents"
     static let codingAgents = "Coding agents"
+    static let agentCompanionTitle = "Your agents, wherever you are"
+    static let agentQuestionMode = "Claude questions"
+    static let agentQuestionNotify = "Show on Mac + iPhone"
+    static let agentQuestionAnswer = "Let iPhone answer"
+    static let agentQuestionOff = "Mac only"
+    static let agentQuestionModeHelp =
+        "Let iPhone answer briefly pauses a question while Headroom waits for your choice."
+    static let claudeCode = "Claude Code"
     static let claudeCodeHooks = "Claude Code hooks"
     static let installHooks = "Install hooks"
     static let reinstallHooks = "Reinstall hooks"
@@ -379,9 +404,29 @@ enum HeadroomCopy {
     /// is the tab it is already sitting in.
     static let recentActivity = "Recent"
 
-    /// "2 need attention" — the count the Activity tab shows in place of the
-    /// rows themselves, which live on Attention. Also the header above them
-    /// there, so the number and the list say the same thing.
+    /// Function-level headers for the iOS Activity tab. The host's activity
+    /// feed is intentionally mixed, so the phone groups it by what happened
+    /// rather than asking the reader to decode a generic chronological list.
+    static let vercelDeployments = "Vercel deployments"
+    static let gitCommits = "Git commits"
+    static let quotaResets = "Quota resets"
+    static let claudeStatus = "Claude status"
+    static let otherActivity = "Other activity"
+
+    static func activityGroupTitle(for kind: String?) -> String {
+        switch kind {
+        case "github": return githubActions
+        case "deployment": return vercelDeployments
+        case "commit": return gitCommits
+        case "supabase": return supabase
+        case "reset": return quotaResets
+        case "claude-status": return claudeStatus
+        default: return otherActivity
+        }
+    }
+
+    /// "2 need attention" — the count in Attention's section header. The tab
+    /// badge carries the same signal when the user is on another tab.
     static func needsAttention(count: Int) -> String {
         count == 1 ? "1 needs attention" : "\(count) need attention"
     }
@@ -429,6 +474,7 @@ enum HeadroomCopy {
     static let checkingForUpdates = "Checking…"
     static let upToDate = "Up to date"
     static let installUpdate = "Install and restart"
+    static let newVersionAvailable = "New version available"
     /// Said to a copy that is not in /Applications, so it must not replace
     /// itself. Names the reason rather than greying a button with no comment.
     static let updatesNotFromHere =

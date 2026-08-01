@@ -1,7 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// The popover shell: header, tab switcher, footer, and the stack of sections.
+/// The popover shell: header, semantic mode switcher, footer, and the stack of
+/// sections. Provider selection stays inside Usage, matching the iPhone's
+/// Usage → provider detail relationship.
 /// Each section owns its own rendering and preferences — see QuotaSection,
 /// ActivitySection, SupabaseSection, ServersSection.
 struct DashboardView: View {
@@ -10,14 +12,22 @@ struct DashboardView: View {
     private var selectedProviderRaw = UsageProvider.codex.rawValue
     @AppStorage("selectedDashboard")
     private var selectedDashboardRaw = DashboardSelection.overview
+    @AppStorage("selectedDashboardMode")
+    private var selectedModeRaw = DashboardMode.overview.rawValue
     @State private var serverToStop: LocalServer?
+    @ObservedObject private var updates = UpdateChecker.shared
+    @State private var updateInstallMessage: String?
 
     private var visibleProviders: [QuotaProviderInfo] {
         store.snapshot.visibleQuotaProviders
     }
 
+    private var selectedMode: DashboardMode {
+        DashboardMode(rawValue: selectedModeRaw) ?? .overview
+    }
+
     private var isOverview: Bool {
-        selectedDashboardRaw == DashboardSelection.overview
+        selectedMode == .overview
     }
 
     /// The setup card is for "there is no host to talk to", not "the last call
@@ -46,58 +56,59 @@ struct DashboardView: View {
                         if let skew = store.hostSkew {
                             HostSkewBanner(skew: skew, store: store)
                         }
-                        // Warnings first, above the provider switcher: failed
-                        // deploys / Actions / etc. stay visible without
-                        // scrolling past quota charts, and don't read as part
-                        // of a provider tab. On provider tabs, only show the
-                        // card while something needs attention.
-                        let hasAttentionWarning =
-                            store.snapshot.attention?.isWarning == true
-                        if isOverview || hasAttentionWarning {
-                            AttentionCard(store: store)
-                        }
-                        providerSwitcher
-                        if isOverview {
-                            QuotaOverviewCard(snapshot: store.snapshot) { providerID in
-                                selectedProviderRaw = providerID
-                                selectedDashboardRaw = providerID
-                            }
-                            OverviewBurndownCard(snapshot: store.snapshot)
-                            DailyBurnCard(
-                                days: store.snapshot.byDay ?? [],
-                                providerIDs: visibleProviders.map(\.id),
-                                tintFor: store.snapshot.tint(forProviderID:)
-                            )
-                            SpendCard(
-                                history: store.snapshot.history,
-                                today: store.snapshot.today
-                            )
+                        modeSwitcher
+                        if selectedMode == .attention {
+                            AttentionSection(store: store)
+                        } else if selectedMode == .activity {
+                            ActivitySection(items: store.snapshot.activity ?? [])
+                            SupabaseSection(data: store.snapshot.supabase)
+                            PlausibleSection(data: store.snapshot.plausible)
+                            ServersSection(store: store, pendingStop: $serverToStop)
+                            MachinesSection(machines: store.snapshot.peerMachines)
                         } else {
-                            let meter = store.snapshot.meter(
-                                forProviderID: selectedDashboardRaw)
-                            ProviderQuotaCard(
-                                meter: meter,
-                                tint: store.snapshot.tint(
-                                    forProviderID: selectedDashboardRaw)
-                            )
-                            BurndownCard(
-                                providerID: selectedDashboardRaw,
-                                rings: store.snapshot.burndownRings(
-                                    forProviderID: selectedDashboardRaw),
-                                tint: store.snapshot.tint(
-                                    forProviderID: selectedDashboardRaw),
-                                resetNoteURL: store.snapshot
-                                    .visibleQuotaProviders
-                                    .first { $0.id == selectedDashboardRaw }?
-                                    .resetNoteURL
-                                    .flatMap(URL.init(string:))
-                            )
+                            providerSwitcher
+                            if selectedDashboardRaw == DashboardSelection.overview {
+                                QuotaOverviewCard(snapshot: store.snapshot) { providerID in
+                                    selectedProviderRaw = providerID
+                                    selectedDashboardRaw = providerID
+                                }
+                                OverviewBurndownCard(snapshot: store.snapshot)
+                                DailyBurnCard(
+                                    days: store.snapshot.byDay ?? [],
+                                    providerIDs: visibleProviders.map(\.id),
+                                    tintFor: store.snapshot.tint(forProviderID:)
+                                )
+                                SpendCard(
+                                    history: store.snapshot.history,
+                                    today: store.snapshot.today
+                                )
+                            } else {
+                                let providerID = selectedDashboardRaw
+                                let meter = store.snapshot.meter(
+                                    forProviderID: providerID)
+                                ProviderQuotaCard(
+                                    meter: meter,
+                                    subscriptionPricing: store.snapshot
+                                        .visibleQuotaProviders
+                                        .first { $0.id == providerID }?
+                                        .subscriptionPricing,
+                                    tint: store.snapshot.tint(
+                                        forProviderID: providerID)
+                                )
+                                BurndownCard(
+                                    providerID: providerID,
+                                    rings: store.snapshot.burndownRings(
+                                        forProviderID: providerID),
+                                    tint: store.snapshot.tint(
+                                        forProviderID: providerID),
+                                    resetNoteURL: store.snapshot
+                                        .visibleQuotaProviders
+                                        .first { $0.id == providerID }?
+                                        .resetNoteURL
+                                        .flatMap(URL.init(string:))
+                                )
+                            }
                         }
-                        ActivitySection(items: store.snapshot.activity ?? [])
-                        SupabaseSection(data: store.snapshot.supabase)
-                        PlausibleSection(data: store.snapshot.plausible)
-                        ServersSection(store: store, pendingStop: $serverToStop)
-                        MachinesSection(machines: store.snapshot.peerMachines)
                     }
                 }
                 .padding(16)
@@ -117,6 +128,62 @@ struct DashboardView: View {
                 secondaryButton: .cancel()
             )
         }
+        .alert(
+            "Couldn’t install update",
+            isPresented: Binding(
+                get: { updateInstallMessage != nil },
+                set: { if !$0 { updateInstallMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { updateInstallMessage = nil }
+        } message: {
+            Text(updateInstallMessage ?? "Please try again from Settings.")
+        }
+    }
+
+    private var modeSwitcher: some View {
+        HStack(spacing: 2) {
+            ForEach(DashboardMode.allCases, id: \.self) { mode in
+                Button {
+                    selectedModeRaw = mode.rawValue
+                    if mode == .overview {
+                        selectedDashboardRaw = DashboardSelection.overview
+                    }
+                } label: {
+                    Label(mode.title, systemImage: mode.systemImage)
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .font(.caption.weight(
+                            selectedMode == mode ? .semibold : .medium))
+                        .foregroundStyle(
+                            selectedMode == mode ? .primary : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
+                        .background {
+                            if selectedMode == mode {
+                                Capsule(style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                                    .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
+                            }
+                        }
+                        .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help(mode.title)
+                .accessibilityLabel(mode.title)
+                .accessibilityAddTraits(
+                    selectedMode == mode ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(
+            Color(nsColor: .separatorColor).opacity(0.35),
+            in: Capsule(style: .continuous)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Dashboard mode")
     }
 
     private var header: some View {
@@ -187,7 +254,7 @@ struct DashboardView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dashboard")
         .onChange(of: visibleProviders.map(\.id)) { _, ids in
-            // Drop onto Overview if the selected provider was disabled.
+            // Drop onto Summary if the selected provider was disabled.
             if !isOverview, !ids.contains(selectedDashboardRaw) {
                 selectedDashboardRaw = DashboardSelection.overview
             }
@@ -205,6 +272,27 @@ struct DashboardView: View {
             .disabled(store.isRefreshing)
             .help("Refresh")
             .accessibilityLabel("Refresh")
+            if let update = updates.available, UpdateCheck.canSelfUpdate {
+                Button {
+                    do {
+                        try UpdateInstaller.install(update)
+                    } catch {
+                        updateInstallMessage = error.localizedDescription
+                    }
+                } label: {
+                    Label(
+                        HeadroomCopy.newVersionAvailable,
+                        systemImage: "arrow.down.circle.fill"
+                    )
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+                .buttonStyle(.plain)
+                .help("Install Headroom \(update.version)")
+                .accessibilityLabel(
+                    "\(HeadroomCopy.newVersionAvailable): install Headroom \(update.version)"
+                )
+            }
             Spacer()
             SettingsLink {
                 Image(systemName: "gearshape")
@@ -261,7 +349,7 @@ struct DashboardView: View {
     }
 }
 
-/// Segment in the overview/provider switcher. Plain buttons on macOS only
+/// Segment in the summary/provider switcher. Plain buttons on macOS only
 /// hit-test their text unless the padded capsule is an explicit content shape.
 private struct DashboardTabButton: View {
     let tabID: String

@@ -68,6 +68,10 @@ class ClaudeHookInstallerTests(unittest.TestCase):
         status = claude_hooks.inspect(self.path)
         self.assertEqual(status["state"], "modified_externally")
 
+    def test_remote_question_hook_waits_long_enough_for_phone(self):
+        entry = claude_hooks._entry(8737, "PreToolUse", "answer")
+        self.assertEqual(entry["hooks"][0]["timeout"], 125)
+
 
 if __name__ == "__main__":
     unittest.main()

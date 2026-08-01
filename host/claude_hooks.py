@@ -13,7 +13,7 @@ DEFAULT_SETTINGS_PATH = os.path.expanduser("~/.claude/settings.json")
 MANAGED_PATH_PREFIX = "/agents/hooks/claude/"
 # PreToolUse is not in the always-installed set. It is the only hook here that
 # can block a tool call, so it is installed only when remote answering is
-# switched on — see app_config.agent_remote_questions.
+# switched on — see app_config.agent_question_mode.
 EVENTS = (
     "PermissionRequest",
     "UserPromptSubmit",
@@ -38,7 +38,7 @@ ENDPOINTS = {
 # question is sitting unanswerable on the Mac for exactly as long as we hold
 # it. The value must stay above the adapter's own wait so the timeout that
 # fires is ours, with a decision, rather than Claude's, with none.
-TIMEOUTS = {"PermissionRequest": 300, "PreToolUse": 30}
+TIMEOUTS = {"PermissionRequest": 300, "PreToolUse": 125}
 # In notify mode the hook posts and returns, so it needs no more time than the
 # other observing hooks — and holds nothing if the host is slow or gone.
 NOTIFY_TIMEOUT = 5

@@ -31,9 +31,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SIDE = 1024
 BG = (28, 28, 30)
 TRACK_MIX = 0.20
-THICK = 70
-GAP = 40
-OUTER_RADIUS = 360
+THICK = 81
+GAP = 26
+OUTER_RADIUS = 414
 
 # Apple's macOS icon grid: the artwork occupies 824 of the 1024-pixel canvas and
 # the rest is clear. The corner is the continuous "squircle" the Dock, Finder

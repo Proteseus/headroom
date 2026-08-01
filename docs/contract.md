@@ -99,6 +99,18 @@ alternative — deleting `forgiven` because nothing in *this* checkout reads it 
 is a silently degraded chart on every surface that updates on someone else's
 schedule.
 
+`burndown.*.boundaries` arrived the same way and is worth reading as a second
+example, because the key it supersedes is one nobody thought was carrying the
+job. `history` climbs at every window boundary, and clients square that climb
+into a vertical riser at the instants named by `resets`. But `resets` is
+grants only — a provider handing back a week it had already taken. A Claude
+session simply rolling on schedule is not in there, so it had no cut to square
+against and came out as a diagonal between whatever two samples survived
+thinning: a two-hour ramp where the chart should read as a step.
+`boundaries` names every one of them, grants included, and `resets` stays
+exactly what it was. Clients read it through `historyRisers`, which falls back
+to `resets` for a host that predates the key.
+
 The board is the exception the deprecation window above describes. Its `gpts`
 key had one writer and zero readers, so it was replaced outright by `hist` /
 `rsts` rather than carried: there was no shipped firmware to break.

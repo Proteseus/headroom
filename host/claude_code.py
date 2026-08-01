@@ -26,7 +26,9 @@ DEFAULT_WAIT_SECONDS = 285
 # A question is usually answered at the keyboard. Holding one for the
 # permission wait made it dead air on the Mac for nearly five minutes,
 # which is worse than never offering it on the phone at all.
-QUESTION_WAIT_SECONDS = 25
+# Long enough for an iPhone foreground poll, notification tap, and biometric
+# answer. The Claude hook timeout stays just above this value.
+QUESTION_WAIT_SECONDS = 120
 MAX_WAIT_SECONDS = 600
 
 APPROVE_ONCE = {
@@ -398,7 +400,7 @@ class ClaudeCodeHooks:
                 provider_request_id=provider_request_id,
                 session_id=session_id,
                 kind="permission_approval",
-                title=f"Claude needs permission in {_project(cwd)}",
+                title=_project(cwd),
                 summary=agent_request.summary(tool_input, tool_name),
                 actions=actions,
                 detail={
@@ -498,7 +500,7 @@ class ClaudeCodeHooks:
                 provider_request_id="question-" + uuid.uuid4().hex,
                 session_id=session_id,
                 kind="structured_question",
-                title=f"Claude is asking you in {_project(cwd)}",
+                title=_project(cwd),
                 summary=_short(question["question"], "Claude asked a question"),
                 actions=_choice_actions(question["options"]),
                 detail={
@@ -608,7 +610,6 @@ class ClaudeCodeHooks:
                 return None
             return self._passive(
                 payload, "agent_waiting",
-                "Claude finished responding",
                 "Ready for your next instruction",
             )
         if hook != "Notification":
@@ -618,15 +619,13 @@ class ClaudeCodeHooks:
         if notification_type == "permission_prompt":
             return None
         if notification_type == "idle_prompt":
-            title = "Claude is waiting for you"
             kind = "agent_waiting"
         elif notification_type == "elicitation_dialog":
-            title = "Claude needs input"
             kind = "structured_question"
         else:
             return None
         return self._passive(
-            payload, kind, title,
+            payload, kind,
             _short(payload.get("message"), "Open Claude Code to continue"),
         )
 
@@ -658,7 +657,7 @@ class ClaudeCodeHooks:
             provider_request_id="question-" + uuid.uuid4().hex,
             session_id=session_id,
             kind="structured_question",
-            title=f"Claude is asking you in {_project(payload.get('cwd'))}",
+            title=_project(payload.get("cwd")),
             summary=_short(" ".join(first.split()), "Claude asked a question"),
             actions=PASSIVE_ACTIONS,
             detail={
@@ -669,7 +668,7 @@ class ClaudeCodeHooks:
             },
         )
 
-    def _passive(self, payload, kind, title, summary):
+    def _passive(self, payload, kind, summary):
         # One row per session per kind: the newest notice replaces the one it
         # makes untrue, instead of stacking behind it.
         self.store.supersede(PROVIDER, ADAPTER, payload["session_id"], kind)
@@ -679,7 +678,9 @@ class ClaudeCodeHooks:
             provider_request_id="notice-" + uuid.uuid4().hex,
             session_id=payload["session_id"],
             kind=kind,
-            title=f"{title} in {_project(payload.get('cwd'))}",
+            # The repository is the stable identity; the summary says what
+            # the repository needs from the person.
+            title=_project(payload.get("cwd")),
             summary=summary,
             actions=PASSIVE_ACTIONS,
             detail={

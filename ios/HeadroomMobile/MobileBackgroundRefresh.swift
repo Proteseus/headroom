@@ -34,15 +34,16 @@ enum MobileBackgroundRefresh {
                     endpoint: MobileConnection.endpoint,
                     token: MobileTokenStore.read() ?? ""
                 )
+                // Agent attention is its own availability path. A quota
+                // source can fail while a permission is still waiting, so a
+                // stale /usage response must not suppress that notification.
+                if let events = try? await client.fetchAgentAttentionEvents() {
+                    await MobileNotifications.notifyIfNeeded(events)
+                }
                 let snapshot = try await client.fetchAndArchiveUsage()
                 HeadroomWidgetCache.save(snapshot)
                 await MobileNotifications.notifyIfNeeded(snapshot.attention)
                 await MobileNotifications.notifyIfNeeded(resets: snapshot)
-                if let permissions = try? await client.fetchMobilePermissions(),
-                   permissions.read,
-                   let events = try? await client.fetchAgentAttentionEvents() {
-                    await MobileNotifications.notifyIfNeeded(events)
-                }
                 boxedTask.value.setTaskCompleted(success: true)
             } catch {
                 boxedTask.value.setTaskCompleted(success: false)

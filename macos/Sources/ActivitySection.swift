@@ -1,57 +1,33 @@
 import AppKit
 import SwiftUI
 
-/// Merged deploy / commit / Actions timeline. Pure function of the snapshot —
-/// no state of its own.
-///
-/// Two questions, in that order: is anything broken, and what happened. The
-/// count answers the first above the rows; failures then sort to the top and
-/// carry their own tint. Every row is the same unit — same insets, same
-/// rhythm, text on one left edge — so the feed reads as a list rather than a
-/// box of urgent things stacked on a list. Status is carried by glyph, word,
-/// and colour together (`Shared/ActivityStatus.swift`) rather than by a
-/// coloured dot alone, which used to be the only difference between a failed
-/// release and a push.
+/// The macOS half of the same split used by iOS: Activity is what happened,
+/// while Attention owns failed rows and anything waiting for a person.
 struct ActivitySection: View {
     let items: [ActivityItem]
     @AppStorage("activityRowLimit")
     private var activityRowLimit = 8
 
     var body: some View {
-        let rows = Array(items.prefix(max(3, min(activityRowLimit, 14))))
+        let rows = Array(
+            items
+                .filter { !ActivityStatusStyle.resolve($0.status).needsAttention }
+                .prefix(max(3, min(activityRowLimit, 14)))
+        )
         if !rows.isEmpty {
-            let attention = rows.filter {
-                ActivityStatusStyle.resolve($0.status).needsAttention
-            }
-            let routine = rows.filter {
-                !ActivityStatusStyle.resolve($0.status).needsAttention
-            }
             DataSection(title: HeadroomCopy.activity) {
-                summary(failing: attention.count)
-                ForEach(attention + routine) { row($0) }
+                ForEach(ActivityGrouping.groups(from: rows)) { group in
+                    Text(group.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Metrics.rowInset)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(group.rows) { item in
+                        MacActivityRow(item: item)
+                    }
+                }
             }
         }
-    }
-
-    /// The card's headline reading: red count, or the green word for none.
-    /// Without it "nothing is wrong" is only ever implied by the absence of a
-    /// colour, which is not a thing you can see at a glance.
-    private func summary(failing: Int) -> some View {
-        let clear = failing == 0
-        return HStack(spacing: 5) {
-            Image(systemName: clear
-                  ? "checkmark.circle"
-                  : "exclamationmark.triangle.fill")
-            Text(clear
-                 ? HeadroomCopy.allClear
-                 : HeadroomCopy.needsAttention(count: failing))
-            Spacer()
-        }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(clear ? HeadroomPalette.green : HeadroomPalette.red)
-        // Same inset as the rows, so the card has one left edge under its title.
-        .padding(.horizontal, Metrics.rowInset)
-        .accessibilityElement(children: .combine)
     }
 
     private enum Metrics {
@@ -59,9 +35,92 @@ struct ActivitySection: View {
         static let rowPadding: CGFloat = 4
         static let rowCorner: CGFloat = 7
     }
+}
 
-    @ViewBuilder
-    private func row(_ item: ActivityItem) -> some View {
+/// Attention keeps the concrete failed rows reachable on the Mac, just as it
+/// does on iOS. When the host has only a rollup, show its reasons instead.
+struct AttentionSection: View {
+    @ObservedObject var store: UsageStore
+
+    var body: some View {
+        let failures = (store.snapshot.activity ?? []).filter {
+            ActivityStatusStyle.resolve($0.status).needsAttention
+        }
+        let reasons = store.snapshot.attention?.reasons ?? []
+        let warning = store.snapshot.attention?.isWarning == true
+        let hasAttention = !failures.isEmpty || !reasons.isEmpty || warning
+        let summary: String = {
+            if !failures.isEmpty {
+                return HeadroomCopy.needsAttention(count: failures.count)
+            }
+            if !reasons.isEmpty {
+                return HeadroomCopy.needsAttention(count: reasons.count)
+            }
+            return store.snapshot.attention?.summary ?? HeadroomCopy.allClear
+        }()
+
+        DataSection(title: HeadroomCopy.attention) {
+            HStack(spacing: 5) {
+                Image(systemName: hasAttention
+                      ? "exclamationmark.triangle.fill"
+                      : "checkmark.circle")
+                Text(summary)
+                Spacer()
+                if warning {
+                    Button {
+                        Task { await store.acknowledgeAttention() }
+                    } label: {
+                        Label(HeadroomCopy.clearAttention,
+                              systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .help("Clear this warning on every Headroom surface")
+                    .accessibilityLabel(HeadroomCopy.clearAttention)
+                }
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(
+                hasAttention
+                    ? AnyShapeStyle(attentionTint(store.snapshot.attention?.level))
+                    : AnyShapeStyle(HeadroomPalette.green)
+            )
+            .padding(.horizontal, Metrics.rowInset)
+            .accessibilityElement(children: .combine)
+
+            if failures.isEmpty {
+                ForEach(reasons) { reason in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle()
+                            .fill(attentionTint(reason.level))
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 4)
+                        Text(reason.summary ?? HeadroomCopy.needsAttention)
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, Metrics.rowInset)
+                }
+            } else {
+                ForEach(failures.prefix(8)) { failure in
+                    MacActivityRow(item: failure)
+                }
+            }
+        }
+    }
+
+    private enum Metrics {
+        static let rowInset: CGFloat = 7
+    }
+}
+
+/// Compact menubar rendering for one activity row. The status vocabulary and
+/// caption order match iOS; only the density and browser action are platform
+/// specific.
+struct MacActivityRow: View {
+    let item: ActivityItem
+
+    var body: some View {
         let style = ActivityStatusStyle.resolve(item.status)
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .top, spacing: 8) {
@@ -76,7 +135,7 @@ struct ActivitySection: View {
                         .font(.subheadline.weight(
                             style.needsAttention ? .semibold : .regular))
                         .lineLimit(1)
-                    Text(caption(item, style))
+                    Text(caption(style))
                         .font(.caption)
                         .foregroundStyle(style.needsAttention
                                          ? AnyShapeStyle(style.tint)
@@ -87,15 +146,13 @@ struct ActivitySection: View {
                 Text(item.ago ?? "—")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
-                if url(item) != nil {
+                if url != nil {
                     Image(systemName: "arrow.up.right")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .accessibilityHidden(true)
                 }
             }
-            // Only a real build error earns a second line; the host stopped
-            // repeating repo and status here now that the caption carries both.
             if style.needsAttention, let error = item.errorMessage {
                 Text(error)
                     .font(.caption)
@@ -104,25 +161,21 @@ struct ActivitySection: View {
                     .padding(.leading, 20)
             }
         }
-        // Identical insets on every row, failing or not — the tint is the only
-        // thing that changes, so nothing shifts sideways between them.
-        .padding(.vertical, Metrics.rowPadding)
-        .padding(.horizontal, Metrics.rowInset)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 7)
         .background(
             style.needsAttention ? HeadroomPalette.red.opacity(0.09) : .clear,
-            in: RoundedRectangle(cornerRadius: Metrics.rowCorner)
+            in: RoundedRectangle(cornerRadius: 7)
         )
         .contentShape(Rectangle())
-        .onTapGesture { open(item) }
-        .help(url(item) != nil ? "Open in browser" : "")
+        .onTapGesture {
+            if let url { NSWorkspace.shared.open(url) }
+        }
+        .help(url != nil ? "Open in browser" : "")
         .accessibilityElement(children: .combine)
     }
 
-    /// "Failed · headroom · Release · main · 1901f54" — the state first,
-    /// because that is the word being scanned for, then enough coordinates to
-    /// know where to look. Actions rows used to omit the repo entirely, which
-    /// left four red workflows indistinguishable from each other.
-    private func caption(_ item: ActivityItem, _ style: ActivityStatusStyle) -> String {
+    private func caption(_ style: ActivityStatusStyle) -> String {
         var parts = [style.label]
         let repo = leafName(item.repo)
         if let repo { parts.append(repo) }
@@ -135,20 +188,14 @@ struct ActivitySection: View {
         return parts.joined(separator: " · ")
     }
 
-    /// `owner/name` → `name`. The owner is the same on every row here.
     private func leafName(_ raw: String?) -> String? {
         guard let raw, !raw.isEmpty else { return nil }
         return raw.split(separator: "/").last.map(String.init)
     }
 
-    private func url(_ item: ActivityItem) -> URL? {
+    private var url: URL? {
         let raw = item.inspectorURL ?? item.url
         guard let raw, !raw.isEmpty else { return nil }
         return URL(string: raw.contains("://") ? raw : "https://\(raw)")
-    }
-
-    private func open(_ item: ActivityItem) {
-        guard let target = url(item) else { return }
-        NSWorkspace.shared.open(target)
     }
 }

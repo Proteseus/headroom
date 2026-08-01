@@ -38,7 +38,7 @@ struct PairingView: View {
                 } else {
                     ForEach(discovery.services) { mac in
                         Button {
-                            endpoint = mac.endpoint
+                            select(endpoint: mac.endpoint)
                         } label: {
                             HStack {
                                 Label(mac.name, systemImage: "desktopcomputer")
@@ -175,7 +175,8 @@ struct PairingView: View {
         defer { isSaving = false }
         do {
             try MobileTokenStore.save(
-                token.trimmingCharacters(in: .whitespacesAndNewlines)
+                token.trimmingCharacters(in: .whitespacesAndNewlines),
+                for: normalized
             )
             // Saved history belongs to the Mac it came from. Pointing at a
             // different one has to start from empty, not from its numbers.
@@ -186,6 +187,11 @@ struct PairingView: View {
             UserDefaults.standard.set(true, forKey: MobileConnection.configuredKey)
             validationMessage = nil
             await store.configured()
+            PairedComputerStore.upsert(
+                endpoint: normalized,
+                machineID: store.snapshot.currentMachine?.id,
+                machineName: store.snapshot.currentMachine?.name
+            )
             if store.errorMessage == nil, isEditing {
                 dismiss()
             } else if let error = store.errorMessage {
@@ -194,5 +200,10 @@ struct PairingView: View {
         } catch {
             validationMessage = error.localizedDescription
         }
+    }
+
+    private func select(endpoint value: String) {
+        endpoint = value
+        token = MobileTokenStore.read(for: value) ?? ""
     }
 }

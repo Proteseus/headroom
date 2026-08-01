@@ -46,6 +46,12 @@ Being explicit about the line, so it is a decision rather than a drift:
   never offered remotely and never enters the ledger. This is an invariant, not
   a behaviour: any new adapter inherits it.
 
+The product promise is simple: **your agents, wherever you are**. Headroom
+keeps the computer-side request visible, mirrors it in Attention on iPhone,
+and lets you answer the small set of safe, structured questions that can keep
+work moving when you are away from the desk. Passive agent activity stays
+dismissible; a request that can block work stays visible until you decide.
+
 The reason to hold this line is that the two products want opposite things. The
 glance wants to say less. A remote control wants to say everything, because an
 approval you cannot fully read is not an approval

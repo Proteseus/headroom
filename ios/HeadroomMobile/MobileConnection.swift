@@ -16,10 +16,14 @@ enum MobileConnection {
 
     /// Host from the saved endpoint — `.local` name, MagicDNS, or IP.
     static var hostLabel: String {
+        hostLabel(for: endpoint)
+    }
+
+    static func hostLabel(for endpoint: String) -> String {
         URL(string: endpoint)?.host() ?? endpoint
     }
 
-    /// One-line Mac identity for the Overview status tile.
+    /// One-line Mac identity for the Usage status tile.
     ///
     /// Prefer the Computer Name from `/usage` when it adds something the host
     /// does not already say; otherwise just the address you paired with.
@@ -56,30 +60,48 @@ enum MobileConnection {
 
 enum MobileTokenStore {
     private static let service = "com.centaur-labs.headroom.mobile"
-    private static let account = "host-token"
+    private static let legacyAccount = "host-token"
 
-    static func read() -> String? {
-        var query = baseQuery
+    static func read(for endpoint: String = MobileConnection.endpoint) -> String? {
+        var query = baseQuery(account: account(for: endpoint))
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return nil }
+        var status = SecItemCopyMatching(query as CFDictionary, &item)
+        // Migrate the original one-computer token lazily. It remains in the
+        // Keychain only as a compatibility fallback for existing installs.
+        if status != errSecSuccess, endpoint == MobileConnection.endpoint {
+            query = baseQuery(account: legacyAccount)
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            status = SecItemCopyMatching(query as CFDictionary, &item)
+        }
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
-    static func save(_ token: String) throws {
+    static func save(_ token: String, for endpoint: String = MobileConnection.endpoint) throws {
         let data = Data(token.utf8)
+        let query = baseQuery(account: account(for: endpoint))
         let status: OSStatus
-        if read() == nil {
-            var attributes = baseQuery
+        // `read(for:)` also falls back to the pre-multi-computer account for
+        // the current endpoint. Do not use that fallback to choose Update:
+        // an existing legacy token still needs to be copied into this new
+        // endpoint-specific Keychain item.
+        var lookup = query
+        lookup[kSecReturnData as String] = false
+        let hasEndpointToken = SecItemCopyMatching(
+            lookup as CFDictionary, nil
+        ) == errSecSuccess
+        if !hasEndpointToken {
+            var attributes = query
             attributes[kSecValueData as String] = data
             attributes[kSecAttrAccessible as String] =
                 kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             status = SecItemAdd(attributes as CFDictionary, nil)
         } else {
             status = SecItemUpdate(
-                baseQuery as CFDictionary,
+                query as CFDictionary,
                 [kSecValueData as String: data] as CFDictionary
             )
         }
@@ -92,12 +114,53 @@ enum MobileTokenStore {
         }
     }
 
-    private static var baseQuery: [String: Any] {
+    private static func account(for endpoint: String) -> String {
+        "host-token:\(endpoint)"
+    }
+
+    private static func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+    }
+}
+
+/// Non-secret metadata for Macs this iPhone has paired with. Tokens stay in
+/// the Keychain under the matching endpoint; this list is safe to keep in
+/// UserDefaults and makes switching computers explicit rather than silently
+/// replacing the current connection.
+struct PairedComputer: Codable, Hashable, Identifiable, Sendable {
+    var id: String
+    var name: String
+    var endpoint: String
+}
+
+enum PairedComputerStore {
+    private static let key = "pairedComputers"
+
+    static var all: [PairedComputer] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let computers = try? JSONDecoder().decode(
+                  [PairedComputer].self, from: data)
+        else { return [] }
+        return computers
+    }
+
+    static func upsert(
+        endpoint: String,
+        machineID: String?,
+        machineName: String?
+    ) {
+        let fallback = MobileConnection.hostLabel(for: endpoint)
+        let id = machineID?.isEmpty == false ? machineID! : endpoint
+        let name = machineName?.isEmpty == false ? machineName! : fallback
+        var computers = all.filter { $0.id != id && $0.endpoint != endpoint }
+        computers.insert(
+            PairedComputer(id: id, name: name, endpoint: endpoint), at: 0)
+        guard let data = try? JSONEncoder().encode(computers) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 }
 

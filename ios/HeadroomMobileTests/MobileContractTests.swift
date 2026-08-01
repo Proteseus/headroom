@@ -45,6 +45,8 @@ final class MobileContractTests: XCTestCase {
                 "id": "evt_1",
                 "provider": "claude-code",
                 "adapter": "claude-http-hooks",
+                "machine_id": "mac-studio-1",
+                "machine_name": "Studio",
                 "session_id": "s1",
                 "kind": "permission_approval",
                 "state": "pending",
@@ -52,6 +54,7 @@ final class MobileContractTests: XCTestCase {
                 "title": "Claude needs permission in acme",
                 "summary": "Edit /tmp/acme/app.ts",
                 "detail": {
+                  "cwd": "/tmp/acme",
                   "tool_name": "Edit",
                   "reasons": ["Destructive operation"],
                   "request": [
@@ -75,6 +78,9 @@ final class MobileContractTests: XCTestCase {
         let response = try JSONDecoder().decode(
             AgentAttentionEventsResponse.self, from: data)
         let detail = try XCTUnwrap(response.events.first).detail
+        XCTAssertEqual(response.events.first?.machineID, "mac-studio-1")
+        XCTAssertEqual(response.events.first?.machineName, "Studio")
+        XCTAssertEqual(response.events.first?.displayTitle, "acme")
         XCTAssertEqual(detail.toolName, "Edit")
         XCTAssertEqual(detail.reasons, ["Destructive operation"])
         XCTAssertEqual(detail.requestFields.count, 3)
@@ -118,6 +124,60 @@ final class MobileContractTests: XCTestCase {
         XCTAssertEqual(detail.requestFields.first?.value, "npm test")
     }
 
+    func testDismissOnlyAgentNoticeIsNotActionableAttention() throws {
+        let data = Data(
+            """
+            {"ok": true, "events": [{
+              "id": "evt_notice", "provider": "claude-code",
+              "adapter": "claude-http-hooks", "session_id": "s1",
+              "kind": "agent_waiting", "state": "pending", "revision": 1,
+              "title": "acme", "summary": "Ready for your next instruction",
+              "detail": {},
+              "actions": [{"id": "dismiss", "label": "Dismiss", "risk": "safe"}],
+              "created_at_ms": 1, "updated_at_ms": 1
+            }]}
+            """.utf8
+        )
+        let event = try XCTUnwrap(
+            try JSONDecoder().decode(
+                AgentAttentionEventsResponse.self, from: data).events.first)
+        XCTAssertTrue(event.isDismissOnly)
+        XCTAssertFalse(event.isActionable)
+    }
+
+    func testAgentNotificationCarriesOnlyTheEventRoute() {
+        XCTAssertEqual(
+            MobileNotifications.agentEventID(
+                from: ["agent_event_id": "evt_123"]
+            ),
+            "evt_123"
+        )
+        XCTAssertNil(
+            MobileNotifications.agentEventID(from: ["other": "value"])
+        )
+    }
+
+    func testAgentEventWithoutMachineMetadataStillDecodes() throws {
+        let data = Data(
+            #"{"ok":true,"events":[{"id":"evt_old","provider":"codex","adapter":"test","session_id":"s1","kind":"command_approval","state":"pending","revision":1,"title":"repo","summary":"Run tests","detail":{},"actions":[]}]}"#.utf8
+        )
+        let event = try XCTUnwrap(
+            try JSONDecoder().decode(
+                AgentAttentionEventsResponse.self, from: data).events.first)
+        XCTAssertNil(event.machineID)
+        XCTAssertNil(event.machineName)
+    }
+
+    func testRepoTitleRepairsLegacyClaudeTitleFromCwd() throws {
+        let data = Data(
+            #"{"ok":true,"events":[{"id":"evt_old","provider":"claude-code","adapter":"claude-http-hooks","session_id":"s1","kind":"agent_waiting","state":"pending","revision":1,"title":"Claude finished responding in headroom","summary":"Ready for your next instruction","detail":{"cwd":"/Users/mz/Dev/headroom"},"actions":[{"id":"dismiss","label":"Dismiss","risk":"safe"}]}]}"#.utf8
+        )
+        let event = try XCTUnwrap(
+            try JSONDecoder().decode(
+                AgentAttentionEventsResponse.self, from: data).events.first)
+        XCTAssertEqual(event.displayTitle, "headroom")
+    }
+
     func testNormalizesBareMacHost() {
         XCTAssertEqual(
             MobileConnection.normalize("studio-mac.local"),
@@ -143,6 +203,25 @@ final class MobileContractTests: XCTestCase {
         )
         XCTAssertEqual(
             MobileConnection.identityLabel(machineName: nil),
+            "studio-mac.local"
+        )
+    }
+
+    func testPairedComputerMetadataRoundTripsWithoutASecret() throws {
+        let computer = PairedComputer(
+            id: "studio-1",
+            name: "Studio",
+            endpoint: "http://studio-mac.local:8737/usage"
+        )
+        let data = try JSONEncoder().encode(computer)
+        let decoded = try JSONDecoder().decode(PairedComputer.self, from: data)
+        XCTAssertEqual(decoded, computer)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("token"))
+    }
+
+    func testHostLabelCanDescribeAStoredComputerEndpoint() {
+        XCTAssertEqual(
+            MobileConnection.hostLabel(for: "http://studio-mac.local:8737/usage"),
             "studio-mac.local"
         )
     }
@@ -188,7 +267,13 @@ final class MobileContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.overallBurndown, "Overall burndown")
         XCTAssertEqual(HeadroomCopy.activity, "Activity")
         XCTAssertEqual(HeadroomCopy.attention, "Attention")
+        XCTAssertEqual(HeadroomCopy.dismissAll, "Dismiss all")
         XCTAssertEqual(HeadroomCopy.recentActivity, "Recent")
+        XCTAssertEqual(HeadroomCopy.activityGroupTitle(for: "github"), "GitHub Actions")
+        XCTAssertEqual(HeadroomCopy.activityGroupTitle(for: "deployment"), "Vercel deployments")
+        XCTAssertEqual(HeadroomCopy.activityGroupTitle(for: "commit"), "Git commits")
+        XCTAssertEqual(HeadroomCopy.activityGroupTitle(for: "supabase"), "Supabase")
+        XCTAssertEqual(HeadroomCopy.activityGroupTitle(for: "unknown"), "Other activity")
         XCTAssertEqual(HeadroomCopy.services, "Services")
         XCTAssertEqual(HeadroomCopy.allClear, "All clear")
         XCTAssertEqual(HeadroomCopy.connected, "Connected")

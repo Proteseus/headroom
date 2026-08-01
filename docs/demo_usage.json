@@ -119,6 +119,16 @@
       "ok": true,
       "plan": "Max 5x",
       "accent": "#D97757",
+      "subscription_pricing": {
+        "currency": "USD",
+        "checked": "2026-08-01",
+        "url": "https://www.anthropic.com/pricing",
+        "plans": [
+          {"id": "free", "title": "Free", "monthly_usd": 0, "annual_usd": 0, "unit": "user", "note": "No subscription"},
+          {"id": "pro", "title": "Pro", "monthly_usd": 20, "annual_usd": 200, "unit": "user"},
+          {"id": "max-5x", "title": "Max 5x", "monthly_usd": 100, "annual_usd": 1200, "unit": "user"}
+        ]
+      },
       "headline": "week",
       "pools": {
         "session": {
@@ -148,6 +158,17 @@
       "ok": true,
       "plan": "Team",
       "accent": "#10A37F",
+      "subscription_pricing": {
+        "currency": "USD",
+        "checked": "2026-08-01",
+        "url": "https://chatgpt.com/pricing",
+        "plans": [
+          {"id": "free", "title": "Free", "monthly_usd": 0, "annual_usd": 0, "unit": "user", "note": "No subscription"},
+          {"id": "plus", "title": "Plus", "monthly_usd": 20, "annual_usd": 240, "unit": "user"},
+          {"id": "pro-20x", "title": "Pro 20x", "monthly_usd": 200, "unit": "user"},
+          {"id": "team", "title": "Team", "monthly_usd": 25, "annual_usd": 240, "unit": "user"}
+        ]
+      },
       "headline": "week",
       "pools": {
         "session": {
@@ -175,6 +196,16 @@
       "ok": true,
       "plan": "Pro",
       "accent": "#789BC8",
+      "subscription_pricing": {
+        "currency": "USD",
+        "checked": "2026-08-01",
+        "url": "https://cursor.com/pricing",
+        "plans": [
+          {"id": "hobby", "title": "Hobby", "monthly_usd": 0, "annual_usd": 0, "unit": "user", "note": "No subscription"},
+          {"id": "pro", "title": "Pro", "monthly_usd": 20, "unit": "user"},
+          {"id": "teams", "title": "Teams", "monthly_usd": 40, "unit": "user"}
+        ]
+      },
       "headline": "total",
       "pools": {
         "total": {

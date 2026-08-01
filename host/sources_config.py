@@ -60,6 +60,11 @@ GROUP_AI = "ai"              # coding models you're already signed into
 GROUP_DEVTOOLS = "devtools"  # everything else you point Headroom at
 GROUP_IDS = (GROUP_AI, GROUP_DEVTOOLS)
 
+# Subscription prices are provider metadata, not quota math. They live in the
+# source registry so every client gets the same catalog through providers[];
+# `pricing.py` remains reserved for per-model token rates.
+SUBSCRIPTION_PRICES_CHECKED = "2026-08-01"
+
 
 # ---------------------------- meter kinds ----------------------------
 # What shape a meter is, which is what decides what its numbers mean and which
@@ -118,6 +123,34 @@ class MeterSpec(NamedTuple):
 PoolSpec = MeterSpec
 
 
+class SubscriptionPrice(NamedTuple):
+    """One published subscription price for a provider plan.
+
+    `annual_usd` is the total charged for one year, rather than the monthly
+    equivalent. That lets clients say "billed annually" without guessing how
+    the provider rounds or collects the charge. A missing price means custom,
+    regional, or otherwise not safely representable as one USD number.
+    """
+
+    id: str
+    title: str
+    monthly_usd: Optional[float] = None
+    annual_usd: Optional[float] = None
+    unit: str = "user"
+    note: Optional[str] = None
+
+
+def _subscription_price_payload(price):
+    return {
+        "id": price.id,
+        "title": price.title,
+        "monthly_usd": price.monthly_usd,
+        "annual_usd": price.annual_usd,
+        "unit": price.unit,
+        "note": price.note,
+    }
+
+
 class Source(NamedTuple):
     """Everything the host needs to know about one watched service.
 
@@ -173,6 +206,28 @@ class Source(NamedTuple):
     account_probe: Optional[Callable] = None
     # Set on rows the expansion created; None on the default login.
     account: Optional[object] = None
+    # Published plan prices. These are informational and never affect quota
+    # percentages, spend estimates, or billing calculations.
+    subscription_prices: tuple = ()
+    subscription_pricing_url: Optional[str] = None
+    subscription_prices_checked: Optional[str] = None
+
+    def subscription_pricing_payload(self):
+        """Provider-owned plan catalog for the additive /usage payload."""
+        if not self.subscription_prices and not self.subscription_pricing_url:
+            return None
+        return {
+            "currency": "USD",
+            "checked": (
+                self.subscription_prices_checked
+                or SUBSCRIPTION_PRICES_CHECKED
+            ),
+            "url": self.subscription_pricing_url,
+            "plans": [
+                _subscription_price_payload(price)
+                for price in self.subscription_prices
+            ],
+        }
 
     # ---- meter selection ----
 
@@ -483,6 +538,59 @@ _ZED_POOLS = (
              zed_usage.MONTH_WINDOW_S),
 )
 
+# Prices are USD list prices and intentionally do not try to infer what an
+# account pays after tax, regional conversion, nonprofit discounts, or an
+# employer arrangement. `None` is used for plans whose provider only quotes
+# custom pricing.
+_CLAUDE_SUBSCRIPTION_PRICES = (
+    SubscriptionPrice("free", "Free", 0, 0, note="No subscription"),
+    SubscriptionPrice("pro", "Pro", 20, 200),
+    SubscriptionPrice("max-5x", "Max 5x", 100),
+    SubscriptionPrice("max-20x", "Max 20x", 200),
+    SubscriptionPrice("team-standard", "Team standard", 25, 240),
+    SubscriptionPrice("team-premium", "Team premium", 125, 1200),
+    SubscriptionPrice("enterprise", "Enterprise", 20, note="Plus usage"),
+)
+_CODEX_SUBSCRIPTION_PRICES = (
+    SubscriptionPrice("free", "Free", 0, 0, note="No subscription"),
+    SubscriptionPrice("plus", "Plus", 20),
+    # Codex's usage endpoint calls these multiplier plans, while the billing
+    # product calls them ChatGPT Plus/Pro/Business. Keep the reported labels
+    # here so the current plan resolves without a fuzzy match.
+    SubscriptionPrice("pro-5x", "Pro 5x", note="See provider"),
+    SubscriptionPrice("pro-20x", "Pro 20x", 200),
+    SubscriptionPrice("pro", "Pro", 200),
+    SubscriptionPrice("team", "Team", 25, 240),
+    SubscriptionPrice("business", "Business", 25, 240),
+    SubscriptionPrice("enterprise", "Enterprise", note="Custom"),
+)
+_CURSOR_SUBSCRIPTION_PRICES = (
+    SubscriptionPrice("hobby", "Hobby", 0, 0, note="No subscription"),
+    SubscriptionPrice("pro", "Pro", 20),
+    SubscriptionPrice("pro-plus", "Pro+", note="See provider"),
+    SubscriptionPrice("ultra", "Ultra", note="See provider"),
+    SubscriptionPrice("teams", "Teams", 40),
+    SubscriptionPrice("enterprise", "Enterprise", note="Custom"),
+)
+_COPILOT_SUBSCRIPTION_PRICES = (
+    SubscriptionPrice("free", "Free", 0, 0, note="No subscription"),
+    SubscriptionPrice("pro", "Pro", 10),
+    SubscriptionPrice("pro-plus", "Pro+", 39),
+    SubscriptionPrice("max", "Max", 100),
+    SubscriptionPrice("business", "Business", 19),
+    SubscriptionPrice("enterprise", "Enterprise", note="Custom"),
+)
+_GEMINI_SUBSCRIPTION_PRICES = (
+    SubscriptionPrice("free", "Free", 0, 0, note="No subscription"),
+    SubscriptionPrice("google-ai-pro", "Google AI Pro", 19.99),
+    SubscriptionPrice("google-ai-ultra", "Google AI Ultra", 249.99),
+)
+_ZED_SUBSCRIPTION_PRICES = (
+    SubscriptionPrice("free", "Personal", 0, 0, note="No subscription"),
+    SubscriptionPrice("pro", "Pro", 10),
+    SubscriptionPrice("business", "Business", 30),
+)
+
 BASE_SOURCES = (
     Source("claude", "Claude", "~/.headroom/oauth (imports Claude login)", 60,
            oauth_usage.fetch_quota,
@@ -491,7 +599,9 @@ BASE_SOURCES = (
            account_kind=accounts.KIND_DIR,
            account_file=oauth_usage.CREDS_NAME,
            account_hint="~/.claude-work (a second CLAUDE_CONFIG_DIR)",
-           account_probe=oauth_usage.credentials_present),
+           account_probe=oauth_usage.credentials_present,
+           subscription_prices=_CLAUDE_SUBSCRIPTION_PRICES,
+           subscription_pricing_url="https://www.anthropic.com/pricing"),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
            codex_usage.fetch_quota, summary_fn=_summary_codex,
            kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
@@ -501,39 +611,51 @@ BASE_SOURCES = (
            reset_note_url="https://x.com/thsottiaux",
            account_kind=accounts.KIND_DIR,
            account_file=codex_usage.AUTH_NAME,
-           account_hint="~/.codex-work (a second CODEX_HOME)"),
+           account_hint="~/.codex-work (a second CODEX_HOME)",
+           subscription_prices=_CODEX_SUBSCRIPTION_PRICES,
+           subscription_pricing_url="https://chatgpt.com/pricing"),
     Source("cursor", "Cursor", "Cursor IDE signed-in JWT", 60,
            cursor_usage.fetch_quota, summary_fn=_summary_cursor,
            kind="quota", group=GROUP_AI, pools=_CURSOR_POOLS,
            headline=("total",), headline_fallback_max=("auto", "api"),
            accent="#789BC8",
            account_kind=accounts.KIND_FILE,
-           account_hint="another profile's state.vscdb"),
+           account_hint="another profile's state.vscdb",
+           subscription_prices=_CURSOR_SUBSCRIPTION_PRICES,
+           subscription_pricing_url="https://cursor.com/pricing"),
     Source("copilot", "Copilot", "GitHub token / `gh auth`", 60,
            copilot_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
-           headline=("premium", "chat"), accent="#A371F7"),
+           headline=("premium", "chat"), accent="#A371F7",
+           subscription_prices=_COPILOT_SUBSCRIPTION_PRICES,
+           subscription_pricing_url="https://github.com/features/copilot/plans"),
     Source("gemini", "Gemini", "~/.gemini OAuth (Gemini CLI)", 60,
            gemini_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
            headline=("pro", "flash"), accent="#4285F4",
            account_kind=accounts.KIND_DIR,
            account_file=gemini_usage.CREDS_NAME,
-           account_hint="~/.gemini-work"),
+           account_hint="~/.gemini-work",
+           subscription_prices=_GEMINI_SUBSCRIPTION_PRICES,
+           subscription_pricing_url="https://gemini.google.com/advanced"),
     Source("windsurf", "Windsurf", "Windsurf IDE plan cache", 60,
            windsurf_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_WINDSURF_POOLS,
            headline=("week", "session"), accent="#00C2A8",
+           subscription_pricing_url="https://windsurf.com/pricing",
            account_kind=accounts.KIND_FILE,
            account_hint="another profile's state.vscdb"),
     Source("jetbrains", "JetBrains AI", "Local AI Assistant quota XML", 60,
            jetbrains_usage.fetch_quota,
            kind="quota", group=GROUP_AI,
-           pools=_JETBRAINS_POOLS, headline=("month",), accent="#FE315D"),
+           pools=_JETBRAINS_POOLS, headline=("month",), accent="#FE315D",
+           subscription_pricing_url="https://www.jetbrains.com/ai/"),
     Source("zed", "Zed", "Zed Keychain session", 60,
            zed_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_ZED_POOLS,
-           headline=("predictions",), accent="#084CCF"),
+           headline=("predictions",), accent="#084CCF",
+           subscription_prices=_ZED_SUBSCRIPTION_PRICES,
+           subscription_pricing_url="https://zed.dev/pricing"),
     # Non-quota rows are appended after quotas in ordered_sources(); keep this
     # with the other activity sources so SOURCE_IDS stays in rollup order.
     Source("claude-status", "Claude Status", "status.claude.com", 60,

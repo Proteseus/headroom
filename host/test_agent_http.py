@@ -201,11 +201,34 @@ class AgentHTTPTests(unittest.TestCase):
         status, current = self.get("/agents/claude/config")
         self.assertEqual(status, 200)
         self.assertTrue(current["installed"])
+        self.assertEqual(current["question_mode"], "notify")
         status, result = self.post(
             "/agents/claude/config", {"action": "install"})
         self.assertEqual(status, 200)
         self.assertEqual(result["state"], "installed")
+        self.assertEqual(result["question_mode"], "notify")
         install.assert_called_once_with(port=8737, question_mode="notify")
+
+    @mock.patch("headroom_server.app_config.set_agent_question_mode")
+    @mock.patch("headroom_server.app_config.agent_question_mode",
+                return_value="answer")
+    @mock.patch("headroom_server.claude_hooks.install")
+    def test_mac_can_enable_phone_answer_mode(
+        self, install, question_mode, set_question_mode
+    ):
+        install.return_value = {
+            "provider": "claude-code",
+            "state": "installed",
+            "installed": True,
+        }
+        status, result = self.post(
+            "/agents/claude/config",
+            {"action": "install", "question_mode": "answer"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(result["question_mode"], "answer")
+        set_question_mode.assert_called_once_with("answer")
+        install.assert_called_once_with(port=8737, question_mode="answer")
 
 
 if __name__ == "__main__":

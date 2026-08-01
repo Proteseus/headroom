@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Three layers, applied in order:
 /// 1. **Crop** the forecast at the held reset and at 0% (`cropProjection`).
-/// 2. **Domain** is a fixed local calendar week: today−3 … today+4. Upcoming
+/// 2. **Domain** is a fixed local calendar week: today−3.5d … today+3.5d. Upcoming
 ///    resets that fall inside still paint (dotted rule); farther ones stay
 ///    off-canvas so the axis never stretches and compresses history.
 /// 3. **Clip** strokes to that domain with edge interpolation — `chartXScale`
@@ -23,13 +23,15 @@ import Foundation
 /// a single pool. Two rules, two answers to two questions; every surface says
 /// which one it is drawing (`frameLabel`) so the pair never reads as drift.
 enum OverallBurndownChartMath {
-    /// Whole calendar days of history in the frame.
+    /// Whole calendar days of history in the frame, plus the half-day history
+    /// extension below.
     ///
-    /// The domain runs from midnight this many days back for `spanDays`, so it
-    /// covers today plus three days either side — seven whole calendar days,
+    /// The domain starts three days before today's midnight, reaches back a
+    /// further half-day, and covers three and a half days either side — seven days,
     /// symmetric about today. `HeadroomCopy.overallBurndownSubtitle` says that
     /// in words; change one and change the other.
     static let lookbackDays = 3
+    static let extraHistorySeconds: TimeInterval = 12 * 60 * 60
     static let spanDays = 7
 
     struct Domain: Equatable, Sendable {
@@ -46,15 +48,17 @@ enum OverallBurndownChartMath {
         var frameLabel: String { HeadroomCopy.overallBurndownSubtitle }
     }
 
-    /// Fixed calendar week for the overview chart (today−3 … today+4).
+    /// Fixed seven-day overview frame, with three and a half days of history
+    /// before today's midnight and three and a half days after it.
     static func domain(
         now: Date,
         calendar: Calendar = .current
     ) -> Domain {
         let today = calendar.startOfDay(for: now)
-        let start = calendar.date(
+        let dayStart = calendar.date(
             byAdding: .day, value: -lookbackDays, to: today
         ) ?? today
+        let start = dayStart.addingTimeInterval(-extraHistorySeconds)
         let end = calendar.date(
             byAdding: .day, value: spanDays, to: start
         ) ?? start.addingTimeInterval(

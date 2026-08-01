@@ -80,7 +80,7 @@ private struct ProviderSummaryRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                ForEach(Array(provider.visiblePools.prefix(3)), id: \.id) { item in
+                ForEach(Array(provider.displayablePools.prefix(3)), id: \.id) { item in
                     HStack {
                         Text(item.pool.title ?? item.id.capitalized)
                         Spacer()
@@ -160,7 +160,7 @@ private struct ProviderQuotaDetail: View {
                         .font(.subheadline)
                     }
 
-                    ForEach(provider.visiblePools, id: \.id) { item in
+                    ForEach(provider.displayablePools, id: \.id) { item in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text(item.pool.title ?? item.id.capitalized)
@@ -202,6 +202,12 @@ private struct ProviderQuotaDetail: View {
                 }
                 .headroomCard()
 
+                if let pricing = provider.subscriptionPricing {
+                    SubscriptionPricingView(
+                        pricing: pricing,
+                        currentPlan: provider.plan)
+                }
+
                 ForEach(burndown) { pool in
                     BurndownChart(
                         pool: pool,
@@ -216,6 +222,55 @@ private struct ProviderQuotaDetail: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(provider.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct SubscriptionPricingView: View {
+    let pricing: SubscriptionPricing
+    let currentPlan: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Subscription price")
+                    .font(.headline)
+                Spacer()
+                if let url = pricing.url.flatMap(URL.init(string:)) {
+                    Link("Source", destination: url)
+                        .font(.caption)
+                }
+            }
+            if let price = pricing.currentPrice(for: currentPlan) {
+                HStack(spacing: 8) {
+                    Text(currentPlan ?? price.title)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(price.compactPrice)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .font(.subheadline)
+            } else if let currentPlan {
+                HStack(spacing: 8) {
+                    Text(currentPlan)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("See provider")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+            } else {
+                Text(HeadroomCopy.planUnknown)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let checked = pricing.checked {
+                Text("List prices · checked \(checked)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .headroomCard()
     }
 }
 
@@ -247,7 +302,7 @@ private struct BurndownChart: View {
                 projected: pool.croppedProjected,
                 spent: [OverallBurndownChartMath.historyPolyline(
                     pool.history ?? pool.forgiven,
-                    risersAt: pool.resets?.compactMap(\.t) ?? []
+                    risersAt: pool.historyRisers
                 )]
             )
         }
@@ -272,7 +327,7 @@ private struct BurndownChart: View {
             OverallBurndownChartMath.clipPolyline(
                 OverallBurndownChartMath.historyPolyline(
                     pool.history ?? pool.forgiven,
-                    risersAt: pool.resets?.compactMap(\.t) ?? []
+                    risersAt: pool.historyRisers
                 ),
                 start: domain.startEpoch, end: domain.endEpoch
             )
@@ -413,7 +468,7 @@ private struct BurndownChart: View {
                             AxisGridLine()
                         }
                         AxisMarks(values: dayLabels) { value in
-                            AxisValueLabel {
+                            AxisValueLabel(anchor: .center) {
                                 if let date = value.as(Date.self) {
                                     Text(
                                         date,
@@ -430,7 +485,7 @@ private struct BurndownChart: View {
                     } else {
                         AxisMarks(values: hourDates) { value in
                             AxisGridLine()
-                            AxisValueLabel {
+                            AxisValueLabel(anchor: .center) {
                                 if let date = value.as(Date.self) {
                                     Text(date, format: .dateTime.hour().minute())
                                         .foregroundStyle(Color.secondary)
@@ -442,7 +497,7 @@ private struct BurndownChart: View {
                 .chartYAxis {
                     AxisMarks(values: [0, 50, 100]) {
                         AxisGridLine()
-                        AxisValueLabel()
+                        AxisValueLabel(anchor: .trailing)
                     }
                 }
                 .frame(height: 190)
@@ -470,7 +525,9 @@ private struct OverallBurndownSeries: Identifiable {
     let pool: Burndown
     let actual: [OverallBurndownPoint]
     let projected: [OverallBurndownPoint]
-    let forgiven: [OverallBurndownPoint]
+    /// Recent cross-window readings, including the sawtooth at resets.
+    /// `forgiven` is the compatibility fallback for older hosts.
+    let history: [OverallBurndownPoint]
     let resetsIn: String?
 }
 
@@ -508,7 +565,9 @@ struct OverallBurndownChart: View {
                 pool: pool,
                 actual: actual,
                 projected: points(pool.projected, kind: "projected"),
-                forgiven: points(pool.forgiven, kind: "forgiven"),
+                history: points(
+                    pool.history ?? pool.forgiven, kind: "history"
+                ),
                 resetsIn: pool.resetsIn
             )
         }
@@ -559,11 +618,16 @@ struct OverallBurndownChart: View {
                     ),
                     idPrefix: "\(entry.id)-p"
                 ),
-                forgiven: chartPoints(
-                    OverallBurndownChartMath.preparedActual(
-                        entry.pool.forgiven, domain: domain
+                history: chartPoints(
+                    OverallBurndownChartMath.clipPolyline(
+                        OverallBurndownChartMath.historyPolyline(
+                            entry.pool.history ?? entry.pool.forgiven,
+                            risersAt: entry.pool.historyRisers
+                        ),
+                        start: domain.startEpoch,
+                        end: domain.endEpoch
                     ),
-                    idPrefix: "\(entry.id)-f"
+                    idPrefix: "\(entry.id)-h"
                 ),
                 resetsIn: entry.resetsIn
             )
@@ -598,21 +662,45 @@ struct OverallBurndownChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 1))
 
                     ForEach(drawn) { entry in
-                        // The run a grant wiped out, behind everything else.
+                        // Windows already spent, behind everything else.
                         // Faint and thin: history that stopped counting must
-                        // never be mistaken for the live curve.
-                        ForEach(entry.forgiven) { point in
+                        // never be mistaken for the live curve. The reset
+                        // risers are made explicit so iOS matches the Mac
+                        // chart even when the reset is not a grant.
+                        ForEach(entry.history) { point in
                             LineMark(
                                 x: .value("Time", point.date),
                                 y: .value("Remaining", point.remaining),
                                 series: .value(
-                                    "Series", "\(entry.id)-forgiven"
+                                    "Series", "\(entry.id)-history"
                                 )
                             )
                             .foregroundStyle(entry.provider.tint.opacity(0.3))
                             .lineStyle(StrokeStyle(
                                 lineWidth: 2, lineJoin: .round
                             ))
+                        }
+                        ForEach(
+                            OverallBurndownChartMath.preparedResets(
+                                entry.pool.resets?.compactMap(\.t),
+                                domain: OverallBurndownChartMath.Domain(
+                                    start: domain.start,
+                                    end: domain.end,
+                                    now: nowDate
+                                )
+                            ),
+                            id: \.self
+                        ) { reset in
+                            RuleMark(
+                                x: .value(
+                                    "Reset granted",
+                                    Date(timeIntervalSince1970: reset)
+                                )
+                            )
+                            .foregroundStyle(
+                                entry.provider.tint.opacity(0.55)
+                            )
+                            .lineStyle(StrokeStyle(lineWidth: 1))
                         }
                         ForEach(entry.actual) { point in
                             LineMark(
@@ -656,11 +744,6 @@ struct OverallBurndownChart: View {
                             .foregroundStyle(entry.provider.tint.opacity(0.7))
                             .symbolSize(last.remaining <= 0 ? 36 : 22)
                         }
-
-                        // Forgiven ghost (above) is enough on the overview:
-                        // granted-reset marks, upcoming-reset rules, and
-                        // their captions live on the provider burndown, where
-                        // one curve has room to explain them.
                     }
                 }
                 .chartXScale(domain: range)
@@ -669,7 +752,7 @@ struct OverallBurndownChart: View {
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .day)) { value in
                         AxisGridLine()
-                        AxisValueLabel {
+                        AxisValueLabel(anchor: .center) {
                             if let date = value.as(Date.self) {
                                 let calendar = Calendar.current
                                 let isToday = calendar.isDate(
@@ -692,7 +775,7 @@ struct OverallBurndownChart: View {
                 .chartYAxis {
                     AxisMarks(values: [0, 50, 100]) {
                         AxisGridLine()
-                        AxisValueLabel()
+                        AxisValueLabel(anchor: .trailing)
                     }
                 }
                 .frame(height: 190)
@@ -769,7 +852,7 @@ struct DailyBurnChart: View {
                 .chartLegend(position: .bottom, alignment: .leading, spacing: 12)
                 .chartXAxis {
                     AxisMarks { value in
-                        AxisValueLabel {
+                        AxisValueLabel(anchor: .center) {
                             if let raw = value.as(String.self) {
                                 Text(HeadroomFormat.shortWeekday(isoDate: raw))
                             }

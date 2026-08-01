@@ -179,7 +179,7 @@ struct OverviewBurndownCard: View {
                         // climb at each reset is drawn — that is the recharge.
                         let spent = OverallBurndownChartMath.preparedHistory(
                             entry.pool.history ?? entry.pool.forgiven,
-                            splitAt: entry.pool.resets?.compactMap(\.t) ?? [],
+                            splitAt: entry.pool.historyRisers,
                             domain: domain
                         )
                         for segment in spent {
@@ -650,7 +650,7 @@ struct MultiBurndownCanvas: View {
                 let ghost = OverallBurndownChartMath.clipPolyline(
                     OverallBurndownChartMath.historyPolyline(
                         pool.history ?? pool.forgiven,
-                        risersAt: pool.resets?.compactMap(\.t) ?? []
+                        risersAt: pool.historyRisers
                     ),
                     start: plotStart, end: plotEnd
                 ).map { CGPoint(x: x($0[0]), y: y($0[1])) }

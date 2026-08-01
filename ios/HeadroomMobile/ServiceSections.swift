@@ -28,7 +28,7 @@ struct ServiceSections: View {
         if usage?.configured == true {
             Section {
                 if usage?.ok != true {
-                    Label(usage?.error ?? HeadroomCopy.serviceStatus("Supabase", configured: usage?.configured),
+                    Label(usage?.error ?? HeadroomCopy.serviceStatus(HeadroomCopy.supabase, configured: usage?.configured),
                           systemImage: "exclamationmark.triangle")
                         .foregroundStyle(HeadroomPalette.amber)
                 } else {
@@ -83,7 +83,7 @@ struct ServiceSections: View {
                 }
             } header: {
                 HStack {
-                    Text("Supabase")
+                    Text(HeadroomCopy.supabase)
                     Spacer()
                     if let count = usage?.projectCount {
                         Text("\(count) projects")
@@ -148,7 +148,7 @@ struct ServiceSections: View {
         if usage?.configured == true {
             Section {
                 if usage?.ok != true {
-                    Label(usage?.error ?? HeadroomCopy.serviceStatus("Plausible", configured: usage?.configured),
+                    Label(usage?.error ?? HeadroomCopy.serviceStatus(HeadroomCopy.plausible, configured: usage?.configured),
                           systemImage: "exclamationmark.triangle")
                         .foregroundStyle(HeadroomPalette.amber)
                 } else {
@@ -193,7 +193,7 @@ struct ServiceSections: View {
                 }
             } header: {
                 HStack {
-                    Text("Plausible")
+                    Text(HeadroomCopy.plausible)
                     Spacer()
                     if let today = usage?.visitorsToday {
                         let label = usage?.windowLabel ?? "today"
@@ -207,7 +207,7 @@ struct ServiceSections: View {
 
     @ViewBuilder
     private var localServersSection: some View {
-        Section(HeadroomCopy.localServers) {
+        Section {
             let servers = store.snapshot.local?.servers ?? []
             if servers.isEmpty {
                 Text(HeadroomCopy.noLocalServers)
@@ -243,7 +243,21 @@ struct ServiceSections: View {
                     }
                 }
             }
+        } header: {
+            HStack {
+                Text(HeadroomCopy.localServers)
+                Spacer()
+                Label(serverComputerName, systemImage: "desktopcomputer")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private var serverComputerName: String {
+        store.snapshot.currentMachine?.title
+            ?? store.snapshot.local?.host
+            ?? MobileConnection.hostLabel
     }
 
     private func plausibleDetail(_ site: PlausibleSite) -> String {

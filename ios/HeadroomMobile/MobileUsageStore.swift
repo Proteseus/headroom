@@ -17,15 +17,24 @@ final class MobileUsageStore: ObservableObject {
     @Published private(set) var capturedAt: Date?
     /// The snapshot on screen came off disk; nothing has reached the Mac yet.
     @Published private(set) var isShowingArchive = false
+    /// Attention rows swiped away on this phone. A queue only works if clearing
+    /// a row clears it everywhere it is counted, so this lives here rather than
+    /// in the screen's `@State` — the tab badge reads it too.
+    @Published private(set) var dismissedAttentionIDs: Set<String> = []
 
     /// Foreground poll. The Mac restarts its host on its own schedule — an
     /// update reinstalling the LaunchAgent, a wake, a launchctl kickstart — and
     /// an app that only fetches when it comes to the front keeps drawing the
     /// pre-restart document until someone pulls to refresh.
     private var liveLoop: Task<Void, Never>?
+    private var agentLiveLoop: Task<Void, Never>?
     private var consecutiveFailures = 0
 
     private static let liveInterval: TimeInterval = 60
+    /// Agent questions are time-sensitive; keep this separate from the full
+    /// usage poll so answering from the phone does not make every quota source
+    /// run once per few seconds.
+    private static let agentLiveInterval: TimeInterval = 5
     /// Ceiling for the fast retry after a failed poll — see `nextInterval`.
     private static let retryCeiling: TimeInterval = 30
 
@@ -40,6 +49,43 @@ final class MobileUsageStore: ObservableObject {
 
     var visibleProviders: [QuotaProviderInfo] {
         snapshot.visibleQuotaProviders
+    }
+
+    /// Feed rows that failed, minus anything already swiped away here.
+    var attentionFailures: [ActivityItem] {
+        AttentionScreen.failures(in: snapshot)
+            .filter { !dismissedAttentionIDs.contains($0.id) }
+    }
+
+    /// The rollup's own reasons. Once concrete failure rows exist those rows
+    /// are the list, and the summary is intentionally omitted rather than
+    /// reporting one broken build twice.
+    var attentionReasons: [AttentionReason] {
+        guard AttentionScreen.failures(in: snapshot).isEmpty else { return [] }
+        return (snapshot.attention?.reasons ?? [])
+            .filter { !dismissedAttentionIDs.contains($0.id) }
+    }
+
+    func dismissAttention(id: String) {
+        dismissedAttentionIDs.insert(id)
+    }
+
+    /// The section header's bulk action. Clears both kinds of row and tells the
+    /// Mac, so the pip there goes out with the list here.
+    func dismissAllAttention() async {
+        dismissedAttentionIDs.formUnion(
+            AttentionScreen.failures(in: snapshot).map(\.id))
+        dismissedAttentionIDs.formUnion(
+            (snapshot.attention?.reasons ?? []).map(\.id))
+        await acknowledgeAttention()
+    }
+
+    /// Forget dismissals for rows the Mac no longer reports. Keeps the set from
+    /// growing forever, and lets a failure that comes back come back.
+    private func pruneDismissedAttention() {
+        let live = Set(AttentionScreen.failures(in: snapshot).map(\.id))
+            .union((snapshot.attention?.reasons ?? []).map(\.id))
+        dismissedAttentionIDs.formIntersection(live)
     }
 
     /// True once we are drawing numbers the Mac has not confirmed this session,
@@ -67,11 +113,37 @@ final class MobileUsageStore: ObservableObject {
                 await self.refresh()
             }
         }
+        agentLiveLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(
+                    for: .seconds(Self.agentLiveInterval))
+                guard !Task.isCancelled else { return }
+                await self?.refreshAgentAttention()
+            }
+        }
     }
 
     func stopLiveUpdates() {
         liveLoop?.cancel()
         liveLoop = nil
+        agentLiveLoop?.cancel()
+        agentLiveLoop = nil
+    }
+
+    /// Fast foreground-only path for a question or approval. This is kept
+    /// independent of `/usage`: a broken quota provider must not delay a
+    /// response to an agent, and the full snapshot does not need five-second
+    /// polling.
+    private func refreshAgentAttention() async {
+        guard isConfigured, mobilePermissions.agents else { return }
+        let client = MobileHeadroomClient(
+            endpoint: MobileConnection.endpoint,
+            token: MobileTokenStore.read() ?? ""
+        )
+        guard let events = try? await client.fetchAgentAttentionEvents()
+        else { return }
+        agentAttentionEvents = events
+        await MobileNotifications.notifyIfNeeded(events)
     }
 
     private func nextInterval() -> TimeInterval {
@@ -114,6 +186,7 @@ final class MobileUsageStore: ObservableObject {
                 }
             }
             snapshot = try await client.fetchAndArchiveUsage()
+            pruneDismissedAttention()
             errorMessage = nil
             capturedAt = Date()
             isShowingArchive = false
@@ -214,6 +287,17 @@ final class MobileUsageStore: ObservableObject {
             ).fetchAgentAttentionEvents() {
                 agentAttentionEvents = events
             }
+        }
+    }
+
+    /// Clears only passive agent notices. Requests with a real answer remain
+    /// untouched, even when the user chooses the bulk action.
+    func dismissAllAgentNotices() async {
+        let notices = agentAttentionEvents.filter(\.isDismissOnly)
+        for event in notices {
+            guard let dismiss = event.actions.first(where: { $0.id == "dismiss" })
+            else { continue }
+            await answer(event, with: dismiss)
         }
     }
 

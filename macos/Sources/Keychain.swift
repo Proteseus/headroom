@@ -84,7 +84,10 @@ enum KeychainPassword {
             throw NSError(
                 domain: NSOSStatusErrorDomain,
                 code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey: failure]
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "\(failure) (OSStatus \(status))",
+                ]
             )
         }
     }
@@ -112,7 +115,6 @@ struct TokenStore: Sendable {
     /// that names one machine, or that another process rotates, is not.
     var synced = false
 
-    private var writeScope: KeychainScope { synced ? .synced : .local }
     /// Reads span both halves regardless: a synced store may still be holding
     /// a local-only copy written before this shipped, or before `adoptSync()`
     /// got a chance to run.
@@ -127,9 +129,26 @@ struct TokenStore: Sendable {
     }
 
     func save(_ token: String) throws {
-        try KeychainPassword.save(
-            token, service: service, account: account,
-            scope: writeScope, failure: failureMessage)
+        guard synced else {
+            try KeychainPassword.save(
+                token, service: service, account: account,
+                scope: .local, failure: failureMessage)
+            return
+        }
+        // Prefer iCloud Keychain so the PAT follows the user. An ad-hoc or
+        // unsigned build has no Team ID, and iCloud Keychain being off also
+        // refuses a synchronizable write — either way Connect must still
+        // work on this Mac, so fall back to local. Same tolerance adoptSync
+        // already has; save was the path that surfaced it as a hard error.
+        do {
+            try KeychainPassword.save(
+                token, service: service, account: account,
+                scope: .synced, failure: failureMessage)
+        } catch {
+            try KeychainPassword.save(
+                token, service: service, account: account,
+                scope: .local, failure: failureMessage)
+        }
     }
 
     func delete() {

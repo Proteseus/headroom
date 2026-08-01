@@ -350,6 +350,21 @@ class QuotaRegistryTests(unittest.TestCase):
         cursor = next(r for r in rows if r["id"] == "cursor")
         self.assertFalse(cursor["pools"]["auto"]["ring"])
 
+    def test_providers_payload_carries_registry_subscription_prices(self):
+        state = sources_config.blank_state()
+        state["claude"] = {"ok": True, "plan": "Max 5x"}
+        claude = next(
+            row for row in headroom_server._providers_payload(state)
+            if row["id"] == "claude"
+        )
+        pricing = claude["subscription_pricing"]
+        self.assertEqual(pricing["currency"], "USD")
+        self.assertEqual(pricing["checked"], "2026-08-01")
+        self.assertEqual(pricing["url"], "https://www.anthropic.com/pricing")
+        pro = next(plan for plan in pricing["plans"] if plan["title"] == "Pro")
+        self.assertEqual(pro["monthly_usd"], 20)
+        self.assertEqual(pro["annual_usd"], 200)
+
     def test_every_meter_declares_a_known_kind_and_basis(self):
         # A meter kind is a string, so a typo is a meter no client can draw:
         # the Swift side falls back to `window` for anything it does not

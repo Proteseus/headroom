@@ -246,6 +246,61 @@ def set_github_watch(prefixes=None, always_repos=None, max_discovered=None):
     }
 
 
+def dev_root_setting():
+    """`dev_root` as the user wrote it, tilde and all.
+
+    `dev_root()` expands, which is what every scanner wants and exactly what
+    Settings must not show: a field that answers `/Users/mz/Dev` to an edit of
+    `~/Dev` looks like the save rewrote it.
+    """
+    value = get("dev_root") or DEFAULTS["dev_root"]
+    return str(value)
+
+
+def set_git_config(root=None, authors=None):
+    """Persist where local commits are scanned from, and whose count.
+
+    A None argument leaves that key. `root` is stored unexpanded so it stays
+    the user's sentence, and is validated expanded, because a path that is not
+    there produces an empty commit list that reads as a broken source.
+    """
+    updates = {}
+    if root is not None:
+        text = str(root).strip()
+        if not text:
+            raise ValueError("dev root cannot be empty")
+        if not os.path.isdir(os.path.expanduser(text)):
+            raise ValueError(f"{text} is not a folder on this Mac")
+        updates["dev_root"] = text
+    if authors is not None:
+        updates["git_authors"] = _clean_list(authors, "authors")
+    if updates:
+        _persist(**updates)
+    return {
+        "dev_root": dev_root_setting(),
+        "dev_root_path": dev_root(),
+        "authors": list(git_authors()),
+    }
+
+
+def set_vercel_teams(slugs=None):
+    """Persist which Vercel teams deployments are read from.
+
+    Empty means every team the login can see, which is the useful default and
+    the reason this is a filter rather than a required setting.
+    """
+    if slugs is not None:
+        if isinstance(slugs, str):
+            slugs = [slugs]
+        if not isinstance(slugs, (list, tuple)):
+            raise ValueError("teams must be a list")
+        # Lowercase before `_clean_list`, not after: it dedupes, so folding
+        # the case afterwards turns "Acme, acme" into the same slug twice.
+        _persist(vercel_team_slugs=_clean_list(
+            [str(item).lower() for item in slugs], "teams"))
+    return {"teams": list(vercel_team_slugs())}
+
+
 def plausible_sites():
     value = get("plausible_sites")
     if isinstance(value, list) and value:

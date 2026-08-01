@@ -327,12 +327,14 @@ final class ModelsTests: XCTestCase {
     }
 
     func testOverallDomainIsFixedSevenDays() {
-        // today−3 … today+4 always — upcoming resets must not stretch the axis.
+        // today−3.5d … today+3.5d always — upcoming resets must not stretch
+        // the axis.
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let now = Date(timeIntervalSince1970: 1_785_246_900) // 2026-07-28 13:55 UTC
         let today = calendar.startOfDay(for: now)
         let expectedStart = calendar.date(byAdding: .day, value: -3, to: today)!
+            .addingTimeInterval(12 * 60 * 60 * -1)
         let expectedEnd = calendar.date(byAdding: .day, value: 7, to: expectedStart)!
         let farReset = now.addingTimeInterval(10 * 24 * 60 * 60)
         let nearReset = now.addingTimeInterval(2 * 24 * 60 * 60)
@@ -406,7 +408,8 @@ final class ModelsTests: XCTestCase {
     }
 
     func testOverviewLookbackIsSymmetricAboutToday() {
-        // The subtitle claims three days either side of today. If the domain
+        // The subtitle claims three and a half days either side of today. If
+        // the domain
         // ever stops covering exactly that, the copy is lying — so assert the
         // shape the words describe, not just the span.
         var calendar = Calendar(identifier: .gregorian)
@@ -416,20 +419,21 @@ final class ModelsTests: XCTestCase {
         let domain = OverallBurndownChartMath.domain(now: now, calendar: calendar)
 
         XCTAssertEqual(
-            calendar.dateComponents([.day], from: domain.start, to: today).day,
-            OverallBurndownChartMath.lookbackDays
+            today.timeIntervalSince(domain.start),
+            Double(OverallBurndownChartMath.lookbackDays) * 24 * 60 * 60
+                + OverallBurndownChartMath.extraHistorySeconds,
+            accuracy: 1
         )
-        // Last whole day inside the domain is today + lookback.
-        let lastDay = calendar.date(byAdding: .day, value: -1, to: domain.end)!
         XCTAssertEqual(
-            calendar.dateComponents([.day], from: today, to: lastDay).day,
-            OverallBurndownChartMath.lookbackDays
+            domain.end.timeIntervalSince(domain.start),
+            Double(OverallBurndownChartMath.spanDays) * 24 * 60 * 60,
+            accuracy: 1
         )
     }
 
     func testMonthlySliceKeepsItsOwnLookback() {
-        // The two constants agree today. They are separate so that changing
-        // the overview's centring cannot silently move every monthly chart —
+        // The two lookbacks are intentionally separate, so changing the
+        // overview's centring cannot silently move every monthly chart —
         // assert they are read from different places, not that they differ.
         let monthStart = 1_785_246_900.0 - 10 * 24 * 3600
         let domain = BurndownChartAxis.domain(
@@ -563,6 +567,15 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(clipped[0][1], 75, accuracy: 0.01)
         XCTAssertEqual(clipped[1][0], 75, accuracy: 0.01)
         XCTAssertEqual(clipped[1][1], 25, accuracy: 0.01)
+    }
+
+    func testHistoryPolylineMakesResetVisible() {
+        let reset = OverallBurndownChartMath.historyPolyline(
+            [[100, 72], [200, 48]],
+            risersAt: [150]
+        )
+
+        XCTAssertEqual(reset, [[100, 72], [150, 72], [150, 48], [200, 48]])
     }
 
     func testOlderMobilePermissionsDefaultAgentControlOff() throws {

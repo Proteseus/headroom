@@ -34,7 +34,7 @@ Mac on its own — the phone forwards what it fetched. See
   iPhone pairing. A `.local` hostname, LAN IP, or Tailscale MagicDNS name
   remains available as a fallback.
 - Token stored in the iOS Keychain.
-- Overview, provider detail, pace/reset data, burndown, and daily burn.
+- Usage, provider detail, pace/reset data, burndown, and daily burn.
 - Activity feed (deploys, commits, GitHub Actions) with deep links.
 - Services: Supabase project health, Plausible traffic, and local servers.
 - Source toggles, split into **AI coding tools** and **Dev tools** the same way

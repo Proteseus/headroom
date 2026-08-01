@@ -21,6 +21,9 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.adapter.stop()
         self.tmp.cleanup()
 
+    def test_remote_question_window_allows_a_phone_to_respond(self):
+        self.assertEqual(claude_code.QUESTION_WAIT_SECONDS, 120)
+
     @staticmethod
     def permission():
         return {
@@ -68,6 +71,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
                 self.permission(), wait_seconds=3)))
         thread.start()
         event = self.wait_for_event()
+        self.assertEqual(event["title"], "acme")
         reply = next(a for a in event["actions"] if a["id"] == "reply")
         self.assertTrue(reply["accepts_text"])
         self.answer(event, "reply", text="  use pnpm, not npm  ")
@@ -84,6 +88,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
                 self.question(), wait_seconds=3, mode="answer")))
         thread.start()
         event = self.wait_for_event()
+        self.assertEqual(event["title"], "acme")
         self.assertIn("reply", [a["id"] for a in event["actions"]])
         self.answer(event, "reply", text="none of those, rebase instead")
         thread.join(timeout=2)
@@ -115,6 +120,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         thread.start()
         event = self.wait_for_event()
         self.assertEqual(event["provider"], "claude-code")
+        self.assertEqual(event["title"], "acme")
         self.assertEqual(self.field(event, "command")["value"], "npm test")
         self.answer(event, "approve_once")
         thread.join(timeout=2)
@@ -156,6 +162,8 @@ class ClaudeCodeHooksTests(unittest.TestCase):
             "message": "Claude is waiting for your input",
         })
         self.assertEqual(event["kind"], "agent_waiting")
+        self.assertEqual(event["title"], "acme")
+        self.assertEqual(event["summary"], "Claude is waiting for your input")
         self.adapter.lifecycle_event({
             "hook_event_name": "UserPromptSubmit",
             "session_id": "claude-session-1",
@@ -302,7 +310,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.assertEqual(self.adapter.question_request(payload), {})
         row = self.store.list(state="open")[0]
         self.assertEqual(row["kind"], "structured_question")
-        self.assertIn("asking you", row["title"])
+        self.assertEqual(row["title"], "acme")
         self.assertTrue(row["detail"]["answer_on_mac"])
         self.assertEqual([a["id"] for a in row["actions"]], ["dismiss"])
         # Every question, whatever its shape — two here, one multi-select.
@@ -438,6 +446,9 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         first = finished()
         second = finished()
         third = finished("claude-session-2")
+        self.assertEqual(second["title"], "acme")
+        self.assertEqual(
+            second["summary"], "Ready for your next instruction")
         self.assertEqual(self.store.get(first["id"])["state"], "resolved")
         open_rows = self.store.list(state="open")
         self.assertEqual(

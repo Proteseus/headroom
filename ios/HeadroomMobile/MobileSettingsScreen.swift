@@ -9,6 +9,7 @@ struct MobileSettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
     @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
+    @State private var pairedComputers = PairedComputerStore.all
 
     var body: some View {
         NavigationStack {
@@ -52,6 +53,46 @@ struct MobileSettingsScreen: View {
     private var connectionPane: some View {
         Form {
             Section {
+                if pairedComputers.isEmpty {
+                    Text(HeadroomCopy.noComputersPaired)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(pairedComputers) { computer in
+                        Button {
+                            activate(computer)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Label(computer.name, systemImage: "desktopcomputer")
+                                        .foregroundStyle(.primary)
+                                    Text(MobileConnection.hostLabel(for: computer.endpoint))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if computer.endpoint == MobileConnection.endpoint {
+                                    Text(HeadroomCopy.connected)
+                                        .font(.caption)
+                                        .foregroundStyle(HeadroomPalette.green)
+                                } else if MobileTokenStore.read(for: computer.endpoint) != nil {
+                                    Image(systemName: "lock.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Button(HeadroomCopy.addComputer, systemImage: "plus") {
+                    showsConnection = true
+                }
+            } header: {
+                Text(HeadroomCopy.computers)
+            } footer: {
+                Text(HeadroomCopy.computerPairingHint)
+            }
+            Section {
                 if let name = store.snapshot.currentMachine?.name, !name.isEmpty {
                     LabeledContent("Mac", value: name)
                 }
@@ -85,6 +126,10 @@ struct MobileSettingsScreen: View {
             } footer: {
                 Text("Grants are set on the Mac under Settings → \(HeadroomCopy.settingsiPhone).")
             }
+        }
+        .onAppear { reloadPairedComputers() }
+        .onChange(of: showsConnection) { _, showing in
+            if !showing { reloadPairedComputers() }
         }
     }
 
@@ -150,6 +195,30 @@ struct MobileSettingsScreen: View {
 
     private var connectionName: String {
         MobileConnection.hostLabel
+    }
+
+    private func reloadPairedComputers() {
+        // Existing installs have one token but no paired-computers metadata.
+        // Seed the list from the current snapshot so adding this screen does
+        // not make a working connection look lost.
+        if PairedComputerStore.all.isEmpty, MobileConnection.isConfigured {
+            PairedComputerStore.upsert(
+                endpoint: MobileConnection.endpoint,
+                machineID: store.snapshot.currentMachine?.id,
+                machineName: store.snapshot.currentMachine?.name
+            )
+        }
+        pairedComputers = PairedComputerStore.all
+    }
+
+    private func activate(_ computer: PairedComputer) {
+        guard computer.endpoint != MobileConnection.endpoint,
+              MobileTokenStore.read(for: computer.endpoint) != nil else { return }
+        store.stopLiveUpdates()
+        store.forgetArchive()
+        UserDefaults.standard.set(computer.endpoint, forKey: MobileConnection.endpointKey)
+        UserDefaults.standard.set(true, forKey: MobileConnection.configuredKey)
+        Task { await store.configured() }
     }
 
     private var groupedSources: [(group: SourceGroup, sources: [SyncSource])] {

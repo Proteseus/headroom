@@ -2,9 +2,14 @@ import Foundation
 
 /// Settings navigation graph shared by macOS and iOS.
 ///
-/// Root order mirrors user intent (General → what you watch → agents → phone →
-/// SaaS keys → About). Nested leaves sit under General (Other Macs) and
-/// Integrations (Supabase / Plausible / GitHub).
+/// Root order mirrors user intent (General → what you watch → what you connect
+/// to → agents → phone → About). Nested leaves sit under General (Other Macs)
+/// and Integrations (every external service, see `SettingsIntegration`).
+///
+/// Integrations is the single home for connection settings. `Coding agents`
+/// survives as a root because starting a task is an action rather than a
+/// preference; the Claude Code and Codex *connections* live under Integrations
+/// with everything else.
 ///
 /// Onboarding (`WelcomePane`) maps onto the same ideas where it can:
 /// - Sources ↔ Welcome “What to watch” (same symbol)
@@ -29,7 +34,7 @@ enum SettingsDestination: Hashable, Sendable {
 
     /// Mac sidebar roots — short, fixed, progressive disclosure below.
     static let macRoots: [SettingsDestination] = [
-        .general, .sources, .codingAgents, .iPhone, .integrations, .about,
+        .general, .sources, .integrations, .codingAgents, .iPhone, .about,
     ]
 
     /// iPhone Settings tab roots. Connection is the phone’s view of pairing;
@@ -79,24 +84,84 @@ enum SettingsDestination: Hashable, Sendable {
     }
 }
 
+/// One external thing Headroom connects to, and the leaf that configures it.
+///
+/// Membership is deliberately not "has a Keychain token" — that was the old
+/// line, and it scattered connection settings across three roots by the
+/// accident of how each service authenticates. If Headroom has to be told
+/// something to reach it, it belongs here.
+///
+/// Raw values match `sources_config` ids where a source exists, so a status
+/// lookup against `/usage` needs no second mapping table.
 enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
+    case claudeCode = "claude"
+    case codex
+    case git
+    case github
+    case vercel
     case supabase
     case plausible
-    case github
+
+    /// Hub grouping. Agents can run code, the rest only report — worth a
+    /// visible line between them in a list someone scans for "what did I
+    /// give this thing access to".
+    enum Group: String, CaseIterable, Sendable {
+        case agents
+        case code
+        case services
+
+        var title: String {
+            switch self {
+            case .agents: return HeadroomCopy.codingAgents
+            case .code: return HeadroomCopy.integrationsCode
+            case .services: return HeadroomCopy.integrationsServices
+            }
+        }
+    }
+
+    var group: Group {
+        switch self {
+        case .claudeCode, .codex: return .agents
+        case .git, .github, .vercel: return .code
+        case .supabase, .plausible: return .services
+        }
+    }
+
+    static func members(of group: Group) -> [SettingsIntegration] {
+        allCases.filter { $0.group == group }
+    }
 
     var title: String {
         switch self {
+        case .claudeCode: return HeadroomCopy.claudeCode
+        case .codex: return "Codex"
+        case .git: return "Git"
+        case .github: return HeadroomCopy.githubActions
+        case .vercel: return "Vercel"
         case .supabase: return "Supabase"
         case .plausible: return "Plausible"
-        case .github: return HeadroomCopy.githubActions
         }
     }
 
     var symbol: String {
         switch self {
+        case .claudeCode: return "sparkles"
+        case .codex: return "cpu"
+        case .git: return "arrow.triangle.branch"
+        case .github: return "chevron.left.forwardslash.chevron.right"
+        case .vercel: return "triangle"
         case .supabase: return "cylinder.split.1x2"
         case .plausible: return "chart.xyaxis.line"
-        case .github: return "chevron.left.forwardslash.chevron.right"
+        }
+    }
+
+    /// True when the leaf can start or steer a local executable. Drives the
+    /// hub's caption, and is the reason `docs/trust.md` treats these routes as
+    /// Class 4 rather than ordinary config.
+    var runsCode: Bool {
+        switch self {
+        case .claudeCode, .codex: return true
+        case .git, .github, .vercel, .supabase, .plausible: return false
         }
     }
 }

@@ -123,6 +123,30 @@ final class ContractTests: XCTestCase {
         XCTAssertNil(sources.first { $0.id == "git" }?.accent)
     }
 
+    func testProviderCarriesSubscriptionPricingCatalog() throws {
+        let snapshot = try decodeDemo()
+        let claude = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "claude" })
+        let pricing = try XCTUnwrap(claude.subscriptionPricing)
+        XCTAssertEqual(pricing.currency, "USD")
+        XCTAssertEqual(pricing.checked, "2026-08-01")
+        XCTAssertEqual(pricing.url, "https://www.anthropic.com/pricing")
+        let pro = try XCTUnwrap(pricing.plans.first { $0.id == "pro" })
+        XCTAssertEqual(pro.monthlyUSD, 20)
+        XCTAssertEqual(pro.annualUSD, 200)
+        XCTAssertEqual(pro.compactPrice, "$20 / user / mo · $200 / user / yr")
+        XCTAssertEqual(
+            pricing.currentPrice(for: "Max 5x")?.compactPrice,
+            "$100 / user / mo · $1200 / user / yr")
+        XCTAssertNil(pricing.currentPrice(for: "Team"))
+
+        let codex = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "codex" })
+        XCTAssertEqual(
+            codex.subscriptionPricing?.currentPrice(for: codex.plan)?.compactPrice,
+            "$25 / user / mo · $240 / user / yr")
+    }
+
     func testFocusPicksTheProvidersTheHostChose() throws {
         var snapshot = try decodeDemo()
         XCTAssertEqual(snapshot.focus, ["claude", "codex", "cursor"])
@@ -201,7 +225,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.collectingHistory, "Collecting history")
         XCTAssertEqual(
             HeadroomCopy.overallBurndownSubtitle, "7 days around today")
-        XCTAssertEqual(HeadroomCopy.overallBurndownSubtitleShort, "±3d")
+        XCTAssertEqual(HeadroomCopy.overallBurndownSubtitleShort, "±3.5d")
         XCTAssertEqual(HeadroomCopy.windowFrame, "This window")
         XCTAssertEqual(HeadroomCopy.windowSliceFrame, "7 days of this window")
         XCTAssertEqual(HeadroomCopy.noHistoryYet, "No history yet")
@@ -303,6 +327,37 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             DashboardSelection.tabs(for: snapshot.visibleQuotaProviders),
             ["overview", "claude", "gemini"])
+    }
+
+    func testDashboardModesMatchTheMobileInformationArchitecture() {
+        XCTAssertEqual(
+            DashboardMode.allCases,
+            [.overview, .attention, .activity])
+        XCTAssertEqual(
+            DashboardMode.allCases.map(\.title),
+            [HeadroomCopy.usage, HeadroomCopy.attention, HeadroomCopy.activity])
+    }
+
+    func testActivityGroupsUseSharedFunctionOrder() throws {
+        let rows = try JSONDecoder().decode(
+            [ActivityItem].self,
+            from: Data(
+                """
+                [
+                  {"id":"commit", "kind":"commit", "subject":"Commit"},
+                  {"id":"unknown", "kind":"new-source", "subject":"New"},
+                  {"id":"github", "kind":"github", "subject":"Actions"}
+                ]
+                """.utf8
+            )
+        )
+        let groups = ActivityGrouping.groups(from: rows)
+        XCTAssertEqual(
+            groups.map(\.title),
+            [HeadroomCopy.githubActions, HeadroomCopy.gitCommits,
+             HeadroomCopy.otherActivity])
+        XCTAssertEqual(groups[0].rows.first?.subject, "Actions")
+        XCTAssertEqual(groups[2].rows.first?.subject, "New")
     }
 
     func testAReplayedProviderSaysSoDespiteBeingOK() throws {

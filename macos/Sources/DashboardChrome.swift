@@ -11,7 +11,7 @@ enum DashboardSelection {
 
     /// Full name for accessibility / help — "Claude · Work".
     static func title(for id: String, providers: [QuotaProviderInfo]) -> String {
-        if id == overview { return HeadroomCopy.overview }
+        if id == overview { return HeadroomCopy.summary }
         if let match = providers.first(where: { $0.id == id }) {
             return match.displayTitle
         }
@@ -21,16 +21,40 @@ enum DashboardSelection {
     /// Label drawn next to the brand mark in the switcher — account name when
     /// the row is a named login, otherwise the provider title.
     static func markTitle(for id: String, providers: [QuotaProviderInfo]) -> String {
-        if id == overview { return HeadroomCopy.overview }
+        if id == overview { return HeadroomCopy.summary }
         if let match = providers.first(where: { $0.id == id }) {
             return match.markTitle
         }
         return title(for: id, providers: providers)
     }
 
-    /// Overview plus whatever quota providers are currently enabled.
+    /// Summary plus whatever quota providers are currently enabled.
     static func tabs(for providers: [QuotaProviderInfo]) -> [String] {
         [overview] + providers.map(\.id)
+    }
+}
+
+/// The three questions the dashboard answers. Provider tabs remain a detail
+/// switcher inside Usage; they are not peers of Attention and Activity.
+enum DashboardMode: String, CaseIterable, Hashable {
+    case overview
+    case attention
+    case activity
+
+    var title: String {
+        switch self {
+        case .overview: return HeadroomCopy.usage
+        case .attention: return HeadroomCopy.attention
+        case .activity: return HeadroomCopy.activity
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .overview: return "rectangle.grid.2x2"
+        case .attention: return "exclamationmark.bubble"
+        case .activity: return "bolt.horizontal.circle"
+        }
     }
 }
 

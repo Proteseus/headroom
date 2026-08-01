@@ -160,6 +160,21 @@ def _log_repo(path):
     return commits
 
 
+def invalidate():
+    """Dev root changed: drop cached commits so the next poll rescans."""
+    _cache.update(t=0.0)
+
+
+def discovered_repos():
+    """Repo paths the configured Dev root resolves to, for Settings.
+
+    Deliberately uncached: it is read when someone is looking at the field
+    they just edited, and answering with the previous root's repos is the one
+    thing that would make the edit look like it failed.
+    """
+    return _discover_repos(app_config.dev_root())
+
+
 def fetch_commits(force=False):
     """Return newest commits across ~/Dev authored by the owner."""
     now = time.time()

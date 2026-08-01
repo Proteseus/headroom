@@ -27,6 +27,7 @@ never compute them. Stdlib only.
 
 from __future__ import annotations
 
+import bisect
 import time
 from datetime import datetime
 
@@ -50,10 +51,10 @@ DEFICIT_PCT = 5.0
 # How far back the forgiven curve reaches. Matches the overview chart's
 # lookback, since that is the only chart wide enough to draw it.
 PREVIOUS_LOOKBACK_S = 3 * 24 * 3600
-# How far back `history` reaches. The overview chart's own lookback plus a day
-# of slack, so its left edge is always fed rather than starting mid-air. Not
-# the full retention window: this rides the same document the board pulls over
-# CDC, and nothing draws a domain wider than that week.
+# How far back `history` reaches. The overview chart's 3.5-day lookback plus
+# half a day of slack, so its left edge is always fed rather than starting
+# mid-air. Not the full retention window: this rides the same document the
+# board pulls over CDC, and nothing draws a domain wider than that week.
 HISTORY_LOOKBACK_S = 4 * 24 * 3600
 
 STATUS_OK = "ok"
@@ -120,22 +121,30 @@ def _slope_per_s(points):
     return numerator / denominator
 
 
-def _downsample(points, limit, start, end):
+def _downsample(points, limit, start, end, keep=None):
     """Thin `points` to at most `limit`, evenly by time, keeping both ends.
 
     The ends are pinned because they carry meaning the middle does not: the
     newest point is the current reading, and the oldest is where the window
     opened. Letting slot rounding swallow either one leaves a curve that starts
     or stops short of the axis it is drawn against.
+
+    `keep` pins interior timestamps for the same reason — see
+    `_boundary_samples`. Pinned points come out of the same budget rather than
+    on top of it, because this rides the document the board pulls over CDC and
+    a series that grows with how often a pool reset is the one that grows on
+    the machine least able to carry it.
     """
     if len(points) <= limit:
         return list(points)
+    pinned = [p for p in points if p[0] in keep] if keep else []
+    budget = max(2, limit - len(pinned))
     span = max(1.0, float(end - start))
     slots = {}
     for t, r in points:
-        idx = int(min(limit - 1, max(0, (t - start) / span * (limit - 1))))
+        idx = int(min(budget - 1, max(0, (t - start) / span * (budget - 1))))
         slots[idx] = (t, r)  # last write per slot wins
-    out = sorted(slots.values(), key=lambda p: p[0])
+    out = sorted(set(slots.values()) | set(pinned), key=lambda p: p[0])
     oldest = min(points, key=lambda p: p[0])
     if out and out[0][0] != oldest[0]:
         out.insert(0, oldest)
@@ -143,6 +152,28 @@ def _downsample(points, limit, start, end):
     if out and out[-1][0] != newest[0]:
         out.append(newest)
     return out
+
+
+def _boundary_samples(points, cuts):
+    """Timestamps of the two samples flanking each cut — a riser's two ends.
+
+    A reset is a vertical climb, and the only two readings that say how tall
+    it is are the last one of the spent window and the first one of the new
+    window. Even thinning does not know that: on four days of history at 48
+    points a slot is two hours wide, so the pair either side of a boundary
+    comes out two hours apart and the climb is drawn as a diagonal — two hours
+    of imaginary slow refill, right where the chart should read as a step.
+    Pinning both ends keeps the riser vertical and at its true height.
+    """
+    times = [t for t, _ in points]
+    keep = set()
+    for cut in cuts:
+        index = bisect.bisect_left(times, cut)
+        if index > 0:
+            keep.add(times[index - 1])
+        if index < len(times):
+            keep.add(times[index])
+    return keep
 
 
 def _when(timestamp, tz, now):
@@ -341,8 +372,14 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
         if row.get("t") is not None and row.get("pct") is not None
         and int(row["t"]) >= history_floor
     )
+    # Where that sawtooth climbs. `resets` holds only the grants, which are
+    # the rare kind — a Claude session rolling on schedule is not in there,
+    # and drawing its riser from `resets` alone is what left a plain restart
+    # looking like a two-hour refill.
+    boundaries = quota_samples.boundaries(rows, since=history_floor)
     if history:
-        history = _downsample(history, points, history[0][0], now)
+        history = _downsample(history, points, history[0][0], now,
+                              keep=_boundary_samples(history, boundaries))
 
     # --- forecast -------------------------------------------------------
     lookback = max(FIT_LOOKBACK_MIN_S, min(FIT_LOOKBACK_MAX_S, window_s // 3))
@@ -447,9 +484,16 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
         # wire because a phone or a board can be a year behind this host.
         "forgiven": [[t, round(r, 2)] for t, r in forgiven],
         # The unclipped sawtooth behind `actual` — see where it is built.
-        # Spans window boundaries on purpose; split it at `resets` before
-        # stroking, or the line jumps vertically at every reset.
+        # Spans window boundaries on purpose; square it off at `boundaries`
+        # before stroking.
         "history": [[t, round(r, 2)] for t, r in history],
+        # Every instant `history` climbs, scheduled rolls included. Draw the
+        # riser here, not at `resets` — that list is grants only, so a pool
+        # that simply rolled had no cut to square against and came out as a
+        # diagonal across whatever the thinning left. Bare epochs, because
+        # nothing labels these: a window ending on time is not news, it is
+        # only geometry.
+        "boundaries": boundaries,
         # Thinned across the range that actually has samples, not across the
         # whole window — a window we only joined halfway through would
         # otherwise spend most of the point budget on empty time.

@@ -90,13 +90,20 @@ surface-specific (see the end of this file), but the shape does not.
 
 | Term | Meaning | Surfaces |
 |---|---|---|
-| **Overview** | Home summary | macOS tab, iOS tab |
-| **Quotas** | Coding quota detail, reached from Overview (no longer its own iOS tab) | iOS |
+| **Usage** | Quotas, consumption, and tokens at a glance | macOS mode, iOS tab |
+| **Summary** | Aggregate usage view inside Usage, before provider detail | macOS, iOS |
+| **Quotas** | Coding quota detail, reached from Usage → Summary (no longer its own iOS tab) | iOS |
 | **Coding quotas** | Section title above the rings | macOS, iOS |
-| **Attention** | The queue: agent questions, rollup reasons, failed rows | iOS tab |
-| **Activity** | Merged deploys / commits / Actions feed, over the service panels | iOS tab, macOS section, ESP32 home mode |
-| **Recent** | The feed's section title inside the iOS Activity tab | iOS |
-| **Services** | Supabase, Plausible, local servers | Sections on the iOS Activity tab (Mac stacks the same panels) |
+| **Attention** | The queue: agent questions, rollup reasons, failed rows | macOS mode, iOS tab |
+| **Activity** | Merged deploys / commits / Actions feed, over the service panels | macOS mode, iOS tab, ESP32 home mode |
+| **Recent** | Legacy name for the feed; the iOS Activity tab now groups rows by function | iOS |
+| **GitHub Actions** | GitHub workflow activity | iOS, macOS |
+| **Vercel deployments** | Deployment activity from Vercel | iOS, macOS |
+| **Git commits** | Local commit activity | iOS, macOS |
+| **Quota resets** | Coding quota reset events | iOS, macOS |
+| **Claude status** | Claude service status events | iOS, macOS |
+| **Other activity** | Fallback group for activity kinds added by a newer host | iOS, macOS |
+| **Services** | Supabase, Plausible, local servers | Sections on the iOS Activity tab and macOS Activity mode |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
 | **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs, App updates | macOS Settings |
@@ -104,7 +111,11 @@ surface-specific (see the end of this file), but the shape does not.
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
 | **Sources** | What to watch — AI tools, extra accounts, dev tools | macOS Settings, iOS Settings, Welcome |
 | **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
-| **Integrations** | Hub for Supabase / Plausible / GitHub keys | macOS Settings |
+| **Integrations** | Hub for everything Headroom connects to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible | macOS Settings |
+| **Code and deploys** | Integrations group: Git, GitHub Actions, Vercel | macOS Settings |
+| **Dev root** | Folder scanned for local git repos, one level deep. Stays on this Mac | macOS Settings |
+| **Commit authors** | Names or emails whose commits count as yours; blank counts everyone | macOS Settings |
+| **Teams** | Vercel team filter; blank reads every team the login can see | macOS Settings |
 | **Connection** | Which Mac the phone talks to | iOS Settings |
 | **Permissions** | Mac-granted phone capabilities (read-only on iOS) | iOS Settings |
 | **iPhone** | Pairing + grants on Mac; notifications on iOS | macOS Settings, iOS Settings, Welcome |
@@ -115,7 +126,9 @@ surface-specific (see the end of this file), but the shape does not.
 | **Attention** | Warning / status card on the Mac, and the iOS tab it became (scoring policy: `docs/attention.md`) | macOS, iOS |
 | **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
 | **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
-| **Coding agents** | Provider setup and attention gateway settings | macOS |
+| **Coding agents** | Starting a task, and links to the two agent Integrations. Connection settings live under Integrations | macOS |
+| **Your agents, wherever you are** | Headroom's companion promise: see and safely answer agent requests from iPhone while the computer keeps its full context | macOS, iOS |
+| **Claude questions** | Whether Claude questions appear on both Mac and iPhone, can wait for an iPhone answer, or stay Mac-only | macOS |
 | **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
 | **Install hooks** / **Reinstall hooks** / **Remove hooks** | Manage only Headroom-owned entries in Claude settings | macOS |
 | **Add a test row** | Add a harmless Claude test row to the common feed | macOS |
@@ -131,6 +144,8 @@ surface-specific (see the end of this file), but the shape does not.
 | **Reply to the agent…** | Free-text answer to a request | iOS |
 | **Answer in the terminal** | This question is showing in both places; answer it where it was asked | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |
+| **Computers** | Macs paired to this iPhone; each token stays in the iPhone Keychain | iOS Settings |
+| **Add computer** | Pair another Mac without replacing the saved pairing | iOS Settings |
 
 Do not title the activity feed **GitHub**. That word is reserved for the
 **GitHub Actions** source.
@@ -194,11 +209,11 @@ changing its mind:
 
 | Chart | Frame | Subtitle |
 |---|---|---|
-| Overall burndown | Clock-anchored: three days either side of today | **7 days around today** (**±3d** on the watch) |
+| Overall burndown | Clock-anchored: three and a half days either side of today | **7 days around today** (**±3.5d** on the watch) |
 | Provider burndown | Reset-anchored: the pool's own window | **This window** |
 | Provider burndown, monthly pool | Seven days clipped out of a window too long to draw | **7 days of this window** |
 
-The overview gets no choice: provider windows open and reset at different
+The Usage chart gets no choice: provider windows open and reset at different
 times, so there is no single window to hang its axis on — which is also why it
 alone has no budget diagonal. A provider chart gets no choice either, in the
 other direction: the budget diagonal runs from the window's start to its reset,
@@ -212,14 +227,14 @@ than stored — a monthly chart cannot end up captioned "This window". The board
 is the one surface with no subtitle: its header row is spent on the `verdict`,
 and its weekday axis already names the days on screen.
 
-Don’t restate “all quotas” in the overview subtitle. Its domain is a fixed
-local week — today−3 … today+4 — so history stays readable and far-out resets
+Don’t restate “all quotas” in the Usage subtitle. Its domain is a fixed
+local week — today−3.5d … today+3.5d — so history stays readable and far-out resets
 don’t stretch the axis. Forecasts crop at each reset (and at empty); each
 in-range reset is an accent dotted vertical rule, and the legend shows
 **Resets …**.
 
 A reset the provider hands out early — Codex clearing a week you had already
-spent — is a **granted** reset. On the **Codex** burndown (not Overview) it is a
+spent — is a **granted** reset. On the **Codex** burndown (not Usage) it is a
 solid accent rule where an upcoming one is dotted, captioned **Reset granted ·
 N% back**. Percent even here: Codex genuinely grants credits, but the number
 in this caption is a share of the window the chart draws, not a credit count.
@@ -228,7 +243,7 @@ host detects them in the sample log (`burndown[].resets`), so the mark and the
 history agree by construction.
 
 A banked Codex reset credit has its own deadline, shown on the Codex quota card
-as **N reset credits** with expiry labels — not as a renewal mark on Overview.
+as **N reset credits** with expiry labels — not as a renewal mark on Usage.
 
 Pool-scoped burndown titles are `"{pool title} burndown"` (e.g. `Weekly burndown`).
 Provider charts share one X-axis rule across Mac / iOS / ESP32: at most **seven
@@ -245,11 +260,13 @@ blank axis.
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |
 | **All clear** | Healthy summary — host default, Attention card, and the Activity feed with nothing failing |
-| **Needs attention** | Warning fallback when a reason has no summary; counted as **N need attention** above the Activity feed |
+| **Needs attention** | Warning fallback when a reason has no summary; the iPhone Attention section header, and counted as **N need attention** above the Mac's Activity feed |
 | **Collecting history** | Burndown empty / early verdict |
 | **Not updating** | The host is replaying a source's last good numbers; the age travels with it (**Not updating · 2 hours ago**) |
 | **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way |
 | **Clear** | Dismiss attention on every surface |
+| **Dismiss** | Swipe one row out of the iPhone Attention queue — a passive coding-agent notice, a rollup reason, or a failed feed row |
+| **Dismiss all** | Bulk version of the same, per section: every passive coding-agent notice (answer-required requests stay), or every warning in **Needs attention** |
 | **Refresh all** | Force-sync every source |
 | **Active** | Mac Settings → Sources: the services you track, rich reorderable rows with live usage. A switched-off row stays here as **Off** — paused, configured, not polled |
 | **Library** | Mac Settings → Sources: everything you don't track, as compact chips grouped **AI providers** / **Dev tools** |
@@ -264,7 +281,7 @@ this one names a thing the reader can go and do. `QuotaProviderInfo.statusNote`
 picks between them so no surface has to.
 
 Do not use **All clear** for connection health — that word belongs on the
-Attention card. The Overview status row uses **Connected** / **Mac unavailable**.
+Attention card. The Usage status row uses **Connected** / **Mac unavailable**.
 
 ### Service health
 

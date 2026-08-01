@@ -54,6 +54,7 @@ import cache_util
 import claude_history
 import claude_status
 import daily_burn
+import detect_sources
 import device_view
 import git_activity
 import github_actions
@@ -66,6 +67,7 @@ import plausible_usage
 import quota_samples
 import sources_config
 import usb_bridge
+import vercel_builds
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
@@ -1289,6 +1291,10 @@ def _providers_payload(state, burndowns=None):
             "accent_default": source.accent,
             "headline": source.headline[0] if source.headline else None,
             "reset_note_url": source.reset_note_url,
+            # Subscription prices are registry metadata, not account usage.
+            # Keep them next to the provider plan and meters so every client
+            # can render the same catalog without copying a price table.
+            "subscription_pricing": source.subscription_pricing_payload(),
             "pools": pools,
         }
         # See `_sources_payload`: brand mark + user label, not "Brand · Label".
@@ -1349,6 +1355,34 @@ def _github_watch_payload():
         "max_discovered": app_config.github_max_discovered(),
         "dev_root": app_config.dev_root(),
         "watching": github_actions.watched_repos(),
+    }
+
+
+def _git_config_payload():
+    """Where local commits come from, plus what that folder actually holds.
+
+    `repos` is the same courtesy `watching` pays on the GitHub side: a Dev
+    root with nothing under it and a Dev root that is simply quiet look
+    identical from Settings otherwise.
+    """
+    root = app_config.dev_root()
+    repos = [os.path.basename(path)
+             for path in git_activity.discovered_repos()]
+    return {
+        "ok": True,
+        "dev_root": app_config.dev_root_setting(),
+        "dev_root_path": root,
+        "dev_root_exists": os.path.isdir(root),
+        "authors": list(app_config.git_authors()),
+        "repos": repos,
+    }
+
+
+def _vercel_config_payload():
+    return {
+        "ok": True,
+        "teams": list(app_config.vercel_team_slugs()),
+        "signed_in": detect_sources.vercel_signed_in(),
     }
 
 
@@ -1494,6 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
         path = split.path.rstrip("/")
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch",
+                        "/config/git", "/config/vercel",
                         "/agents/capabilities", "/agents/config",
                         "/agents/claude/config", "/agents/codex/task",
                         "/agents/tasks",
@@ -1510,6 +1545,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
             self._send_json(200, _github_watch_payload())
+            return
+        if path in ("/config/git", "/config/vercel"):
+            # Names folders on this disk and the teams a login can reach —
+            # Mac-local, same class as /github/watch.
+            if not self._is_loopback():
+                self._send_json(403, {"ok": False, "error": "localhost only"})
+                return
+            self._send_json(200, _git_config_payload()
+                            if path == "/config/git"
+                            else _vercel_config_payload())
             return
         if path == "/accounts":
             # Names folders holding live credentials — Mac-local, like the
@@ -1559,10 +1604,15 @@ class Handler(BaseHTTPRequestHandler):
                         "provider": "claude-code",
                         "state": "error",
                         "installed": False,
+                        "question_mode": app_config.agent_question_mode(),
                         "error": str(error),
                     })
                 return
-            self._send_json(200, {"ok": True, **result})
+            self._send_json(200, {
+                "ok": True,
+                **result,
+                "question_mode": app_config.agent_question_mode(),
+            })
             return
         if path == "/mobile/permissions":
             granted = app_config.mobile_permissions()
@@ -1636,6 +1686,8 @@ class Handler(BaseHTTPRequestHandler):
             "/mobile/permissions",
             "/attention/ack",
             "/github/watch",
+            "/config/git",
+            "/config/vercel",
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
@@ -1825,7 +1877,11 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError, json.JSONDecodeError) as error:
                 self._send_json(400, {"ok": False, "error": str(error)})
                 return
-            self._send_json(200, {"ok": True, **result})
+            self._send_json(200, {
+                "ok": True,
+                **result,
+                "question_mode": app_config.agent_question_mode(),
+            })
             return
 
         if path == "/agents/config":
@@ -1933,6 +1989,32 @@ class Handler(BaseHTTPRequestHandler):
             # The cached run list was fetched for the old repos.
             github_actions.invalidate()
             self._send_json(200, _github_watch_payload())
+            return
+
+        if path == "/config/git":
+            try:
+                app_config.set_git_config(
+                    root=payload.get("dev_root"),
+                    authors=payload.get("authors"),
+                )
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            # Commits and discovered Actions repos both come from dev_root, so
+            # moving it strands two caches, not one.
+            git_activity.invalidate()
+            github_actions.invalidate()
+            self._send_json(200, _git_config_payload())
+            return
+
+        if path == "/config/vercel":
+            try:
+                app_config.set_vercel_teams(slugs=payload.get("teams"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            vercel_builds.invalidate()
+            self._send_json(200, _vercel_config_payload())
             return
 
         if path == "/accounts":

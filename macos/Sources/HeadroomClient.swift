@@ -423,14 +423,20 @@ struct HeadroomClient: Sendable {
             ClaudeHookConfiguration.self, from: data)
     }
 
-    func changeClaudeHooks(_ action: String) async throws
+    func changeClaudeHooks(
+        _ action: String,
+        questionMode: String? = nil
+    ) async throws
         -> ClaudeHookConfiguration {
         let url = try base()
             .appendingPathComponent("agents")
             .appendingPathComponent("claude")
             .appendingPathComponent("config")
-        let body = try JSONSerialization.data(
-            withJSONObject: ["action": action])
+        var payload: [String: Any] = ["action": action]
+        if let questionMode {
+            payload["question_mode"] = questionMode
+        }
+        let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 8))
         return try JSONDecoder().decode(
@@ -461,6 +467,53 @@ struct HeadroomClient: Sendable {
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 10))
         return try JSONDecoder().decode(GitHubWatch.self, from: data)
+    }
+
+    func fetchGitConfiguration() async throws -> GitConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("git")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(GitConfiguration.self, from: data)
+    }
+
+    /// Persist the Dev root and commit authors, and answer with what the new
+    /// root resolves to.
+    @discardableResult
+    func setGitConfiguration(
+        devRoot: String, authors: [String]
+    ) async throws -> GitConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("git")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "dev_root": devRoot,
+            "authors": authors,
+        ])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(GitConfiguration.self, from: data)
+    }
+
+    func fetchVercelConfiguration() async throws -> VercelConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("vercel")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(VercelConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setVercelConfiguration(
+        teams: [String]
+    ) async throws -> VercelConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("vercel")
+        let body = try JSONSerialization.data(withJSONObject: ["teams": teams])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(VercelConfiguration.self, from: data)
     }
 
     func stopServer(pid: Int, port: Int) async throws {
@@ -538,6 +591,39 @@ struct GitHubWatch: Decodable, Sendable {
         case alwaysRepos = "always_repos"
         case maxDiscovered = "max_discovered"
         case devRoot = "dev_root"
+    }
+}
+
+/// Mac-local Git configuration. Same class as `GitHubWatch` and for the same
+/// reason: `devRoot` names a folder on this disk, so the host serves it to
+/// loopback only and it never joins the multi-Mac merge.
+struct GitConfiguration: Decodable, Sendable {
+    /// As the user wrote it, tilde intact. `devRootPath` is the expansion —
+    /// showing that one in the field reads as the save having rewritten it.
+    var devRoot: String = "~/Dev"
+    var devRootPath: String = ""
+    var devRootExists: Bool = true
+    var authors: [String] = []
+    /// Repo folder names the root resolved to, so an empty Dev root and a
+    /// quiet one can be told apart.
+    var repos: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case authors, repos
+        case devRoot = "dev_root"
+        case devRootPath = "dev_root_path"
+        case devRootExists = "dev_root_exists"
+    }
+}
+
+struct VercelConfiguration: Decodable, Sendable {
+    /// Empty means every team the login can see, which is the useful default.
+    var teams: [String] = []
+    var signedIn: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case teams
+        case signedIn = "signed_in"
     }
 }
 
@@ -625,9 +711,11 @@ struct ClaudeHookConfiguration: Decodable, Sendable {
     var installedEvents: [String]?
     var version: Int?
     var error: String?
+    var questionMode: String?
 
     enum CodingKeys: String, CodingKey {
         case ok, provider, state, installed, version, error
+        case questionMode = "question_mode"
         case settingsPath = "settings_path"
         case installedEvents = "installed_events"
     }

@@ -123,7 +123,7 @@ framed App Store slides later.
 
 Recommended set:
 
-1. **Overview rings** — “Your quotas, one glance”
+1. **Usage rings** — “Your quotas, one glance”
 2. **Provider detail / burndown** — “Pace before you hit the wall”
 3. **Activity** — “CI and deploys without another tab”
 4. **Services** — “Supabase, Plausible, local ports”

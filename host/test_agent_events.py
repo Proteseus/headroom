@@ -111,6 +111,7 @@ class EventStoreTests(unittest.TestCase):
         gateway = agent_gateway.AgentGateway.__new__(agent_gateway.AgentGateway)
         gateway._adapter_lock = threading.Lock()
         gateway.store = self.store
+        gateway.machine = {"id": "mac-studio-1", "name": "Studio"}
         gateway.codex = adapter
         gateway.adapters = {"codex": adapter}
         result = gateway.respond(
@@ -122,6 +123,44 @@ class EventStoreTests(unittest.TestCase):
         self.assertEqual(
             adapter.responses, [(event["id"], "approve_once", None)])
         self.assertEqual(result["event"]["state"], "responding")
+        self.assertEqual(result["event"]["machine_id"], "mac-studio-1")
+        self.assertEqual(result["event"]["machine_name"], "Studio")
+
+    def test_events_are_owned_by_the_serving_machine(self):
+        first = self.create("same-provider-request")
+        first_gateway = agent_gateway.AgentGateway(
+            store=self.store,
+            codex=FakeAdapter(),
+            claude=FakeAdapter(),
+            machine={"id": "mac-studio-1", "name": "Studio"},
+        )
+        first_payload = first_gateway.events()["events"]
+        self.assertEqual(first_payload[0]["id"], first["id"])
+        self.assertEqual(first_payload[0]["machine_id"], "mac-studio-1")
+        self.assertEqual(first_payload[0]["machine_name"], "Studio")
+
+        other_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(other_tmp.cleanup)
+        other_store = agent_events.EventStore(
+            os.path.join(other_tmp.name, "attention.sqlite3"))
+        other = other_store.create(
+            provider="codex", adapter="test",
+            provider_request_id="same-provider-request",
+            session_id="thread-1", kind="command_approval",
+            title="Approval needed", summary="Run tests", actions=ACTIONS,
+        )
+        other_gateway = agent_gateway.AgentGateway(
+            store=other_store,
+            codex=FakeAdapter(),
+            claude=FakeAdapter(),
+            machine={"id": "mac-laptop-2", "name": "Laptop"},
+        )
+        other_payload = other_gateway.events()["events"]
+        self.assertEqual(other_payload[0]["id"], other["id"])
+        self.assertEqual(other_payload[0]["machine_id"], "mac-laptop-2")
+        self.assertEqual(other_payload[0]["machine_name"], "Laptop")
+        self.assertEqual(first_payload[0]["session_id"],
+                         other_payload[0]["session_id"])
 
 
 class RetentionTests(unittest.TestCase):

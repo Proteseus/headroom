@@ -28,6 +28,10 @@ see [`attention.md`](attention.md).
 - `GET /agents/capabilities`
 - `GET /attention/events?state=open&limit=50&after_ms=…`
 - `POST /attention/events/{id}/respond`
+- Every event and response identifies its serving Mac with `machine_id` and
+  `machine_name`; the ID is stable across host restarts and renames, while the
+  name follows the Mac's current computer name. The fields are additive, so an
+  older host can still be read by a newer phone.
 - A separate `agents` mobile permission. It is off by default, even when the
   ordinary iPhone dashboard permissions use their defaults.
 - iPhone feed rows, local notifications, and in-app responses. Privileged
@@ -96,10 +100,11 @@ again — which is why `structured_question` reports `experimental` rather than
   tool call, and holding a question is not free: it is unanswerable at the Mac
   for exactly as long as Headroom holds it, and a host that is down or
   restarting takes every question in every session with it. That is a bad
-  trade unless you actually want to answer from your phone, so it installs
-  only when `agent_remote_questions` is on, and switching the setting off
-  removes the hook rather than leaving a blocker behind.
-- **The wait is short.** A question parks for 25 seconds, not the approval's
+  trade unless you actually want to answer from your phone, so the blocking
+  hook is installed only in **Let iPhone answer** mode. **Show on Mac + iPhone**
+  mirrors a question without holding Claude, and **Mac only** removes the
+  question hook rather than leaving a blocker behind.
+- **The wait is bounded.** A question parks for 120 seconds, not the approval's
   285. An approval has nowhere else to be answered; a question is sitting in
   front of you on the Mac the whole time.
 - **No decision is an empty body.** Returning an explicit `permissionDecision`
@@ -111,6 +116,27 @@ again — which is why `structured_question` reports `experimental` rather than
 
 The reason text names the phone explicitly. A bare "denied" reads to the model
 as a refusal; it has to say an answer was given and where it came from.
+
+## Testing the iPhone handoff
+
+Run this short matrix after installing hooks and granting the Mac's **Answer
+coding agents** permission to the iPhone:
+
+1. **Passive notice:** click **Add a test row**. It appears in Attention with
+   the repository name, has no tab badge, and can be dismissed individually or
+   with **Dismiss all**. The Mac's own row remains visible.
+2. **Permission:** trigger a Claude permission request. Attention shows the
+   repository, request details, and Allow/Deny/Reply actions. Tapping one
+   resolves the same request in Claude; it does not create a second computer
+   notification.
+3. **Question:** set **Claude questions → Let iPhone answer**, reinstall hooks
+   if needed, and trigger a two-option `AskUserQuestion`. The iPhone shows the
+   prompt and choices without a duplicate raw Request block. Choosing an option
+   wakes Claude; the Mac-side question remains visible in its own terminal.
+4. **Mac-only fallback:** set **Claude questions → Mac only**. A question no
+   longer waits on Headroom and is answered in the terminal as usual.
+5. **Routing:** tap an iPhone notification. It opens Attention and highlights
+   the matching repository row, including when several Macs are connected.
 
 ## Starting a Codex session Headroom can answer
 

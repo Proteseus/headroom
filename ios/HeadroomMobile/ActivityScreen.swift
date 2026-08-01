@@ -9,41 +9,25 @@ import SwiftUI
 /// — this screen takes the complement, so the two can't disagree.
 struct ActivityScreen: View {
     @ObservedObject var store: MobileUsageStore
-    /// Tapping the "N need attention" line jumps to the tab holding them,
-    /// rather than reprinting the rows it just moved away.
-    var showAttention: () -> Void
     @State private var serverToStop: LocalServer?
     @State private var controlError: String?
 
     var body: some View {
-        let waiting = AttentionScreen.failures(in: store.snapshot).count
         let rows = (store.snapshot.activity ?? []).filter {
             !ActivityStatusStyle.resolve($0.status).needsAttention
         }
         List {
             ArchivedDataNotice(store: store)
-            if waiting > 0 {
-                Button(action: showAttention) {
-                    HStack {
-                        Label(
-                            HeadroomCopy.needsAttention(count: waiting),
-                            systemImage: "exclamationmark.triangle.fill"
-                        )
-                        .foregroundStyle(HeadroomPalette.red)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            Section(HeadroomCopy.recentActivity) {
-                if rows.isEmpty {
+            if rows.isEmpty {
+                Section(HeadroomCopy.activity) {
                     Text(HeadroomCopy.noActivityYet)
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(rows) { ActivityRow(item: $0) }
+                }
+            } else {
+                ForEach(ActivityGrouping.groups(from: rows)) { group in
+                    Section(group.title) {
+                        ForEach(group.rows) { ActivityRow(item: $0) }
+                    }
                 }
             }
             ServiceSections(store: store) { serverToStop = $0 }
@@ -98,7 +82,13 @@ struct ActivityScreen: View {
 /// into different ideas of green.
 struct ActivityRow: View {
     let item: ActivityItem
+    let showsCaption: Bool
     @Environment(\.openURL) private var openURL
+
+    init(item: ActivityItem, showsCaption: Bool = true) {
+        self.item = item
+        self.showsCaption = showsCaption
+    }
 
     var body: some View {
         let style = ActivityStatusStyle.resolve(item.status)
@@ -116,12 +106,14 @@ struct ActivityRow: View {
                     Text(item.subject ?? "Event")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text(caption(style))
-                        .font(.caption)
-                        .foregroundStyle(style.needsAttention
-                                         ? AnyShapeStyle(style.tint)
-                                         : AnyShapeStyle(.secondary))
-                        .lineLimit(2)
+                    if showsCaption {
+                        Text(caption(style))
+                            .font(.caption)
+                            .foregroundStyle(style.needsAttention
+                                             ? AnyShapeStyle(style.tint)
+                                             : AnyShapeStyle(.secondary))
+                            .lineLimit(2)
+                    }
                     if style.needsAttention, let error = item.errorMessage {
                         Text(error)
                             .font(.caption)

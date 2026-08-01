@@ -590,9 +590,14 @@ struct Burndown: Decodable, Sendable, Identifiable {
     /// `actual` stops at the live window's start, so the moment a window rolls
     /// it holds one point and draws nothing. This is the same readings
     /// unclipped, which is what keeps a reset from looking like the app
-    /// forgetting the week. It climbs at every boundary, so split it with
-    /// `historySegments(splitAt:)` before stroking.
+    /// forgetting the week. It climbs at every boundary, so square it off at
+    /// `historyRisers` before stroking.
     var history: [[Double]]?
+    /// Every instant `history` climbs — scheduled rolls as well as grants.
+    ///
+    /// Read it through `historyRisers`, which falls back to `resets` for a
+    /// host that predates this key.
+    var boundaries: [Double]?
     /// "measured" from real samples, "estimated" from token history, nil when
     /// there is nothing to go on yet.
     var rateSource: String?
@@ -620,6 +625,19 @@ struct Burndown: Decodable, Sendable, Identifiable {
 
     /// A fit needs history; until then every forecast field is nil by design.
     var hasForecast: Bool { burnRatePct != nil }
+
+    /// Where the cross-window curve stands up, for `historyPolyline`.
+    ///
+    /// `resets` is the fallback rather than the source: it lists only the
+    /// resets a provider granted out of band, so a pool whose window merely
+    /// ran out — every Claude session, most of the time — offered no cut to
+    /// square against, and its climb was drawn as a diagonal across whatever
+    /// two samples survived thinning. A host older than `boundaries` still
+    /// gets the grants squared, which is what it always did.
+    var historyRisers: [Double] {
+        if let boundaries, !boundaries.isEmpty { return boundaries }
+        return resets?.compactMap(\.t) ?? []
+    }
 
     /// Forecast rests on the token-history prior, not on measured samples.
     var isEstimated: Bool { rateSource == "estimated" }
@@ -703,7 +721,7 @@ struct Burndown: Decodable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case provider, pool, status, ideal, actual, projected, samples, headline
-        case exhausted, verdict, resets, forgiven, history
+        case exhausted, verdict, resets, forgiven, history, boundaries
         case windowStart = "window_start"
         case windowEnd = "window_end"
         case windowS = "window_s"
@@ -871,6 +889,18 @@ struct ProviderMeter: Sendable {
         [primary, secondary, tertiary].compactMap { $0 }
     }
 
+    /// A weekly-only Codex account should not show the empty compatibility
+    /// slot that the legacy meter uses for Session.
+    var displayableWindows: [MeterWindow] {
+        allWindows.filter { window in
+            let baseID = id.split(separator: ":", maxSplits: 1)
+                .first.map(String.init)
+            guard baseID == UsageProvider.codex.rawValue,
+                  window.id == "session" else { return true }
+            return window.percent != nil
+        }
+    }
+
     /// Window shown as the provider's headline signal (menu bar + overview rings).
     var headline: MeterWindow {
         if let headlinePoolID,
@@ -964,6 +994,75 @@ struct DailyBurnDay: Decodable, Sendable, Identifiable {
     }
 }
 
+/// One published subscription plan from the provider registry.
+///
+/// Prices are informational list prices, not what Headroom estimates from
+/// local token logs and not a user's tax, regional, or employer-adjusted bill.
+struct SubscriptionPlanPrice: Decodable, Identifiable, Sendable {
+    var id: String
+    var title: String
+    var monthlyUSD: Double?
+    var annualUSD: Double?
+    var unit: String?
+    var note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, unit, note
+        case monthlyUSD = "monthly_usd"
+        case annualUSD = "annual_usd"
+    }
+
+    /// Short price text for compact provider rows. A plan without a numeric
+    /// amount is intentionally shown as custom rather than guessed.
+    var compactPrice: String {
+        if let monthlyUSD {
+            guard monthlyUSD != 0 else { return "Free" }
+            let unitPart = unit.map { " / \($0)" } ?? ""
+            let monthly = "$\(monthlyUSD.cleanCurrency)\(unitPart) / mo"
+            if let annualUSD {
+                return "\(monthly) · $\(annualUSD.cleanCurrency)\(unitPart) / yr"
+            }
+            return monthly
+        }
+        return note ?? "Custom"
+    }
+}
+
+/// Published plan prices for one quota provider.
+struct SubscriptionPricing: Decodable, Sendable {
+    var currency: String?
+    var checked: String?
+    var url: String?
+    var plans: [SubscriptionPlanPrice]
+
+    /// Resolve the one published price for the plan the provider reported.
+    /// Exact matching is deliberate: "Team" must not silently choose between
+    /// Team Standard and Team Premium.
+    func currentPrice(for plan: String?) -> SubscriptionPlanPrice? {
+        guard let plan else { return nil }
+        let normalizedPlan = Self.normalized(plan)
+        return plans.first {
+            Self.normalized($0.id) == normalizedPlan
+                || Self.normalized($0.title) == normalizedPlan
+        }
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case currency, checked, url, plans
+    }
+}
+
+private extension Double {
+    var cleanCurrency: String {
+        if rounded() == self { return String(format: "%.0f", self) }
+        return String(format: "%.2f", self)
+    }
+}
+
 /// One coding-quota provider as advertised by the host registry.
 struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var id: String
@@ -1001,6 +1100,9 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// them anywhere. A permalink the app only ever opens — nothing fetches
     /// it, so no part of your account leaves the Mac to render a reset.
     var resetNoteURL: String?
+    /// Published subscription catalog for this provider. Additive and absent
+    /// on hosts that predate the registry's price metadata.
+    var subscriptionPricing: SubscriptionPricing?
     var pools: [String: QuotaPoolInfo]?
 
     init(
@@ -1020,6 +1122,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         accentDefault: String? = nil,
         headline: String? = nil,
         resetNoteURL: String? = nil,
+        subscriptionPricing: SubscriptionPricing? = nil,
         pools: [String: QuotaPoolInfo]? = nil
     ) {
         self.id = id
@@ -1038,6 +1141,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.accentDefault = accentDefault
         self.headline = headline
         self.resetNoteURL = resetNoteURL
+        self.subscriptionPricing = subscriptionPricing
         self.pools = pools
     }
 
@@ -1048,6 +1152,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         case authRequired = "auth_required"
         case accentDefault = "accent_default"
         case resetNoteURL = "reset_note_url"
+        case subscriptionPricing = "subscription_pricing"
     }
 
     /// Full name for text-only surfaces: "Claude · Work", or "Claude".
@@ -1134,8 +1239,22 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
             .map { (id: $0.key, pool: $0.value) }
     }
 
+    /// Codex plans that expose only a weekly limit still carry the registry's
+    /// session slot with a nil reading. It is not a missing measurement — it
+    /// is a meter this account does not have — so compact quota cards should
+    /// not spend a row showing "Session —".
+    var displayablePools: [(id: String, pool: QuotaPoolInfo)] {
+        visiblePools.filter { entry in
+            let baseID = id.split(separator: ":", maxSplits: 1)
+                .first.map(String.init)
+            guard baseID == UsageProvider.codex.rawValue,
+                  entry.id == "session" else { return true }
+            return entry.pool.pct != nil
+        }
+    }
+
     /// This provider's burndown pools in exactly the selection and order of
-    /// `visiblePools`, so a provider's charts line up one-for-one with the
+    /// `displayablePools`, so a provider's charts line up one-for-one with the
     /// progress bars above them. Pools the host hid from the rings get no
     /// chart, and a pool with no history yet simply drops out.
     ///
@@ -1153,7 +1272,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
                 return ($0.pool ?? "") < ($1.pool ?? "")
             }
         }
-        return visiblePools.compactMap { byPool[$0.id] }
+        return displayablePools.compactMap { byPool[$0.id] }
     }
 }
 
@@ -2218,6 +2337,8 @@ struct AgentAttentionEvent: Codable, Sendable, Equatable, Identifiable {
     var id: String
     var provider: String
     var adapter: String
+    var machineID: String?
+    var machineName: String?
     var sessionID: String
     var turnID: String?
     var itemID: String?
@@ -2247,15 +2368,35 @@ struct AgentAttentionEvent: Codable, Sendable, Equatable, Identifiable {
         provider == "claude-code" ? "claude" : provider
     }
 
+    /// Repo-first title for the phone. Older hosts stored prose such as
+    /// "Claude finished responding in repo"; the cwd is the durable source
+    /// of the repository identity, so newer clients can repair that display
+    /// without rewriting the Mac's ledger.
+    var displayTitle: String {
+        guard let cwd = detail.cwd,
+              let last = cwd.split(separator: "/").last,
+              !last.isEmpty else { return title }
+        return String(last)
+    }
+
     /// A row nobody can answer — a finished/idle notice — only offers
     /// dismissal, and that is what makes it safe to swipe away.
     var isDismissOnly: Bool {
         !actions.isEmpty && actions.allSatisfy { $0.id == "dismiss" }
     }
 
+    /// Informational lifecycle notices still travel to the phone so they can
+    /// notify the person, but they do not belong in the Attention queue. A
+    /// real request has at least one answer other than dismissing the row.
+    var isActionable: Bool {
+        !actions.isEmpty && !isDismissOnly
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, provider, adapter, kind, state, revision, title, summary
         case detail, actions
+        case machineID = "machine_id"
+        case machineName = "machine_name"
         case sessionID = "session_id"
         case turnID = "turn_id"
         case itemID = "item_id"

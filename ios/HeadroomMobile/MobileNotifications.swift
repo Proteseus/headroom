@@ -1,6 +1,21 @@
+import Foundation
 import UserNotifications
 
 enum MobileNotifications {
+    static let agentNotificationTapped = Notification.Name(
+        "headroom.agent-notification-tapped"
+    )
+
+    static func installDelegate() {
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+    }
+
+    static func agentEventID(
+        from userInfo: [AnyHashable: Any]
+    ) -> String? {
+        userInfo["agent_event_id"] as? String
+    }
+
     static func requestAuthorization() async {
         _ = try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .badge, .sound])
@@ -76,10 +91,14 @@ enum MobileNotifications {
             let key = "lastNotifiedAgentEvent-\(event.id)"
             guard !UserDefaults.standard.bool(forKey: key) else { continue }
             let content = UNMutableNotificationContent()
-            content.title = event.title
+            content.title = event.displayTitle
             content.body = event.summary
             content.sound = .default
-            content.userInfo = ["agent_event_id": event.id]
+            var userInfo: [AnyHashable: Any] = ["agent_event_id": event.id]
+            if let machineID = event.machineID {
+                userInfo["machine_id"] = machineID
+            }
+            content.userInfo = userInfo
             let request = UNNotificationRequest(
                 identifier: "headroom-agent-\(event.id)",
                 content: content,
@@ -88,6 +107,44 @@ enum MobileNotifications {
             if (try? await UNUserNotificationCenter.current().add(request)) != nil {
                 UserDefaults.standard.set(true, forKey: key)
             }
+        }
+    }
+
+    // The singleton has no mutable state; callbacks are forwarded to
+    // NotificationCenter on the main queue. NSObject protocol conformances
+    // are not annotated Sendable, so state this invariant explicitly for
+    // Swift 6's global-actor checking.
+    private final class NotificationDelegate: NSObject,
+        UNUserNotificationCenterDelegate, @unchecked Sendable {
+        static let shared = NotificationDelegate()
+
+        func userNotificationCenter(
+            _ center: UNUserNotificationCenter,
+            willPresent notification: UNNotification,
+            withCompletionHandler completionHandler:
+                @escaping (UNNotificationPresentationOptions) -> Void
+        ) {
+            // Keep the doorbell visible when the app is already open. The
+            // Attention tab is still the place where a response is made.
+            completionHandler([.banner, .sound])
+        }
+
+        func userNotificationCenter(
+            _ center: UNUserNotificationCenter,
+            didReceive response: UNNotificationResponse,
+            withCompletionHandler completionHandler: @escaping () -> Void
+        ) {
+            let userInfo = response.notification.request.content.userInfo
+            if let eventID = MobileNotifications.agentEventID(from: userInfo) {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: MobileNotifications.agentNotificationTapped,
+                        object: nil,
+                        userInfo: ["agent_event_id": eventID]
+                    )
+                }
+            }
+            completionHandler()
         }
     }
 }

@@ -61,6 +61,25 @@ struct SettingsView: View {
     /// there taking edits that can never be saved.
     @State private var githubWatchEditable = true
 
+    /// Git and Vercel had no UI at all before Integrations became the one
+    /// place connections live — both were edit-`~/.headroom/config.json`-and-
+    /// restart. Drafts are held as typed and only parsed on save, same as the
+    /// GitHub owner fields above.
+    @State private var gitConfig = GitConfiguration()
+    @State private var gitDevRootDraft = ""
+    @State private var gitAuthorsDraft = ""
+    @State private var gitMessage: String?
+    @State private var savingGit = false
+    /// False when the host predates /config/git, so the fields do not take
+    /// edits that can never be saved.
+    @State private var gitEditable = true
+
+    @State private var vercelConfig = VercelConfiguration()
+    @State private var vercelTeamsDraft = ""
+    @State private var vercelMessage: String?
+    @State private var savingVercel = false
+    @State private var vercelEditable = true
+
     @State private var hostToken = ""
     @State private var hostTokenStored = false
     @State private var mobileTokenMessage: String?
@@ -76,6 +95,7 @@ struct SettingsView: View {
     @State private var claudeHooks: ClaudeHookConfiguration?
     @State private var claudeHooksMessage: String?
     @State private var changingClaudeHooks = false
+    @State private var claudeQuestionMode = "notify"
     @State private var multiMac = MultiMacConfiguration.unknown
     @State private var multiMacMessage: String?
     @State private var changingMultiMac = false
@@ -150,6 +170,8 @@ struct SettingsView: View {
             await reloadClaudeHooks()
             await reloadMultiMac()
             await reloadGitHubWatch()
+            await reloadGitConfiguration()
+            await reloadVercelConfiguration()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification
@@ -232,6 +254,33 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("Share sources and settings between Macs through iCloud Drive.")
+            }
+
+            // Row counts are what this Mac draws, not what it connects to.
+            // They sat under Integrations back when that pane was the place
+            // anything provider-shaped ended up.
+            Section("Dashboard") {
+                Stepper(
+                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
+                    value: $activityRowLimit,
+                    in: 3...14
+                )
+                Stepper(
+                    "\(HeadroomCopy.localServers): \(serverRowLimit)",
+                    value: $serverRowLimit,
+                    in: 1...8
+                )
+                Stepper(
+                    "Supabase projects: \(supabaseRowLimit)",
+                    value: $supabaseRowLimit,
+                    in: 1...20
+                )
+                Stepper(
+                    "Plausible sites: \(plausibleRowLimit)",
+                    value: $plausibleRowLimit,
+                    in: 1...20
+                )
+                Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
             }
 
             updatesSection
@@ -453,9 +502,33 @@ struct SettingsView: View {
                 } header: {
                     Text(HeadroomCopy.startTask)
                 } footer: {
-                    Text("Claude runs headless and reports through the hooks below. Codex needs a thread of Headroom's own — a session you start in a terminal talks to its own App Server and cannot reach this one.")
+                    Text("Claude runs headless and reports through its hooks. Codex needs a thread of Headroom's own — a session you start in a terminal talks to its own App Server and cannot reach this one.")
+                }
+            } else {
+                Section {
+                    Text("No agent is connected yet, so there is nothing to start.")
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(HeadroomCopy.startTask)
                 }
             }
+
+            Section {
+                ForEach(
+                    SettingsIntegration.members(of: .agents), id: \.self
+                ) { kind in
+                    integrationRow(kind)
+                }
+            } footer: {
+                Text("Connecting an agent is set up under \(HeadroomCopy.settingsIntegrations), with everything else Headroom talks to.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private var claudeCodeSections: some View {
+        Group {
             Section {
                 LabeledContent(HeadroomCopy.claudeCodeHooks) {
                     if changingClaudeHooks {
@@ -488,6 +561,24 @@ struct SettingsView: View {
                     .disabled(endpointIsRemote || changingClaudeHooks)
                     Spacer()
                 }
+                Picker(
+                    HeadroomCopy.agentQuestionMode,
+                    selection: Binding(
+                        get: { claudeQuestionMode },
+                        set: { mode in
+                            claudeQuestionMode = mode
+                            Task { await changeClaudeQuestionMode(mode) }
+                        }
+                    )
+                ) {
+                    Text(HeadroomCopy.agentQuestionNotify).tag("notify")
+                    Text(HeadroomCopy.agentQuestionAnswer).tag("answer")
+                    Text(HeadroomCopy.agentQuestionOff).tag("off")
+                }
+                .disabled(endpointIsRemote || changingClaudeHooks)
+                Text(HeadroomCopy.agentQuestionModeHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if let path = claudeHooks?.settingsPath {
                     Text(path)
                         .font(.caption.monospaced())
@@ -499,9 +590,18 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            } footer: {
+                Text(endpointIsRemote
+                     ? "Claude Code settings must be changed on the Mac running the Headroom host."
+                     : "Hooks observe the Claude Code sessions already running on this Mac and can return permission answers. The iPhone permission separately controls whether answers may come from the phone.")
+            }
+        }
+    }
 
-                Divider()
-
+    @ViewBuilder
+    private var codexSections: some View {
+        Group {
+            Section {
                 Toggle(
                     "Enable Codex attention gateway",
                     isOn: Binding(
@@ -557,11 +657,10 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text(endpointIsRemote
-                     ? "Coding-agent server settings must be changed on the Mac running the Headroom host."
-                     : "Claude hooks observe existing Claude Code sessions and can return permission answers. Codex runs as a Headroom-owned App Server. The iPhone permission separately controls remote answers.")
+                     ? "Codex settings must be changed on the Mac running the Headroom host."
+                     : "Codex runs as a Headroom-owned App Server, so a session you start in a terminal talks to its own and cannot reach this one. The iPhone permission separately controls whether answers may come from the phone.")
             }
         }
-        .formStyle(.grouped)
     }
 
     private var iPhonePane: some View {
@@ -661,54 +760,70 @@ struct SettingsView: View {
         }
     }
 
+    /// Everything Headroom connects to, in one list.
+    ///
+    /// Grouped rather than flat because the agents can run code on this Mac
+    /// and the rest only read — a distinction worth seeing without opening
+    /// each leaf.
     private var integrationsHub: some View {
         Form {
-            Section {
-                ForEach(SettingsIntegration.allCases, id: \.self) { kind in
-                    NavigationLink(value: SettingsDestination.integration(kind)) {
-                        Label(kind.title, systemImage: kind.symbol)
-                        Spacer()
-                        Text(integrationStatus(kind))
-                            .foregroundStyle(
-                                integrationConnected(kind)
-                                    ? AnyShapeStyle(.secondary)
-                                    : AnyShapeStyle(HeadroomPalette.amber)
-                            )
+            ForEach(SettingsIntegration.Group.allCases, id: \.self) { group in
+                Section {
+                    ForEach(
+                        SettingsIntegration.members(of: group), id: \.self
+                    ) { kind in
+                        integrationRow(kind)
+                    }
+                } header: {
+                    Text(group.title)
+                } footer: {
+                    if group == .agents {
+                        Text("These two can start work on this Mac. Everything else here only reads.")
+                    } else if group == .services {
+                        Text("Keys stay in the Keychain on this Mac. The iPhone never sees them.")
                     }
                 }
-            } footer: {
-                Text("Keys stay in the Keychain on this Mac. The iPhone never sees them.")
-            }
-
-            Section("Dashboard") {
-                Stepper(
-                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
-                    value: $activityRowLimit,
-                    in: 3...14
-                )
-                Stepper(
-                    "\(HeadroomCopy.localServers): \(serverRowLimit)",
-                    value: $serverRowLimit,
-                    in: 1...8
-                )
-                Stepper(
-                    "Supabase projects: \(supabaseRowLimit)",
-                    value: $supabaseRowLimit,
-                    in: 1...20
-                )
-                Stepper(
-                    "Plausible sites: \(plausibleRowLimit)",
-                    value: $plausibleRowLimit,
-                    in: 1...20
-                )
-                Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
             }
         }
         .formStyle(.grouped)
     }
 
+    /// One hub row. Shared with the Coding agents pane, which links to the two
+    /// agent leaves rather than keeping a second copy of their settings.
+    private func integrationRow(_ kind: SettingsIntegration) -> some View {
+        NavigationLink(value: SettingsDestination.integration(kind)) {
+            Label(kind.title, systemImage: kind.symbol)
+            Spacer()
+            Text(integrationStatus(kind))
+                .foregroundStyle(
+                    integrationConnected(kind)
+                        ? AnyShapeStyle(.secondary)
+                        : AnyShapeStyle(HeadroomPalette.amber)
+                )
+        }
+    }
+
+    /// "Connected" is the wrong word for the two that need no credential, so
+    /// they say what is actually true of them instead.
     private func integrationStatus(_ kind: SettingsIntegration) -> String {
-        integrationConnected(kind) ? "Connected" : "Not connected"
+        switch kind {
+        case .claudeCode:
+            return claudeHooks?.installed == true ? "Hooks installed" : "Hooks off"
+        case .codex:
+            return agentGatewayEnabled ? "Gateway on" : "Gateway off"
+        case .git:
+            // A host predating /config/git leaves the defaults in place, and
+            // "0 repos" would be an answer rather than the non-answer it is.
+            guard gitEditable else { return "Unknown" }
+            guard gitConfig.devRootExists else { return "Folder missing" }
+            let count = gitConfig.repos.count
+            return count == 1 ? "1 repo" : "\(count) repos"
+        case .vercel:
+            guard vercelEditable else { return "Unknown" }
+            return vercelConfig.signedIn ? "Signed in" : "Not signed in"
+        case .github, .supabase, .plausible:
+            return integrationConnected(kind) ? "Connected" : "Not connected"
+        }
     }
 
     private func integrationConnected(_ kind: SettingsIntegration) -> Bool {
@@ -716,6 +831,14 @@ struct SettingsView: View {
         case .supabase: return tokenStored
         case .plausible: return plausibleTokenStored
         case .github: return githubTokenStored
+        case .claudeCode: return claudeHooks?.installed == true
+        case .codex: return agentGatewayEnabled
+        // Unknown is not a warning: amber here would put a colour on an old
+        // host rather than on anything the user can act about.
+        case .git:
+            return !gitEditable
+                || (gitConfig.devRootExists && !gitConfig.repos.isEmpty)
+        case .vercel: return !vercelEditable || vercelConfig.signedIn
         }
     }
 
@@ -723,9 +846,13 @@ struct SettingsView: View {
     private func integrationPane(_ kind: SettingsIntegration) -> some View {
         Form {
             switch kind {
+            case .claudeCode: claudeCodeSections
+            case .codex: codexSections
+            case .git: gitSections
+            case .github: githubSections
+            case .vercel: vercelSections
             case .supabase: supabaseSections
             case .plausible: plausibleSections
-            case .github: githubSections
             }
         }
         .formStyle(.grouped)
@@ -824,7 +951,7 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Button("Create key…") {
-                    openURL("https://plausible.io/settings#api-keys")
+                    openURL("https://plausible.io/settings/api-keys")
                 }
                 .buttonStyle(.link)
             }
@@ -835,6 +962,118 @@ struct SettingsView: View {
             }
         } footer: {
             Text("API key stays in Keychain.")
+        }
+    }
+
+    @ViewBuilder
+    private var gitSections: some View {
+        Section {
+            LabeledContent("Status") {
+                Text(gitConfig.devRootExists
+                     ? "\(gitConfig.repos.count) repos found"
+                     : "Folder missing")
+                    .foregroundStyle(gitConfig.devRootExists
+                                     ? AnyShapeStyle(.secondary)
+                                     : AnyShapeStyle(HeadroomPalette.amber))
+            }
+            if !gitEditable {
+                Text("Git settings need a running, up to date host.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            TextField(
+                "Dev root",
+                text: $gitDevRootDraft,
+                prompt: Text("~/Dev")
+            )
+            TextField(
+                "Commit authors",
+                text: $gitAuthorsDraft,
+                prompt: Text("you@example.com, Your Name (blank counts everyone)")
+            )
+            HStack {
+                Button("Choose…") {
+                    chooseDevRoot()
+                }
+                .disabled(!gitEditable)
+                Button("Save") {
+                    Task { await saveGitConfiguration() }
+                }
+                .disabled(savingGit || !gitEditable || gitDevRootDraft
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if savingGit {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer()
+            }
+            if let gitMessage {
+                Text(gitMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !gitConfig.repos.isEmpty {
+                LabeledContent("Scanning") {
+                    Text(gitConfig.repos.prefix(12).joined(separator: ", ")
+                         + (gitConfig.repos.count > 12 ? "…" : ""))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        } footer: {
+            // dev_root is out of SHARED_CONFIG_KEYS on purpose: it describes
+            // one machine's disk. Authors are the same person everywhere, so
+            // they do follow. Worth saying, because the two fields sit
+            // together and behave differently.
+            Text("Commits under \(gitConfig.devRootPath.isEmpty ? gitConfig.devRoot : gitConfig.devRootPath) and one level below it, shown under \(HeadroomCopy.activity). The folder stays on this Mac; commit authors follow you to your other Macs.")
+        }
+    }
+
+    @ViewBuilder
+    private var vercelSections: some View {
+        Section {
+            LabeledContent("Status") {
+                Text(vercelConfig.signedIn ? "Vercel CLI" : "Not signed in")
+                    .foregroundStyle(vercelConfig.signedIn
+                                     ? AnyShapeStyle(.secondary)
+                                     : AnyShapeStyle(HeadroomPalette.amber))
+            }
+            if !vercelConfig.signedIn {
+                Text("Run `vercel login` in a terminal. Headroom reads the CLI's own token and never asks for one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !vercelEditable {
+                Text("Team settings need a running, up to date host.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            TextField(
+                "Teams",
+                text: $vercelTeamsDraft,
+                prompt: Text("acme, ada (blank reads every team)")
+            )
+            HStack {
+                Button("Save teams") {
+                    Task { await saveVercelConfiguration() }
+                }
+                .disabled(savingVercel || !vercelEditable)
+                if savingVercel {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer()
+                Button("Refresh") {
+                    Task { await refreshSources(["vercel"]) }
+                }
+                .disabled(isSyncing)
+            }
+            if let vercelMessage {
+                Text(vercelMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("Deployments show under \(HeadroomCopy.activity). Teams filter which ones — leave it blank and Headroom reads every team the login can see.")
         }
     }
 
@@ -1056,6 +1295,7 @@ struct SettingsView: View {
     private func reloadClaudeHooks() async {
         do {
             claudeHooks = try await client.fetchClaudeHookConfiguration()
+            claudeQuestionMode = claudeHooks?.questionMode ?? "notify"
         } catch {
             claudeHooksMessage = error.localizedDescription
         }
@@ -1093,13 +1333,28 @@ struct SettingsView: View {
         }
     }
 
-    private func changeClaudeHooks(_ action: String) async {
+    private func changeClaudeQuestionMode(_ mode: String) async {
+        await changeClaudeHooks("install", questionMode: mode)
+    }
+
+    private func changeClaudeHooks(
+        _ action: String,
+        questionMode: String? = nil
+    ) async {
         guard !changingClaudeHooks else { return }
         changingClaudeHooks = true
         claudeHooksMessage = nil
         defer { changingClaudeHooks = false }
         do {
-            claudeHooks = try await client.changeClaudeHooks(action)
+            claudeHooks = try await client.changeClaudeHooks(
+                action,
+                questionMode: questionMode ?? (action == "install"
+                                               ? claudeQuestionMode
+                                               : nil)
+            )
+            if let mode = claudeHooks?.questionMode {
+                claudeQuestionMode = mode
+            }
             switch action {
             case "install":
                 claudeHooksMessage =
@@ -1109,7 +1364,7 @@ struct SettingsView: View {
                     "Headroom-owned hooks were removed. Other Claude hooks were preserved."
             case "test":
                 claudeHooksMessage =
-                    "Test attention added. Check Activity on this Mac or iPhone."
+                    "Test attention added. Check Attention on this Mac or iPhone."
             default:
                 break
             }
@@ -1400,6 +1655,90 @@ struct SettingsView: View {
         }
     }
 
+    private func reloadGitConfiguration() async {
+        do {
+            applyGitConfiguration(try await client.fetchGitConfiguration())
+            gitEditable = true
+        } catch {
+            gitEditable = false
+        }
+    }
+
+    private func applyGitConfiguration(_ config: GitConfiguration) {
+        gitConfig = config
+        gitDevRootDraft = config.devRoot
+        gitAuthorsDraft = config.authors.joined(separator: ", ")
+    }
+
+    private func saveGitConfiguration() async {
+        savingGit = true
+        defer { savingGit = false }
+        do {
+            let config = try await client.setGitConfiguration(
+                devRoot: gitDevRootDraft.trimmingCharacters(
+                    in: .whitespacesAndNewlines),
+                authors: splitList(gitAuthorsDraft)
+            )
+            applyGitConfiguration(config)
+            gitMessage = config.repos.isEmpty
+                ? "Saved. No repos under \(config.devRootPath) yet."
+                : "Scanning \(config.repos.count) "
+                    + (config.repos.count == 1 ? "repo." : "repos.")
+            // GitHub discovers its repos under the same root, so a move that
+            // only refreshed git would leave Actions watching the old one.
+            await refreshSources(["git", "github"])
+            await reloadGitHubWatch()
+        } catch {
+            gitMessage = error.localizedDescription
+        }
+    }
+
+    /// A folder picker beside the field, because the most likely edit is
+    /// "somewhere else on this disk" and typing a path is the worst way to say
+    /// that. Mirrors `chooseCodexBinary()`.
+    private func chooseDevRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK, let url = panel.url {
+            gitDevRootDraft = url.path
+            Task { await saveGitConfiguration() }
+        }
+    }
+
+    private func reloadVercelConfiguration() async {
+        do {
+            applyVercelConfiguration(
+                try await client.fetchVercelConfiguration())
+            vercelEditable = true
+        } catch {
+            vercelEditable = false
+        }
+    }
+
+    private func applyVercelConfiguration(_ config: VercelConfiguration) {
+        vercelConfig = config
+        vercelTeamsDraft = config.teams.joined(separator: ", ")
+    }
+
+    private func saveVercelConfiguration() async {
+        savingVercel = true
+        defer { savingVercel = false }
+        do {
+            let config = try await client.setVercelConfiguration(
+                teams: splitList(vercelTeamsDraft))
+            applyVercelConfiguration(config)
+            vercelMessage = config.teams.isEmpty
+                ? "Saved. Reading every team this login can see."
+                : "Saved."
+            await refreshSources(["vercel"])
+        } catch {
+            vercelMessage = error.localizedDescription
+        }
+    }
+
     private func disconnectGitHub() {
         TokenStore.github.delete()
         githubTokenStored = false
@@ -1573,4 +1912,3 @@ private final class SettingsWindowObserverView: NSView {
         window.makeKeyAndOrderFront(nil)
     }
 }
-

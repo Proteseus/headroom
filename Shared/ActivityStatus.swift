@@ -137,3 +137,34 @@ struct ActivityStatusStyle {
         return status.prefix(1).uppercased() + status.dropFirst()
     }
 }
+
+/// Shared ordering for the mixed host activity feed. Both native surfaces use
+/// the same function-level groups; their renderers only differ in density and
+/// interaction style.
+struct ActivityGroup: Identifiable, Sendable {
+    let kind: String
+    let rows: [ActivityItem]
+
+    var id: String { kind }
+    var title: String { HeadroomCopy.activityGroupTitle(for: kind) }
+}
+
+enum ActivityGrouping {
+    static let kindOrder = [
+        "github", "deployment", "commit", "supabase", "reset", "claude-status",
+    ]
+
+    static func groups(from rows: [ActivityItem]) -> [ActivityGroup] {
+        let grouped = Dictionary(grouping: rows) { $0.kind ?? "" }
+        let known = kindOrder.compactMap { kind -> ActivityGroup? in
+            guard let rows = grouped[kind], !rows.isEmpty else { return nil }
+            return ActivityGroup(kind: kind, rows: rows)
+        }
+        let unknown = grouped.keys
+            .filter { !kindOrder.contains($0) }
+            .sorted()
+            .flatMap { grouped[$0] ?? [] }
+        guard !unknown.isEmpty else { return known }
+        return known + [ActivityGroup(kind: "other", rows: unknown)]
+    }
+}

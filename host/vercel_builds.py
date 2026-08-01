@@ -37,6 +37,11 @@ _cache = {"t": 0.0, "data": None}
 _EMPTY = {"ok": False, "error": None, "team": None, "deployments": []}
 
 
+def invalidate():
+    """Team filter changed: drop cached deployments so the next poll re-reads."""
+    _cache.update(t=0.0)
+
+
 def _cli_json(name):
     path = os.path.join(CLI_DIR, name)
     try:

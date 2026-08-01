@@ -90,6 +90,7 @@ struct QuotaOverviewCard: View {
 
 struct ProviderQuotaCard: View {
     let meter: ProviderMeter
+    let subscriptionPricing: SubscriptionPricing?
     var tint: Color? = nil
 
     private var brand: Color {
@@ -109,10 +110,10 @@ struct ProviderQuotaCard: View {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
-            QuotaRow(window: meter.primary, tint: brand)
-            QuotaRow(window: meter.secondary, tint: brand)
-            if let tertiary = meter.tertiary {
-                QuotaRow(window: tertiary, tint: brand)
+            ForEach(
+                Array(meter.displayableWindows.enumerated()), id: \.offset
+            ) { _, window in
+                QuotaRow(window: window, tint: brand)
             }
             if let pace = meter.paceLabel {
                 HStack {
@@ -144,6 +145,11 @@ struct ProviderQuotaCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let subscriptionPricing {
+                SubscriptionPricingView(
+                    pricing: subscriptionPricing,
+                    currentPlan: meter.plan)
+            }
             // Above the error, and shown even though `ok` is true: every bar
             // on this card is a number the Mac stopped being able to refresh.
             if let status = meter.statusNote {
@@ -171,55 +177,52 @@ struct ProviderQuotaCard: View {
     }
 }
 
-struct AttentionCard: View {
-    @ObservedObject var store: UsageStore
+private struct SubscriptionPricingView: View {
+    let pricing: SubscriptionPricing
+    let currentPlan: String?
 
     var body: some View {
-        let attention = store.snapshot.attention
-        let reasons = attention?.reasons ?? []
-        let showPip = attention?.isWarning == true
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text(HeadroomCopy.attention)
-                    .font(.headline)
+                Text("Subscription price")
+                    .font(.caption.weight(.medium))
                 Spacer()
-                if showPip {
-                    Button {
-                        Task { await store.acknowledgeAttention() }
-                    } label: {
-                        Label(HeadroomCopy.clearAttention, systemImage: "xmark.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .help("Clear this warning on every Headroom surface")
-                    .accessibilityLabel("Clear attention")
-                } else if attention?.isWarning == true {
-                    Image(systemName: "checkmark.circle")
-                        .foregroundStyle(.secondary)
-                        .help("Cleared until something new")
-                        .accessibilityLabel("Attention cleared")
-                } else {
-                    Text(attention?.summary ?? HeadroomCopy.allClear)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(attentionTint(attention?.level))
-                        .lineLimit(1)
+                if let url = pricing.url.flatMap(URL.init(string:)) {
+                    Link("Source", destination: url)
+                        .font(.caption2)
                 }
             }
-            if !reasons.isEmpty {
-                ForEach(reasons.prefix(5)) { reason in
-                    HStack(alignment: .top, spacing: 8) {
-                        Circle()
-                            .fill(attentionTint(reason.level))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 4)
-                        Text(reason.summary ?? HeadroomCopy.needsAttention)
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+            if let price = pricing.currentPrice(for: currentPlan) {
+                HStack(spacing: 8) {
+                    Text(currentPlan ?? price.title)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(price.compactPrice)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
+                .font(.caption2)
+            } else if let currentPlan {
+                HStack(spacing: 8) {
+                    Text(currentPlan)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("See provider")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption2)
+            } else {
+                Text(HeadroomCopy.planUnknown)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if let checked = pricing.checked {
+                Text("List prices · checked \(checked)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
-        .cardStyle()
+        .padding(.top, 2)
     }
 }
 

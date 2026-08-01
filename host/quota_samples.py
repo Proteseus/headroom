@@ -247,6 +247,49 @@ def rolls(rows, *, since=None, limit=MAX_ROLLS):
     return out[-limit:] if limit else out
 
 
+def boundaries(rows, *, since=None):
+    """Every instant this pool refilled, oldest first — scheduled or granted.
+
+    `rolls` answers "when was I handed a week I had already spent", which is
+    news and earns a rule and a notification. This answers the duller
+    question underneath it: where does one window stop and the next begin.
+    Nearly every boundary is a session simply running out on time, which is
+    not worth announcing but *is* worth drawing — it is where the cross-window
+    `history` curve climbs back to full.
+
+    A boundary that did not refill anything is not one of these. Sources
+    report `resets_in_s` loosely enough that a window gets relabelled without
+    the reading moving, and a riser of zero height is only a point budget
+    spent on nothing.
+
+    Returns bare epochs. The instant is the new window's own start where the
+    log agrees on one, not the first sample after it: at five-minute buckets
+    that sample lands up to a bucket late, and the riser then stands beside
+    the axis edge it is supposed to land on rather than on it.
+    """
+    out = []
+    previous = None
+    for row in rows:
+        start = row.get("window_start")
+        if (previous is not None
+                and start is not None
+                and start != previous.get("window_start")):
+            t = _num(row.get("t"))
+            prev_t = _num(previous.get("t"))
+            refilled = ((_num(previous.get("pct")) or 0.0)
+                        - (_num(row.get("pct")) or 0.0))
+            if (t is not None and prev_t is not None
+                    and refilled >= RESET_MIN_DROP_PCT):
+                cut = _num(start)
+                if cut is None or not prev_t < cut <= t:
+                    cut = t
+                out.append(int(cut))
+        previous = row
+    if since is not None:
+        out = [t for t in out if t >= since]
+    return out
+
+
 def window_for(now, window_s, resets_in_s, *, pct=None, previous=None):
     """Derive `(start, end)` for one reading, holding the end against jitter.
 
