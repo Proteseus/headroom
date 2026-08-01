@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 
+import app_config
 import http_util
 import cache_util
 import keychain
@@ -303,6 +304,61 @@ def _prune_advisor_cache(live_refs):
         _advisor_cache.pop(ref, None)
 
 
+def invalidate():
+    """Project filter changed: drop the portfolio so the next poll re-reads."""
+    _cache.update(t=0.0)
+
+
+def _list_projects(token):
+    raw = _get("/v1/projects", token)
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        return raw.get("projects") or raw.get("data") or []
+    return []
+
+
+def available_projects():
+    """Projects the PAT can see, for the Settings picker.
+
+    Returns `[{ref, name}, …]` with no health fan-out — Settings only needs
+    identity. Empty when nobody is connected or the API refuses.
+    """
+    token = _token()
+    if not token:
+        return []
+    try:
+        out = []
+        seen = set()
+        for project in _list_projects(token):
+            if not isinstance(project, dict):
+                continue
+            ref = str(project.get("ref") or project.get("id") or "").strip()
+            if not ref or ref in seen:
+                continue
+            seen.add(ref)
+            out.append({
+                "ref": ref,
+                "name": str(project.get("name") or ref).strip() or ref,
+            })
+        out.sort(key=lambda row: (row["name"] or "").casefold())
+        return out
+    except Exception:
+        return []
+
+
+def _filter_projects(projects):
+    """Apply the Settings watch list. Empty config keeps every project."""
+    preferred = app_config.supabase_project_refs()
+    if not preferred:
+        return list(projects)
+    wanted = {ref.lower() for ref in preferred}
+    return [
+        project for project in projects
+        if str(project.get("ref") or project.get("id") or "").lower() in wanted
+    ]
+
+
 def fetch_projects(force=False):
     now = time.time()
     if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
@@ -324,9 +380,7 @@ def fetch_projects(force=False):
         return result
 
     try:
-        raw = _get("/v1/projects", token)
-        projects = raw if isinstance(raw, list) else (
-            raw.get("projects") or raw.get("data") or [])
+        projects = _filter_projects(_list_projects(token))
         health_by_ref = {}
         advisors_by_ref = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:

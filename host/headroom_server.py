@@ -66,6 +66,7 @@ import oauth_usage
 import plausible_usage
 import quota_samples
 import sources_config
+import supabase_usage
 import usb_bridge
 import vercel_builds
 
@@ -1426,6 +1427,14 @@ def _vercel_config_payload():
     }
 
 
+def _supabase_config_payload():
+    return {
+        "ok": True,
+        "projects": list(app_config.supabase_project_refs()),
+        "available": supabase_usage.available_projects(),
+    }
+
+
 # The Bonjour advertiser, so a restart can take it down before re-exec rather
 # than leaving a second one advertising the same service.
 _bonjour = None
@@ -1568,7 +1577,7 @@ class Handler(BaseHTTPRequestHandler):
         path = split.path.rstrip("/")
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch",
-                        "/config/git", "/config/vercel",
+                        "/config/git", "/config/vercel", "/config/supabase",
                         "/agents/capabilities", "/agents/config",
                         "/agents/claude/config", "/agents/codex/task",
                         "/agents/tasks",
@@ -1586,15 +1595,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, _github_watch_payload())
             return
-        if path in ("/config/git", "/config/vercel"):
-            # Names folders on this disk and the teams a login can reach —
-            # Mac-local, same class as /github/watch.
+        if path in ("/config/git", "/config/vercel", "/config/supabase"):
+            # Names folders on this disk and the teams / projects a login can
+            # reach — Mac-local, same class as /github/watch.
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
-            self._send_json(200, _git_config_payload()
-                            if path == "/config/git"
-                            else _vercel_config_payload())
+            if path == "/config/git":
+                self._send_json(200, _git_config_payload())
+            elif path == "/config/vercel":
+                self._send_json(200, _vercel_config_payload())
+            else:
+                self._send_json(200, _supabase_config_payload())
             return
         if path == "/accounts":
             # Names folders holding live credentials — Mac-local, like the
@@ -1728,6 +1740,7 @@ class Handler(BaseHTTPRequestHandler):
             "/github/watch",
             "/config/git",
             "/config/vercel",
+            "/config/supabase",
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
@@ -2055,6 +2068,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             vercel_builds.invalidate()
             self._send_json(200, _vercel_config_payload())
+            return
+
+        if path == "/config/supabase":
+            try:
+                app_config.set_supabase_projects(refs=payload.get("projects"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            supabase_usage.invalidate()
+            self._send_json(200, _supabase_config_payload())
             return
 
         if path == "/accounts":

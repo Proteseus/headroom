@@ -197,6 +197,14 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
 
 
+
+    def test_persists_supabase_project_filter(self):
+        result = app_config.set_supabase_projects(refs=["abc", " ABC "])
+        self.assertEqual(result["projects"], ["abc", "ABC"])
+        self.assertEqual(app_config.supabase_project_refs(), ("abc", "ABC"))
+        app_config.set_supabase_projects(refs=[])
+        self.assertEqual(app_config.supabase_project_refs(), ())
+
 class AttentionTests(unittest.TestCase):
     def test_critical_on_actions_fail(self):
         import headroom_server as hs

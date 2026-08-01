@@ -516,6 +516,28 @@ struct HeadroomClient: Sendable {
         return try JSONDecoder().decode(VercelConfiguration.self, from: data)
     }
 
+    func fetchSupabaseConfiguration() async throws -> SupabaseConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("supabase")
+        let data = try await send(request(url, timeout: 12))
+        return try JSONDecoder().decode(SupabaseConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setSupabaseConfiguration(
+        projects: [String]
+    ) async throws -> SupabaseConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("supabase")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["projects": projects])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(SupabaseConfiguration.self, from: data)
+    }
+
     func stopServer(pid: Int, port: Int) async throws {
         let url = try base()
             .appendingPathComponent("local")
@@ -638,6 +660,19 @@ struct VercelTeamOption: Decodable, Sendable, Identifiable, Hashable {
     var name: String
 
     var id: String { slug.lowercased() }
+}
+
+struct SupabaseConfiguration: Decodable, Sendable {
+    /// Empty means every project the PAT can see.
+    var projects: [String] = []
+    var available: [SupabaseProjectOption] = []
+}
+
+struct SupabaseProjectOption: Decodable, Sendable, Identifiable, Hashable {
+    var ref: String
+    var name: String
+
+    var id: String { ref }
 }
 
 struct AgentGatewayConfiguration: Decodable, Sendable {

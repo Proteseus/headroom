@@ -41,6 +41,10 @@ struct SettingsView: View {
     @State private var supabaseToken = ""
     @State private var tokenStored = false
     @State private var supabaseMessage: String?
+    @State private var supabaseConfig = SupabaseConfiguration()
+    @State private var supabaseProjectsDraft = ""
+    @State private var savingSupabaseProjects = false
+    @State private var supabaseProjectsEditable = true
 
     @State private var plausibleToken = ""
     @State private var plausibleTokenStored = false
@@ -181,6 +185,7 @@ struct SettingsView: View {
             await reloadGitHubWatch()
             await reloadGitConfiguration()
             await reloadVercelConfiguration()
+            await reloadSupabaseConfiguration()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification
@@ -935,15 +940,64 @@ struct SettingsView: View {
         }
 
         Section {
+            if !supabaseProjectsEditable {
+                Text("Project settings need a running, up to date host.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !supabaseConfig.available.isEmpty {
+                ForEach(supabaseConfig.available) { project in
+                    Toggle(isOn: Binding(
+                        get: {
+                            supabaseSelectedProjects.contains(project.ref)
+                        },
+                        set: { on in
+                            Task {
+                                await setSupabaseProject(
+                                    project.ref, enabled: on)
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(project.name)
+                            if project.name != project.ref {
+                                Text(project.ref)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .disabled(savingSupabaseProjects || !supabaseProjectsEditable)
+                }
+                if supabaseSelectedProjects.isEmpty {
+                    Text("None selected — Headroom reads every project this token can see.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Stepper(
-                "Projects: \(supabaseRowLimit)",
+                "Show up to \(supabaseRowLimit)",
                 value: $supabaseRowLimit,
                 in: 1...20
             )
+            HStack {
+                if savingSupabaseProjects {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer()
+                Button(HeadroomCopy.settingsRefresh) {
+                    Task {
+                        await reloadSupabaseConfiguration()
+                        await refreshSources(["supabase"])
+                    }
+                }
+                .disabled(isSyncing)
+            }
         } header: {
             Text(HeadroomCopy.settingsDashboard)
         } footer: {
-            Text("How many projects this Mac draws.")
+            Text("Tick which projects to track. The stepper only caps how many this Mac draws.")
         }
     }
 
@@ -1727,6 +1781,10 @@ struct SettingsView: View {
         Set(splitList(vercelTeamsDraft).map { $0.lowercased() })
     }
 
+    private var supabaseSelectedProjects: Set<String> {
+        Set(splitList(supabaseProjectsDraft))
+    }
+
     /// Checklist path: flip one always-watch repo and persist immediately so
     /// Settings does not need a separate Save for the common case.
     private func setGitHubAlwaysRepo(_ repo: String, enabled: Bool) async {
@@ -1855,6 +1913,48 @@ struct SettingsView: View {
             await refreshSources(["vercel"])
         } catch {
             vercelMessage = error.localizedDescription
+        }
+    }
+
+    private func reloadSupabaseConfiguration() async {
+        do {
+            applySupabaseConfiguration(
+                try await client.fetchSupabaseConfiguration())
+            supabaseProjectsEditable = true
+        } catch {
+            supabaseProjectsEditable = false
+        }
+    }
+
+    private func applySupabaseConfiguration(_ config: SupabaseConfiguration) {
+        supabaseConfig = config
+        supabaseProjectsDraft = config.projects.joined(separator: ", ")
+    }
+
+    private func setSupabaseProject(_ ref: String, enabled: Bool) async {
+        var projects = splitList(supabaseProjectsDraft)
+        if enabled {
+            if !projects.contains(ref) { projects.append(ref) }
+        } else {
+            projects.removeAll { $0 == ref }
+        }
+        supabaseProjectsDraft = projects.joined(separator: ", ")
+        await saveSupabaseConfiguration()
+    }
+
+    private func saveSupabaseConfiguration() async {
+        savingSupabaseProjects = true
+        defer { savingSupabaseProjects = false }
+        do {
+            let config = try await client.setSupabaseConfiguration(
+                projects: splitList(supabaseProjectsDraft))
+            applySupabaseConfiguration(config)
+            supabaseMessage = config.projects.isEmpty
+                ? "Saved. Reading every project this token can see."
+                : "Saved."
+            await refreshSources(["supabase"])
+        } catch {
+            supabaseMessage = error.localizedDescription
         }
     }
 

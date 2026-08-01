@@ -19,6 +19,8 @@ DEFAULTS = {
     "dev_root": "~/Dev",
     "git_authors": [],
     "vercel_team_slugs": [],
+    # Empty = every Supabase project the token can see.
+    "supabase_project_refs": [],
     # String or list of strings; see github_org_prefixes().
     "github_org_prefix": [],
     "github_always_repos": [],
@@ -59,6 +61,7 @@ DEFAULTS = {
 SHARED_CONFIG_KEYS = (
     "git_authors",
     "vercel_team_slugs",
+    "supabase_project_refs",
     "github_org_prefix",
     "github_always_repos",
     "github_max_discovered",
@@ -299,6 +302,28 @@ def set_vercel_teams(slugs=None):
         _persist(vercel_team_slugs=_clean_list(
             [str(item).lower() for item in slugs], "teams"))
     return {"teams": list(vercel_team_slugs())}
+
+
+def supabase_project_refs():
+    value = get("supabase_project_refs")
+    if isinstance(value, list) and value:
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return tuple(DEFAULTS["supabase_project_refs"])
+
+
+def set_supabase_projects(refs=None):
+    """Persist which Supabase projects the portfolio reads.
+
+    Empty means every project the token can see.
+    """
+    if refs is not None:
+        if isinstance(refs, str):
+            refs = [refs]
+        if not isinstance(refs, (list, tuple)):
+            raise ValueError("projects must be a list")
+        _persist(supabase_project_refs=_clean_list(
+            [str(item).strip() for item in refs], "projects"))
+    return {"projects": list(supabase_project_refs())}
 
 
 def plausible_sites():
