@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.4 — 2026-08-01
+
+### Changed
+
+- **Pick which Supabase projects to track**, the same list-driven pattern as
+  GitHub repos and Vercel teams. A key that could see a dozen projects used to
+  track all of them or none; now it tracks the ones you choose.
+
 ## 1.5.3 — 2026-08-01
 
 ### Added
