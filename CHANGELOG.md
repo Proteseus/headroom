@@ -7,6 +7,30 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.5 — 2026-08-02
+
+### Added
+
+- **OpenRouter and Vercel AI Gateway**, the first sources reporting a
+  prepaid balance rather than a windowed quota. No ring — the mark is a
+  depletion bar, since there is no window to draw as an arc.
+- **PostHog**, sitting beside Plausible as a Services integration, with a
+  project picker on the phone matching the Mac.
+- Git, GitHub Actions, Vercel, Plausible and Supabase now carry real brand
+  marks in Activity and Attention rows — they were unbranded there before,
+  even though Settings already showed their icons.
+
+### Changed
+
+- **Settings splits into one file per integration** instead of one 2,700-line
+  file everything shared. Adding the next source now touches one new file.
+- **Burndown reads week before session** everywhere a provider shows both —
+  the longer window is what you actually plan around.
+- **A stale reading says why.** Attention now distinguishes a rate limit from
+  a real outage, so a 429 the host is already backing off from calmly does
+  not also light the menu-bar warning the way a genuine failure does.
+- GitHub inbox rows carry the author who opened them.
+
 ## 1.5.4 — 2026-08-01
 
 ### Changed
