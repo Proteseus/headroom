@@ -56,7 +56,10 @@ _EMPTY = {
     "runs": [],
     "fail_count": 0,
     "running_count": 0,
+    "inbox": [],
+    "inbox_count": 0,
 }
+KEEP_INBOX = 12
 
 
 def _keychain_token():
@@ -366,6 +369,130 @@ def attention_fail_count(rows, now=None):
     })
 
 
+def _repo_slug_from_api_url(url):
+    """`https://api.github.com/repos/acme/web` → `acme/web`."""
+    if not isinstance(url, str) or not url:
+        return None
+    parts = url.rstrip("/").split("/")
+    if len(parts) < 2:
+        return None
+    owner, name = parts[-2], parts[-1]
+    if not owner or not name:
+        return None
+    return f"{owner}/{name}"
+
+
+def _flatten_inbox_item(item, reason):
+    repo = _repo_slug_from_api_url(item.get("repository_url"))
+    number = item.get("number")
+    title = item.get("title") or "Untitled"
+    created = _parse_ts(item.get("updated_at") or item.get("created_at"))
+    is_pr = bool(item.get("pull_request")) or reason == "review_request"
+    return {
+        "id": str(item.get("id") or f"{repo}#{number}"),
+        "reason": reason,
+        "repo": repo,
+        "number": number,
+        "title": title,
+        "url": item.get("html_url"),
+        "is_pr": is_pr,
+        "created_at": created,
+        "ago": fmt_ago(created),
+    }
+
+
+def _search_inbox(token, query, reason, watched):
+    """Open issues/PRs matching `query`, limited to watched repos."""
+    try:
+        payload = _get(
+            "/search/issues",
+            token,
+            query={"q": query, "per_page": "30", "sort": "updated"},
+            timeout=12,
+        )
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403, 422):
+            raise
+        return []
+    watched_lower = {slug.lower() for slug in watched}
+    out = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        row = _flatten_inbox_item(item, reason)
+        repo = (row.get("repo") or "").lower()
+        if watched_lower and repo not in watched_lower:
+            continue
+        out.append(row)
+    return out
+
+
+def fetch_inbox(token, repos):
+    """Review requests + assignments on watched repos (#23).
+
+    Mentions are deliberately out: they are noisier and the issue asked for
+    incoming PRs/issues on the watch list, not every @you across GitHub.
+    """
+    if not repos:
+        return []
+    try:
+        user = _get("/user", token, timeout=8)
+    except Exception:
+        return []
+    login = (user or {}).get("login")
+    if not isinstance(login, str) or not login.strip():
+        return []
+    login = login.strip()
+    rows = []
+    rows.extend(_search_inbox(
+        token,
+        f"is:open is:pr review-requested:{login}",
+        "review_request",
+        repos,
+    ))
+    rows.extend(_search_inbox(
+        token,
+        f"is:open assignee:{login}",
+        "assigned",
+        repos,
+    ))
+    # Prefer review_request when the same PR is also assigned to you.
+    deduped = []
+    seen = set()
+    for row in sorted(
+            rows, key=lambda item: item.get("created_at") or 0, reverse=True):
+        key = row.get("id")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+        if len(deduped) >= KEEP_INBOX:
+            break
+    return deduped
+
+
+def attention_inbox_summary(items):
+    """One-liner for the Attention card from inbox rows."""
+    if not items:
+        return None
+    count = len(items)
+    reviews = sum(1 for item in items if item.get("reason") == "review_request")
+    assigned = count - reviews
+    first = items[0]
+    repo = (first.get("repo") or "").rsplit("/", 1)[-1]
+    if count == 1 and repo:
+        if first.get("reason") == "review_request":
+            return f"{repo} · review requested"
+        kind = "PR" if first.get("is_pr") else "issue"
+        return f"{repo} · assigned {kind}"
+    bits = []
+    if reviews:
+        bits.append(f"{reviews} review request" + ("" if reviews == 1 else "s"))
+    if assigned:
+        bits.append(f"{assigned} assigned")
+    return " · ".join(bits) if bits else f"{count} GitHub inbox"
+
+
 def _fetch_repo_runs(token, repo):
     owner, _, name = repo.partition("/")
     if not owner or not name:
@@ -430,6 +557,15 @@ def fetch_actions(force=False):
         rows = deduped[:KEEP_RUNS]
         fail_count = attention_fail_count(rows, now=now)
         running_count = sum(1 for row in rows if row.get("status") == "running")
+        inbox = []
+        try:
+            inbox = fetch_inbox(token, repos)
+        except urllib.error.HTTPError as error:
+            if error.code in (401, 403):
+                raise
+            errors.append(f"inbox: HTTP {error.code}")
+        except Exception as exc:
+            errors.append(f"inbox: {exc}")
         result = {
             "ok": True,
             "configured": True,
@@ -438,6 +574,8 @@ def fetch_actions(force=False):
             "runs": rows,
             "fail_count": fail_count,
             "running_count": running_count,
+            "inbox": inbox,
+            "inbox_count": len(inbox),
             "repos": repos,
             "updated_at": int(now),
         }

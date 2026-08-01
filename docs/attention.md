@@ -22,6 +22,9 @@ Policy that already lives next to the code (do not turn these into prefs):
 - Stale quotas alert after `STALE_ALERT_S`, not on every timeout.
 - GitHub Actions failures age out; Codex spend/time events are the only quota
   path into Attention.
+- GitHub inbox on watched repos is review requests + assignments only
+  (warn). Mentions stay out on purpose — too noisy for a pip that must stay
+  believable.
 
 **Clear** dismisses the current fingerprint until reasons change. That is ack
 state (`attention_ack_fingerprint` in local config), not a preference, and it

@@ -235,6 +235,30 @@ class AttentionTests(unittest.TestCase):
         self.assertIn("GitHub Actions failures", attention["summary"])
         self.assertIn("app", attention["summary"])
 
+    def test_inbox_on_watched_repos_warns(self):
+        import headroom_server as hs
+        attention = hs._build_attention({
+            "github": {
+                "configured": True,
+                "fail_count": 0,
+                "inbox_count": 1,
+                "inbox": [{
+                    "reason": "review_request",
+                    "repo": "acme/web",
+                    "title": "Tighten glyph",
+                }],
+                "runs": [],
+            },
+            "supabase": {"configured": True, "alert_count": 0},
+            "vercel": {"deployments": []},
+            "codex": {"ok": True},
+            "cursor": {"ok": True},
+            "sources": [],
+        })
+        self.assertEqual(attention["level"], "warn")
+        self.assertEqual(attention["reasons"][0]["kind"], "github-inbox")
+        self.assertIn("review requested", attention["summary"])
+
     def test_names_single_fresh_failure(self):
         import headroom_server as hs
         import time

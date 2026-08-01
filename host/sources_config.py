@@ -325,11 +325,14 @@ def _detail_github(payload):
         return payload.get("error") or "not connected"
     fails = payload.get("fail_count") or 0
     running = payload.get("running_count") or 0
+    inbox = payload.get("inbox_count") or 0
     bits = []
     if fails:
         bits.append(f"{fails} failed")
     if running:
         bits.append(f"{running} running")
+    if inbox:
+        bits.append(f"{inbox} inbox")
     return " · ".join(bits) if bits else "all clear"
 
 
@@ -412,6 +415,7 @@ def _summary_git(payload):
 def _summary_github(payload):
     return (f"fails={payload.get('fail_count')}  "
             f"running={payload.get('running_count')}  "
+            f"inbox={payload.get('inbox_count')}  "
             f"repos={len(payload.get('repos') or [])}")
 
 
@@ -451,7 +455,8 @@ def _blank_git():
 
 def _blank_github():
     return {"ok": False, "configured": False, "runs": [],
-            "fail_count": 0, "running_count": 0, "error": None}
+            "fail_count": 0, "running_count": 0,
+            "inbox": [], "inbox_count": 0, "error": None}
 
 
 def _blank_claude_status():

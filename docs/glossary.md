@@ -170,6 +170,8 @@ feed still reads in greyscale. Host status string → word, mapped once in
 | `error`, `failure` | **Failed** | Red, and sorted above the rest under **N need attention**. Tinted per row — the feed is one list of equal items, not a box stacked on a list |
 | `building`, `initializing` | **Building** | Amber. In flight |
 | `running` | **Running** | Amber. In flight |
+| `review_request` | **Review** | Amber, and sorted under **Needs attention**. A PR on a watched repo wants your review |
+| `assigned` | **Assigned** | Amber, same group. An issue or PR on a watched repo is assigned to you |
 | `queued`, `pending` | **Queued** | Amber. In flight |
 | `ready` | **Deployed** | Green. Finished well |
 | `success`, `completed` | **Passed** | Green. Finished well |

@@ -437,6 +437,10 @@ enum HeadroomCopy {
     static let activityPushed = "Pushed"
     static let activityLocal = "Local"
     static let activityCommitted = "Committed"
+    /// Incoming PR review on a watched repo (GitHub inbox → Attention).
+    static let activityReviewRequest = "Review"
+    /// Issue or PR assigned to you on a watched repo.
+    static let activityAssigned = "Assigned"
 
     /// The feed's section title on the iOS Activity tab, where it shares a
     /// screen with the service panels. "Recent" rather than "Activity", which

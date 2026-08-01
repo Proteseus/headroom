@@ -274,6 +274,26 @@ def _build_activity(vercel, git, supabase=None, github=None,
             "inspector_url": run.get("url"),
         })
 
+    for item in (github.get("inbox") or [])[:8]:
+        reason = item.get("reason") or "assigned"
+        items.append({
+            "id": f"github-inbox:{item.get('id')}",
+            "kind": "github",
+            "status": reason,
+            "subject": item.get("title") or "GitHub",
+            "repo": item.get("repo"),
+            "project": None,
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(item.get("created_at")),
+            "ago": item.get("ago"),
+            "error_message": None,
+            "url": item.get("url"),
+            "inspector_url": item.get("url"),
+        })
+
     supabase = supabase or {}
     supabase_alerts = [
         project for project in (supabase.get("projects") or [])
@@ -853,6 +873,8 @@ def _compute_doc():
             "fail_count": github.get("fail_count") or 0,
             "running_count": github.get("running_count") or 0,
             "runs": github.get("runs") or [],
+            "inbox": github.get("inbox") or [],
+            "inbox_count": github.get("inbox_count") or 0,
             "repos": github.get("repos") or [],
         },
         "local": {
@@ -997,6 +1019,21 @@ def _build_attention(doc):
             "github",
             summary,
             40 + min(30, fails * 5),
+        )
+
+    # Incoming review requests / assignments on the watched list — warn, not
+    # critical: they are yours to answer, but they are not a red CI.
+    inbox = github.get("inbox") or []
+    inbox_count = int(github.get("inbox_count") or len(inbox) or 0)
+    if github.get("configured") and inbox_count > 0:
+        summary = github_actions.attention_inbox_summary(inbox) or (
+            f"{inbox_count} GitHub inbox"
+        )
+        add(
+            "warn",
+            "github-inbox",
+            summary,
+            18 + min(18, inbox_count * 4),
         )
 
     claude_status_doc = doc.get("claude_status") or {}

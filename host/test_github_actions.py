@@ -1,5 +1,6 @@
 import time
 import unittest
+from unittest import mock
 
 import github_actions as ga
 
@@ -78,6 +79,72 @@ class AttentionFreshnessTests(unittest.TestCase):
             "created_at": now,
         }]
         self.assertEqual(ga.attention_fail_count(rows, now=now), 0)
+
+
+class InboxTests(unittest.TestCase):
+    def test_empty_without_watched_repos(self):
+        self.assertEqual(ga.fetch_inbox("tok", []), [])
+
+    def test_filters_to_watched_repos_and_dedupes(self):
+        user = {"login": "mz"}
+        review = {
+            "total_count": 1,
+            "items": [{
+                "id": 11,
+                "number": 7,
+                "title": "Review me",
+                "html_url": "https://github.com/acme/web/pull/7",
+                "repository_url": "https://api.github.com/repos/acme/web",
+                "pull_request": {},
+                "updated_at": "2026-08-01T12:00:00Z",
+            }],
+        }
+        assigned = {
+            "total_count": 2,
+            "items": [
+                {
+                    "id": 11,
+                    "number": 7,
+                    "title": "Review me",
+                    "html_url": "https://github.com/acme/web/pull/7",
+                    "repository_url": "https://api.github.com/repos/acme/web",
+                    "pull_request": {},
+                    "updated_at": "2026-08-01T12:00:00Z",
+                },
+                {
+                    "id": 22,
+                    "number": 3,
+                    "title": "Fix lint",
+                    "html_url": "https://github.com/other/skip/issues/3",
+                    "repository_url": "https://api.github.com/repos/other/skip",
+                    "updated_at": "2026-08-01T11:00:00Z",
+                },
+            ],
+        }
+
+        def fake_get(path, token, query=None, timeout=12):
+            if path == "/user":
+                return user
+            q = (query or {}).get("q") or ""
+            if "review-requested" in q:
+                return review
+            if "assignee:" in q:
+                return assigned
+            raise AssertionError(q)
+
+        with mock.patch.object(ga, "_get", side_effect=fake_get):
+            rows = ga.fetch_inbox("tok", ["acme/web"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reason"], "review_request")
+        self.assertEqual(rows[0]["repo"], "acme/web")
+
+    def test_attention_summary_names_a_single_repo(self):
+        summary = ga.attention_inbox_summary([{
+            "reason": "review_request",
+            "repo": "acme/web",
+            "title": "x",
+        }])
+        self.assertEqual(summary, "web · review requested")
 
 
 if __name__ == "__main__":

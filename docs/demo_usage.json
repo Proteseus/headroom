@@ -360,6 +360,19 @@
     "configured": true,
     "fail_count": 1,
     "running_count": 1,
+    "inbox_count": 1,
+    "inbox": [
+      {
+        "id": "pr_1",
+        "reason": "review_request",
+        "repo": "acme/web",
+        "number": 42,
+        "title": "Tighten the menu bar glyph",
+        "url": "https://github.com/acme/web/pull/42",
+        "is_pr": true,
+        "ago": "12m"
+      }
+    ],
     "runs": [
       {
         "id": "run_1",

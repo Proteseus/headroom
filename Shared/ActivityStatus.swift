@@ -57,6 +57,20 @@ struct ActivityStatusStyle {
                 tint: HeadroomPalette.amber,
                 weight: .active
             )
+        case "review_request":
+            ActivityStatusStyle(
+                label: HeadroomCopy.activityReviewRequest,
+                symbol: "eye",
+                tint: HeadroomPalette.amber,
+                weight: .attention
+            )
+        case "assigned":
+            ActivityStatusStyle(
+                label: HeadroomCopy.activityAssigned,
+                symbol: "person.crop.circle.badge.checkmark",
+                tint: HeadroomPalette.amber,
+                weight: .attention
+            )
         case "queued", "pending":
             ActivityStatusStyle(
                 label: HeadroomCopy.activityQueued,

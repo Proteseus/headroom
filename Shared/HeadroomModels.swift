@@ -1595,12 +1595,16 @@ struct GitHubUsage: Decodable, Sendable {
     var failCount: Int?
     var runningCount: Int?
     var runs: [GitHubRun]?
+    /// Review requests + assignments on watched repos. Older hosts omit this.
+    var inbox: [GitHubInboxItem]?
+    var inboxCount: Int?
     var repos: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case ok, configured, error, stale, runs, repos
+        case ok, configured, error, stale, runs, repos, inbox
         case failCount = "fail_count"
         case runningCount = "running_count"
+        case inboxCount = "inbox_count"
     }
 
     /// Hand-written so one malformed run does not cost the whole document.
@@ -1616,11 +1620,31 @@ struct GitHubUsage: Decodable, Sendable {
         stale = try value(.stale)
         failCount = try value(.failCount)
         runningCount = try value(.runningCount)
+        inboxCount = try value(.inboxCount)
         repos = try value(.repos)
         runs = try container.decodeLossyArrayIfPresent(
             GitHubRun.self, forKey: .runs)
+        inbox = try container.decodeLossyArrayIfPresent(
+            GitHubInboxItem.self, forKey: .inbox)
     }
 }
+
+struct GitHubInboxItem: Decodable, Identifiable, Sendable {
+    var id: String
+    var reason: String?
+    var repo: String?
+    var number: Int?
+    var title: String?
+    var url: String?
+    var isPr: Bool?
+    var ago: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, reason, repo, number, title, url, ago
+        case isPr = "is_pr"
+    }
+}
+
 
 struct GitHubRun: Decodable, Identifiable, Sendable {
     var id: String
