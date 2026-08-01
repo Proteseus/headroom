@@ -7,6 +7,25 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.6 — 2026-08-02
+
+### Added
+
+- **The Attention queue survives a cold launch.** Coding-agent events used to
+  live in memory only, so a process death between polls — the Mac asleep, the
+  app backgrounded past its budget — opened to an empty queue even though the
+  same rows would reappear on the next poll. They now have the same on-device
+  archive the rest of the app already relies on.
+- **An empty queue reads as open, not broken.** A large ghost icon replaces
+  the list-with-nothing-in-it look on both the Attention and Activity tabs.
+
+### Changed
+
+- The Attention tab icon becomes an eye — watching is closer to what the tab
+  does than a speech bubble asking a question.
+- App Store screenshots and copy drop the Quotas and Services frames in
+  favor of an Attention frame, matching where those tabs live now.
+
 ## 1.5.5 — 2026-08-02
 
 ### Added
