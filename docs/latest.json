@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.6",
-  "published": "2026-08-01T22:31:39Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.6/Headroom-macOS.zip",
-  "sha256": "480fcc616f41986d08e1061289e83596fb3902f44aac8c086d32097e21930944",
-  "size": 4417443,
+  "version": "1.5.7",
+  "published": "2026-08-01T22:44:15Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.7/Headroom-macOS.zip",
+  "sha256": "162a9b482744b78b71edc05ae30c709c203028ebc592126014d99c66ebd92b3f",
+  "size": 4420325,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **The Attention queue survives a cold launch.** Coding-agent events used to\n  live in memory only, so a process death between polls — the Mac asleep, the\n  app backgrounded past its budget — opened to an empty queue even though the\n  same rows would reappear on the next poll. They now have the same on-device\n  archive the rest of the app already relies on.\n- **An empty queue reads as open, not broken.** A large ghost icon replaces\n  the list-with-nothing-in-it look on both the Attention and Activity tabs.\n\n### Changed\n\n- The Attention tab icon becomes an eye — watching is closer to what the tab\n  does than a speech bubble asking a question.\n- App Store screenshots and copy drop the Quotas and Services frames in\n  favor of an Attention frame, matching where those tabs live now."
+  "notes_md": "### Added\n\n- **Grok (xAI)** joins the coding-quota sources, reading subscription tier\n  and on-demand credit usage through the Grok CLI's own Agent Client\n  Protocol session — no scraped endpoint, no separate login. Contributed by\n  [@ronitrade123](https://github.com/ronitrade123)."
 }
