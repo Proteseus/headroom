@@ -7,6 +7,71 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.5 — 2026-08-01
+
+One release rather than six, because the rename underneath runs through every
+surface and the features sit on top of it. Sections below are the things you
+will actually notice.
+
+### Changed
+
+- **Overview is now Usage**, on both the Mac and the phone, with a **Summary**
+  inside it before provider detail. Quotas stops being its own iPhone tab and
+  is reached through Usage, which is where people were looking for it anyway.
+- **The Mac gets Attention and Activity as modes of their own**, matching the
+  phone. They were iPhone-only, so the computer holding all the context was the
+  one place you could not see the queue.
+- **Activity groups by what a row is**, not by where it came from: GitHub
+  Actions, Vercel deployments, Git commits, Quota resets, Claude status, and a
+  fallback group so a newer host can add a kind without an older client
+  dropping it on the floor.
+- **Integrations became the hub for everything Headroom connects to**, agents
+  included, with a **Code and deploys** group holding Git, GitHub Actions and
+  Vercel. **Dev root** and **Commit authors** are settings now: the folder
+  stays on this Mac, the author list follows you to your other Macs. Vercel
+  gains a **Teams** filter, and blank still reads every team the login can see.
+- **Coding agents is about starting work**, with connection setup living under
+  Integrations alongside everything else.
+- **A Claude question waits about two minutes instead of twenty-five seconds.**
+  Twenty-five was long enough for someone already at the keyboard and not long
+  enough for a phone to poll, notify, and take a biometric answer, which is the
+  whole point of answering from the phone.
+- **An agent request is titled with the repo it came from.** It used to read
+  "Claude needs permission in headroom", which spent the readable part of the
+  line on words identical in every row.
+
+### Added
+
+- **Pair more than one Mac to an iPhone.** Settings shows **Computers** with
+  everything paired, and **Add computer** adds one without replacing what is
+  already saved. Each Mac's token stays in the iPhone Keychain.
+- **Agent rows say which Mac they came from.** Two computers answering
+  questions on one phone were previously indistinguishable.
+- **Providers carry their published subscription prices**, so a plan can show
+  what it costs per month and per year alongside what it is doing.
+- **Dismiss and Dismiss all** on the Attention queue, which clear passive
+  notices while leaving anything that still needs an answer.
+
+### Fixed
+
+- **A quota window that simply rolled on schedule now draws as a step.** The
+  chart squared its history against `resets`, but that key is grants only, a
+  provider handing back a week it had already taken. An ordinary scheduled roll
+  was not in it, so it had no cut to square against and came out as a diagonal
+  between whichever two samples survived thinning: a two hour ramp where the
+  chart should read as a vertical riser. The host now publishes every boundary,
+  `resets` keeps its old meaning exactly, and clients that predate the new key
+  fall back to the old behaviour.
+- **The seven day burndown frame is symmetric about today**, three and a half
+  days either side rather than three back and four forward. The watch label
+  says `±3.5d` to match.
+- **The app icon reads at small sizes.** Thicker bands, a tighter gap and a
+  larger outer radius, so the three arcs stay distinct in a menu bar and a Dock
+  rather than dissolving into a ring.
+- Two "Plan unavailable" strings now use the canonical copy, which says **Plan
+  unknown**. A missing reading is not a failure and the product does not call
+  it one anywhere else.
+
 ## 1.4.4 — 2026-08-01
 
 ### Fixed
