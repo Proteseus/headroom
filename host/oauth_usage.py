@@ -750,6 +750,9 @@ def reset_for_tests():
         _oauth_mem.clear()
     with _deny_lock:
         _keychain_denied.clear()
-    _cache.update(t=0.0, data=None, err=None, rl_strikes=0, retry_at=0.0)
+    # Includes the failure bookkeeping: leaving it set bleeds one test's
+    # outage into the next, where it reads as an unrelated flake.
+    _cache.update(t=0.0, data=None, err=None, rl_strikes=0, retry_at=0.0,
+                  fail_streak=0, stale_since=None)
     _caches.clear()
     _caches[""] = _cache

@@ -7,6 +7,33 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.0 — unreleased
+
+### Fixed
+
+- **A failing fetch stops being asked at the same rate forever.** 1.3.3 taught
+  the host to back off a 429, which was the case where retrying actively makes
+  things worse. It was not the only case where retrying is pointless: a 5xx, a
+  timeout, an expired login and a provider that changed shape all stayed on a
+  flat `fail_ttl_s`, which is a fixed rate of traffic aimed at something
+  already known to be failing. Consecutive failures now double the interval
+  from each provider's own base up to fifteen minutes, and one good fetch puts
+  it straight back on the short leash. The first miss still waits exactly what
+  it always did, because one dropped poll is a blip and nothing should get
+  slower at recovering from those.
+- The two backoffs disagree about a forced refresh, on purpose. A 429 holds
+  against it, since Settings, the phone and the board's long-press are what
+  someone reaches for when a rate limit is in effect. Every other failure
+  yields to it, because forcing is how a fixed login or a reconnected VPN is
+  meant to be picked up, and waiting out a backoff you have already resolved
+  is its own bug.
+- The generic streak can no longer shorten a rate limit's wait. A 429 carrying
+  a long `Retry-After` outranks it, or honouring the header would be theatre.
+
+Credit for the diagnosis and the general shape here goes to @leolobato, whose
+[#13](https://github.com/michellzappa/headroom/pull/13) called this a week
+before it was fixed properly and covered the case 1.3.3 left out.
+
 ## 1.3.9 — 2026-07-31
 
 ### Added

@@ -131,5 +131,77 @@ class RateLimitTests(unittest.TestCase):
         self.assertIsNone(cache_util.parse_retry_after(None))
 
 
+class FailureBackoffTests(unittest.TestCase):
+    """Repeated failure widens the retry, not just a repeated 429."""
+
+    FAIL_TTL = 20
+
+    def _failing(self, times):
+        cache = {}
+        cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
+        for i in range(times):
+            cache_util.keep_stale(cache, NOW + i, "boom", EMPTY)
+        return cache
+
+    def test_the_first_miss_waits_exactly_what_it_always_did(self):
+        # One dropped poll is a blip. Changing this would make every provider
+        # slower to recover from a hiccup to fix a problem it does not have.
+        cache = self._failing(1)
+        self.assertEqual(cache_util.failure_ttl(cache, self.FAIL_TTL), 20)
+
+    def test_consecutive_misses_double_the_wait(self):
+        waits = [
+            cache_util.failure_ttl(self._failing(n), self.FAIL_TTL)
+            for n in range(1, 6)
+        ]
+        self.assertEqual(waits, [20, 40, 80, 160, 320])
+
+    def test_the_wait_caps(self):
+        cache = self._failing(40)
+        self.assertEqual(
+            cache_util.failure_ttl(cache, self.FAIL_TTL),
+            cache_util.FAILURE_BACKOFF_MAX_S)
+
+    def test_one_good_fetch_puts_it_back_on_the_short_leash(self):
+        cache = self._failing(6)
+        cache_util.store(cache, NOW + 100, {"ok": True, "plan": "Max"})
+        cache_util.keep_stale(cache, NOW + 200, "boom", EMPTY)
+        self.assertEqual(cache_util.failure_ttl(cache, self.FAIL_TTL), 20)
+
+    def test_a_widened_wait_actually_holds_the_next_poll(self):
+        cache = self._failing(3)
+        self.assertTrue(cache_util.fresh(cache, NOW + 60, 60, self.FAIL_TTL))
+        self.assertFalse(cache_util.fresh(cache, NOW + 200, 60, self.FAIL_TTL))
+
+    def test_a_forced_refresh_still_gets_through(self):
+        # The opposite call from the 429 backoff, and on purpose: forcing is
+        # how a fixed login or a reconnected VPN is meant to be picked up.
+        cache = self._failing(6)
+        self.assertFalse(
+            cache_util.fresh(cache, NOW + 1, 60, self.FAIL_TTL, force=True))
+
+    def test_a_rate_limit_still_outranks_a_forced_refresh(self):
+        cache = self._failing(6)
+        cache_util.note_rate_limit(cache, NOW)
+        self.assertTrue(
+            cache_util.fresh(cache, NOW + 1, 60, self.FAIL_TTL, force=True))
+
+    def test_the_failure_streak_cannot_shorten_a_rate_limit_wait(self):
+        # A 429 carrying a long Retry-After has to survive the generic streak
+        # counting up underneath it, or honouring the header is theatre.
+        cache = {}
+        cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
+        cache_util.note_rate_limit(cache, NOW, "1800")
+        cache_util.keep_stale(cache, NOW, "boom", EMPTY)
+        self.assertTrue(cache_util.fresh(cache, NOW + 1700, 60, self.FAIL_TTL))
+        self.assertFalse(cache_util.fresh(cache, NOW + 1900, 60, self.FAIL_TTL))
+
+    def test_a_provider_with_a_longer_base_scales_from_its_own(self):
+        # Supabase and GitHub Actions do not share the 20s base, and the
+        # backoff has to be relative to whatever a provider chose.
+        cache = self._failing(3)
+        self.assertEqual(cache_util.failure_ttl(cache, 45), 180)
+
+
 if __name__ == "__main__":
     unittest.main()

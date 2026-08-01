@@ -23,6 +23,19 @@ RATE_LIMIT_BACKOFF_S = (60, 120, 300, 900)
 # header cannot park a source for a day.
 RATE_LIMIT_CEILING_S = 3600
 
+# A 429 is the case where retrying makes things worse, but it is not the only
+# case where retrying is pointless. A 5xx, a timeout and a provider that
+# changed shape all used to be retried on a flat `fail_ttl_s` forever, which
+# is a fixed rate of traffic aimed at something already known to be failing.
+# Consecutive failures double that interval from the provider's own base up to
+# this cap; one good fetch puts it straight back on the short leash.
+FAILURE_BACKOFF_MAX_S = 15 * 60
+
+# Doubling is unbounded and the streak is not, so the exponent is clamped
+# before it is used. The cap above already flattens the curve long before
+# this bites; this only stops the arithmetic from getting silly.
+FAILURE_BACKOFF_MAX_SHIFT = 20
+
 # How long last-good data may be replayed before it stops being a hiccup.
 # Fetchers poll on the order of a minute, so anything past this is a provider
 # that changed shape, a credential that expired, or a login that went away —
@@ -122,18 +135,37 @@ def note_rate_limit(cache, now, retry_after=None):
     return wait
 
 
+def failure_ttl(cache, fail_ttl_s):
+    """How long to wait after the failures this cache has seen in a row.
+
+    The first miss waits the provider's own `fail_ttl_s`, which is what it
+    always did: one dropped poll is a blip and the next one usually works.
+    Past that, each consecutive failure doubles the wait to `FAILURE_BACKOFF_MAX_S`,
+    because a source that has missed five times running is not having a blip
+    and asking it every twenty seconds is just aimed traffic.
+    """
+    streak = int(cache.get("fail_streak", 0))
+    if streak < 2:
+        return fail_ttl_s
+    shift = min(streak - 1, FAILURE_BACKOFF_MAX_SHIFT)
+    return min(fail_ttl_s * (2 ** shift), FAILURE_BACKOFF_MAX_S)
+
+
 def fresh(cache, now, ttl_s, fail_ttl_s, force=False):
     """True when the in-memory copy is young enough to serve as-is.
 
-    A cache holding an error retries on the shorter `fail_ttl_s`, so a dropped
-    VPN clears in seconds rather than making the meter sit wrong for a full
-    TTL.
+    A cache holding an error retries on `fail_ttl_s`, widened by how many
+    failures came before it, so a dropped VPN still clears in seconds while a
+    source that has been failing all afternoon stops being asked every twenty.
 
-    A 429 backoff is the exception, and it outranks `force`. The forced paths
-    are Settings refresh, the phone, and the board's long-press: exactly what
-    someone reaches for when the numbers look wrong, which is exactly when a
-    rate limit is in effect. Letting them through turns a user's frustration
-    into more of the traffic that caused it.
+    The two backoffs differ on `force`, and deliberately. A 429 holds against
+    it: Settings refresh, the phone and the board's long-press are exactly
+    what someone reaches for when the numbers look wrong, which is exactly
+    when a rate limit is in effect, so letting them through turns a user's
+    frustration into more of the traffic that caused it. Every other failure
+    yields to it, because forcing is how a fixed login or a reconnected VPN is
+    meant to be picked up, and making someone wait out a backoff they have
+    already resolved is its own bug.
     """
     if cache.get("data") is None:
         return False
@@ -142,7 +174,7 @@ def fresh(cache, now, ttl_s, fail_ttl_s, force=False):
     if force:
         return False
     return now - cache.get("t", 0.0) < (
-        fail_ttl_s if cache.get("err") else ttl_s
+        failure_ttl(cache, fail_ttl_s) if cache.get("err") else ttl_s
     )
 
 
@@ -165,9 +197,10 @@ def store(cache, now, data, disk_name=None):
         data["auth_required"] = False
     if disk_name:
         save_disk(disk_name, data)
-    # A good fetch also ends any 429 backoff: the provider answered, so the
-    # strike count that would otherwise keep escalating starts over.
-    cache.update(t=now, data=data, err=None, rl_strikes=0, retry_at=0.0)
+    # A good fetch also ends both backoffs: the provider answered, so neither
+    # streak has anything left to escalate against.
+    cache.update(t=now, data=data, err=None, rl_strikes=0, retry_at=0.0,
+                 fail_streak=0)
     return data
 
 
@@ -191,6 +224,11 @@ def keep_stale(cache, now, err, empty, disk_name=None, auth_required=False):
     for a day reads as one poll old and nothing downstream can tell the
     difference.
     """
+    # Every failing fetch lands here, whatever the reason, which makes this
+    # the one place a streak can be counted without each fetcher remembering
+    # to. `fresh` turns it into the widening retry interval.
+    cache["fail_streak"] = int(cache.get("fail_streak", 0)) + 1
+
     prev = cache.get("data")
     if not (prev and prev.get("ok")) and disk_name:
         prev = load_disk(disk_name)
