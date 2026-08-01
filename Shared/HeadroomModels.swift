@@ -2379,6 +2379,26 @@ struct AgentAttentionEvent: Codable, Sendable, Equatable, Identifiable {
         return String(last)
     }
 
+    /// Short tool name for a lock-screen glance — Claude / Codex, not the
+    /// adapter id (`claude-code`) and not a model tier (Opus / Sonnet).
+    var providerDisplayName: String {
+        switch provider {
+        case "claude-code": return "Claude"
+        case "codex": return "Codex"
+        default: return provider
+        }
+    }
+
+    /// Push title: repo, which agent, which Mac. The Attention row keeps
+    /// `displayTitle` as the repo alone — mark and machine sit beside it.
+    var notificationTitle: String {
+        var parts = [displayTitle, providerDisplayName]
+        if let machineName, !machineName.isEmpty {
+            parts.append(machineName)
+        }
+        return parts.joined(separator: " • ")
+    }
+
     /// A row nobody can answer — a finished/idle notice — only offers
     /// dismissal, and that is what makes it safe to swipe away.
     var isDismissOnly: Bool {

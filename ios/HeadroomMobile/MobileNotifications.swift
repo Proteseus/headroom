@@ -91,7 +91,7 @@ enum MobileNotifications {
             let key = "lastNotifiedAgentEvent-\(event.id)"
             guard !UserDefaults.standard.bool(forKey: key) else { continue }
             let content = UNMutableNotificationContent()
-            content.title = event.displayTitle
+            content.title = event.notificationTitle
             content.body = event.summary
             content.sound = .default
             var userInfo: [AnyHashable: Any] = ["agent_event_id": event.id]

@@ -81,6 +81,8 @@ final class MobileContractTests: XCTestCase {
         XCTAssertEqual(response.events.first?.machineID, "mac-studio-1")
         XCTAssertEqual(response.events.first?.machineName, "Studio")
         XCTAssertEqual(response.events.first?.displayTitle, "acme")
+        XCTAssertEqual(
+            response.events.first?.notificationTitle, "acme • Claude • Studio")
         XCTAssertEqual(detail.toolName, "Edit")
         XCTAssertEqual(detail.reasons, ["Destructive operation"])
         XCTAssertEqual(detail.requestFields.count, 3)
@@ -159,23 +161,36 @@ final class MobileContractTests: XCTestCase {
 
     func testAgentEventWithoutMachineMetadataStillDecodes() throws {
         let data = Data(
-            #"{"ok":true,"events":[{"id":"evt_old","provider":"codex","adapter":"test","session_id":"s1","kind":"command_approval","state":"pending","revision":1,"title":"repo","summary":"Run tests","detail":{},"actions":[]}]}"#.utf8
+            #"{"ok":true,"events":[{"id":"evt_old","provider":"codex","adapter":"test","session_id":"s1","kind":"command_approval","state":"pending","revision":1,"title":"repo","summary":"Run tests","detail":{},"actions":[],"created_at_ms":1,"updated_at_ms":1}]}"#.utf8
         )
         let event = try XCTUnwrap(
             try JSONDecoder().decode(
                 AgentAttentionEventsResponse.self, from: data).events.first)
         XCTAssertNil(event.machineID)
         XCTAssertNil(event.machineName)
+        XCTAssertEqual(event.notificationTitle, "repo • Codex")
     }
 
     func testRepoTitleRepairsLegacyClaudeTitleFromCwd() throws {
         let data = Data(
-            #"{"ok":true,"events":[{"id":"evt_old","provider":"claude-code","adapter":"claude-http-hooks","session_id":"s1","kind":"agent_waiting","state":"pending","revision":1,"title":"Claude finished responding in headroom","summary":"Ready for your next instruction","detail":{"cwd":"/Users/mz/Dev/headroom"},"actions":[{"id":"dismiss","label":"Dismiss","risk":"safe"}]}]}"#.utf8
+            #"{"ok":true,"events":[{"id":"evt_old","provider":"claude-code","adapter":"claude-http-hooks","session_id":"s1","kind":"agent_waiting","state":"pending","revision":1,"title":"Claude finished responding in headroom","summary":"Ready for your next instruction","detail":{"cwd":"/Users/mz/Dev/headroom"},"actions":[{"id":"dismiss","label":"Dismiss","risk":"safe"}],"created_at_ms":1,"updated_at_ms":1}]}"#.utf8
         )
         let event = try XCTUnwrap(
             try JSONDecoder().decode(
                 AgentAttentionEventsResponse.self, from: data).events.first)
         XCTAssertEqual(event.displayTitle, "headroom")
+        // Older hosts omit machine_name; the push still names the agent.
+        XCTAssertEqual(event.notificationTitle, "headroom • Claude")
+    }
+
+    func testNotificationTitleNamesCodexAndComputer() throws {
+        let data = Data(
+            #"{"ok":true,"events":[{"id":"evt_1","provider":"codex","adapter":"test","machine_name":"Studio","session_id":"s1","kind":"command_approval","state":"pending","revision":1,"title":"repo","summary":"Run tests","detail":{"cwd":"/tmp/acme"},"actions":[],"created_at_ms":1,"updated_at_ms":1}]}"#.utf8
+        )
+        let event = try XCTUnwrap(
+            try JSONDecoder().decode(
+                AgentAttentionEventsResponse.self, from: data).events.first)
+        XCTAssertEqual(event.notificationTitle, "acme • Codex • Studio")
     }
 
     func testNormalizesBareMacHost() {

@@ -47,6 +47,17 @@ RETENTION_S = 30 * 24 * 3600
 # every callback from a busy agent.
 PRUNE_INTERVAL_S = 3600
 
+# Passive notices ("Claude finished", a Codex turn that stopped early) need no
+# answer. Without a TTL they sit in the open feed until someone taps Dismiss.
+# One hour is long enough to see and act, short enough that Attention does not
+# fill with FYIs overnight.
+PASSIVE_NOTICE_TTL_MS = 60 * 60 * 1000
+
+
+def passive_expires_at_ms(now_ms=None):
+    now = int(now_ms) if now_ms is not None else _now_ms()
+    return now + PASSIVE_NOTICE_TTL_MS
+
 
 class EventError(Exception):
     """Base class for safe HTTP-facing event errors."""
@@ -353,6 +364,10 @@ class EventStore:
             connection.close()
 
     def list(self, state="open", limit=50, after_ms=None):
+        # Passive notices carry an expires_at_ms; without a sweep they would
+        # sit in the open feed until someone taps Dismiss. Expire them here so
+        # every poller — phone, Mac, tests — agrees on what is still live.
+        self.expire_due()
         limit = max(1, min(100, int(limit)))
         args = []
         where = []
@@ -377,6 +392,29 @@ class EventStore:
                 self._public(row)
                 for row in connection.execute(query, args).fetchall()
             ]
+        finally:
+            connection.close()
+
+    def expire_due(self, now_ms=None):
+        """Mark pending rows whose wait has elapsed as expired.
+
+        Called from `list` so a phone that never answers still drops the row
+        once the provider-side deadline has passed — and so a passive notice
+        with a TTL does not need its own background sweeper.
+        """
+        now = int(now_ms) if now_ms is not None else _now_ms()
+        connection = self._connect()
+        try:
+            connection.execute(
+                """UPDATE attention_events
+                   SET state = 'expired', revision = revision + 1,
+                       updated_at_ms = ?
+                   WHERE state = 'pending'
+                     AND expires_at_ms IS NOT NULL
+                     AND expires_at_ms <= ?""",
+                (now, now),
+            )
+            connection.commit()
         finally:
             connection.close()
 

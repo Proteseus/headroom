@@ -15,6 +15,7 @@ import threading
 import time
 from collections import deque
 
+import agent_events
 import agent_request
 import app_config
 
@@ -770,6 +771,7 @@ class CodexAppServer:
             summary=_short(message, "The turn ended early"),
             detail=detail,
             actions=[{"id": "dismiss", "label": "Dismiss", "risk": "safe"}],
+            expires_at_ms=agent_events.passive_expires_at_ms(),
         )
 
     def _decline_question(self, request_id):

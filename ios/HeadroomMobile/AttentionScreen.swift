@@ -138,7 +138,7 @@ struct AttentionScreen: View {
                 }
                 .labelStyle(.iconOnly)
             }
-            if store.mobilePermissions.agents, store.agentTaskSurface != nil {
+            if store.mobilePermissions.agents {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(HeadroomCopy.startTask, systemImage: "plus") {
                         showsStartTask = true
@@ -165,6 +165,7 @@ struct AttentionScreen: View {
                         .padding()
                     } else {
                         ProgressView()
+                            .task { await store.loadTaskSurface() }
                     }
                 }
                 .navigationTitle(HeadroomCopy.startTask)
@@ -174,7 +175,11 @@ struct AttentionScreen: View {
             .presentationDragIndicator(.visible)
         }
         .refreshable { await store.refresh(forceServerSync: true) }
-        .task { await store.loadTaskSurface() }
+        .task {
+            // refresh() also loads the surface once permissions are known;
+            // this covers a revisit when the store already has agents on.
+            await store.loadTaskSurface()
+        }
     }
 
     /// The feed rows this screen claims off `ActivityScreen`. One definition,

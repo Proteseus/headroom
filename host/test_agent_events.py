@@ -88,6 +88,25 @@ class EventStoreTests(unittest.TestCase):
                 event["id"], event["revision"], "decline", "tap-1")
         self.assertEqual(self.store.get(event["id"])["state"], "expired")
 
+    def test_open_listing_sweeps_expired_passive_notices(self):
+        live = self.create(
+            request_id="live",
+            expires_at_ms=int(time.time() * 1000) + 60_000)
+        stale = self.create(
+            request_id="stale",
+            expires_at_ms=int(time.time() * 1000) - 1)
+        open_ids = [row["id"] for row in self.store.list(state="open")]
+        self.assertEqual(open_ids, [live["id"]])
+        self.assertEqual(self.store.get(stale["id"])["state"], "expired")
+
+    def test_passive_notice_ttl_is_one_hour(self):
+        now = 1_700_000_000_000
+        self.assertEqual(
+            agent_events.passive_expires_at_ms(now),
+            now + agent_events.PASSIVE_NOTICE_TTL_MS,
+        )
+        self.assertEqual(agent_events.PASSIVE_NOTICE_TTL_MS, 60 * 60 * 1000)
+
     def test_decline_becomes_terminal_after_dispatch(self):
         event = self.create()
         self.store.claim(event["id"], event["revision"], "decline", "tap-1")

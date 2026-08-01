@@ -174,6 +174,13 @@ final class MobileUsageStore: ObservableObject {
             if let permissions = try? await client.fetchMobilePermissions() {
                 mobilePermissions = permissions
             }
+            if mobilePermissions.agents {
+                // Permissions start as all-off; the Attention +.task used to
+                // race that and never reload, so Start task stayed missing.
+                await loadTaskSurface()
+            } else {
+                agentTaskSurface = nil
+            }
             if mobilePermissions.read,
                let events = try? await client.fetchAgentAttentionEvents() {
                 agentAttentionEvents = events

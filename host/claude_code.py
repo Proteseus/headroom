@@ -666,6 +666,7 @@ class ClaudeCodeHooks:
                 "answer_on_mac": True,
                 "cwd": payload.get("cwd"),
             },
+            expires_at_ms=agent_events.passive_expires_at_ms(),
         )
 
     def _passive(self, payload, kind, summary):
@@ -689,6 +690,7 @@ class ClaudeCodeHooks:
                 "notification_type": payload.get("notification_type"),
                 "message": payload.get("message"),
             },
+            expires_at_ms=agent_events.passive_expires_at_ms(),
         )
 
     def respond(self, event, action_id, text=None):
