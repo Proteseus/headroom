@@ -167,20 +167,44 @@ private struct GlassButtonStyleModifier: ViewModifier {
 
 /// The rail's moving selection. One glass shape with a stable id, so on 26 and
 /// later it flows from row to row instead of cross-fading in place.
-struct GlassSelection: View {
+///
+/// This is applied *to* the selected row, not behind it. A `glassEffect` on a
+/// `Color.clear` sitting in the row's `.background` renders inside the
+/// enclosing `GlassEffectContainer`, which composites every glass shape it
+/// owns in one pass on top of the container's plain content — so the label
+/// ended up behind its own frosting and the selected row was the one row you
+/// could not read. Wrapping the row keeps the text as content of the glass.
+struct GlassSelection: ViewModifier {
+    var isSelected: Bool
     var namespace: Namespace.ID
     var cornerRadius: CGFloat = 11
 
-    var body: some View {
+    @ViewBuilder
+    func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(macOS 26.0, *) {
-            Color.clear
-                .glassEffect(Glass.regular.interactive(), in: shape)
-                .glassEffectID("welcome.rail.selection", in: namespace)
+            if isSelected {
+                content
+                    .glassEffect(Glass.regular.interactive(), in: shape)
+                    .glassEffectID("welcome.rail.selection", in: namespace)
+            } else {
+                content
+            }
         } else {
-            shape
-                .fill(.ultraThinMaterial)
-                .overlay(shape.strokeBorder(.white.opacity(0.2), lineWidth: 0.8))
+            if isSelected {
+                content
+                    .background(shape.fill(.ultraThinMaterial))
+                    .overlay(shape.strokeBorder(.white.opacity(0.2), lineWidth: 0.8))
+            } else {
+                content
+            }
         }
+    }
+}
+
+extension View {
+    /// Marks a welcome rail row as the current one.
+    func glassSelection(_ isSelected: Bool, namespace: Namespace.ID) -> some View {
+        modifier(GlassSelection(isSelected: isSelected, namespace: namespace))
     }
 }

@@ -182,29 +182,60 @@ private final class CoachMarkWindow {
     }
 }
 
+/// One solid callout: pointer and bubble in the same green, drawn as one piece.
+///
+/// It cannot be glass. Glass and the vibrancy view under it sample what is
+/// behind the *window*, and this window is borderless, transparent and sitting
+/// over whatever the desktop happens to be, so there was nothing to sample and
+/// the tinted panel rendered as a near-black lozenge with the green nowhere in
+/// it. A solid fill is also the only thing that stays legible over an arbitrary
+/// wallpaper.
 private struct CoachMarkView: View {
-    /// Nudges the arrow up and down so the eye catches it against whatever
-    /// happens to be on screen behind the menu bar.
+    /// Nudges the callout up and down so the eye catches it against whatever
+    /// happens to be on screen behind the menu bar. The whole mark moves, so
+    /// the pointer never separates from the bubble.
     @State private var bob = false
 
     var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: "arrowtriangle.up.fill")
-                .font(.system(size: 15))
-                .foregroundStyle(HeadroomPalette.green)
-                .offset(y: bob ? -3 : 1)
-                .animation(
-                    .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
-                    value: bob)
+        VStack(spacing: 0) {
+            CoachMarkPointer()
+                .fill(HeadroomPalette.green)
+                .frame(width: 18, height: 9)
             Text(HeadroomCopy.welcomeCoachMark)
                 .font(.callout.weight(.semibold))
                 .multilineTextAlignment(.center)
+                // Green at this luminance carries dark text about twice as well
+                // as white: 6.4:1 against 3.3:1.
+                .foregroundStyle(Color.black.opacity(0.85))
                 .padding(.horizontal, 15)
                 .padding(.vertical, 9)
-                .glassPanel(cornerRadius: 18, tint: HeadroomPalette.green)
-                .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+                .background(Capsule().fill(HeadroomPalette.green))
+                // Half a point of overlap, so the seam between the two fills
+                // cannot show as a hairline on a fractional scale factor.
+                .padding(.top, -0.5)
         }
+        // One shadow for the assembled shape. Without the group each fill casts
+        // its own, which draws a line where they meet.
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.28), radius: 9, y: 3)
+        .offset(y: bob ? -3 : 1)
+        .animation(
+            .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+            value: bob)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { bob = true }
+    }
+}
+
+/// The upward pointer. A plain triangle rather than `arrowtriangle.up.fill`,
+/// whose glyph carries its own padding and left a gap above the bubble.
+private struct CoachMarkPointer: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }

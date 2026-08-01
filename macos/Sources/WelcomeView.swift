@@ -158,12 +158,8 @@ struct WelcomeView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background {
-                if isCurrent {
-                    GlassSelection(namespace: railNamespace)
-                }
-            }
             .contentShape(Rectangle())
+            .glassSelection(isCurrent, namespace: railNamespace)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
@@ -273,13 +269,14 @@ struct WelcomeView: View {
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 13) {
-                    // The menu bar is always the top right of the screen.
-                    Image(systemName: "arrow.up.right")
-                        .font(.title3)
-                        .foregroundStyle(HeadroomPalette.green)
-                    // Second person, like every other line in the product.
-                    // This was the one "we" anywhere in Headroom.
-                    Text("Look up there now. The arrow is pointing at it.")
+                    // The icon itself, from the real renderer, rather than an
+                    // arrow pointing off the window at it. What someone needs
+                    // here is to know what they are looking for; the coach mark
+                    // over the menu bar does the pointing.
+                    Image(
+                        nsImage: MeterIconRenderer.render(
+                            snapshot: store.snapshot, healthy: true))
+                    Text("This is the icon. It sits at the top right of your screen.")
                         .font(.callout.weight(.medium))
                     Spacer()
                 }
