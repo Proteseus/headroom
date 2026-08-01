@@ -7,6 +7,17 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.9 — 2026-08-01
+
+### Changed
+
+- **The app icon holds together at small sizes.** The three bands sat at 70 /
+  80 / 90 percent, which spread them far enough apart that the glyph read as a
+  loose spiral in a Dock and lost its shape entirely in a menu bar. They now sit
+  at 80 / 85 / 90, tighter and more obviously one mark. The yellow is a shade
+  off pure process yellow so the white pace disc still reads against it, which
+  it did not reliably do before.
+
 ## 1.4.8 — 2026-08-01
 
 ### Added
