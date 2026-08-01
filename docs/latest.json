@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.4",
-  "published": "2026-08-01T21:09:49Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.4/Headroom-macOS.zip",
-  "sha256": "a2f6761193c3748862d4a6574d832898a624ab2335faabe0d843151697dbc3b6",
-  "size": 4109325,
+  "version": "1.5.5",
+  "published": "2026-08-01T22:15:41Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.5/Headroom-macOS.zip",
+  "sha256": "ffa1c77572f25ac14ee941594b8691f627d560011404fc73f7e9244699aaec73",
+  "size": 4419567,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Pick which Supabase projects to track**, the same list-driven pattern as\n  GitHub repos and Vercel teams. A key that could see a dozen projects used to\n  track all of them or none; now it tracks the ones you choose."
+  "notes_md": "### Added\n\n- **OpenRouter and Vercel AI Gateway**, the first sources reporting a\n  prepaid balance rather than a windowed quota. No ring — the mark is a\n  depletion bar, since there is no window to draw as an arc.\n- **PostHog**, sitting beside Plausible as a Services integration, with a\n  project picker on the phone matching the Mac.\n- Git, GitHub Actions, Vercel, Plausible and Supabase now carry real brand\n  marks in Activity and Attention rows — they were unbranded there before,\n  even though Settings already showed their icons.\n\n### Changed\n\n- **Settings splits into one file per integration** instead of one 2,700-line\n  file everything shared. Adding the next source now touches one new file.\n- **Burndown reads week before session** everywhere a provider shows both —\n  the longer window is what you actually plan around.\n- **A stale reading says why.** Attention now distinguishes a rate limit from\n  a real outage, so a 429 the host is already backing off from calmly does\n  not also light the menu-bar warning the way a genuine failure does.\n- GitHub inbox rows carry the author who opened them."
 }
