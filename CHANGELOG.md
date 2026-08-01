@@ -7,6 +7,27 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.1 — 2026-08-01
+
+### Fixed
+
+- **`Retry-After` can no longer shorten a backoff.** 1.4.0 let the header win
+  outright, on the reasoning that the provider knows the real window better
+  than we do. It does, in one direction. Anthropic answers a 429 with a
+  sub-minute `Retry-After`, so honouring it literally retried *sooner* than the
+  schedule's own first step and the backoff never got off the ground. The
+  header raises the wait now and never lowers it, which is the shape
+  [#13](https://github.com/michellzappa/headroom/pull/13) had and 1.4.0 got
+  wrong.
+- **"retrying in 0m" is gone**, and was always meaningless: the wait was real
+  but shorter than a minute, and the countdown floors to whole minutes. Nothing
+  can produce a wait that short any more.
+- **A rate limit is visible in the host log.** A stale replay still reads `ok`,
+  so the log printed the last-known numbers and a bare `stale` marker and threw
+  the reason away. Every 429 this host has ever served was invisible there,
+  which is exactly long enough to convince someone reading it that no 429 had
+  ever happened. The reason is printed now.
+
 ## 1.4.0 — 2026-08-01
 
 ### Fixed

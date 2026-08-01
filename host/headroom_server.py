@@ -2140,8 +2140,12 @@ def _refresh_one(source_id, force=False):
         _state[source_id] = payload
         _source_times[source_id] = time.time()
     if payload.get("ok"):
-        stale = "  stale" if payload.get("stale") else ""
-        print(f"{source_id:9s} ok  {source.summary(payload)}{stale}")
+        # A stale replay still reads `ok`, so logging only the numbers hides
+        # why they stopped moving. That is not cosmetic: a rate limit never
+        # appeared in this log at all, and reading the bare `stale` marker as
+        # ordinary staleness sent a whole debugging session the wrong way.
+        note = f"  stale: {payload.get('error')}" if payload.get("stale") else ""
+        print(f"{source_id:9s} ok  {source.summary(payload)}{note}")
     else:
         print(f"{source_id:9s} miss:", payload.get("error"))
 

@@ -101,10 +101,31 @@ class RateLimitTests(unittest.TestCase):
         cache = {"retry_at": NOW + 600}
         self.assertFalse(cache_util.fresh(cache, NOW, 60, 20))
 
-    def test_retry_after_seconds_wins_over_the_schedule(self):
+    def test_retry_after_lengthens_the_wait(self):
         cache = {}
         cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
-        self.assertEqual(cache_util.note_rate_limit(cache, NOW, "45"), 45.0)
+        self.assertEqual(cache_util.note_rate_limit(cache, NOW, "300"), 300.0)
+
+    def test_a_short_retry_after_cannot_shorten_the_wait(self):
+        # The bug this replaces: Anthropic answers a 429 with a sub-minute
+        # Retry-After, so honouring it literally retried sooner than our own
+        # first step and the backoff never got off the ground.
+        cache = {}
+        cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
+        self.assertEqual(
+            cache_util.note_rate_limit(cache, NOW, "5"),
+            float(cache_util.RATE_LIMIT_BACKOFF_S[0]))
+
+    def test_the_wait_is_never_rendered_as_zero_minutes(self):
+        # "retrying in 0m" reads as "not retrying". The floor is what stops
+        # any wait short enough to format that way from existing.
+        import oauth_usage
+        cache = {}
+        cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
+        for header in (None, "0", "5", "59"):
+            wait = cache_util.note_rate_limit(cache, NOW, header)
+            self.assertNotEqual(oauth_usage.fmt_resets(wait), "0m")
+            cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
 
     def test_retry_after_accepts_an_http_date(self):
         cache = {}

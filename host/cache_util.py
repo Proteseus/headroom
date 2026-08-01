@@ -126,11 +126,17 @@ def note_rate_limit(cache, now, retry_after=None):
     """
     strikes = int(cache.get("rl_strikes", 0)) + 1
     cache["rl_strikes"] = strikes
-    wait = parse_retry_after(retry_after, now)
-    if wait is None:
-        wait = RATE_LIMIT_BACKOFF_S[
-            min(strikes, len(RATE_LIMIT_BACKOFF_S)) - 1]
-    wait = min(float(wait), RATE_LIMIT_CEILING_S)
+    scheduled = RATE_LIMIT_BACKOFF_S[
+        min(strikes, len(RATE_LIMIT_BACKOFF_S)) - 1]
+    stated = parse_retry_after(retry_after, now)
+    # `Retry-After` raises the wait and never lowers it. Letting it win
+    # outright was a real bug: Anthropic answers a 429 with a sub-minute
+    # header, so honouring it literally retried *sooner* than our own first
+    # step and the backoff never got off the ground. The provider is
+    # authoritative about waiting longer, not about waiting less than we
+    # already decided we owe it.
+    wait = scheduled if stated is None else max(float(stated), scheduled)
+    wait = min(wait, RATE_LIMIT_CEILING_S)
     cache["retry_at"] = now + wait
     return wait
 
