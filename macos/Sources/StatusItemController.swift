@@ -17,9 +17,11 @@ final class StatusItemController: NSObject {
         super.init()
 
         if let button = statusItem.button {
+            // Empty snapshot, healthy mark: three empty tanks so the slot is
+            // never blank while the first poll is still out.
             button.image = MeterIconRenderer.render(
                 snapshot: .empty,
-                healthy: false,
+                healthy: true,
                 attentionLevel: nil
             )
             button.imagePosition = .imageOnly
@@ -166,33 +168,51 @@ enum MeterIconRenderer {
             // Settings subset only — never invent Claude/Codex/Cursor when
             // every quota source is off. The host picks which 3 (pinned
             // order, enabled only); icon geometry is sized for that same
-            // hard limit.
+            // hard limit. While the first poll is still out (or nothing is
+            // enabled), draw that many empty tanks so the slot is never blank.
             let visibleProviders = snapshot.focusProviders()
+            let barCount = visibleProviders.isEmpty ? 3 : visibleProviders.count
             let barWidthPixels = 6
             let barHeightPixels = 30
             let gapPixels = 5
             let groupWidth =
-                max(1, visibleProviders.count) * barWidthPixels
-                + max(0, visibleProviders.count - 1) * gapPixels
+                barCount * barWidthPixels
+                + max(0, barCount - 1) * gapPixels
             let groupX = (canvasPixels - groupWidth) / 2
             let barY = (canvasPixels - barHeightPixels) / 2
 
             // One vertical tank per provider. It shows the long quota window:
             // Weekly for Claude/Codex and Total for Cursor, which has no
-            // weekly pool. The tank drains as consumption rises.
-            for (index, provider) in visibleProviders.enumerated() {
-                let meter = snapshot.meter(for: provider)
-                drawVerticalBar(
-                    rect: PixelRect(
-                        x: groupX + index * (barWidthPixels + gapPixels),
-                        y: barY,
-                        width: barWidthPixels,
-                        height: barHeightPixels
-                    ),
-                    used: meter.menuBarWindow.percent,
-                    healthy: healthy,
-                    unavailable: meter.menuBarWindow.percent == nil
-                )
+            // weekly pool. The tank drains as consumption rises. With nothing
+            // to show yet, draw three empty outlines so the slot is never blank.
+            if visibleProviders.isEmpty {
+                for index in 0..<barCount {
+                    drawVerticalBar(
+                        rect: PixelRect(
+                            x: groupX + index * (barWidthPixels + gapPixels),
+                            y: barY,
+                            width: barWidthPixels,
+                            height: barHeightPixels
+                        ),
+                        used: nil,
+                        healthy: healthy
+                    )
+                }
+            } else {
+                for (index, provider) in visibleProviders.enumerated() {
+                    let meter = snapshot.meter(for: provider)
+                    drawVerticalBar(
+                        rect: PixelRect(
+                            x: groupX + index * (barWidthPixels + gapPixels),
+                            y: barY,
+                            width: barWidthPixels,
+                            height: barHeightPixels
+                        ),
+                        used: meter.menuBarWindow.percent,
+                        healthy: healthy,
+                        unavailable: meter.menuBarWindow.percent == nil
+                    )
+                }
             }
 
             if warning {
