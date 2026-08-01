@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.1 — 2026-08-01
+
+### Changed
+
+- **Pick GitHub repos and Vercel teams from a list instead of typing them.**
+  Both settings were free text, which meant a typo produced an empty panel with
+  nothing to say why, and getting it right meant knowing the exact slug. Headroom
+  now asks the service what you have access to and offers it. Blank still means
+  everything the login can see, so nothing changes if you never set one.
+
 ## 1.5.0 — 2026-08-01
 
 ### Fixed
