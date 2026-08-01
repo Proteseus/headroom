@@ -45,6 +45,7 @@ import gemini_usage
 import git_activity
 import ai_gateway_usage
 import github_actions
+import grok_usage
 import jetbrains_usage
 import local_servers
 import oauth_usage
@@ -623,6 +624,27 @@ _AI_GATEWAY_POOLS = (
     MeterSpec("balance", "balance", "Balance",
               kind=KIND_BALANCE, ring=False),
 )
+# xAI exposes no percent-used figure for the subscription window (only the
+# window bounds + on-demand credit cap/used), so the sole meter is on-demand
+# credits — dollars against a cap, same shape as Cursor's on-demand.
+_GROK_POOLS = (
+    PoolSpec("credits", "credits", "Credits", grok_usage.WEEK_WINDOW_S,
+             kind=KIND_OVERAGE, ring=False),
+)
+
+
+def _detail_grok(payload):
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return None
+    parts = []
+    if payload.get("plan"):
+        parts.append(str(payload["plan"]))
+    credits = payload.get("credits")
+    if isinstance(credits, dict) and credits.get("pct") is not None:
+        parts.append("credits {:.0f}%".format(credits["pct"]))
+    if payload.get("week_resets_in"):
+        parts.append("resets {}".format(payload["week_resets_in"]))
+    return " · ".join(parts) if parts else None
 
 # Prices are USD list prices and intentionally do not try to infer what an
 # account pays after tax, regional conversion, nonprofit discounts, or an
@@ -742,6 +764,10 @@ BASE_SOURCES = (
            headline=("predictions",), accent="#084CCF",
            subscription_prices=_ZED_SUBSCRIPTION_PRICES,
            subscription_pricing_url="https://zed.dev/pricing"),
+    Source("grok", "Grok", "~/.grok/auth.json (Grok CLI)", 300,
+           grok_usage.fetch_quota, detail_fn=_detail_grok,
+           kind="quota", group=GROUP_AI, pools=_GROK_POOLS,
+           accent="#8E8E93"),
     Source("openrouter", "OpenRouter", "Management API key in Keychain",
            openrouter_usage.CACHE_TTL_S,
            openrouter_usage.fetch_quota,

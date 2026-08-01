@@ -252,12 +252,17 @@ class QuotaRegistryTests(unittest.TestCase):
         self.assertEqual(
             sources_config.BURN_SOURCE_IDS,
             tuple(s.id for s in sources_config.QUOTA_SOURCES))
-        # Not every quota source is a burn source: a balance meter (no window,
-        # no headline pct) never produces a sample, so it can sit in
-        # BURN_SOURCE_IDS without ever appearing in quota_samples.PROVIDERS.
-        self.assertTrue(
-            set(quota_samples.PROVIDERS).issubset(
-                set(sources_config.BURN_SOURCE_IDS)))
+        # Not every quota source is a burn source: a balance or overage meter
+        # (no window, no headline pct) never produces a sample, so it can sit
+        # in BURN_SOURCE_IDS without ever appearing in quota_samples.PROVIDERS.
+        self.assertEqual(
+            quota_samples.PROVIDERS,
+            tuple(source.id for source in sources_config.QUOTA_SOURCES
+                  if source.windows()),
+        )
+        self.assertNotIn("grok", quota_samples.PROVIDERS)
+        self.assertNotIn("openrouter", quota_samples.PROVIDERS)
+        self.assertNotIn("ai-gateway", quota_samples.PROVIDERS)
         self.assertTrue({"claude", "codex", "cursor"}.issubset(
             set(sources_config.BURN_SOURCE_IDS)))
         # Windows, not every meter. The sample store records percentages
