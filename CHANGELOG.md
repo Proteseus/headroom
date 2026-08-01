@@ -7,6 +7,33 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.3 — 2026-08-01
+
+### Fixed
+
+- **The selected row in the Welcome sidebar is readable again.** The glass
+  selection was drawn *behind* the row rather than around it, and because every
+  glass shape in a container composites in one pass on top of that container's
+  plain content, the label ended up behind its own frosting. The one row you
+  most needed to read was the one you could not. It now wraps the row, so the
+  text is content of the glass instead of underneath it.
+- **The coach mark pointing at the menu bar is green again, not black.** Glass
+  samples what sits behind its window, and that window is borderless and
+  transparent over whatever the desktop happens to be, so there was nothing to
+  sample and the tinted panel rendered as a near-black lozenge. It is now one
+  solid shape, pointer and bubble in the same green, which is also the only
+  thing that stays legible over an arbitrary wallpaper. The text is dark rather
+  than white, which at this green carries about twice the contrast (6.4:1
+  against 3.3:1), and the whole mark bobs as one piece so the pointer never
+  separates from the bubble.
+
+### Changed
+
+- The Welcome screen shows **the menu bar icon itself**, drawn by the real
+  renderer, instead of an arrow pointing off the window towards it. What you
+  need at that moment is to know what you are looking for; the coach mark over
+  the menu bar does the pointing.
+
 ## 1.4.2 — 2026-08-01
 
 ### Added
