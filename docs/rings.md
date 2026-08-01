@@ -60,7 +60,7 @@ complications go monochrome.
 `Shared/HeadroomRings.swift` is the Swift implementation. The constants beside
 `drawPaceRing` in `firmware/src/main.cpp` mirror it for the embedded display.
 The app icon is the same glyph — three bands in process CMY (yellow / cyan /
-magenta) at 70 / 80 / 90 percent outside-in, carrying pace dots at 30 / 60 / 90,
+magenta) at 80 / 85 / 90 percent outside-in, carrying pace dots at 30 / 60 / 90,
 rendered by `scripts/render_icon.py` into both asset catalogs and the App Store
 PNG. Live rings keep each provider's brand accent; the icon uses CMY so the arcs
 stay distinct at small sizes.
