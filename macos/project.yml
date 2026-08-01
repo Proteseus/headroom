@@ -39,6 +39,13 @@ targets:
       - path: host
         type: folder
         buildPhase: resources
+      # The updater, run from inside the bundle → Contents/Resources/.
+      # Bundled rather than reimplemented in Swift because an app cannot
+      # replace itself while it is the thing running, and this script already
+      # brackets the swap with the LaunchAgent bootout/bootstrap the embedded
+      # host needs. See docs/updater.md.
+      - path: ../scripts/update-app.sh
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.macos

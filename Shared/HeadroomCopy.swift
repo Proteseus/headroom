@@ -419,6 +419,22 @@ enum HeadroomCopy {
     /// The callout that points at the menu bar icon on first run.
     static let welcomeCoachMark = "Headroom lives here"
 
+    // MARK: Updates
+
+    /// App updates. The host has its own version skew story and its own words
+    /// (`HostSkew`); these are only ever about the .app.
+    static let appUpdates = "App updates"
+    static let automaticUpdateChecks = "Check automatically"
+    static let checkForUpdates = "Check for updates"
+    static let checkingForUpdates = "Checking…"
+    static let upToDate = "Up to date"
+    static let installUpdate = "Install and restart"
+    /// Said to a copy that is not in /Applications, so it must not replace
+    /// itself. Names the reason rather than greying a button with no comment.
+    static let updatesNotFromHere =
+        "Updates install to /Applications. This copy runs from somewhere else."
+    static let updateCheckFailed = "Could not reach the update feed."
+
     // MARK: Widget
 
     static let openToSync = "Open to sync"

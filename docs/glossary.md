@@ -99,8 +99,9 @@ surface-specific (see the end of this file), but the shape does not.
 | **Services** | Supabase, Plausible, local servers | Sections on the iOS Activity tab (Mac stacks the same panels) |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
-| **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs | macOS Settings |
+| **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs, App updates | macOS Settings |
 | **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
+| **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
 | **Sources** | What to watch — AI tools, extra accounts, dev tools | macOS Settings, iOS Settings, Welcome |
 | **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
 | **Integrations** | Hub for Supabase / Plausible / GitHub keys | macOS Settings |

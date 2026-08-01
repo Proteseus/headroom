@@ -5,7 +5,13 @@
 #   ./scripts/update-app.sh --check    # say what would happen, change nothing
 #   ./scripts/update-app.sh --yes      # no confirmation prompt
 #   ./scripts/update-app.sh --version 1.2.3
+#   ./scripts/update-app.sh --url https://…/Headroom-macOS.zip
 #   ./scripts/update-app.sh --force    # reinstall even at the same version
+#
+# The app runs this too, from inside its own bundle, passing the version and
+# URL it read from the update feed (docs/updater.md). That is why --url exists:
+# the day the zip moves off GitHub Releases, the feed says so and nothing here
+# or in the app needs to know where it went.
 #
 # Works from a clone or on its own — no gh, no auth, public repo. System tools
 # only: curl, unzip, plutil, codesign, spctl, launchctl.
@@ -31,6 +37,7 @@ CHECK_ONLY=0
 ASSUME_YES=0
 FORCE=0
 WANT_VERSION=""
+WANT_URL=""
 
 die() { echo "error: $*" >&2; exit 1; }
 note() { echo "$*" >&2; }
@@ -41,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) ASSUME_YES=1; shift ;;
     --force) FORCE=1; shift ;;
     --version) WANT_VERSION="${2:-}"; shift 2 ;;
+    --url) WANT_URL="${2:-}"; shift 2 ;;
     --app) APP="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -134,7 +142,11 @@ if pgrep -x Headroom >/dev/null 2>&1; then
   pgrep -x Headroom >/dev/null 2>&1 && note "note: Headroom did not quit, continuing anyway"
 fi
 
-ZIP_URL="https://github.com/$REPO/releases/download/$TAG/Headroom-macOS.zip"
+# --url wins so the zip can live anywhere the feed says. The verification
+# below is unchanged either way: whatever answers still has to be notarized
+# under our team and carry the version its tag claims, so a wrong URL fails
+# closed rather than installing something.
+ZIP_URL="${WANT_URL:-https://github.com/$REPO/releases/download/$TAG/Headroom-macOS.zip}"
 note "Downloading $TAG …"
 curl -fsSL --proto '=https' --tlsv1.2 -o "$STAGE/Headroom-macOS.zip" "$ZIP_URL" \
   || die "download failed: $ZIP_URL"

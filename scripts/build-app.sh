@@ -98,6 +98,15 @@ done
   exit 1
 }
 
+# An app that ships without its updater can never replace itself, and nothing
+# about it looks wrong until someone waits months for a version that already
+# shipped. Fail the build instead. See docs/updater.md.
+[[ -f "$APP_SRC/Contents/Resources/update-app.sh" ]] || {
+  echo "error: update-app.sh missing from $APP_SRC/Contents/Resources" >&2
+  echo "       (macos/project.yml copies it in as a resource)" >&2
+  exit 1
+}
+
 DIST="$ROOT/dist"
 rm -rf "$DIST"
 mkdir -p "$DIST"

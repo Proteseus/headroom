@@ -78,6 +78,39 @@ through the same script:
 
 Manual **Actions → Release → Run workflow** builds artifacts without publishing.
 
+## The update feed
+
+A shipped `Headroom.app` polls `https://updates.centaur-labs.io/latest.json`
+to learn a newer one exists ([docs/updater.md](updater.md)). That file is
+`docs/latest.json`, served by GitHub Pages from `main:/docs`, and the `feed`
+job writes it as the **last** step of a release.
+
+Two properties are worth knowing before changing anything near it:
+
+- **It publishes only after the release is green, and only when notarized.**
+  A run that fails leaves the feed pointing at the last version that actually
+  exists. An ad-hoc signed build is skipped with a `::warning::`, because
+  `update-app.sh` checks `spctl` and would refuse it — advertising one offers
+  every user an update that cannot succeed, repeatedly, until the next
+  release.
+- **The commit it makes does not trigger another release.** Pushes made with
+  `GITHUB_TOKEN` do not start workflows, the same guarantee the tag path
+  already relies on.
+
+So a release that goes green but shows `not publishing the update feed` in the
+`feed` job shipped fine and told nobody. Same failure shape as the CloudKit
+entitlement gap: grep the log rather than trusting the green tick.
+
+To write the feed by hand — recovering from a red `feed` job, or repointing at
+a zip that moved:
+
+```bash
+./scripts/write-update-feed.sh
+```
+
+It downloads the zip rather than hashing a local one, so it doubles as a check
+that the URL a shipped app will fetch actually resolves.
+
 ## TestFlight
 
 The iPhone half needs the **Apple Distribution** certificate in

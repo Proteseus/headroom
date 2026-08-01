@@ -84,6 +84,9 @@ struct SettingsView: View {
     @State private var openAtLoginMessage: String?
     @State private var selection: SettingsDestination? = .general
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @ObservedObject private var updates = UpdateChecker.shared
+    @AppStorage(UpdateChecker.automaticKey) private var automaticUpdateChecks = true
+    @State private var updateInstallMessage: String?
 
     private var tokenDraft: String {
         supabaseToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -231,6 +234,8 @@ struct SettingsView: View {
                 Text("Share sources and settings between Macs through iCloud Drive.")
             }
 
+            updatesSection
+
             Section {
                 Button(HeadroomCopy.showWelcome) {
                     NotificationCenter.default.post(
@@ -239,6 +244,54 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var updatesSection: some View {
+        Section {
+            LabeledContent(HeadroomCopy.appUpdates) {
+                Text(updateStatus)
+                    .foregroundStyle(.secondary)
+            }
+            Toggle(HeadroomCopy.automaticUpdateChecks, isOn: $automaticUpdateChecks)
+            Button(
+                updates.isChecking
+                    ? HeadroomCopy.checkingForUpdates
+                    : HeadroomCopy.checkForUpdates
+            ) {
+                Task { await updates.check() }
+            }
+            .disabled(updates.isChecking)
+
+            if let found = updates.available, UpdateCheck.canSelfUpdate {
+                Button(HeadroomCopy.installUpdate) {
+                    do {
+                        try UpdateInstaller.install(found)
+                    } catch {
+                        updateInstallMessage = error.localizedDescription
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } footer: {
+            // A manual check still runs from a copy that cannot install what
+            // it finds, so say why the result will not turn into a button
+            // rather than leaving a dead end.
+            if let updateInstallMessage {
+                Text(updateInstallMessage)
+            } else if !UpdateCheck.canSelfUpdate {
+                Text(HeadroomCopy.updatesNotFromHere)
+            } else if updates.lastError != nil {
+                Text(HeadroomCopy.updateCheckFailed)
+            } else {
+                Text("Headroom looks weekly for a newer notarized build, and asks before installing one.")
+            }
+        }
+    }
+
+    private var updateStatus: String {
+        if let found = updates.available { return "\(found.version) available" }
+        if updates.lastChecked != nil { return HeadroomCopy.upToDate }
+        return UpdateCheck.installedVersion
     }
 
     private var hostSection: some View {

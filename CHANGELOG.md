@@ -7,6 +7,31 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.2 — 2026-08-01
+
+### Added
+
+- **Headroom notices when a newer Headroom exists.** Settings → General → App
+  updates checks a feed weekly, says what it found, and installs it on a
+  button. No Sparkle and no new dependency: the download, the notarization and
+  Team ID checks and the LaunchAgent bootout/bootstrap were already in
+  `scripts/update-app.sh`, which is now bundled inside the app and run from
+  there. The app never replaces itself, because it cannot: the host lives in
+  the bundle being swapped. See [docs/updater.md](docs/updater.md).
+
+  **This release is the one that teaches the app to update. It cannot update
+  *to* itself** — a copy running 1.4.1 has no updater to hear about 1.4.2 with,
+  so that hop is still a download or `./scripts/update-app.sh`. From 1.4.2
+  onwards it is a button.
+- **The feed lives on a hostname we own**, `updates.centaur-labs.io`, which
+  CNAMEs to GitHub Pages today and can be repointed anywhere tomorrow without
+  touching a shipped build. The zip's location is a field in the feed rather
+  than a path the app builds, for the same reason.
+- **The phone splits by urgency, not by source.** Attention is a new second tab
+  carrying agent questions, the rollup's reasons and every failing feed row,
+  with a badge for the count. Activity takes the rest and absorbs what used to
+  be the Services tab, so the three tabs read as a summary, a queue and a log.
+
 ## 1.4.1 — 2026-08-01
 
 ### Fixed

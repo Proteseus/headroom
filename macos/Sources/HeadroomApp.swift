@@ -61,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await Self.ensureHostRunning(store: store)
         }
+        // Runs whether or not Settings is ever opened — an update nobody hears
+        // about is the problem this exists to solve. The loop sleeps before its
+        // first check, so launch never waits on the network.
+        Task { @MainActor in
+            await UpdateChecker.shared.runPeriodically()
+        }
 
         let welcome = WelcomeWindowController(
             store: store,

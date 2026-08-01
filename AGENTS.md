@@ -296,6 +296,15 @@ not ship — which is the other reason to stage paths explicitly rather than
 `scripts/cut-release.sh` and the workflow both refuse a version with no
 `CHANGELOG.md` section, because that section becomes the release notes.
 
+**A release also writes `docs/latest.json`**, the feed installed copies poll to
+find it ([docs/updater.md](docs/updater.md)). The `feed` job does it last, only
+after the release is published and only when the build was notarized, and it
+commits to `main` — so expect one extra commit per release that you did not
+write. It cannot recurse: a push made with `GITHUB_TOKEN` does not trigger
+workflows. Do not hand-edit that file; `scripts/write-update-feed.sh` owns it.
+And do not remove `docs/CNAME` — every shipped build polls the hostname it was
+compiled with, forever, and nothing can reach the old ones to change it.
+
 **The tag appears before the release is green.** The workflow tags early and
 notarizes afterwards, so `v1.2.9` existed for several minutes while its build
 was still running. Waiting for the tag is not the same as waiting for a release
