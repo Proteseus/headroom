@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.7 — 2026-08-01
+
+### Fixed
+
+- **The menu bar slot is never blank.** Before the first poll came back, or
+  when nothing was enabled yet, the icon drew zero bars and collapsed to
+  nothing, which looks exactly like the app having crashed rather than the app
+  waiting. It now draws three empty tanks and fills them as readings arrive, so
+  there is always something in the slot you can point at.
+
 ## 1.4.6 — 2026-08-01
 
 ### Changed
