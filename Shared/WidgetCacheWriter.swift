@@ -18,7 +18,18 @@ enum HeadroomWidgetCache {
         // week of chart and nothing else, and it redraws from a cache it can
         // hold in memory. It clips again on its own clock, which has moved on
         // by up to a refresh interval by the time it draws.
-        let domain = OverallBurndownChartMath.domain(now: .now)
+        //
+        // Domain clock matches the Mac overview: latest sample across the
+        // pools about to be charted, not wall time — otherwise a stale cache
+        // shifts "now" relative to the strokes it holds.
+        let sampleNow = snapshot.focusProviders()
+            .compactMap {
+                snapshot.overviewBurndown(forProviderID: $0.id)?.actual?.last?[0]
+            }
+            .max() ?? Date().timeIntervalSince1970
+        let domain = OverallBurndownChartMath.domain(
+            now: Date(timeIntervalSince1970: sampleNow)
+        )
 
         // Same three the menu bar draws — the host picked them.
         let providers = snapshot.focusProviders()
@@ -82,11 +93,17 @@ enum HeadroomWidgetCache {
         // A single point is a dot, not a line. Leave it out and let the widget
         // fall back to rings until there is history worth charting.
         guard actual.count >= 2 else { return nil }
+        let history = OverallBurndownChartMath.preparedHistory(
+            pool.history ?? pool.forgiven,
+            splitAt: pool.historyRisers,
+            domain: domain
+        ).first
         return HeadroomWidgetSnapshot.Provider.Series(
             actual: actual,
             projected: OverallBurndownChartMath.preparedProjection(
                 pool.projected, windowEnd: pool.windowEnd, domain: domain
             ),
+            history: history,
             windowEnd: pool.windowEnd,
             exhausted: pool.kind == .exhausted
         )

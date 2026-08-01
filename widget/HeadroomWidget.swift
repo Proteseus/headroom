@@ -157,17 +157,26 @@ struct HeadroomWidgetView: View {
 /// Every provider's remaining quota on one week-wide axis.
 ///
 /// The Mac's `OverviewBurndownCard` in a widget's worth of space: same domain,
-/// same weekday bands, same solid-then-dashed reading of measured against
-/// forecast. What it drops is what needs a caption to be worth the pixels —
-/// the percent gutter, the per-provider reset countdowns, the verdicts.
+/// same weekday bands, same history ghosts behind a solid-then-dashed reading
+/// of measured against forecast. What it drops is what needs a caption to be
+/// worth the pixels — the percent gutter, the per-provider reset countdowns,
+/// the verdicts. Upcoming renewal rules stay on the provider card too.
 private struct CombinedBurndownChart: View {
     let providers: [HeadroomWidgetSnapshot.Provider]
 
     var body: some View {
         Canvas { context, size in
+            // Latest sample across the charted pools — same clock the Mac
+            // overview uses — so a stale cache does not walk "now" past the
+            // strokes it still holds.
+            let sampleNow = providers
+                .compactMap { $0.burndown?.actual.last?[0] }
+                .max() ?? Date().timeIntervalSince1970
             let plot = BurndownGeometry(
                 rect: burndownPlotRect(in: size, axis: true, gutter: 0),
-                domain: OverallBurndownChartMath.domain(now: .now)
+                domain: OverallBurndownChartMath.domain(
+                    now: Date(timeIntervalSince1970: sampleNow)
+                )
             )
             guard plot.isDrawable else { return }
             let domain = plot.domain
@@ -189,6 +198,22 @@ private struct CombinedBurndownChart: View {
                 guard let series = provider.burndown else { continue }
                 let tint = provider.burndownTint
 
+                // Windows already spent, behind everything else. Faint and
+                // thin: history that stopped counting, never mistaken for the
+                // live curve. Re-clip in case the widget's clock moved on.
+                let spent = OverallBurndownChartMath.clipPolyline(
+                    series.history ?? [],
+                    start: domain.startEpoch,
+                    end: domain.endEpoch
+                )
+                if let ghost = plot.line(spent) {
+                    context.stroke(
+                        ghost,
+                        with: .color(tint.opacity(0.3)),
+                        style: StrokeStyle(lineWidth: 1.5, lineJoin: .round)
+                    )
+                }
+
                 let actual = OverallBurndownChartMath.preparedActual(
                     series.actual, domain: domain
                 )
@@ -199,7 +224,7 @@ private struct CombinedBurndownChart: View {
                         style: StrokeStyle(lineWidth: 2, lineJoin: .round)
                     )
                 }
-                if let last = actual.last, let head = plot.dot(last, diameter: 5) {
+                if let last = actual.last, let head = plot.dot(last, diameter: 6) {
                     context.fill(head, with: .color(tint))
                 }
 
@@ -213,25 +238,18 @@ private struct CombinedBurndownChart: View {
                         forecast,
                         with: .color(tint),
                         style: StrokeStyle(
-                            lineWidth: 1.5, lineJoin: .round, dash: [5, 2]
+                            lineWidth: 1.5, lineJoin: .round, dash: [6, 2]
                         )
                     )
-                    // A forecast that reaches empty inside the week is the one
-                    // thing on this chart worth a mark of its own.
-                    if let hit = projected.last, hit.count >= 2, hit[1] <= 0,
-                       let mark = plot.dot(hit, diameter: 6) {
-                        context.fill(mark, with: .color(tint.opacity(0.85)))
+                    if let hit = projected.last {
+                        let exhausted = hit.count >= 2 && hit[1] <= 0
+                        let diameter: CGFloat = exhausted ? 6 : 4
+                        if let mark = plot.dot(hit, diameter: diameter) {
+                            context.fill(
+                                mark, with: .color(tint.opacity(0.85))
+                            )
+                        }
                     }
-                }
-
-                if let renew = series.windowEnd,
-                   renew > domain.nowEpoch,
-                   renew <= domain.endEpoch {
-                    context.stroke(
-                        plot.rule(at: renew),
-                        with: .color(tint),
-                        style: StrokeStyle(lineWidth: 1.5, dash: [1.5, 2.5])
-                    )
                 }
             }
         }

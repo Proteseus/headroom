@@ -88,8 +88,12 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
         struct Series: Codable, Sendable {
             var actual: [[Double]]
             var projected: [[Double]]
-            /// When the pool renews, drawn as a dotted rule if it lands inside
-            /// the week.
+            /// Windows already spent, squared at each riser and clipped to the
+            /// week — the faint sawtooth behind `actual`. Optional so a cache
+            /// written before this field still decodes.
+            var history: [[Double]]?
+            /// Held for forecast cropping (`preparedProjection`); the overview
+            /// chart does not paint a renewal rule from it.
             var windowEnd: Double?
             var exhausted: Bool?
         }
@@ -149,6 +153,7 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
         let day: TimeInterval = 24 * 60 * 60
         let now = Date().timeIntervalSince1970
         let spent = 100 - remaining
+        let priorRemaining = min(100, remaining + perDay * 3)
         return Provider.Series(
             actual: stride(from: 0.0, through: 3.0, by: 0.25).map { offset in
                 [now - (3 - offset) * day, 100 - spent * offset / 3]
@@ -156,6 +161,15 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
             projected: stride(from: 0.0, through: 4.0, by: 0.5).map { offset in
                 [now + offset * day, max(0, remaining - perDay * offset)]
             },
+            // A prior window that drained then recharged — same shape the
+            // overview ghosts behind the live curve.
+            history: [
+                [now - 6.5 * day, priorRemaining],
+                [now - 4.5 * day, max(8, priorRemaining - perDay * 2)],
+                [now - 3.5 * day, max(8, priorRemaining - perDay * 2)],
+                [now - 3.5 * day, 100],
+                [now - 3.0 * day, 100 - spent * 0.05],
+            ],
             windowEnd: now + 4 * day,
             exhausted: false
         )
