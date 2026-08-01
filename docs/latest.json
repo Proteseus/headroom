@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.4.6",
-  "published": "2026-08-01T16:46:17Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.6/Headroom-macOS.zip",
-  "sha256": "2ce273594c3d83adc11ed13b459fac5205d488943e7c88e2bed19b7cf5dce8dc",
-  "size": 4005996,
+  "version": "1.4.7",
+  "published": "2026-08-01T16:53:37Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.7/Headroom-macOS.zip",
+  "sha256": "eca220f31fedb4fa982cfeac2a982b24293d1146da69f226c338affcadb5b562",
+  "size": 4006947,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Amber in Settings now means something you can act on, and nothing else.**\n  Every integration was picking its own colour and inventing its own phrase for\n  the same three outcomes, so \"the host is too old to tell us\" and \"your token\n  is missing\" could arrive looking equally alarming. One resolver decides the\n  caption and the tone for all of them: **Not connected**, **Keychain**, **Hooks\n  installed**, **Gateway on**, and their opposites. Unknown reads as quiet grey,\n  because warning about something nobody can fix is just noise.\n- Every integration detail pane carries the same **Status** row, so the hub\n  caption and the detail agree instead of each phrasing it their own way.\n- The TestFlight invite link lives in one place now. Welcome's phone step and\n  Settings → iPhone were carrying separate copies of the same URL, which is the\n  arrangement where one of them quietly goes stale."
+  "notes_md": "### Fixed\n\n- **The menu bar slot is never blank.** Before the first poll came back, or\n  when nothing was enabled yet, the icon drew zero bars and collapsed to\n  nothing, which looks exactly like the app having crashed rather than the app\n  waiting. It now draws three empty tanks and fills them as readings arrive, so\n  there is always something in the slot you can point at."
 }
