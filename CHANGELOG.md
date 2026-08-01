@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.7 — 2026-08-02
+
+### Added
+
+- **Grok (xAI)** joins the coding-quota sources, reading subscription tier
+  and on-demand credit usage through the Grok CLI's own Agent Client
+  Protocol session — no scraped endpoint, no separate login. Contributed by
+  [@ronitrade123](https://github.com/ronitrade123).
+
 ## 1.5.6 — 2026-08-02
 
 ### Added
