@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.4.8",
-  "published": "2026-08-01T16:59:47Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.8/Headroom-macOS.zip",
-  "sha256": "9f20b4358ababfdbb64760fc68e62125145a4d5ddf72b91a1539c304c8802122",
-  "size": 4012178,
+  "version": "1.4.9",
+  "published": "2026-08-01T17:07:35Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.9/Headroom-macOS.zip",
+  "sha256": "43533f37e14ebe9ff0bad34f6779dddfdec0806b670165001a1728996a26f9bc",
+  "size": 4011993,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **The widget shows the windows you already spent**, ghosted faintly behind\n  the live curve, the same sawtooth the Mac draws. A single curve told you where\n  you are without showing whether this week is normal for you, which is most of\n  what makes the number mean anything.\n\n### Fixed\n\n- **A stale widget cache no longer walks \"now\" past the strokes it is holding.**\n  The chart anchored its window to the current clock while the data came from\n  whenever the cache was last written, so as the cache aged the curve slid\n  toward the edge of a frame that kept moving without it. The frame is now\n  anchored to the newest sample the cache actually contains."
+  "notes_md": "### Changed\n\n- **The app icon holds together at small sizes.** The three bands sat at 70 /\n  80 / 90 percent, which spread them far enough apart that the glyph read as a\n  loose spiral in a Dock and lost its shape entirely in a menu bar. They now sit\n  at 80 / 85 / 90, tighter and more obviously one mark. The yellow is a shade\n  off pure process yellow so the white pace disc still reads against it, which\n  it did not reliably do before."
 }
