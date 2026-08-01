@@ -408,6 +408,28 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(self.store.list(state="all")[0]["state"], "expired")
 
+    def test_option_label_aliases_are_answerable(self):
+        """Models sometimes send title/name instead of label (#22)."""
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(
+            value=self.adapter.question_request(
+                self.question(options=[
+                    {"title": "Ship it", "description": "Good enough."},
+                    {"name": "Keep editing"},
+                ]),
+                wait_seconds=3, mode="answer")))
+        thread.start()
+        event = self.wait_for_event()
+        self.assertEqual(
+            [a["label"] for a in event["actions"] if a["id"].startswith("choice_")],
+            ["Ship it", "Keep editing"],
+        )
+        self.answer(event, "choice_0")
+        thread.join(timeout=2)
+        self.assertIn(
+            "Ship it",
+            result["value"]["hookSpecificOutput"]["permissionDecisionReason"])
+
     def test_shapes_we_cannot_answer_still_show_up_read_only(self):
         """Never half-answered from here — but still worth seeing there."""
         cases = [

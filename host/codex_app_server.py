@@ -689,20 +689,7 @@ class CodexAppServer:
                    for value in (text, question_id)):
             self._decline_question(request_id)
             return
-        options = []
-        for option in question.get("options") or []:
-            if not isinstance(option, dict):
-                continue
-            label = option.get("label")
-            if isinstance(label, str) and label.strip():
-                options.append({
-                    "label": " ".join(label.split()),
-                    "description": (
-                        " ".join(str(option.get("description")).split())
-                        if isinstance(option.get("description"), str)
-                        and option["description"].strip() else None
-                    ),
-                })
+        options = agent_request.normalize_options(question.get("options"))
         if not 2 <= len(options) <= MAX_CHOICES:
             self._decline_question(request_id)
             return

@@ -127,6 +127,38 @@ class AskUserQuestionTests(unittest.TestCase):
             {"questions": "nope"}, "AskUserQuestion")
         self.assertEqual([f["key"] for f in result], ["questions"])
 
+    def test_option_label_aliases_and_bare_strings_still_render(self):
+        payload = {
+            "questions": [{
+                "question": "Which one?",
+                "header": "Pick",
+                "options": [
+                    {"title": "Alpha", "description": "First"},
+                    {"name": "Beta"},
+                    "Gamma",
+                ],
+            }],
+        }
+        result = agent_request.fields(payload, "AskUserQuestion")
+        self.assertEqual(
+            result[1]["value"],
+            "Alpha — First\nBeta\nGamma",
+        )
+
+
+class NormalizeOptionsTests(unittest.TestCase):
+    def test_skips_blank_and_unknown_shapes(self):
+        self.assertEqual(
+            agent_request.normalize_options([
+                {"label": "A"},
+                {"label": "  "},
+                {"description": "no label"},
+                None,
+                3,
+            ]),
+            [{"label": "A", "description": None}],
+        )
+
 
 class AgentRequestSummaryTests(unittest.TestCase):
     def test_prefers_the_recognisable_field_over_the_first_one(self):

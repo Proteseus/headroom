@@ -219,9 +219,13 @@ struct AttentionScreen: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            // A question is already represented by its prompt plus option
-            // buttons. Showing the provider's raw request underneath repeats
-            // the same information and makes the row feel like a debug dump.
+            // Answerable questions already put each option on a button.
+            // Read-only ones (notify mode, multi-question, multiSelect) do
+            // not — their options only live in `request`, so hiding that
+            // block made Claude look like it sent a prompt with no choices.
+            let hasChoiceButtons = event.actions.contains {
+                $0.id.hasPrefix("choice_")
+            }
             if isQuestion || event.isDismissOnly {
                 Text(event.summary)
                     .font(.subheadline)
@@ -238,7 +242,7 @@ struct AttentionScreen: View {
                     }
                 }
             }
-            if !isQuestion {
+            if !isQuestion || !hasChoiceButtons {
                 AgentRequestView(fields: event.detail.requestFields)
             }
             if event.detail.answerOnMac == true {

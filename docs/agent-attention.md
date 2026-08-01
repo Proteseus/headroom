@@ -90,8 +90,9 @@ again — which is why `structured_question` reports `experimental` rather than
 `stable`. Four rules keep it honest:
 
 - **One question, two to six options, no `multiSelect`.** Anything else
-  returns `defer`, creating no row at all. A half-answered set is worse than
-  a question that simply arrives on the Mac.
+  returns `defer` and still appears on the phone as a read-only notice (with
+  the options listed), so you answer it on the Mac. A half-answered set is
+  worse than a question that simply arrives on the Mac.
 - **`defer` is the default.** Timeout, an unmapped action, or **Ask on Mac**
   all defer, which is the documented way to say "no opinion" and hands the
   question back untouched.

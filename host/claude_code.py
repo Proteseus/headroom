@@ -163,23 +163,7 @@ def _sole_question(tool_input):
     text = question.get("question")
     if not isinstance(text, str) or not text.strip():
         return None
-    options = []
-    for option in question.get("options") or []:
-        if isinstance(option, dict):
-            label = option.get("label")
-            description = option.get("description")
-        else:
-            label, description = option, None
-        if not isinstance(label, str) or not label.strip():
-            continue
-        options.append({
-            "label": " ".join(label.split()),
-            "description": (
-                " ".join(description.split())
-                if isinstance(description, str) and description.strip()
-                else None
-            ),
-        })
+    options = agent_request.normalize_options(question.get("options"))
     if not 2 <= len(options) <= MAX_CHOICES:
         return None
     return {"question": " ".join(text.split()), "options": options}

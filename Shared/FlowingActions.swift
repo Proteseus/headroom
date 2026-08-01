@@ -23,8 +23,13 @@ struct FlowingActions: View {
     @State private var reply = ""
     @FocusState private var replyFocused: Bool
 
+    /// Choice rows whenever the ledger handed us `choice_*` actions — even
+    /// when Claude omitted descriptions. Requiring a subtitle used to drop
+    /// label-only options into bordered pills, which wraps badly for real
+    /// sentences and looked like the options failed to parse.
     private var isChoiceList: Bool {
-        buttons.contains { $0.subtitle?.isEmpty == false }
+        buttons.contains { $0.id.hasPrefix("choice_") }
+            || buttons.contains { $0.subtitle?.isEmpty == false }
     }
 
     /// The answer carried by typed words, if this request takes one.

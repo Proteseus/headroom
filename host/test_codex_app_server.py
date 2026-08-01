@@ -134,6 +134,22 @@ class CodexAppServerTests(unittest.TestCase):
             "result": {"answers": {"q1": {"answers": ["All at once"]}}},
         }])
 
+    def test_option_label_aliases_and_bare_strings_are_answerable(self):
+        event = self.question(options=[
+            {"title": "Staged", "description": "One region first."},
+            "All at once",
+        ])
+        self.assertIsNotNone(event)
+        self.assertEqual(
+            [a["label"] for a in event["actions"] if a["id"].startswith("choice_")],
+            ["Staged", "All at once"],
+        )
+        self.adapter.respond(event, "choice_0")
+        self.assertEqual(self.sent, [{
+            "id": 77,
+            "result": {"answers": {"q1": {"answers": ["Staged"]}}},
+        }])
+
     def test_typed_reply_is_a_first_class_codex_answer(self):
         event = self.question()
         reply = next(a for a in event["actions"] if a["id"] == "reply")

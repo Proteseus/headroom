@@ -140,6 +140,40 @@ def _ordered_keys(tool_name, payload):
     return first + rest
 
 
+def normalize_options(raw):
+    """Flatten Claude / Codex option shapes into `{label, description}`.
+
+    Models mostly send `{label, description}`, but bare strings and the odd
+    `title` / `name` alias show up enough that refusing them looked like a
+    parse failure on the phone.
+    """
+    options = []
+    if not isinstance(raw, list):
+        return options
+    for option in raw:
+        if isinstance(option, dict):
+            label = (
+                option.get("label")
+                or option.get("title")
+                or option.get("name")
+                or option.get("text")
+            )
+            description = option.get("description")
+        else:
+            label, description = option, None
+        if not isinstance(label, str) or not label.strip():
+            continue
+        options.append({
+            "label": " ".join(label.split()),
+            "description": (
+                " ".join(description.split())
+                if isinstance(description, str) and description.strip()
+                else None
+            ),
+        })
+    return options
+
+
 def _expand_questions(payload):
     """Flatten AskUserQuestion into something a person can read.
 
@@ -169,21 +203,13 @@ def _expand_questions(payload):
             "full_chars": len(text),
         })
         choices = []
-        for option in entry.get("options") or []:
-            description = None
-            if isinstance(option, dict):
-                option_label = option.get("label")
-                description = option.get("description")
-            else:
-                option_label = option
-            if not isinstance(option_label, str) or not option_label.strip():
-                continue
-            choice = " ".join(option_label.split())
+        for option in normalize_options(entry.get("options")):
+            choice = option["label"]
             # The label is what the button says; the description is why you
             # would pick it, and dropping it leaves four terse phrases with
             # nothing to choose between.
-            if isinstance(description, str) and description.strip():
-                choice += " — " + " ".join(description.split())
+            if option["description"]:
+                choice += " — " + option["description"]
             choices.append(choice)
         if choices:
             joined = "\n".join(choices)
