@@ -7,6 +7,23 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.8 — 2026-08-01
+
+### Added
+
+- **The widget shows the windows you already spent**, ghosted faintly behind
+  the live curve, the same sawtooth the Mac draws. A single curve told you where
+  you are without showing whether this week is normal for you, which is most of
+  what makes the number mean anything.
+
+### Fixed
+
+- **A stale widget cache no longer walks "now" past the strokes it is holding.**
+  The chart anchored its window to the current clock while the data came from
+  whenever the cache was last written, so as the cache aged the curve slid
+  toward the edge of a frame that kept moving without it. The frame is now
+  anchored to the newest sample the cache actually contains.
+
 ## 1.4.7 — 2026-08-01
 
 ### Fixed
