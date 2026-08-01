@@ -7,6 +7,24 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.0 — 2026-08-01
+
+### Fixed
+
+- **Agent push titles name the repo, the agent, and the Mac** —
+  `headroom • Claude • Studio` — instead of the repository alone. Opus vs
+  Sonnet does not matter on a lock screen; Claude vs Codex and which computer
+  does.
+- **Start task is back on the Attention tab.** The `+` moved there when the
+  phone split by urgency, but it loaded the task surface before the Mac-granted
+  **Answer coding agents** permission had arrived, then never tried again. The
+  button stayed missing for anyone who landed on Attention first. It now
+  reloads once permissions are known, and shows whenever agents are allowed.
+- **Passive agent notices leave Attention on their own.** Idle / finished rows
+  and notify-only questions no longer sit until you tap Dismiss; they expire
+  after an hour and drop out of the open feed on the next poll. Requests that
+  need an answer are unchanged.
+
 ## 1.4.9 — 2026-08-01
 
 ### Changed
