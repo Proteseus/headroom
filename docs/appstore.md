@@ -55,7 +55,7 @@ Features:
 - Coding quota rings for Claude, Codex, and Cursor — remaining %, pace, resets
 - Burndown and daily burn across providers
 - Activity feed: deploys, commits, and GitHub Actions
-- Services: Supabase health, Plausible traffic, local listening ports
+- Services: Supabase health, Plausible / PostHog traffic, local listening ports
 - Attention summary with optional notifications when something needs you
 - Home Screen widgets backed by an on-device cache
 - Bonjour discovery of nearby Macs (Tailscale / LAN fallback)
@@ -124,15 +124,14 @@ framed App Store slides later.
 Recommended set:
 
 1. **Usage rings** — “Your quotas, one glance”
-2. **Provider detail / burndown** — “Pace before you hit the wall”
+2. **Attention** — “What needs an answer”
 3. **Activity** — “CI and deploys without another tab”
-4. **Services** — “Supabase, Plausible, local ports”
-5. **Pairing / Nearby Macs** — “Local-first. Your Mac, your tokens.”
-6. **Widget** — “On the Home Screen, too”
+4. **Pairing / Nearby Macs** — “Local-first. Your Mac, your tokens.”
+5. **Widget** — “On the Home Screen, too”
 
 Source fixtures today:
 
-- Device captures: `docs/screenshots/ios-{overview,quotas,activity,services}.png`
+- Device captures: `docs/screenshots/ios-{overview,attention,activity}.png`
 - Framed 6.7″ slides (1290×2796): `docs/appstore/screenshots/01-*.png` …
 - Regenerate: `./scripts/generate_screenshots.sh`
 

@@ -3,6 +3,10 @@ import SwiftUI
 
 /// The macOS half of the same split used by iOS: Activity is what happened,
 /// while Attention owns failed rows and anything waiting for a person.
+///
+/// The popover mode is already titled Activity, so groups draw as their own
+/// sections (Git commits, Vercel deployments, …) rather than nesting under a
+/// second "Activity" header.
 struct ActivitySection: View {
     let items: [ActivityItem]
     @AppStorage("activityRowLimit")
@@ -14,26 +18,13 @@ struct ActivitySection: View {
                 .filter { !ActivityStatusStyle.resolve($0.status).needsAttention }
                 .prefix(max(3, min(activityRowLimit, 14)))
         )
-        if !rows.isEmpty {
-            DataSection(title: HeadroomCopy.activity) {
-                ForEach(ActivityGrouping.groups(from: rows)) { group in
-                    Text(group.title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, Metrics.rowInset)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(group.rows) { item in
-                        MacActivityRow(item: item)
-                    }
+        ForEach(ActivityGrouping.groups(from: rows)) { group in
+            DataSection(title: group.title) {
+                ForEach(group.rows) { item in
+                    MacActivityRow(item: item)
                 }
             }
         }
-    }
-
-    private enum Metrics {
-        static let rowInset: CGFloat = 7
-        static let rowPadding: CGFloat = 4
-        static let rowCorner: CGFloat = 7
     }
 }
 
@@ -90,11 +81,22 @@ struct AttentionSection: View {
 
             if failures.isEmpty {
                 ForEach(reasons) { reason in
+                    let hasBrand = ProviderIcon.sourceID(forKind: reason.kind) != nil
                     HStack(alignment: .top, spacing: 8) {
-                        Circle()
-                            .fill(attentionTint(reason.level))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 4)
+                        ProviderMark.forKind(
+                            reason.kind,
+                            size: 12,
+                            fallbackSystemImage: "exclamationmark.triangle.fill"
+                        )
+                        // Services have no brand colour — keep the mark
+                        // monochrome; only the fallback triangle takes level tint.
+                        .foregroundStyle(
+                            hasBrand
+                                ? AnyShapeStyle(.primary)
+                                : AnyShapeStyle(attentionTint(reason.level))
+                        )
+                        .frame(width: 12)
+                        .padding(.top, 2)
                         Text(reason.summary ?? HeadroomCopy.needsAttention)
                             .font(.subheadline)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -124,22 +126,30 @@ struct MacActivityRow: View {
         let style = ActivityStatusStyle.resolve(item.status)
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: style.symbol)
-                    .font(.caption)
-                    .foregroundStyle(style.tint)
-                    .frame(width: 12)
-                    .padding(.top, 2)
-                    .accessibilityHidden(true)
+                let hasBrand = ProviderIcon.sourceID(forKind: item.kind) != nil
+                ProviderMark.forKind(
+                    item.kind,
+                    size: 12,
+                    fallbackSystemImage: style.symbol
+                )
+                .foregroundStyle(
+                    hasBrand
+                        ? AnyShapeStyle(.primary)
+                        : AnyShapeStyle(style.tint)
+                )
+                .frame(width: 12)
+                .padding(.top, 2)
+                .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.subject ?? "Event")
                         .font(.subheadline.weight(
                             style.needsAttention ? .semibold : .regular))
                         .lineLimit(1)
+                    // Secondary only — status is the word in the caption,
+                    // not a tint. Services have no colour to paint with.
                     Text(caption(style))
                         .font(.caption)
-                        .foregroundStyle(style.needsAttention
-                                         ? AnyShapeStyle(style.tint)
-                                         : AnyShapeStyle(.secondary))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 6)
@@ -156,17 +166,13 @@ struct MacActivityRow: View {
             if style.needsAttention, let error = item.errorMessage {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.red)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .padding(.leading, 20)
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 7)
-        .background(
-            style.needsAttention ? HeadroomPalette.red.opacity(0.09) : .clear,
-            in: RoundedRectangle(cornerRadius: 7)
-        )
         .contentShape(Rectangle())
         .onTapGesture {
             if let url { NSWorkspace.shared.open(url) }
@@ -176,21 +182,7 @@ struct MacActivityRow: View {
     }
 
     private func caption(_ style: ActivityStatusStyle) -> String {
-        var parts = [style.label]
-        let repo = leafName(item.repo)
-        if let repo { parts.append(repo) }
-        if let project = item.project, project != repo { parts.append(project) }
-        if let branch = item.branch { parts.append(branch) }
-        if let sha = item.shortSHA { parts.append(sha) }
-        if item.status == "ready" {
-            parts.append(item.target == "production" ? "prod" : "preview")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func leafName(_ raw: String?) -> String? {
-        guard let raw, !raw.isEmpty else { return nil }
-        return raw.split(separator: "/").last.map(String.init)
+        item.caption(label: style.label)
     }
 
     private var url: URL? {

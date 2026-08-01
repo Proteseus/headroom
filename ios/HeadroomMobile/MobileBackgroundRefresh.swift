@@ -38,6 +38,7 @@ enum MobileBackgroundRefresh {
                 // source can fail while a permission is still waiting, so a
                 // stale /usage response must not suppress that notification.
                 if let events = try? await client.fetchAgentAttentionEvents() {
+                    MobileAgentAttentionArchive.save(events)
                     await MobileNotifications.notifyIfNeeded(events)
                 }
                 let snapshot = try await client.fetchAndArchiveUsage()

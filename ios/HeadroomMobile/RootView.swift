@@ -29,7 +29,7 @@ struct RootView: View {
                         OverviewScreen(store: store)
                             .settingsToolbar($showsSettings)
                     }
-                    .tabItem { Label(HeadroomCopy.usage, systemImage: "circle.grid.2x2") }
+                    .tabItem { Label(HeadroomCopy.usage, systemImage: "gauge.with.needle") }
                     .tag(MobileTab.overview)
 
                     NavigationStack {
@@ -41,7 +41,7 @@ struct RootView: View {
                     }
                     .tabItem {
                         Label(HeadroomCopy.attention,
-                              systemImage: "exclamationmark.bubble")
+                              systemImage: "eye")
                     }
                     .badge(waitingCount)
                     .tag(MobileTab.attention)
@@ -50,7 +50,7 @@ struct RootView: View {
                         ActivityScreen(store: store)
                         .settingsToolbar($showsSettings)
                     }
-                    .tabItem { Label(HeadroomCopy.activity, systemImage: "bolt.horizontal.circle") }
+                    .tabItem { Label(HeadroomCopy.activity, systemImage: "list.bullet.rectangle.fill") }
                     .tag(MobileTab.activity)
                 }
             } else {
@@ -263,11 +263,11 @@ struct ArchivedDataNotice: View {
 }
 
 extension View {
-    /// The gear every tab carries, top right. Settings is a place you visit,
+    /// The gear every tab carries, top left. Settings is a place you visit,
     /// not a peer of the three screens that show numbers.
     func settingsToolbar(_ isPresented: Binding<Bool>) -> some View {
         toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarLeading) {
                 Button(HeadroomCopy.settings, systemImage: "gearshape") {
                     isPresented.wrappedValue = true
                 }

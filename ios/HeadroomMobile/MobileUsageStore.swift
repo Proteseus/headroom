@@ -39,6 +39,9 @@ final class MobileUsageStore: ObservableObject {
     private static let retryCeiling: TimeInterval = 30
 
     init() {
+        if let events = MobileAgentAttentionArchive.load() {
+            agentAttentionEvents = events
+        }
         guard let entry = MobileSnapshotArchive.load() else { return }
         snapshot = entry.snapshot
         capturedAt = entry.capturedAt
@@ -142,8 +145,15 @@ final class MobileUsageStore: ObservableObject {
         )
         guard let events = try? await client.fetchAgentAttentionEvents()
         else { return }
-        agentAttentionEvents = events
+        applyAgentAttentionEvents(events)
         await MobileNotifications.notifyIfNeeded(events)
+    }
+
+    /// Keep memory and the on-disk archive in lockstep so a cold launch does
+    /// not resurrect a row the person already answered this session.
+    private func applyAgentAttentionEvents(_ events: [AgentAttentionEvent]) {
+        agentAttentionEvents = events
+        MobileAgentAttentionArchive.save(events)
     }
 
     private func nextInterval() -> TimeInterval {
@@ -183,7 +193,7 @@ final class MobileUsageStore: ObservableObject {
             }
             if mobilePermissions.read,
                let events = try? await client.fetchAgentAttentionEvents() {
-                agentAttentionEvents = events
+                applyAgentAttentionEvents(events)
                 await MobileNotifications.notifyIfNeeded(events)
             }
             if forceServerSync || recovering {
@@ -263,7 +273,9 @@ final class MobileUsageStore: ObservableObject {
         with action: AgentAttentionAction,
         text: String? = nil
     ) async {
-        guard mobilePermissions.agents, respondingAgentEventID == nil else { return }
+        guard mobilePermissions.agents,
+              !isStale,
+              respondingAgentEventID == nil else { return }
         respondingAgentEventID = event.id
         defer { respondingAgentEventID = nil }
         do {
@@ -284,7 +296,8 @@ final class MobileUsageStore: ObservableObject {
                 idempotencyKey: UUID().uuidString,
                 text: text
             )
-            agentAttentionEvents.removeAll { $0.id == updated.id }
+            applyAgentAttentionEvents(
+                agentAttentionEvents.filter { $0.id != updated.id })
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -292,7 +305,7 @@ final class MobileUsageStore: ObservableObject {
                 endpoint: MobileConnection.endpoint,
                 token: MobileTokenStore.read() ?? ""
             ).fetchAgentAttentionEvents() {
-                agentAttentionEvents = events
+                applyAgentAttentionEvents(events)
             }
         }
     }
@@ -322,7 +335,9 @@ final class MobileUsageStore: ObservableObject {
     /// we just stopped talking to, so it goes with it.
     func forgetArchive() {
         MobileSnapshotArchive.clear()
+        MobileAgentAttentionArchive.clear()
         snapshot = .empty
+        agentAttentionEvents = []
         capturedAt = nil
         isShowingArchive = false
     }

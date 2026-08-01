@@ -24,110 +24,116 @@ struct AttentionScreen: View {
         // coordinating several sessions, so it stays here until dismissed.
         let events = store.agentAttentionEvents
         let dismissibleEvents = events.filter(\.isDismissOnly)
-        ScrollViewReader { proxy in
-            List {
-                ArchivedDataNotice(store: store)
-                if events.isEmpty, !hasNeedsAttention {
-                    Label(HeadroomCopy.allClear, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(HeadroomPalette.green)
+        let isAllClear = events.isEmpty && !hasNeedsAttention
+        Group {
+            if isAllClear {
+                // ScrollView so pull-to-refresh still works with no rows.
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if store.isStale {
+                            ArchivedDataNotice(store: store)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
+                        }
+                        PageEmptyState(
+                            systemImage: "checkmark.circle",
+                            title: HeadroomCopy.allClear
+                        )
+                        .containerRelativeFrame(.vertical) { height, _ in
+                            max(height - (store.isStale ? 80 : 0), 280)
+                        }
+                    }
                 }
-                if !events.isEmpty {
-                    Section {
-                        ForEach(events) { event in
-                            agentRow(event)
-                                .id(event.id)
-                                .swipeActions(
-                                    edge: .trailing,
-                                    allowsFullSwipe: true
-                                ) {
-                                    if event.isDismissOnly,
-                                       store.mobilePermissions.agents,
-                                       let dismiss = event.actions.first(
-                                           where: { $0.id == "dismiss" }
-                                       ) {
-                                        Button(dismiss.label) {
-                                            Task {
-                                                await store.answer(
-                                                    event, with: dismiss)
+                .background(Color(.systemGroupedBackground))
+            } else {
+                ScrollViewReader { proxy in
+                    List {
+                        ArchivedDataNotice(store: store)
+                        if !events.isEmpty {
+                            Section {
+                                ForEach(events) { event in
+                                    agentRow(event)
+                                        .id(event.id)
+                                        .swipeActions(
+                                            edge: .trailing,
+                                            allowsFullSwipe: true
+                                        ) {
+                                            if event.isDismissOnly,
+                                               store.mobilePermissions.agents,
+                                               !store.isStale,
+                                               let dismiss = event.actions.first(
+                                                   where: { $0.id == "dismiss" }
+                                               ) {
+                                                Button(dismiss.label) {
+                                                    Task {
+                                                        await store.answer(
+                                                            event, with: dismiss)
+                                                    }
+                                                }
+                                                .tint(HeadroomPalette.dim)
                                             }
                                         }
-                                        .tint(HeadroomPalette.dim)
-                                    }
                                 }
-                        }
-                    } header: {
-                        HStack {
-                            Text(HeadroomCopy.codingAgents)
-                            Spacer()
-                            if !dismissibleEvents.isEmpty,
-                               store.mobilePermissions.agents {
-                                Button(HeadroomCopy.dismissAll) {
-                                    Task {
-                                        await store.dismissAllAgentNotices()
-                                    }
-                                }
-                                .font(.caption.weight(.semibold))
-                                .textCase(nil)
-                            }
-                        }
-                    }
-                }
-                if hasNeedsAttention {
-                    Section {
-                        ForEach(reasons) { reason in
-                            HStack(alignment: .top, spacing: 9) {
-                                Circle()
-                                    .fill(HeadroomPalette.attention(reason.level))
-                                    .frame(width: 7, height: 7)
-                                    .padding(.top, 6)
-                                Text(reason.summary ?? HeadroomCopy.needsAttention)
-                                    .font(.subheadline)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(HeadroomCopy.dismiss) {
-                                    store.dismissAttention(id: reason.id)
-                                }
-                                .tint(HeadroomPalette.dim)
-                            }
-                        }
-                        ForEach(failures) { failure in
-                            ActivityRow(item: failure, showsCaption: false)
-                                .swipeActions(
-                                    edge: .trailing,
-                                    allowsFullSwipe: true
+                            } header: {
+                                attentionSectionHeader(
+                                    HeadroomCopy.codingAgents,
+                                    showsDismissAll: !dismissibleEvents.isEmpty
+                                        && store.mobilePermissions.agents
+                                        && !store.isStale
                                 ) {
-                                    Button(HeadroomCopy.dismiss) {
-                                        store.dismissAttention(id: failure.id)
-                                    }
-                                    .tint(HeadroomPalette.dim)
+                                    Task { await store.dismissAllAgentNotices() }
                                 }
-                        }
-                    } header: {
-                        // Plain, like Coding agents above it. The count and the
-                        // alarm colour were saying what the rows already say,
-                        // and moved with every poll.
-                        HStack {
-                            Text(HeadroomCopy.needsAttention)
-                            Spacer()
-                            Button(HeadroomCopy.dismissAll) {
-                                Task { await store.dismissAllAttention() }
                             }
-                            .font(.caption.weight(.semibold))
-                            .textCase(nil)
+                        }
+                        if hasNeedsAttention {
+                            Section {
+                                ForEach(reasons) { reason in
+                                    attentionReasonRow(reason)
+                                        .swipeActions(
+                                            edge: .trailing,
+                                            allowsFullSwipe: true
+                                        ) {
+                                            Button(HeadroomCopy.dismiss) {
+                                                store.dismissAttention(id: reason.id)
+                                            }
+                                            .tint(HeadroomPalette.dim)
+                                        }
+                                }
+                                ForEach(failures) { failure in
+                                    ActivityRow(item: failure)
+                                        .swipeActions(
+                                            edge: .trailing,
+                                            allowsFullSwipe: true
+                                        ) {
+                                            Button(HeadroomCopy.dismiss) {
+                                                store.dismissAttention(id: failure.id)
+                                            }
+                                            .tint(HeadroomPalette.dim)
+                                        }
+                                }
+                            } header: {
+                                attentionSectionHeader(
+                                    HeadroomCopy.needsAttention,
+                                    showsDismissAll: true
+                                ) {
+                                    Task { await store.dismissAllAttention() }
+                                }
+                            }
                         }
                     }
+                    .listStyle(.insetGrouped)
+                    .onChange(of: focusedEventID) { _, eventID in
+                        focus(eventID, using: proxy)
+                    }
+                    .onChange(of: store.agentAttentionEvents) { _, _ in
+                        // The notification route refreshes before assigning focus,
+                        // but this also handles a slow Mac response safely.
+                        focus(focusedEventID, using: proxy)
+                    }
+                    .task {
+                        focus(focusedEventID, using: proxy)
+                    }
                 }
-            }
-            .onChange(of: focusedEventID) { _, eventID in
-                focus(eventID, using: proxy)
-            }
-            .onChange(of: store.agentAttentionEvents) { _, _ in
-                // The notification route refreshes before assigning focus,
-                // but this also handles a slow Mac response safely.
-                focus(focusedEventID, using: proxy)
-            }
-            .task {
-                focus(focusedEventID, using: proxy)
             }
         }
         .navigationTitle(HeadroomCopy.attention)
@@ -193,95 +199,142 @@ struct AttentionScreen: View {
         }
     }
 
+    /// Shared section chrome for Coding agents and Needs attention — same
+    /// title + optional dismiss control, no per-section colour or count.
+    private func attentionSectionHeader(
+        _ title: String,
+        showsDismissAll: Bool,
+        dismiss: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if showsDismissAll {
+                Button(HeadroomCopy.dismissAll, action: dismiss)
+                    .font(.caption.weight(.semibold))
+                    .textCase(nil)
+            }
+        }
+    }
+
+    /// Same leading-icon / title / caption / trailing-age frame as
+    /// `ActivityRow`, so the two halves of one List read as one List.
+    /// Brand mark when the reason names a source (monochrome — services have
+    /// no colour); warning triangle, tinted by level, only for kinds with no
+    /// logo (`stale`, `signin`).
+    private func attentionReasonRow(_ reason: AttentionReason) -> some View {
+        let hasBrand = ProviderIcon.sourceID(forKind: reason.kind) != nil
+        return HStack(alignment: .top, spacing: 10) {
+            ProviderMark.forKind(
+                reason.kind,
+                size: 16,
+                fallbackSystemImage: "exclamationmark.triangle.fill"
+            )
+            .foregroundStyle(
+                hasBrand
+                    ? AnyShapeStyle(.primary)
+                    : AnyShapeStyle(HeadroomPalette.attention(reason.level))
+            )
+            .frame(width: 16)
+            .padding(.top, 2)
+            Text(reason.summary ?? HeadroomCopy.needsAttention)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 4)
+    }
+
     private func agentRow(_ event: AgentAttentionEvent) -> some View {
         let tint = (store.snapshot.providers ?? [])
             .accentTint(forProvider: event.providerIconID)
         let isQuestion = event.kind == "structured_question"
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(event.displayTitle)
-                    .font(.headline)
-                Spacer(minLength: 6)
-                // Same treatment as an activity row's age, so the two halves
-                // of one feed read as one feed.
-                Text(HeadroomCopy.ago(event.age))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                // The mark rides in the corner rather than in front of the
-                // title: which agent asked is a property of the row, not the
-                // first thing to read in the sentence.
-                ProviderMark(providerID: event.providerIconID, size: 14)
-                    .foregroundStyle(tint)
-                    .alignmentGuide(.firstTextBaseline) { $0.height - 2 }
-            }
-            if let machineName = event.machineName, !machineName.isEmpty {
-                Label(machineName, systemImage: "desktopcomputer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            // Answerable questions already put each option on a button.
-            // Read-only ones (notify mode, multi-question, multiSelect) do
-            // not — their options only live in `request`, so hiding that
-            // block made Claude look like it sent a prompt with no choices.
-            let hasChoiceButtons = event.actions.contains {
-                $0.id.hasPrefix("choice_")
-            }
-            if isQuestion || event.isDismissOnly {
-                Text(event.summary)
-                    .font(.subheadline)
-            }
-            if let reasons = event.detail.reasons, !reasons.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(HeadroomCopy.agentWhyAsking)
-                        .font(.caption2.weight(.semibold))
+        // Answerable questions already put each option on a button.
+        // Read-only ones (notify mode, multi-question, multiSelect) do
+        // not — their options only live in `request`, so hiding that
+        // block made Claude look like it sent a prompt with no choices.
+        let hasChoiceButtons = event.actions.contains {
+            $0.id.hasPrefix("choice_")
+        }
+        return HStack(alignment: .top, spacing: 10) {
+            ProviderMark(providerID: event.providerIconID, size: 16)
+                .foregroundStyle(tint)
+                .frame(width: 16)
+                .padding(.top, 2)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(event.displayTitle)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        if let machineName = event.machineName, !machineName.isEmpty {
+                            Text(machineName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 6)
+                    Text(HeadroomCopy.ago(event.age))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+                if isQuestion || event.isDismissOnly {
+                    Text(event.summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                }
+                if let reasons = event.detail.reasons, !reasons.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(HeadroomCopy.agentWhyAsking)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(reasons, id: \.self) { reason in
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundStyle(HeadroomPalette.amber)
+                        }
+                    }
+                }
+                if !isQuestion || !hasChoiceButtons {
+                    AgentRequestView(fields: event.detail.requestFields)
+                }
+                if event.detail.answerOnMac == true {
+                    Text(HeadroomCopy.answerInTheTerminal)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    ForEach(reasons, id: \.self) { reason in
-                        Text(reason)
-                            .font(.caption)
-                            .foregroundStyle(HeadroomPalette.amber)
+                }
+                // Dismiss lives on swipe / Dismiss all — printing it as a button
+                // on every idle row is noise next to the answers that matter.
+                let answers = event.actions.filter { $0.id != "dismiss" }
+                if !answers.isEmpty {
+                    FlowingActions(
+                        actions: answers,
+                        tint: tint,
+                        disabled: !store.mobilePermissions.agents
+                            || store.isStale
+                            || store.respondingAgentEventID != nil,
+                        responding: store.respondingAgentEventID == event.id
+                    ) { action, text in
+                        Task { await store.answer(event, with: action, text: text) }
+                    }
+                }
+                if event.actions.contains(where: { $0.id == "approve_always" }),
+                   let rule = event.detail.permissionRule {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(HeadroomCopy.agentWouldSaveRule)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(rule)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                     }
                 }
             }
-            if !isQuestion || !hasChoiceButtons {
-                AgentRequestView(fields: event.detail.requestFields)
-            }
-            if event.detail.answerOnMac == true {
-                Label(HeadroomCopy.answerInTheTerminal,
-                      systemImage: "desktopcomputer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            // Wraps: three options no longer run off the edge of the row.
-            FlowingActions(
-                actions: event.actions,
-                tint: tint,
-                disabled: !store.mobilePermissions.agents
-                    || store.respondingAgentEventID != nil,
-                responding: store.respondingAgentEventID == event.id
-            ) { action, text in
-                Task { await store.answer(event, with: action, text: text) }
-            }
-            if event.actions.contains(where: { $0.id == "approve_always" }),
-               let rule = event.detail.permissionRule {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(HeadroomCopy.agentWouldSaveRule)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Text(rule)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
         }
-        // Keep agent events as ordinary rows in the grouped List. The
-        // section supplies the single white rounded container and the system
-        // supplies dividers between events, matching the Needs attention rows.
-        .listRowBackground(
-            focusedEventID == event.id
-                ? tint.opacity(0.16)
-                : Color(.systemBackground)
-        )
+        // Leave the List's grouped cell background alone so Coding agents and
+        // Needs attention share one system surface in light and dark.
         .padding(.vertical, 4)
     }
 

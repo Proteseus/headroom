@@ -19,10 +19,14 @@ struct ActivityScreen: View {
         List {
             ArchivedDataNotice(store: store)
             if rows.isEmpty {
-                Section(HeadroomCopy.activity) {
-                    Text(HeadroomCopy.noActivityYet)
-                        .foregroundStyle(.secondary)
-                }
+                PageEmptyState(
+                    systemImage: "list.bullet.rectangle.fill",
+                    title: HeadroomCopy.noActivityYet
+                )
+                .frame(minHeight: 220)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
             } else {
                 ForEach(ActivityGrouping.groups(from: rows)) { group in
                     Section(group.title) {
@@ -32,6 +36,7 @@ struct ActivityScreen: View {
             }
             ServiceSections(store: store) { serverToStop = $0 }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle(HeadroomCopy.activity)
         .refreshable { await store.refresh(forceServerSync: true) }
         .confirmationDialog(
@@ -82,42 +87,44 @@ struct ActivityScreen: View {
 /// into different ideas of green.
 struct ActivityRow: View {
     let item: ActivityItem
-    let showsCaption: Bool
-    @Environment(\.openURL) private var openURL
-
-    init(item: ActivityItem, showsCaption: Bool = true) {
-        self.item = item
-        self.showsCaption = showsCaption
-    }
 
     var body: some View {
         let style = ActivityStatusStyle.resolve(item.status)
-        Button {
-            if let target = url { openURL(target) }
+        NavigationLink {
+            ActivityItemDetail(item: item)
         } label: {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: style.symbol)
-                    .font(.footnote)
-                    .foregroundStyle(style.tint)
-                    .frame(width: 16)
-                    .padding(.top, 2)
-                    .accessibilityHidden(true)
+                // Brand marks stay monochrome — only AI providers own a
+                // colour. Status tint paints the fallback glyph alone.
+                let hasBrand = ProviderIcon.sourceID(forKind: item.kind) != nil
+                ProviderMark.forKind(
+                    item.kind,
+                    size: 16,
+                    fallbackSystemImage: style.symbol
+                )
+                .foregroundStyle(
+                    hasBrand
+                        ? AnyShapeStyle(.primary)
+                        : AnyShapeStyle(style.tint)
+                )
+                .frame(width: 16)
+                .padding(.top, 2)
+                .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.subject ?? "Event")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    if showsCaption {
-                        Text(caption(style))
-                            .font(.caption)
-                            .foregroundStyle(style.needsAttention
-                                             ? AnyShapeStyle(style.tint)
-                                             : AnyShapeStyle(.secondary))
-                            .lineLimit(2)
-                    }
+                    // Caption stays secondary — the word ("Failed", "Review")
+                    // carries the state. Tinting it painted service rows in
+                    // status colour, and services don't own a colour.
+                    Text(item.caption(label: style.label))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                     if style.needsAttention, let error = item.errorMessage {
                         Text(error)
                             .font(.caption)
-                            .foregroundStyle(HeadroomPalette.red)
+                            .foregroundStyle(.secondary)
                             .lineLimit(3)
                     }
                 }
@@ -128,33 +135,5 @@ struct ActivityRow: View {
             }
             .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
-        .disabled(url == nil)
-    }
-
-    /// "Failed · headroom · Release · main · 1901f54" — state first, then the
-    /// coordinates. Matches the Mac card word for word.
-    private func caption(_ style: ActivityStatusStyle) -> String {
-        var parts = [style.label]
-        let repo = leafName(item.repo)
-        if let repo { parts.append(repo) }
-        if let project = item.project, project != repo { parts.append(project) }
-        if let branch = item.branch { parts.append(branch) }
-        if let sha = item.shortSHA { parts.append(sha) }
-        if item.status == "ready" {
-            parts.append(item.target == "production" ? "prod" : "preview")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    /// `owner/name` → `name`. The owner is the same on every row here.
-    private func leafName(_ raw: String?) -> String? {
-        guard let raw, !raw.isEmpty else { return nil }
-        return raw.split(separator: "/").last.map(String.init)
-    }
-
-    private var url: URL? {
-        guard let raw = item.inspectorURL ?? item.url, !raw.isEmpty else { return nil }
-        return URL(string: raw.contains("://") ? raw : "https://\(raw)")
     }
 }

@@ -51,9 +51,9 @@ enum DashboardMode: String, CaseIterable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .overview: return "rectangle.grid.2x2"
-        case .attention: return "exclamationmark.bubble"
-        case .activity: return "bolt.horizontal.circle"
+        case .overview: return "gauge.with.needle"
+        case .attention: return "eye"
+        case .activity: return "list.bullet.rectangle.fill"
         }
     }
 }

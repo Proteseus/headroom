@@ -54,6 +54,14 @@ source that feeds it (Coding agents or Integrations) — still not a scoring UI.
 Do not invent threshold pickers, weight sliders, or a synced attention-prefs
 blob. Revisit only when mute-by-kind is clearly needed.
 
+## Phone offline
+
+Rollup reasons and activity failures ride inside the phone's archived `/usage`
+payload (`MobileSnapshotArchive`). Coding-agent events are a separate poll, so
+they have their own on-device cache (`MobileAgentAttentionArchive`). Both draw
+as **Recent history** when the Mac is unreachable; answering still needs a live
+host.
+
 ## Structural extract
 
 Moving `_build_attention` into `host/attention.py` is a file split
