@@ -472,3 +472,73 @@ jobs:
         with:
           files: dist/Headroom-iOS.ipa
           fail_on_unmatched_files: true
+
+  # The update feed. A shipped app polls docs/latest.json (served at
+  # https://updates.centaur-labs.io/latest.json via GitHub Pages) to learn a
+  # newer one exists — see docs/updater.md.
+  #
+  # Last, and on purpose. Written only after the release is published, so a run
+  # that goes red leaves the feed pointing at the last version that actually
+  # exists rather than advertising a zip nobody uploaded.
+  #
+  # This job commits to main and does not recurse: a push made with
+  # GITHUB_TOKEN does not trigger workflows. That is the same guarantee the
+  # `gate` job relies on for tags, stated again here because the step looks
+  # like a loop and is not.
+  feed:
+    name: Publish update feed
+    runs-on: ubuntu-latest
+    needs: [gate, macos-app]
+    if: needs.gate.outputs.release == 'true' && needs.macos-app.result == 'success'
+    steps:
+      # An ad-hoc signed zip must never reach the feed. update-app.sh runs
+      # `spctl -a -t exec` before it touches anything and refuses a bundle that
+      # is not notarized, so advertising one offers every user an update that
+      # cannot succeed — and goes on offering it until the next release.
+      - name: Require notarization
+        if: needs.macos-app.outputs.notarized != 'true'
+        run: |
+          echo "::warning::Release is ad-hoc signed — not publishing the update feed."
+          echo "SKIP=1" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        if: env.SKIP != '1'
+        with:
+          # main, not github.sha: the feed belongs on the branch's tip, and on
+          # the tag path github.sha can be an older commit.
+          ref: main
+
+      - name: Write docs/latest.json
+        if: env.SKIP != '1'
+        run: ./scripts/write-update-feed.sh "${{ needs.gate.outputs.version }}"
+
+      - name: Commit
+        if: env.SKIP != '1'
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- docs/latest.json; then
+            echo "Feed already advertises $VERSION — nothing to commit."
+            exit 0
+          fi
+
+          git add docs/latest.json
+          git commit -m "chore(feed): $VERSION is what the app will offer"
+
+          # main is shared and moves during a release. A rejected push is the
+          # normal case here, not a failure — rebase onto whoever landed first
+          # and try again.
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin main \
+               && git push origin HEAD:main; then
+              echo "Feed published for $VERSION."
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt) — retrying"
+            sleep $((attempt * 5))
+          done
+          echo "::error::Could not push the update feed for $VERSION."
+          exit 1

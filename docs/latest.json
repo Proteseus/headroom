@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "version": "1.4.1",
+  "published": "2026-08-01T08:10:31Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.1/Headroom-macOS.zip",
+  "sha256": "bd2ca3f5e2acdffbde21dd8c651fc345679799d519b39398a7fc828d25bc23fa",
+  "size": 3642230,
+  "min_macos": "14.0",
+  "notes_md": "### Fixed\n\n- **`Retry-After` can no longer shorten a backoff.** 1.4.0 let the header win\n  outright, on the reasoning that the provider knows the real window better\n  than we do. It does, in one direction. Anthropic answers a 429 with a\n  sub-minute `Retry-After`, so honouring it literally retried *sooner* than the\n  schedule's own first step and the backoff never got off the ground. The\n  header raises the wait now and never lowers it, which is the shape\n  [#13](https://github.com/michellzappa/headroom/pull/13) had and 1.4.0 got\n  wrong.\n- **\"retrying in 0m\" is gone**, and was always meaningless: the wait was real\n  but shorter than a minute, and the countdown floors to whole minutes. Nothing\n  can produce a wait that short any more.\n- **A rate limit is visible in the host log.** A stale replay still reads `ok`,\n  so the log printed the last-known numbers and a bare `stale` marker and threw\n  the reason away. Every 429 this host has ever served was invisible there,\n  which is exactly long enough to convince someone reading it that no 429 had\n  ever happened. The reason is printed now."
+}

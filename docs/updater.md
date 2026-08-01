@@ -72,10 +72,23 @@ The custom domain serves `docs/` at the **root**, not under `/headroom/`. So
   "sha256": "…",
   "size": 12345678,
   "min_macos": "14.0",
-  "team_id": "992N457T8D",
   "notes_md": "…"
 }
 ```
+
+Written by [write-update-feed.sh](../scripts/write-update-feed.sh), which is
+the only thing that writes it. It **downloads the zip rather than hashing the
+one in `dist/`** — that proves the URL a shipped app will fetch actually
+resolves, and that what answers is the artifact we hashed. A feed advertising
+a 404 is worse than no feed, because the app stops asking.
+
+**The expected Team ID is deliberately not a field.** The app's only real
+defence is that `update-app.sh` refuses any bundle not notarized under a team
+it was *compiled* with. Putting that team in the feed invites someone to read
+it from there one day, which hands the check to whoever controls the feed. For
+the same reason `sha256` is an integrity check on the download, not an
+authenticity check on the release — a feed that can name the URL can name its
+hash too.
 
 Two rules, both borrowed from [contract.md](contract.md) because the failure
 mode is identical:
@@ -95,18 +108,27 @@ follows without an update.
 
 ## Phase 2 — CI writes it
 
-In [release.yml](../.github/workflows/release.yml), a step after **Create
-GitHub Release** succeeds: compute the sha256, render `notes_md` from the
-CHANGELOG section, write `docs/latest.json`, commit to `main`.
+The `feed` job in [release.yml](../.github/workflows/release.yml), last and
+gated on `needs.macos-app.result == 'success'`.
 
 - **Ordering is the fail-safe.** Written after notarization and publication,
   so a red release leaves the feed advertising the last version that actually
   exists rather than a zip that was never uploaded.
-- **The self-commit does not loop.** It pushes to `main`, which triggers
-  Release again, but the `gate` job takes the "`v$VERSION` already tagged →
-  nothing to release" branch and no-ops. Worth a comment in the workflow so
-  nobody removes the step thinking it recurses.
-- `permissions: contents: write` is already set.
+- **An ad-hoc signed release must never reach the feed.** `update-app.sh` runs
+  `spctl -a -t exec` before touching anything, so advertising a build that was
+  not notarized offers every user an update that *cannot* succeed, and goes on
+  offering it until the next release. The job checks
+  `needs.macos-app.outputs.notarized` and emits a `::warning::` when it skips
+  — the same class of invisible failure as the CloudKit entitlement gap in
+  [AGENTS.md](../AGENTS.md), where a green run said nothing about whether the
+  feature shipped.
+- **The self-commit does not recurse.** A push made with `GITHUB_TOKEN` does
+  not trigger workflows — the same guarantee the `gate` job already relies on
+  for tags. The step looks like a loop and is not.
+- **The push retries.** `main` is shared and moves during a release, so a
+  rejected push is the normal case; the job rebases and tries again three
+  times before failing.
+- `permissions: contents: write` is already set at workflow level.
 
 Verify by hand before phase 3 exists: `curl https://updates.centaur-labs.io/latest.json`.
 
