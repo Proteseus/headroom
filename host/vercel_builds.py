@@ -116,6 +116,40 @@ def _list_teams(token):
         return []
 
 
+def available_teams():
+    """Teams the CLI login can see, for Settings to pick from.
+
+    Returns `[{slug, name}, …]`. Empty when nobody is signed in or the API
+    refuses — Settings keeps the typed field in that case.
+    """
+    try:
+        auth = _cli_json("auth.json") or {}
+        if not auth.get("token") and not auth.get("refreshToken"):
+            return []
+        if not _token_fresh(auth):
+            auth = _refresh(auth)
+        token = auth.get("token")
+        if not token:
+            return []
+        out = []
+        seen = set()
+        for team in _list_teams(token):
+            slug = (team.get("slug") or "").strip()
+            if not slug:
+                continue
+            key = slug.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                "slug": slug,
+                "name": (team.get("name") or slug).strip() or slug,
+            })
+        return out
+    except Exception:
+        return []
+
+
 def _resolve_team(token, fallback_id):
     """Pick preferred team slugs from config when available; else CLI currentTeam."""
     teams = _list_teams(token)

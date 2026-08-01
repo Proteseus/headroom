@@ -583,11 +583,14 @@ struct GitHubWatch: Decodable, Sendable {
     var alwaysRepos: [String] = []
     var maxDiscovered: Int = 6
     var devRoot: String?
+    /// GitHub remotes under `devRoot` (plus any always-watch not on disk),
+    /// for the Settings checklist. Older hosts omit this.
+    var available: [String] = []
     /// What the owners and always-repos resolved to on this machine.
     var watching: [String] = []
 
     enum CodingKeys: String, CodingKey {
-        case owners, watching
+        case owners, watching, available
         case alwaysRepos = "always_repos"
         case maxDiscovered = "max_discovered"
         case devRoot = "dev_root"
@@ -619,12 +622,22 @@ struct GitConfiguration: Decodable, Sendable {
 struct VercelConfiguration: Decodable, Sendable {
     /// Empty means every team the login can see, which is the useful default.
     var teams: [String] = []
+    /// Teams the CLI login can enumerate, for the Settings checklist.
+    /// Older hosts omit this.
+    var available: [VercelTeamOption] = []
     var signedIn: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case teams
+        case teams, available
         case signedIn = "signed_in"
     }
+}
+
+struct VercelTeamOption: Decodable, Sendable, Identifiable, Hashable {
+    var slug: String
+    var name: String
+
+    var id: String { slug.lowercased() }
 }
 
 struct AgentGatewayConfiguration: Decodable, Sendable {

@@ -1344,9 +1344,10 @@ def _device_payload(now):
 def _github_watch_payload():
     """Watch list as configured, plus the repos it actually resolves to.
 
-    Settings shows both: owners and always-repos are what you type, `watching`
-    is what the scan under dev_root made of them, which is the part that used
-    to need a shell and a JSON file to find out.
+    Settings shows both: owners and always-repos are what you type (or tick),
+    `available` is every GitHub remote under `dev_root` for the picker, and
+    `watching` is what the scan made of the filters — the part that used to
+    need a shell and a JSON file to find out.
     """
     return {
         "ok": True,
@@ -1354,6 +1355,7 @@ def _github_watch_payload():
         "always_repos": list(app_config.github_always_repos()),
         "max_discovered": app_config.github_max_discovered(),
         "dev_root": app_config.dev_root(),
+        "available": github_actions.discoverable_repos(),
         "watching": github_actions.watched_repos(),
     }
 
@@ -1382,6 +1384,7 @@ def _vercel_config_payload():
     return {
         "ok": True,
         "teams": list(app_config.vercel_team_slugs()),
+        "available": vercel_builds.available_teams(),
         "signed_in": detect_sources.vercel_signed_in(),
     }
 

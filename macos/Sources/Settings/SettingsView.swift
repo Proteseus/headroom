@@ -54,6 +54,7 @@ struct SettingsView: View {
     @State private var githubOwners = ""
     @State private var githubAlwaysRepos = ""
     @State private var githubMaxDiscovered = 6
+    @State private var githubAvailable: [String] = []
     @State private var githubWatching: [String] = []
     @State private var githubDevRoot = "~/Dev"
     @State private var savingGitHubWatch = false
@@ -898,6 +899,8 @@ struct SettingsView: View {
             HStack {
                 if tokenDraft.isEmpty {
                     Button(HeadroomCopy.settingsRefresh) {
+                        // Promote + fetch: a Keychain key with the source still
+                        // in Library used to refresh into a no-op.
                         Task { await refreshSources(["supabase"]) }
                     }
                     .disabled(!tokenStored || isSyncing)
@@ -1103,22 +1106,59 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            TextField(
-                "Teams",
-                text: $vercelTeamsDraft,
-                prompt: Text("acme, ada (blank reads every team)")
-            )
-            HStack {
-                Button("Save teams") {
-                    Task { await saveVercelConfiguration() }
+            if !vercelConfig.available.isEmpty {
+                ForEach(vercelConfig.available) { team in
+                    Toggle(isOn: Binding(
+                        get: {
+                            vercelSelectedTeams.contains(team.slug.lowercased())
+                        },
+                        set: { on in
+                            Task { await setVercelTeam(team.slug, enabled: on) }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(team.name)
+                            if team.name.lowercased() != team.slug.lowercased() {
+                                Text(team.slug)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .disabled(savingVercel || !vercelEditable)
                 }
-                .disabled(savingVercel || !vercelEditable)
+                if vercelSelectedTeams.isEmpty {
+                    Text("None selected — Headroom uses the CLI’s current team.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                TextField(
+                    "Teams",
+                    text: $vercelTeamsDraft,
+                    prompt: Text("acme, ada (blank uses the CLI current team)")
+                )
+                HStack {
+                    Button("Save teams") {
+                        Task { await saveVercelConfiguration() }
+                    }
+                    .disabled(savingVercel || !vercelEditable)
+                    if savingVercel {
+                        ProgressView().controlSize(.small)
+                    }
+                    Spacer()
+                }
+            }
+            HStack {
                 if savingVercel {
                     ProgressView().controlSize(.small)
                 }
                 Spacer()
                 Button(HeadroomCopy.settingsRefresh) {
-                    Task { await refreshSources(["vercel"]) }
+                    Task {
+                        await reloadVercelConfiguration()
+                        await refreshSources(["vercel"])
+                    }
                 }
                 .disabled(isSyncing)
             }
@@ -1128,7 +1168,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Deployments show under \(HeadroomCopy.activity). Teams filter which ones — leave it blank and Headroom reads every team the login can see.")
+            Text("Deployments show under \(HeadroomCopy.activity). Pick which teams to read — leave none selected and Headroom uses the CLI’s current team.")
         }
     }
 
@@ -1179,30 +1219,43 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            TextField(
-                "Owners",
-                text: $githubOwners,
-                prompt: Text("acme/, ada/ (blank watches every repo found)")
-            )
-            TextField(
-                "Always watch",
-                text: $githubAlwaysRepos,
-                prompt: Text("acme/api, ada/site")
-            )
-            Stepper(
-                "Discover up to \(githubMaxDiscovered) repos",
-                value: $githubMaxDiscovered,
-                in: 0...50
-            )
-            HStack {
-                Button("Save repos") {
-                    Task { await saveGitHubWatch() }
+            if !githubAvailable.isEmpty {
+                ForEach(githubAvailable, id: \.self) { repo in
+                    Toggle(repo, isOn: Binding(
+                        get: { githubSelectedAlways.contains(repo) },
+                        set: { on in
+                            Task { await setGitHubAlwaysRepo(repo, enabled: on) }
+                        }
+                    ))
+                    .disabled(savingGitHubWatch || !githubWatchEditable)
                 }
-                .disabled(savingGitHubWatch || !githubWatchEditable)
-                if savingGitHubWatch {
-                    ProgressView().controlSize(.small)
+            }
+            DisclosureGroup("Advanced") {
+                TextField(
+                    "Owners",
+                    text: $githubOwners,
+                    prompt: Text("acme/, ada/ (blank watches every repo found)")
+                )
+                TextField(
+                    "Always watch",
+                    text: $githubAlwaysRepos,
+                    prompt: Text("acme/api, ada/site")
+                )
+                Stepper(
+                    "Discover up to \(githubMaxDiscovered) repos",
+                    value: $githubMaxDiscovered,
+                    in: 0...50
+                )
+                HStack {
+                    Button("Save repos") {
+                        Task { await saveGitHubWatch() }
+                    }
+                    .disabled(savingGitHubWatch || !githubWatchEditable)
+                    if savingGitHubWatch {
+                        ProgressView().controlSize(.small)
+                    }
+                    Spacer()
                 }
-                Spacer()
             }
             if !githubWatching.isEmpty {
                 LabeledContent(HeadroomCopy.settingsWatching) {
@@ -1213,7 +1266,7 @@ struct SettingsView: View {
                 }
             }
         } footer: {
-            Text("Owners filter the repos found under \(githubDevRoot). Always-watch takes owner/name and ignores that filter. Failures show under \(HeadroomCopy.activity).")
+            Text("Tick repos under \(githubDevRoot) to always watch them. Owners and the discover cap still filter anything not ticked. Failures show under \(HeadroomCopy.activity).")
         }
     }
 
@@ -1653,6 +1706,7 @@ struct SettingsView: View {
         githubOwners = watch.owners.joined(separator: ", ")
         githubAlwaysRepos = watch.alwaysRepos.joined(separator: ", ")
         githubMaxDiscovered = watch.maxDiscovered
+        githubAvailable = watch.available
         githubWatching = watch.watching
         if let root = watch.devRoot, !root.isEmpty { githubDevRoot = root }
     }
@@ -1663,6 +1717,41 @@ struct SettingsView: View {
         text.split(whereSeparator: { $0 == "," || $0.isNewline })
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    private var githubSelectedAlways: Set<String> {
+        Set(splitList(githubAlwaysRepos))
+    }
+
+    private var vercelSelectedTeams: Set<String> {
+        Set(splitList(vercelTeamsDraft).map { $0.lowercased() })
+    }
+
+    /// Checklist path: flip one always-watch repo and persist immediately so
+    /// Settings does not need a separate Save for the common case.
+    private func setGitHubAlwaysRepo(_ repo: String, enabled: Bool) async {
+        var repos = splitList(githubAlwaysRepos)
+        if enabled {
+            if !repos.contains(repo) { repos.append(repo) }
+        } else {
+            repos.removeAll { $0 == repo }
+        }
+        githubAlwaysRepos = repos.joined(separator: ", ")
+        await saveGitHubWatch()
+    }
+
+    private func setVercelTeam(_ slug: String, enabled: Bool) async {
+        let key = slug.lowercased()
+        var teams = splitList(vercelTeamsDraft)
+        if enabled {
+            if !teams.map({ $0.lowercased() }).contains(key) {
+                teams.append(slug)
+            }
+        } else {
+            teams.removeAll { $0.lowercased() == key }
+        }
+        vercelTeamsDraft = teams.joined(separator: ", ")
+        await saveVercelConfiguration()
     }
 
     private func saveGitHubWatch() async {
@@ -1761,7 +1850,7 @@ struct SettingsView: View {
                 teams: splitList(vercelTeamsDraft))
             applyVercelConfiguration(config)
             vercelMessage = config.teams.isEmpty
-                ? "Saved. Reading every team this login can see."
+                ? "Saved. Using the CLI’s current team."
                 : "Saved."
             await refreshSources(["vercel"])
         } catch {

@@ -143,16 +143,18 @@ def _matches_owner(slug, prefixes):
     return any(lowered.startswith(prefix) for prefix in prefixes)
 
 
-def _discover_org_repos():
-    """Pick owner-prefix remotes under configured dev_root (shallow scan)."""
-    found = []
+def _scan_dev_root_remotes():
+    """GitHub remotes under configured `dev_root`, newest first.
+
+    Owner filter and the discover cap are applied by the callers — Settings
+    wants the whole list so a person can tick repos, while the Actions poll
+    still respects owners + max_discovered.
+    """
     root = app_config.dev_root()
-    prefixes = app_config.github_org_prefixes()
-    max_discovered = app_config.github_max_discovered()
     try:
         entries = sorted(os.listdir(root))
     except OSError:
-        return found
+        return []
     candidates = []
     for name in entries:
         if name.startswith("."):
@@ -174,7 +176,7 @@ def _discover_org_repos():
                     paths.append(child_path)
         for repo_path in paths:
             slug = _remote_slug(repo_path)
-            if not slug or not _matches_owner(slug, prefixes):
+            if not slug:
                 continue
             try:
                 mtime = os.path.getmtime(repo_path)
@@ -182,10 +184,40 @@ def _discover_org_repos():
                 mtime = 0
             candidates.append((mtime, slug))
     candidates.sort(reverse=True)
+    found = []
     for _, slug in candidates:
         if slug not in found:
             found.append(slug)
+    return found
+
+
+def _discover_org_repos():
+    """Pick owner-prefix remotes under configured dev_root (shallow scan)."""
+    prefixes = app_config.github_org_prefixes()
+    max_discovered = app_config.github_max_discovered()
+    found = []
+    for slug in _scan_dev_root_remotes():
+        if not _matches_owner(slug, prefixes):
+            continue
+        found.append(slug)
         if len(found) >= max_discovered:
+            break
+    return found
+
+
+def discoverable_repos():
+    """Every GitHub remote under `dev_root`, for the Settings picker.
+
+    Capped at the same list limit as always-watch so a giant Dev folder cannot
+    blow the Settings payload. Always-watch entries that are not on disk are
+    appended so a selected remote-only repo still appears as checked.
+    """
+    limit = app_config.GITHUB_LIST_LIMIT
+    found = _scan_dev_root_remotes()[:limit]
+    for slug in app_config.github_always_repos():
+        if slug and slug not in found:
+            found.append(slug)
+        if len(found) >= limit:
             break
     return found
 
