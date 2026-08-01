@@ -44,6 +44,22 @@ enum HeadroomCopy {
     static let integrationsServices = "Services"
     static let settingsConnection = "Connection"
     static let settingsPermissions = "Permissions"
+    /// General pane: row-count steppers for what this Mac draws.
+    static let settingsDashboard = "Dashboard"
+    /// LabeledContent title on every integration detail Status row.
+    static let settingsStatus = "Status"
+    static let settingsConnect = "Connect"
+    static let settingsDisconnect = "Disconnect"
+    static let settingsReplace = "Replace"
+    static let settingsRefresh = "Refresh"
+    static let settingsSave = "Save"
+    static let settingsCreateToken = "Create token…"
+    static let settingsCreateKey = "Create key…"
+    static let settingsScanning = "Scanning"
+    static let settingsWatching = "Watching"
+    /// Toggle / multi-Mac trailing captions.
+    static let on = "On"
+    static let off = "Off"
     /// macOS Settings → General. Matches System Settings → Login Items wording.
     static let openAtLogin = "Open at Login"
     static let openLoginItemsSettings = "Open Login Items…"
@@ -51,6 +67,10 @@ enum HeadroomCopy {
     static let welcomeWhatToWatch = "What to watch"
     /// Welcome rail for the iPhone step — Settings keeps the short “iPhone”.
     static let welcomeOnYourPhone = "On your phone"
+    /// Welcome phone step and Settings → iPhone. Same public invite both places.
+    static let openTestFlightInvite = "Open the TestFlight invite"
+    /// Canonical join URL — keep in sync with `docs/install-links.md`.
+    static let testFlightInvite = URL(string: "https://testflight.apple.com/join/PsQY3YET")!
 
     /// Person who made it (LICENSE copyright holder).
     static let createdBy = "Created by Michell Zappa"
@@ -189,8 +209,27 @@ enum HeadroomCopy {
     /// Healthy attention summary from the host / Attention card fallback.
     static let allClear = "All clear"
     static let needsAttention = "Needs attention"
-    /// iOS link health when the Mac host is reachable.
+    /// iOS link health when the Mac host is reachable, and Integrations hub
+    /// trailing caption when a token-backed service has a key.
     static let connected = "Connected"
+    /// Integrations hub / detail when nothing is pasted yet.
+    static let notConnected = "Not connected"
+    /// Detail Status row: the credential is in this Mac's Keychain.
+    static let inKeychain = "Keychain"
+    static let signedIn = "Signed in"
+    static let notSignedIn = "Not signed in"
+    static let hooksInstalled = "Hooks installed"
+    static let hooksOff = "Hooks off"
+    static let hooksInstalledShort = "Installed"
+    static let hooksNotInstalled = "Not installed"
+    static let hooksUpdateAvailable = "Update available"
+    static let hooksModifiedExternally = "Modified externally"
+    static let hooksConfigurationError = "Configuration error"
+    static let gatewayOn = "Gateway on"
+    static let gatewayOff = "Gateway off"
+    static let folderMissing = "Folder missing"
+    /// Host predates the field — not a warning, just a non-answer.
+    static let statusUnknown = "Unknown"
     static let macUnavailable = "Mac unavailable"
     static let collectingHistory = "Collecting history"
     /// Host just answered again; sources are being kicked so meters move.

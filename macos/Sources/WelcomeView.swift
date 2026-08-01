@@ -46,7 +46,6 @@ struct WelcomePane: Identifiable, Hashable {
 private enum WelcomeLink {
     static let privacy = URL(
         string: "https://github.com/michellzappa/headroom/blob/main/docs/privacy.md")!
-    static let testFlight = URL(string: "https://testflight.apple.com/join/PsQY3YET")!
     static let board = URL(
         string: "https://github.com/michellzappa/headroom/blob/main/README.md")!
 }
@@ -429,7 +428,7 @@ struct WelcomeView: View {
                     "Paste the mobile token below when it asks for one.",
                 ])
 
-                Link("Open the TestFlight invite", destination: WelcomeLink.testFlight)
+                Link(HeadroomCopy.openTestFlightInvite, destination: HeadroomCopy.testFlightInvite)
                     .font(.callout)
 
                 mobileTokenPanel

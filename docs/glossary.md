@@ -113,12 +113,21 @@ surface-specific (see the end of this file), but the shape does not.
 | **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
 | **Integrations** | Hub for everything Headroom connects to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible | macOS Settings |
 | **Code and deploys** | Integrations group: Git, GitHub Actions, Vercel | macOS Settings |
+| **Services** | Integrations group: Supabase, Plausible — also the Activity section for those panels | macOS Settings, Activity |
+| **Dashboard** | How many rows this Mac draws — Activity and Local servers under General; projects and sites on each Integration page | macOS Settings |
+| **Status** | Integration detail caption: connected, Keychain, hooks state, signed-in | macOS Settings |
+| **Connect** / **Replace** / **Disconnect** | Paste, overwrite, or clear a Keychain credential | macOS Settings |
+| **Keychain** | Detail Status when a token is stored on this Mac | macOS Settings |
+| **Not connected** | Hub / detail when nothing is pasted yet | macOS Settings |
+| **Hooks installed** / **Hooks off** | Integrations hub trailing caption for Claude Code | macOS Settings |
+| **Gateway on** / **Gateway off** | Integrations hub trailing caption for Codex | macOS Settings |
 | **Dev root** | Folder scanned for local git repos, one level deep. Stays on this Mac | macOS Settings |
 | **Commit authors** | Names or emails whose commits count as yours; blank counts everyone | macOS Settings |
 | **Teams** | Vercel team filter; blank reads every team the login can see | macOS Settings |
 | **Connection** | Which Mac the phone talks to | iOS Settings |
 | **Permissions** | Mac-granted phone capabilities (read-only on iOS) | iOS Settings |
 | **iPhone** | Pairing + grants on Mac; notifications on iOS | macOS Settings, iOS Settings, Welcome |
+| **Open the TestFlight invite** | Install link on Welcome’s phone step and Settings → iPhone | macOS Welcome, macOS Settings |
 | **On your phone** | Welcome rail title for the iPhone step | macOS Welcome |
 | **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
@@ -255,7 +264,9 @@ blank axis.
 
 | Term | Meaning |
 |---|---|
-| **Connected** | iOS link health when the Mac host is reachable |
+| **Connected** | iOS link health when the Mac host is reachable; also Integrations hub when a token-backed service has a key |
+| **Not connected** | Integrations hub / detail when nothing is pasted yet |
+| **Keychain** | Integration detail Status: the credential is in this Mac's Keychain |
 | **Mac unavailable** | iOS cannot reach the host |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |

@@ -103,6 +103,9 @@ struct SettingsView: View {
     @State private var openAtLoginNeedsApproval = LaunchAtLogin.needsApproval
     @State private var openAtLoginMessage: String?
     @State private var selection: SettingsDestination? = .general
+    /// Bound so Back pops reliably; the unbound stack lost its path whenever
+    /// the sidebar root re-rendered underneath a pushed leaf.
+    @State private var path = NavigationPath()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @ObservedObject private var updates = UpdateChecker.shared
     @AppStorage(UpdateChecker.automaticKey) private var automaticUpdateChecks = true
@@ -144,7 +147,7 @@ struct SettingsView: View {
             .toolbar(removing: .sidebarToggle)
             .navigationSplitViewColumnWidth(min: 220, ideal: 220, max: 220)
         } detail: {
-            NavigationStack {
+            NavigationStack(path: $path) {
                 let dest = selection ?? .general
                 pane(for: dest)
                     .navigationTitle(dest.title)
@@ -157,6 +160,11 @@ struct SettingsView: View {
         .frame(width: 820, height: 600)
         .formStyle(.grouped)
         .background(SettingsWindowConfigurator())
+        .onChange(of: selection) { _, _ in
+            // Sidebar swapped the root; drop any pushed leaf so Back isn't
+            // left pointing at a pane that is no longer under it.
+            path = NavigationPath()
+        }
         .task {
             tokenStored = TokenStore.supabase.exists()
             plausibleTokenStored = TokenStore.plausible.exists()
@@ -247,19 +255,23 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink(value: SettingsDestination.otherMacs) {
-                    LabeledContent(HeadroomCopy.otherMacs) {
-                        Text(multiMac.enabled ? "On" : "Off")
+                    LabeledContent {
+                        Text(multiMac.enabled ? HeadroomCopy.on : HeadroomCopy.off)
                             .foregroundStyle(.secondary)
+                    } label: {
+                        Label(
+                            HeadroomCopy.otherMacs,
+                            systemImage: SettingsDestination.otherMacs.symbol
+                        )
                     }
                 }
             } footer: {
                 Text("Share sources and settings between Macs through iCloud Drive.")
             }
 
-            // Row counts are what this Mac draws, not what it connects to.
-            // They sat under Integrations back when that pane was the place
-            // anything provider-shaped ended up.
-            Section("Dashboard") {
+            // Activity and Local servers are Mac-wide; Supabase / Plausible
+            // density lives on each integration's own page.
+            Section {
                 Stepper(
                     "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
                     value: $activityRowLimit,
@@ -270,17 +282,9 @@ struct SettingsView: View {
                     value: $serverRowLimit,
                     in: 1...8
                 )
-                Stepper(
-                    "Supabase projects: \(supabaseRowLimit)",
-                    value: $supabaseRowLimit,
-                    in: 1...20
-                )
-                Stepper(
-                    "Plausible sites: \(plausibleRowLimit)",
-                    value: $plausibleRowLimit,
-                    in: 1...20
-                )
                 Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
+            } header: {
+                Text(HeadroomCopy.settingsDashboard)
             }
 
             updatesSection
@@ -354,7 +358,7 @@ struct SettingsView: View {
                 Text("1 minute").tag(60)
                 Text("2 minutes").tag(120)
             } label: {
-                Text("Refresh")
+                Text(HeadroomCopy.settingsRefresh)
             }
             if endpointIsRemote {
                 SecureField("Host token", text: $hostToken)
@@ -372,7 +376,9 @@ struct SettingsView: View {
                         }
                     }
                     Spacer()
-                    Text(hostTokenStored ? "Keychain" : "Not set")
+                    Text(hostTokenStored
+                         ? HeadroomCopy.inKeychain
+                         : "Not set")
                         .font(.caption)
                         .foregroundStyle(
                             hostTokenStored
@@ -534,12 +540,9 @@ struct SettingsView: View {
                     if changingClaudeHooks {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label(
-                            claudeHookStatus,
-                            systemImage: claudeHookStatusSymbol
-                        )
-                        .font(.caption)
-                        .foregroundStyle(claudeHookStatusColor)
+                        SettingsConnectionStatus
+                            .claudeHooks(state: claudeHooks?.state)
+                            .label(showSymbol: true)
                     }
                 }
                 HStack {
@@ -666,6 +669,14 @@ struct SettingsView: View {
     private var iPhonePane: some View {
         Form {
             Section {
+                Link(
+                    HeadroomCopy.openTestFlightInvite,
+                    destination: HeadroomCopy.testFlightInvite
+                )
+            } footer: {
+                Text("Install the iPhone app from TestFlight. The Apple Watch app installs with it.")
+            }
+            Section {
                 LabeledContent("Discovery") {
                     Text("Automatic on local Wi‑Fi")
                         .foregroundStyle(.secondary)
@@ -777,9 +788,12 @@ struct SettingsView: View {
                 } header: {
                     Text(group.title)
                 } footer: {
-                    if group == .agents {
+                    switch group {
+                    case .agents:
                         Text("These two can start work on this Mac. Everything else here only reads.")
-                    } else if group == .services {
+                    case .code:
+                        Text("Commits, Actions failures, and deploys feed \(HeadroomCopy.activity).")
+                    case .services:
                         Text("Keys stay in the Keychain on this Mac. The iPhone never sees them.")
                     }
                 }
@@ -790,39 +804,52 @@ struct SettingsView: View {
 
     /// One hub row. Shared with the Coding agents pane, which links to the two
     /// agent leaves rather than keeping a second copy of their settings.
+    ///
+    /// `LabeledContent` + `Label` keeps Form's icon column aligned across
+    /// symbols of different widths — a bare `Label`/`Spacer`/`Text` stack
+    /// opts that out and leaves titles drifting row to row.
     private func integrationRow(_ kind: SettingsIntegration) -> some View {
         NavigationLink(value: SettingsDestination.integration(kind)) {
-            Label(kind.title, systemImage: kind.symbol)
-            Spacer()
-            Text(integrationStatus(kind))
-                .foregroundStyle(
-                    integrationConnected(kind)
-                        ? AnyShapeStyle(.secondary)
-                        : AnyShapeStyle(HeadroomPalette.amber)
-                )
+            LabeledContent {
+                integrationStatus(kind).label()
+            } label: {
+                Label(kind.title, systemImage: kind.symbol)
+            }
         }
     }
 
     /// "Connected" is the wrong word for the two that need no credential, so
     /// they say what is actually true of them instead.
-    private func integrationStatus(_ kind: SettingsIntegration) -> String {
+    private func integrationStatus(_ kind: SettingsIntegration) -> SettingsConnectionStatus {
         switch kind {
         case .claudeCode:
-            return claudeHooks?.installed == true ? "Hooks installed" : "Hooks off"
+            let ok = claudeHooks?.installed == true
+            return SettingsConnectionStatus(
+                ok ? HeadroomCopy.hooksInstalled : HeadroomCopy.hooksOff,
+                tone: ok ? .ok : .attention
+            )
         case .codex:
-            return agentGatewayEnabled ? "Gateway on" : "Gateway off"
+            return SettingsConnectionStatus(
+                agentGatewayEnabled
+                    ? HeadroomCopy.gatewayOn : HeadroomCopy.gatewayOff,
+                tone: agentGatewayEnabled ? .ok : .attention
+            )
         case .git:
             // A host predating /config/git leaves the defaults in place, and
             // "0 repos" would be an answer rather than the non-answer it is.
-            guard gitEditable else { return "Unknown" }
-            guard gitConfig.devRootExists else { return "Folder missing" }
+            guard gitEditable else { return .unknown }
+            guard gitConfig.devRootExists else { return .folderMissing }
             let count = gitConfig.repos.count
-            return count == 1 ? "1 repo" : "\(count) repos"
+            let title = count == 1 ? "1 repo" : "\(count) repos"
+            return SettingsConnectionStatus(
+                title,
+                tone: count > 0 ? .ok : .attention
+            )
         case .vercel:
-            guard vercelEditable else { return "Unknown" }
-            return vercelConfig.signedIn ? "Signed in" : "Not signed in"
+            guard vercelEditable else { return .unknown }
+            return .signedIn(vercelConfig.signedIn)
         case .github, .supabase, .plausible:
-            return integrationConnected(kind) ? "Connected" : "Not connected"
+            return .connected(integrationConnected(kind))
         }
     }
 
@@ -861,9 +888,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var supabaseSections: some View {
         Section {
-            LabeledContent("Status") {
-                Text(tokenStored ? "Keychain" : "Not connected")
-                    .foregroundStyle(tokenStored ? AnyShapeStyle(.secondary) : AnyShapeStyle(HeadroomPalette.amber))
+            LabeledContent(HeadroomCopy.settingsStatus) {
+                SettingsConnectionStatus.keychain(tokenStored).label()
             }
             SecureField("sbp_… or access token", text: $supabaseToken)
                 .onSubmit {
@@ -871,25 +897,27 @@ struct SettingsView: View {
                 }
             HStack {
                 if tokenDraft.isEmpty {
-                    Button("Refresh") {
+                    Button(HeadroomCopy.settingsRefresh) {
                         Task { await refreshSources(["supabase"]) }
                     }
                     .disabled(!tokenStored || isSyncing)
                 } else {
-                    Button(tokenStored ? "Replace" : "Connect") {
+                    Button(tokenStored
+                           ? HeadroomCopy.settingsReplace
+                           : HeadroomCopy.settingsConnect) {
                         saveSupabaseToken()
                     }
                     .disabled(isSyncing)
                     .keyboardShortcut(.defaultAction)
                 }
                 if tokenStored {
-                    Button("Disconnect", role: .destructive) {
+                    Button(HeadroomCopy.settingsDisconnect, role: .destructive) {
                         disconnectSupabase()
                     }
                     .disabled(isSyncing)
                 }
                 Spacer()
-                Button("Create token…") {
+                Button(HeadroomCopy.settingsCreateToken) {
                     openURL("https://supabase.com/dashboard/account/tokens")
                 }
                 .buttonStyle(.link)
@@ -902,16 +930,25 @@ struct SettingsView: View {
         } footer: {
             Text("PAT stays in Keychain.")
         }
+
+        Section {
+            Stepper(
+                "Projects: \(supabaseRowLimit)",
+                value: $supabaseRowLimit,
+                in: 1...20
+            )
+        } header: {
+            Text(HeadroomCopy.settingsDashboard)
+        } footer: {
+            Text("How many projects this Mac draws.")
+        }
     }
 
     @ViewBuilder
     private var plausibleSections: some View {
         Section {
-            LabeledContent("Status") {
-                Text(plausibleTokenStored ? "Keychain" : "Not connected")
-                    .foregroundStyle(plausibleTokenStored
-                                     ? AnyShapeStyle(.secondary)
-                                     : AnyShapeStyle(HeadroomPalette.amber))
+            LabeledContent(HeadroomCopy.settingsStatus) {
+                SettingsConnectionStatus.keychain(plausibleTokenStored).label()
             }
             SecureField("Stats API key", text: $plausibleToken)
                 .onSubmit {
@@ -933,24 +970,26 @@ struct SettingsView: View {
             .disabled(isSyncing)
             HStack {
                 if plausibleTokenDraft.isEmpty {
-                    Button("Refresh") {
+                    Button(HeadroomCopy.settingsRefresh) {
                         Task { await refreshSources(["plausible"]) }
                     }
                     .disabled(!plausibleTokenStored || isSyncing)
                 } else {
-                    Button(plausibleTokenStored ? "Replace" : "Connect") {
+                    Button(plausibleTokenStored
+                           ? HeadroomCopy.settingsReplace
+                           : HeadroomCopy.settingsConnect) {
                         savePlausibleToken()
                     }
                     .disabled(isSyncing)
                 }
                 if plausibleTokenStored {
-                    Button("Disconnect", role: .destructive) {
+                    Button(HeadroomCopy.settingsDisconnect, role: .destructive) {
                         disconnectPlausible()
                     }
                     .disabled(isSyncing)
                 }
                 Spacer()
-                Button("Create key…") {
+                Button(HeadroomCopy.settingsCreateKey) {
                     openURL("https://plausible.io/settings/api-keys")
                 }
                 .buttonStyle(.link)
@@ -963,18 +1002,31 @@ struct SettingsView: View {
         } footer: {
             Text("API key stays in Keychain.")
         }
+
+        Section {
+            Stepper(
+                "Sites: \(plausibleRowLimit)",
+                value: $plausibleRowLimit,
+                in: 1...20
+            )
+        } header: {
+            Text(HeadroomCopy.settingsDashboard)
+        } footer: {
+            Text("How many sites this Mac draws.")
+        }
     }
 
     @ViewBuilder
     private var gitSections: some View {
         Section {
-            LabeledContent("Status") {
-                Text(gitConfig.devRootExists
-                     ? "\(gitConfig.repos.count) repos found"
-                     : "Folder missing")
-                    .foregroundStyle(gitConfig.devRootExists
-                                     ? AnyShapeStyle(.secondary)
-                                     : AnyShapeStyle(HeadroomPalette.amber))
+            LabeledContent(HeadroomCopy.settingsStatus) {
+                (gitConfig.devRootExists
+                    ? SettingsConnectionStatus(
+                        "\(gitConfig.repos.count) repos found",
+                        tone: .ok
+                      )
+                    : .folderMissing
+                ).label()
             }
             if !gitEditable {
                 Text("Git settings need a running, up to date host.")
@@ -996,7 +1048,7 @@ struct SettingsView: View {
                     chooseDevRoot()
                 }
                 .disabled(!gitEditable)
-                Button("Save") {
+                Button(HeadroomCopy.settingsSave) {
                     Task { await saveGitConfiguration() }
                 }
                 .disabled(savingGit || !gitEditable || gitDevRootDraft
@@ -1012,7 +1064,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             if !gitConfig.repos.isEmpty {
-                LabeledContent("Scanning") {
+                LabeledContent(HeadroomCopy.settingsScanning) {
                     Text(gitConfig.repos.prefix(12).joined(separator: ", ")
                          + (gitConfig.repos.count > 12 ? "…" : ""))
                         .font(.caption)
@@ -1032,11 +1084,14 @@ struct SettingsView: View {
     @ViewBuilder
     private var vercelSections: some View {
         Section {
-            LabeledContent("Status") {
-                Text(vercelConfig.signedIn ? "Vercel CLI" : "Not signed in")
-                    .foregroundStyle(vercelConfig.signedIn
-                                     ? AnyShapeStyle(.secondary)
-                                     : AnyShapeStyle(HeadroomPalette.amber))
+            LabeledContent(HeadroomCopy.settingsStatus) {
+                (vercelConfig.signedIn
+                    ? SettingsConnectionStatus(
+                        "Vercel CLI",
+                        tone: .ok
+                      )
+                    : .signedIn(false)
+                ).label()
             }
             if !vercelConfig.signedIn {
                 Text("Run `vercel login` in a terminal. Headroom reads the CLI's own token and never asks for one.")
@@ -1062,7 +1117,7 @@ struct SettingsView: View {
                     ProgressView().controlSize(.small)
                 }
                 Spacer()
-                Button("Refresh") {
+                Button(HeadroomCopy.settingsRefresh) {
                     Task { await refreshSources(["vercel"]) }
                 }
                 .disabled(isSyncing)
@@ -1080,34 +1135,35 @@ struct SettingsView: View {
     @ViewBuilder
     private var githubSections: some View {
         Section {
-            LabeledContent("Status") {
-                Text(githubTokenStored ? "Keychain" : "Not connected")
-                    .foregroundStyle(githubTokenStored ? AnyShapeStyle(.secondary) : AnyShapeStyle(HeadroomPalette.amber))
+            LabeledContent(HeadroomCopy.settingsStatus) {
+                SettingsConnectionStatus.keychain(githubTokenStored).label()
             }
-            SecureField("ghp_… (repo + actions:read)", text: $githubToken)
+            SecureField("ghp_… (repo)", text: $githubToken)
                 .onSubmit {
                     if !githubTokenDraft.isEmpty { saveGitHubToken() }
                 }
             HStack {
                 if githubTokenDraft.isEmpty {
-                    Button("Refresh") {
+                    Button(HeadroomCopy.settingsRefresh) {
                         Task { await refreshSources(["github"]) }
                     }
                     .disabled(!githubTokenStored || isSyncing)
                 } else {
-                    Button(githubTokenStored ? "Replace" : "Connect") {
+                    Button(githubTokenStored
+                           ? HeadroomCopy.settingsReplace
+                           : HeadroomCopy.settingsConnect) {
                         saveGitHubToken()
                     }
                     .disabled(isSyncing)
                 }
                 if githubTokenStored {
-                    Button("Disconnect", role: .destructive) {
+                    Button(HeadroomCopy.settingsDisconnect, role: .destructive) {
                         disconnectGitHub()
                     }
                     .disabled(isSyncing)
                 }
                 Spacer()
-                Button("Create token…") {
+                Button(HeadroomCopy.settingsCreateToken) {
                     openURL("https://github.com/settings/tokens")
                 }
                 .buttonStyle(.link)
@@ -1149,7 +1205,7 @@ struct SettingsView: View {
                 Spacer()
             }
             if !githubWatching.isEmpty {
-                LabeledContent("Watching") {
+                LabeledContent(HeadroomCopy.settingsWatching) {
                     Text(githubWatching.joined(separator: ", "))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1371,32 +1427,6 @@ struct SettingsView: View {
         } catch {
             claudeHooksMessage = error.localizedDescription
             await reloadClaudeHooks()
-        }
-    }
-
-    private var claudeHookStatus: String {
-        switch claudeHooks?.state {
-        case "installed": "Installed"
-        case "outdated": "Update available"
-        case "modified_externally": "Modified externally"
-        case "error": "Configuration error"
-        default: "Not installed"
-        }
-    }
-
-    private var claudeHookStatusSymbol: String {
-        switch claudeHooks?.state {
-        case "installed": "checkmark.circle.fill"
-        case "not_installed", nil: "circle"
-        default: "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var claudeHookStatusColor: AnyShapeStyle {
-        switch claudeHooks?.state {
-        case "installed": AnyShapeStyle(.green)
-        case "not_installed", nil: AnyShapeStyle(.secondary)
-        default: AnyShapeStyle(HeadroomPalette.amber)
         }
     }
 
