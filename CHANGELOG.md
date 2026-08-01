@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.2 — 2026-08-01
+
+### Fixed
+
+- **A read-only question from Claude still offers Claude's own options.** The
+  Attention row was showing generic yes/no controls on a question that had its
+  own named choices, because the read-only path skipped the branch that reads
+  them. The options Claude actually asked for now render either way.
+
 ## 1.5.1 — 2026-08-01
 
 ### Changed
