@@ -142,6 +142,28 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["kind"], "commit")
 
+    def test_inbox_rows_carry_author_and_number(self):
+        items = headroom_server._build_activity({}, {}, github={
+            "inbox": [{
+                "id": "pr_1",
+                "reason": "review_request",
+                "repo": "acme/web",
+                "number": 42,
+                "title": "Tighten the menu bar glyph",
+                "author": "alice",
+                "url": "https://github.com/acme/web/pull/42",
+                "ago": "12m",
+                "created_at": 1_700_000_000,
+            }],
+        })
+        self.assertEqual(len(items), 1)
+        row = items[0]
+        self.assertEqual(row["id"], "github-inbox:pr_1")
+        self.assertEqual(row["status"], "review_request")
+        self.assertEqual(row["author"], "alice")
+        self.assertEqual(row["number"], 42)
+        self.assertEqual(row["repo"], "acme/web")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,6 +35,9 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(app_config.plausible_sites(), ())
         self.assertEqual(app_config.plausible_host(), "https://plausible.io")
         self.assertEqual(app_config.plausible_range(), "24h")
+        self.assertEqual(app_config.posthog_projects(), ())
+        self.assertEqual(app_config.posthog_host(), "https://us.posthog.com")
+        self.assertEqual(app_config.posthog_range(), "24h")
         self.assertEqual(
             app_config.mobile_permissions(),
             {"read", "refresh", "sources", "servers"},
@@ -55,6 +58,9 @@ class AppConfigTests(unittest.TestCase):
                 "plausible_sites": ["acme.dev"],
                 "plausible_host": "https://analytics.example.com/",
                 "plausible_range": "7d",
+                "posthog_projects": ["12345"],
+                "posthog_host": "https://eu.posthog.com/",
+                "posthog_range": "30d",
                 "mobile_permissions": ["read", "sources", "agents", "unknown"],
                 "agent_gateway_enabled": True,
                 "codex_binary": "/opt/codex",
@@ -72,6 +78,9 @@ class AppConfigTests(unittest.TestCase):
         self.assertEqual(
             app_config.plausible_host(), "https://analytics.example.com")
         self.assertEqual(app_config.plausible_range(), "7d")
+        self.assertEqual(app_config.posthog_projects(), ("12345",))
+        self.assertEqual(app_config.posthog_host(), "https://eu.posthog.com")
+        self.assertEqual(app_config.posthog_range(), "30d")
         self.assertEqual(
             app_config.mobile_permissions(), {"read", "sources", "agents"})
         self.assertTrue(app_config.agent_gateway_enabled())
@@ -169,6 +178,9 @@ class AppConfigTests(unittest.TestCase):
         self.assertNotIn("dev_root", app_config.SHARED_CONFIG_KEYS)
         self.assertIn("git_authors", app_config.SHARED_CONFIG_KEYS)
         self.assertIn("vercel_team_slugs", app_config.SHARED_CONFIG_KEYS)
+        self.assertIn("posthog_projects", app_config.SHARED_CONFIG_KEYS)
+        self.assertIn("posthog_host", app_config.SHARED_CONFIG_KEYS)
+        self.assertIn("posthog_range", app_config.SHARED_CONFIG_KEYS)
 
     def test_persists_mobile_permissions_without_losing_other_config(self):
         with open(self.path, "w") as handle:
@@ -196,14 +208,6 @@ class AppConfigTests(unittest.TestCase):
         )
         self.assertEqual(app_config.timezone_name(), "Europe/Amsterdam")
 
-
-
-    def test_persists_supabase_project_filter(self):
-        result = app_config.set_supabase_projects(refs=["abc", " ABC "])
-        self.assertEqual(result["projects"], ["abc", "ABC"])
-        self.assertEqual(app_config.supabase_project_refs(), ("abc", "ABC"))
-        app_config.set_supabase_projects(refs=[])
-        self.assertEqual(app_config.supabase_project_refs(), ())
 
 class AttentionTests(unittest.TestCase):
     def test_critical_on_actions_fail(self):

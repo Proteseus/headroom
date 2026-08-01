@@ -30,7 +30,9 @@ feed. No cloud account for Headroom itself — your tokens stay on the machine.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/ios-overview.png" alt="iPhone Headroom overview" width="280" />
+  <img src="docs/screenshots/ios-overview.png" alt="iPhone Summary — coding quotas" width="220" />
+  <img src="docs/screenshots/ios-attention.png" alt="iPhone Attention — CI failure" width="220" />
+  <img src="docs/screenshots/ios-activity.png" alt="iPhone Activity — services and commits" width="220" />
 </p>
 
 ```
@@ -218,20 +220,24 @@ questions and take different setup:
 - **AI coding tools** — Claude, Codex, Cursor, Copilot, Gemini, Windsurf,
   JetBrains AI, Zed. How much plan is left. Read from the sign-in already on
   the Mac, so there is nothing to paste.
-- **Dev tools** — Vercel, Git, GitHub Actions, Supabase, Plausible, local
-  servers. What your projects are doing. Some want a key, pasted once in
+- **Dev tools** — Vercel, Git, GitHub Actions, Supabase, Plausible, PostHog,
+  local servers. What your projects are doing. Some want a key, pasted once in
   **Mac Settings** (Keychain — never sent to the phone or written into
-  `/usage`).
+  `/usage`). **Git** and **GitHub Actions** are separate on purpose: Git
+  reads local commits on disk (no token, including unpushed); Actions needs
+  a GitHub PAT and only sees what GitHub knows.
 
 | Dev tool | Where |
 |---|---|
-| **GitHub Actions** | Settings → GitHub token (or `gh` / `HEADROOM_GITHUB_TOKEN`) |
-| **Supabase** | Settings → Supabase PAT |
-| **Plausible** | Settings → Plausible Stats API key |
+| **Git** | Settings → Integrations → Git (`dev_root` + authors). Local commits under Activity → Git commits |
+| **GitHub Actions** | Settings → Integrations → GitHub Actions (token / `gh` / env). CI failures and inbox under Activity |
+| **Supabase** | Settings → Integrations → Supabase PAT |
+| **Plausible** | Settings → Integrations → Plausible Stats API key |
+| **PostHog** | Settings → Integrations → PostHog personal API key |
 | **Vercel** | Already signed into the Vercel CLI |
-| **Git / local servers** | `dev_root` + `git_authors` in `~/.headroom/config.json` |
+| **Local servers** | Discovered via `lsof` (no key) |
 
-Which repos Actions watches is editable in **Settings → GitHub Actions**: owner
+Which repos Actions watches is editable under **GitHub Actions**: owner
 filters, an always-watch list, and the discovery cap. Settings also shows the
 repos those settings resolve to on this machine.
 
@@ -352,10 +358,11 @@ LAN with `"require_auth": false`, in `~/.headroom/config.json`.
 | Source | How |
 |---|---|
 | Vercel | CLI auth → recent team deployments |
-| Git | Commits under `dev_root` matching `git_authors` |
-| GitHub Actions | Failed / running runs (Settings token / Keychain / `gh`) |
+| Git | Local commits under `dev_root` matching `git_authors` (no GitHub token; includes unpushed) |
+| GitHub Actions | Failed / running runs + inbox via Settings token / Keychain / `gh` |
 | Supabase | Project health + security advisor lints via Settings PAT |
 | Plausible | Site visitors / realtime via Settings Stats API key |
+| PostHog | Project events / users / live via Settings personal API key |
 | Local servers | `lsof` TCP LISTEN → labeled ports (stop from the menu bar) |
 
 Failures keep the last-good snapshot (`cache_util.keep_stale`). Each row is one
@@ -382,6 +389,9 @@ entry expand into several rows — see **Extra accounts** above.
 | `plausible_sites` | Optional domain filter / fallback when the key cannot list sites |
 | `plausible_host` | Cloud or self-hosted base URL (default `https://plausible.io`) |
 | `plausible_range` | Primary window: `day`, `24h` (default), `7d`, or `30d` |
+| `posthog_projects` | Optional project-id filter / fallback when the key cannot list projects |
+| `posthog_host` | US / EU / self-hosted base URL (default `https://us.posthog.com`) |
+| `posthog_range` | Primary window: `day`, `24h` (default), `7d`, or `30d` |
 | `gemini_oauth_client_id` / `_secret` | Only if Gemini refreshes fail: the public client constants the host normally reads out of the installed `gemini` CLI |
 | `auth_token` | Override the generated **host token** |
 | `require_auth` | `false` opens `/usage` to the whole network (default `true`) |
@@ -430,6 +440,7 @@ Everything below is loopback-open and token-gated off-box.
 | `POST /sources` | Toggle sources (`enabled` map), pin provider order (`order` list), and/or recolor rows (`accents` map — `#RRGGBB`, `null` restores the default). Loopback or paired iOS with `sources` scope |
 | `POST /supabase/refresh` | Force Supabase poll (loopback) |
 | `POST /plausible/refresh` | Force Plausible poll (loopback) |
+| `POST /posthog/refresh` | Force PostHog poll (loopback) |
 | `POST /local/stop` | Stop server (loopback or paired iOS with `servers` scope) |
 | `POST /attention/ack` | Clear the current warning everywhere until its reasons change |
 | `POST /mobile/permissions` | Replace iOS grants (loopback/Mac settings only) |
@@ -518,7 +529,8 @@ MIT — see [LICENSE](LICENSE).
 
 Headroom reads local state that other tools leave on your Mac. It is not
 affiliated with, endorsed by, or supported by Anthropic, OpenAI, Anysphere,
-GitHub, Google, JetBrains, Zed, Codeium, Vercel, Supabase, or Plausible. Those
+GitHub, Google, JetBrains, Zed, Codeium, Vercel, Supabase, Plausible, or
+PostHog. Those
 names appear here to say what is being measured. Any of them can change a file
 format or an endpoint without notice, and the matching provider goes quiet
 until Headroom catches up.

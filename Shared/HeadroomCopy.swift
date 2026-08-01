@@ -18,6 +18,7 @@ enum HeadroomCopy {
     static let services = "Services"
     static let supabase = "Supabase"
     static let plausible = "Plausible"
+    static let posthog = "PostHog"
     static let localServers = "Local servers"
     static let otherMacs = "Other Macs"
     static let computers = "Computers"
@@ -42,6 +43,10 @@ enum HeadroomCopy {
     /// lands; services are what you point a key at.
     static let integrationsCode = "Code and deploys"
     static let integrationsServices = "Services"
+    static let integrationsBalances = "API balances"
+    static let openRouter = "OpenRouter"
+    static let aiGateway = "AI Gateway"
+    static let balanceLeft = "left"
     static let settingsConnection = "Connection"
     static let settingsPermissions = "Permissions"
     /// General pane: row-count steppers for what this Mac draws.
@@ -373,6 +378,25 @@ enum HeadroomCopy {
 
     static func notUpdating(age: TimeInterval) -> String {
         "\(notUpdating) · \(ago(age))"
+    }
+
+    /// A meter the host is deliberately not refreshing — usually a provider
+    /// rate limit. Not an alarm: the host already backed off, and naming the
+    /// wait stops the reflex of hammering Refresh.
+    static let updatingPaused = "Paused"
+
+    static func updatingPaused(retryIn: TimeInterval) -> String {
+        "\(updatingPaused) · retries in \(inAbout(retryIn))"
+    }
+
+    /// Compact future duration for retry copy: "1m", "5m", "1h".
+    static func inAbout(_ seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded()))
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = Int((seconds / 3600).rounded())
+        if hours < 24 { return hours <= 1 ? "1h" : "\(hours)h" }
+        let days = max(1, Int((seconds / 86_400).rounded()))
+        return days == 1 ? "1d" : "\(days)d"
     }
 
     /// A meter whose login is gone or refused. "Not updating" is true of this

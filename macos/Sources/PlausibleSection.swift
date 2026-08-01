@@ -2,13 +2,9 @@ import AppKit
 import SwiftUI
 
 /// Plausible site traffic. Live visitors float to the top; each row opens the
-/// site dashboard. Sites and host come from ~/.headroom/config.json.
+/// site dashboard. Which sites appear is chosen under Settings → Integrations.
 struct PlausibleSection: View {
     let data: PlausibleUsage?
-
-    @AppStorage("plausibleRowLimit")
-    private var plausibleRowLimit = 6
-    @State private var showAll = false
 
     @ViewBuilder
     var body: some View {
@@ -20,38 +16,21 @@ struct PlausibleSection: View {
     }
 
     private var connected: some View {
-        let allSites = data?.sites ?? []
-        let limit = max(1, min(plausibleRowLimit, 20))
-        let rows = showAll ? allSites : Array(allSites.prefix(limit))
+        // Settings picks which sites the host returns; draw all of them.
+        let sites = data?.sites ?? []
 
-        return DataSection(title: "Plausible") {
+        return DataSection(title: "Plausible", iconID: "plausible") {
             if data?.ok != true {
                 Text(data?.error ?? HeadroomCopy.serviceStatus("Plausible", configured: data?.configured))
                     .font(.caption)
                     .foregroundStyle(HeadroomPalette.amber)
             } else {
-                Text(summaryLine(sites: allSites.count))
+                Text(summaryLine(sites: sites.count))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                ForEach(rows) { site in
+                ForEach(sites) { site in
                     row(site)
-                }
-
-                if allSites.count > limit {
-                    Button {
-                        showAll.toggle()
-                    } label: {
-                        Label(
-                            showAll ? "Show fewer" : "Show all",
-                            systemImage: showAll
-                                ? "line.3.horizontal.decrease"
-                                : "ellipsis.circle"
-                        )
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
         }

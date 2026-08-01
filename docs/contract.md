@@ -49,7 +49,7 @@ optional, so a *top-level* key going missing degrades gracefully. The nested
 structs are where it bites: `HeadroomModels.swift` has **39 non-optional
 decoded fields**, and exactly one hand-written `init(from:)` in the file. Nine
 of the 39 sit on the `/usage` path — `ActivityItem.id`, `DailyBurnDay.date`,
-`GitHubRun.id`, `PlausibleSite.domain`, `QuotaProviderInfo.id`,
+`GitHubRun.id`, `PlausibleSite.domain`, `PostHogProject.id`, `QuotaProviderInfo.id`,
 `SupabaseLint.name`, `SupabaseProject.ref`, `SupabaseService.name`,
 `SyncSource.id` — and the other 30 are on the agent-event path, which decodes
 separately and fails separately.

@@ -140,12 +140,20 @@ extension View {
 
 struct DataSection<Content: View>: View {
     let title: String
+    /// Host source id when the section is a branded service (Supabase, …).
+    var iconID: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
+            HStack(spacing: 6) {
+                if let iconID {
+                    ProviderMark(providerID: iconID, size: 12)
+                        .foregroundStyle(.secondary)
+                }
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
             VStack(spacing: 10) {
                 content
             }

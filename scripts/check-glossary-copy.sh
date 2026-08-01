@@ -89,7 +89,7 @@ check_absent '"On track' 'use "On pace" — pairs with "Over pace"'
 # "Unavailable" was carrying a missing key, a failed fetch, a dead host, and a
 # provider that just didn't name the plan. Each of those wants a different
 # sentence, and three of them are actionable.
-check_absent '(Supabase|Plausible|Advisors) unavailable' \
+check_absent '(Supabase|Plausible|PostHog|Advisors) unavailable' \
   'use HeadroomCopy.serviceStatus / serviceNotReporting'
 check_absent 'Plan unavailable' 'use HeadroomCopy.planUnknown'
 check_absent 'backend unavailable' 'the user-facing name is the host'

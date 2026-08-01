@@ -90,21 +90,32 @@ private struct ProviderSummaryRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+                if let balance = provider.primaryBalance?.balanceRemainingLabel {
+                    Text(balance)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
                 // Ahead of the headline, because a headline written from
                 // frozen percentages is confidently wrong.
                 if let status = provider.statusNote {
                     Text(status)
                         .font(.caption2)
-                        .foregroundStyle(HeadroomPalette.amber)
+                        .foregroundStyle(
+                            provider.statusAlarming
+                                ? HeadroomPalette.amber : Color.secondary)
                         .lineLimit(1)
                 }
                 // Same reasoning as the Mac card: `ok` stays true while the
                 // host replays frozen bars, so an error is worth showing
-                // whenever there is one.
-                if let error = provider.error {
+                // whenever there is one. Rate-limit text is already in the
+                // status note ("Paused · retries in…").
+                if let error = provider.displayError {
                     Text(error)
                         .font(.caption2)
-                        .foregroundStyle(HeadroomPalette.amber)
+                        .foregroundStyle(
+                            provider.statusAlarming
+                                ? HeadroomPalette.amber : Color.secondary)
                         .lineLimit(2)
                 } else if let headline = provider.headline {
                     Text(headline)
@@ -133,9 +144,13 @@ private struct ProviderQuotaDetail: View {
     }
 
     private var statusTint: Color {
-        provider.ok == false || provider.readingSuspect
-            ? HeadroomPalette.amber
-            : HeadroomPalette.green
+        if provider.statusAlarming || provider.ok == false {
+            return HeadroomPalette.amber
+        }
+        if provider.readingSuspect {
+            return .secondary
+        }
+        return HeadroomPalette.green
     }
 
     var body: some View {
@@ -182,6 +197,25 @@ private struct ProviderQuotaDetail: View {
                             }
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    ForEach(provider.balancePools, id: \.id) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(item.pool.title ?? "Balance")
+                                    .fontWeight(.medium)
+                                Spacer()
+                                if let label = item.pool.balanceRemainingLabel {
+                                    Text(label)
+                                        .monospacedDigit()
+                                }
+                            }
+                            ProgressView(
+                                value: max(0, min(item.pool.level ?? 0, 1)),
+                                total: 1
+                            )
+                            .tint(provider.tint)
                         }
                     }
 

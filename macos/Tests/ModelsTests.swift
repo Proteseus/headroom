@@ -90,9 +90,17 @@ final class ModelsTests: XCTestCase {
             "projects": [{
               "ref": "project-ref",
               "name": "Production DB",
+              "organization_id": "acme",
               "region": "eu-west-1",
               "status": "ACTIVE_HEALTHY",
               "healthy": false,
+              "created_at": "2024-03-29T16:32:59Z",
+              "database": {
+                "host": "db.project-ref.supabase.co",
+                "version": "15.8.1.034",
+                "postgres_engine": "15",
+                "release_channel": "ga"
+              },
               "unhealthy_services": ["storage"],
               "services": [{
                 "name": "storage",
@@ -122,6 +130,28 @@ final class ModelsTests: XCTestCase {
               "visit_duration_7d": 142,
               "realtime": 3,
               "dashboard_url": "https://plausible.io/acme.dev"
+            }]
+          },
+          "posthog": {
+            "ok": true,
+            "configured": true,
+            "range": "24h",
+            "range_label": "24h",
+            "project_count": 1,
+            "events_today": 3100,
+            "users_today": 220,
+            "realtime": 5,
+            "projects": [{
+              "id": "12345",
+              "name": "Acme Web",
+              "range": "24h",
+              "range_label": "24h",
+              "events_today": 3100,
+              "users_today": 220,
+              "events_7d": 18000,
+              "users_7d": 1400,
+              "realtime": 5,
+              "dashboard_url": "https://us.posthog.com/project/12345"
             }]
           },
           "local": {
@@ -167,6 +197,16 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.supabase?.alertCount, 1)
         XCTAssertEqual(value.supabase?.projects?.first?.ref, "project-ref")
         XCTAssertEqual(
+            value.supabase?.projects?.first?.organizationID, "acme")
+        XCTAssertEqual(
+            value.supabase?.projects?.first?.createdAt,
+            "2024-03-29T16:32:59Z")
+        XCTAssertEqual(
+            value.supabase?.projects?.first?.database?.host,
+            "db.project-ref.supabase.co")
+        XCTAssertEqual(
+            value.supabase?.projects?.first?.database?.postgresEngine, "15")
+        XCTAssertEqual(
             value.supabase?.projects?.first?.unhealthyServices,
             ["storage"]
         )
@@ -175,6 +215,11 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.plausible?.windowLabel, "24h")
         XCTAssertEqual(value.plausible?.sites?.first?.domain, "acme.dev")
         XCTAssertEqual(value.plausible?.sites?.first?.visitorsToday, 98)
+        XCTAssertEqual(value.posthog?.realtime, 5)
+        XCTAssertEqual(value.posthog?.range, "24h")
+        XCTAssertEqual(value.posthog?.windowLabel, "24h")
+        XCTAssertEqual(value.posthog?.projects?.first?.id, "12345")
+        XCTAssertEqual(value.posthog?.projects?.first?.eventsToday, 3100)
         XCTAssertEqual(value.today?.costUSD, 4.25)
         XCTAssertEqual(value.byDay?.count, 2)
         XCTAssertEqual(value.byDay?.last?.total, 5.75)
@@ -284,12 +329,12 @@ final class ModelsTests: XCTestCase {
             UsageSnapshot.self, from: Data(json.utf8))
         let meter = value.meter(for: .claude)
         XCTAssertEqual(meter.plan, "Max 5x")
-        XCTAssertEqual(meter.primary.percent, 12)
-        XCTAssertEqual(meter.secondary.percent, 45)
+        XCTAssertEqual(meter.primary.percent, 45)
+        XCTAssertEqual(meter.secondary.percent, 12)
         XCTAssertEqual(meter.headline.percent, 45)
         XCTAssertEqual(meter.menuBarWindow.percent, 45)
-        XCTAssertEqual(meter.primary.id, "session")
-        XCTAssertEqual(meter.secondary.id, "week")
+        XCTAssertEqual(meter.primary.id, "week")
+        XCTAssertEqual(meter.secondary.id, "session")
     }
 
     func testMeterFallsBackWhenProvidersOmitPools() throws {

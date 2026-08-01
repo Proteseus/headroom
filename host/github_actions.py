@@ -388,12 +388,19 @@ def _flatten_inbox_item(item, reason):
     title = item.get("title") or "Untitled"
     created = _parse_ts(item.get("updated_at") or item.get("created_at"))
     is_pr = bool(item.get("pull_request")) or reason == "review_request"
+    user = item.get("user") if isinstance(item.get("user"), dict) else {}
+    author = user.get("login")
+    if not isinstance(author, str) or not author.strip():
+        author = None
+    else:
+        author = author.strip()
     return {
         "id": str(item.get("id") or f"{repo}#{number}"),
         "reason": reason,
         "repo": repo,
         "number": number,
         "title": title,
+        "author": author,
         "url": item.get("html_url"),
         "is_pr": is_pr,
         "created_at": created,

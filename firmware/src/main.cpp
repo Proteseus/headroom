@@ -2223,12 +2223,12 @@ static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
 // One pace layer: a pool's usage and where an even spend would have it.
 struct PaceLayer { float pct; float pace; };
 
-// Up to `max` layers, fastest window first so the shortest window ends up the
+// Up to `max` layers, longer window first so the weekly band ends up the
 // outermost ring. A pool the API doesn't report is simply absent — Codex has
 // no session window on some plans — so a provider can legitimately draw one
 // ring instead of two.
-// The host already dropped non-ring pools and ordered the rest (Session then
-// Weekly, Total then API), so a layer is just the next row.
+// The host already dropped non-ring pools and ordered the rest (Weekly then
+// Session, Total then API), so a layer is just the next row.
 static uint8_t providerLayers(const ProviderQuota &q, PaceLayer *out,
                               uint8_t max) {
   uint8_t n = 0;

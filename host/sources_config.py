@@ -43,11 +43,14 @@ import cursor_usage
 import detect_sources
 import gemini_usage
 import git_activity
+import ai_gateway_usage
 import github_actions
 import jetbrains_usage
 import local_servers
 import oauth_usage
+import openrouter_usage
 import plausible_usage
+import posthog_usage
 import supabase_usage
 import vercel_builds
 import windsurf_usage
@@ -74,10 +77,11 @@ SUBSCRIPTION_PRICES_CHECKED = "2026-08-01"
 # whether a *source* feeds the quota machinery at all (quota vs activity). The
 # two words are unavoidable: one describes a service, one describes a meter.
 #
-# Only KIND_WINDOW is implemented. The rest are named anyway, because the set
-# *is* the design: a form with no name here is a form that arrives as flat keys
-# bolted onto a provider payload, which is the thing docs/metering.md exists to
-# stop. Naming one costs a string; discovering you needed it costs a schema.
+# Only window, grant, overage and balance are implemented. The rest are named
+# anyway, because the set *is* the design: a form with no name here is a form
+# that arrives as flat keys bolted onto a provider payload, which is the thing
+# docs/metering.md exists to stop. Naming one costs a string; discovering you
+# needed it costs a schema.
 KIND_WINDOW = "window"      # % of a pool that refills on a clock
 KIND_GRANT = "grant"        # countable items, each with its own expiry
 KIND_OVERAGE = "overage"    # a window, then dollars once the window is spent
@@ -323,6 +327,8 @@ def _detail_git(payload):
 def _detail_github(payload):
     if not payload.get("configured"):
         return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
     fails = payload.get("fail_count") or 0
     running = payload.get("running_count") or 0
     inbox = payload.get("inbox_count") or 0
@@ -358,6 +364,10 @@ def _detail_local(payload):
 def _detail_supabase(payload):
     if not payload.get("configured"):
         return payload.get("error") or "not connected"
+    # Same order as Plausible: a rejected PAT used to read as "0 projects",
+    # which looked like an empty portfolio rather than a bad key.
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
     count = payload.get("project_count") or 0
     bits = [f"{count} projects"]
     alerts = payload.get("alert_count") or 0
@@ -367,6 +377,37 @@ def _detail_supabase(payload):
     if errors:
         bits.append(f"{errors} security")
     return " · ".join(bits)
+
+
+def _detail_balance(payload):
+    """Settings / footer line for a prepaid balance source."""
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "unavailable"
+    rem = (payload.get("balance") or {}).get("remaining_usd")
+    if rem is None:
+        return payload.get("error") or "no balance"
+    return f"${rem:.2f} left"
+
+
+def _summary_balance(payload):
+    rem = (payload.get("balance") or {}).get("remaining_usd")
+    used = (payload.get("balance") or {}).get("used_usd")
+    bits = [f"remaining={rem}"]
+    if used is not None:
+        bits.append(f"used={used}")
+    return "  ".join(bits)
+
+
+def _blank_balance():
+    return {
+        "ok": False,
+        "configured": False,
+        "error": None,
+        "plan": None,
+        "balance": None,
+    }
 
 
 def _detail_plausible(payload):
@@ -382,6 +423,22 @@ def _detail_plausible(payload):
     if live:
         bits.append(f"{live} live")
     bits.append(f"{today} {label}")
+    return " · ".join(bits)
+
+
+def _detail_posthog(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error")
+    count = payload.get("project_count") or 0
+    live = payload.get("realtime") or 0
+    events = payload.get("events_today") or 0
+    label = payload.get("range_label") or "today"
+    bits = [f"{count} project" + ("" if count == 1 else "s")]
+    if live:
+        bits.append(f"{live} live")
+    bits.append(f"{events} events {label}")
     return " · ".join(bits)
 
 
@@ -441,6 +498,12 @@ def _summary_plausible(payload):
             f"today={payload.get('visitors_today')}")
 
 
+def _summary_posthog(payload):
+    return (f"projects={payload.get('project_count')} "
+            f"live={payload.get('realtime')} "
+            f"events={payload.get('events_today')}")
+
+
 # ---------------- blank payloads (shape before the first fetch) ----------------
 # Quota sources derive theirs from `pools`; only the shapes that carry more
 # than plan-plus-meters are spelled out.
@@ -490,16 +553,25 @@ def _blank_plausible():
             "range": "24h", "range_label": "24h"}
 
 
+def _blank_posthog():
+    return {"ok": False, "configured": False, "projects": [],
+            "project_count": 0, "events_today": 0, "users_today": 0,
+            "realtime": 0, "range": "24h", "range_label": "24h"}
+
+
 # Order matters — Mac Settings rows and the ESP32 footer dots follow it, and
 # clients render groups in GROUP_IDS order, so keep AI rows first.
 # Quota accents match firmware COL_CLAUDE / COL_OPENAI / COL_CURSOR.
+# Week before session: the longer window is the outer ring, the shorter the
+# inner one. Same order for every provider that ships this split — Claude,
+# Codex, Windsurf — so the glyph reads the same way across them.
 _CLAUDE_POOLS = (
-    PoolSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
     PoolSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
+    PoolSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
 )
 _CODEX_POOLS = (
-    MeterSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
     MeterSpec("week", "week", "Weekly", oauth_usage.WEEK_WINDOW_S),
+    MeterSpec("session", "session", "Session", oauth_usage.SESSION_WINDOW_S),
     # Banked limit resets. A grant, not a window: you hold a count of them,
     # each expires on its own clock, and none of it is a percentage of
     # anything. Declared after the windows so `_headline_pool` is unaffected
@@ -532,8 +604,8 @@ _GEMINI_POOLS = (
     PoolSpec("flash", "flash", "Flash", gemini_usage.DAY_WINDOW_S),
 )
 _WINDSURF_POOLS = (
-    PoolSpec("session", "session", "Daily", windsurf_usage.DAY_WINDOW_S),
     PoolSpec("week", "week", "Weekly", windsurf_usage.WEEK_WINDOW_S),
+    PoolSpec("session", "session", "Daily", windsurf_usage.DAY_WINDOW_S),
 )
 _JETBRAINS_POOLS = (
     PoolSpec("month", "month", "Monthly", jetbrains_usage.MONTH_WINDOW_S),
@@ -541,6 +613,15 @@ _JETBRAINS_POOLS = (
 _ZED_POOLS = (
     PoolSpec("predictions", "predictions", "Predictions",
              zed_usage.MONTH_WINDOW_S),
+)
+_OPENROUTER_POOLS = (
+    # Prepaid credits. No window, so no ring — the mark is a depletion bar.
+    MeterSpec("balance", "balance", "Balance",
+              kind=KIND_BALANCE, ring=False),
+)
+_AI_GATEWAY_POOLS = (
+    MeterSpec("balance", "balance", "Balance",
+              kind=KIND_BALANCE, ring=False),
 )
 
 # Prices are USD list prices and intentionally do not try to infer what an
@@ -597,7 +678,7 @@ _ZED_SUBSCRIPTION_PRICES = (
 )
 
 BASE_SOURCES = (
-    Source("claude", "Claude", "~/.headroom/oauth (imports Claude login)", 60,
+    Source("claude", "Claude", "~/.headroom/oauth (imports Claude login)", 120,
            oauth_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_CLAUDE_POOLS,
            headline=("week", "session"), accent="#D97757",
@@ -661,6 +742,18 @@ BASE_SOURCES = (
            headline=("predictions",), accent="#084CCF",
            subscription_prices=_ZED_SUBSCRIPTION_PRICES,
            subscription_pricing_url="https://zed.dev/pricing"),
+    Source("openrouter", "OpenRouter", "Management API key in Keychain",
+           openrouter_usage.CACHE_TTL_S,
+           openrouter_usage.fetch_quota,
+           _detail_balance, _summary_balance, _blank_balance,
+           kind="quota", group=GROUP_AI, pools=_OPENROUTER_POOLS,
+           accent="#8B5CF6"),
+    Source("ai-gateway", "AI Gateway", "Vercel AI Gateway key in Keychain",
+           ai_gateway_usage.CACHE_TTL_S,
+           ai_gateway_usage.fetch_quota,
+           _detail_balance, _summary_balance, _blank_balance,
+           kind="quota", group=GROUP_AI, pools=_AI_GATEWAY_POOLS,
+           accent="#111111"),
     # Non-quota rows are appended after quotas in ordered_sources(); keep this
     # with the other activity sources so SOURCE_IDS stays in rollup order.
     Source("claude-status", "Claude Status", "status.claude.com", 60,
@@ -685,6 +778,10 @@ BASE_SOURCES = (
            plausible_usage.CACHE_TTL_S,
            plausible_usage.fetch_stats, _detail_plausible, _summary_plausible,
            _blank_plausible),
+    Source("posthog", "PostHog", "Personal API key in Keychain",
+           posthog_usage.CACHE_TTL_S,
+           posthog_usage.fetch_stats, _detail_posthog, _summary_posthog,
+           _blank_posthog),
 )
 
 

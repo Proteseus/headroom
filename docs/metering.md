@@ -288,7 +288,7 @@ group is about what the thing *is*; setup is a property, not a category.
 Access follows [docs/trust.md](trust.md) with no new rules: a key is a
 credential, so it is **Mac-local** — Keychain, pasted in Mac Settings, never
 written into `/usage`, never offered to the phone. Same treatment as the
-GitHub, Supabase and Plausible keys.
+GitHub, Supabase, Plausible and PostHog keys.
 
 One thing does deserve a new sentence in `SECURITY.md`: **an org-level usage or
 admin API key is a much larger credential than a stats key.** It reads spend
@@ -419,9 +419,9 @@ fetcher, the same as a new provider is today.
 | 3 | Codex credits become a `grant`; `level` + `headroom` land | ✅ **landed.** First non-window meter, and the first moment `level`/`headroom` could be designed against something that is not a percentage |
 | 4 | Cursor on-demand and Codex spend control become `overage` | ✅ **landed.** Second kind, first in dollars — and it needed **no new wire keys**, which is the abstraction paying for itself |
 | 5 | The Spend card draws the cost history, and `pricing` gains a tell | ✅ **landed.** 400 days of per-model cost that reached one string. See *attribution is not a meter* below — this step corrected its own plan |
-| 6 | `balance` — first API source, Keychain key, one account per key | The proof. Pick the provider whose numbers you can check by hand against a console |
+| 6 | `balance` — OpenRouter + Vercel AI Gateway, Keychain key, one account per key | ✅ **landed.** First prepaid meters. Anthropic/OpenAI wait on an official remaining-$ API |
 | 7 | `calendar` — same source's month-to-date against a budget | Nearly free once 6 lands: the arithmetic is already shared with `overage`. The two together are how an API account actually reads |
-| 8 | A second provider | The only real test of whether the abstraction held |
+| 8 | A second *calendar* or Anthropic/OpenAI when balance APIs exist | The only real test of whether the abstraction held past the first two |
 | 9 | `seat` — manual entry, no gauge | Cheap, and it is what makes a monthly total true rather than partial |
 | 10 | CSV export | Closes the retention gap while the data is still small |
 | 11 | The board, if the semantics have settled | Last, because it is the one that cannot be taken back cheaply |

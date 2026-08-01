@@ -28,6 +28,10 @@ DEFAULTS = {
     "plausible_sites": [],
     "plausible_host": "https://plausible.io",
     "plausible_range": "24h",
+    # Empty = every PostHog project the personal API key can see.
+    "posthog_projects": [],
+    "posthog_host": "https://us.posthog.com",
+    "posthog_range": "24h",
     # Authenticated iOS clients may use only these capabilities, and only from
     # a private/Tailscale address. Credential management remains Mac-local.
     "mobile_permissions": ["read", "refresh", "sources", "servers"],
@@ -68,6 +72,9 @@ SHARED_CONFIG_KEYS = (
     "plausible_sites",
     "plausible_host",
     "plausible_range",
+    "posthog_projects",
+    "posthog_host",
+    "posthog_range",
 )
 
 _lock = threading.Lock()
@@ -333,6 +340,21 @@ def plausible_sites():
     return tuple(DEFAULTS["plausible_sites"])
 
 
+def set_plausible_sites(sites=None):
+    """Persist which Plausible sites the card reads.
+
+    Empty means every site the key can list (or every configured fallback).
+    """
+    if sites is not None:
+        if isinstance(sites, str):
+            sites = [sites]
+        if not isinstance(sites, (list, tuple)):
+            raise ValueError("sites must be a list")
+        _persist(plausible_sites=_clean_list(
+            [str(item).strip().lower() for item in sites], "sites"))
+    return {"sites": list(plausible_sites())}
+
+
 def plausible_host():
     value = get("plausible_host") or DEFAULTS["plausible_host"]
     return str(value).rstrip("/") or DEFAULTS["plausible_host"]
@@ -364,6 +386,73 @@ def set_plausible_range(value):
         raise ValueError(
             f"plausible_range must be one of {', '.join(PLAUSIBLE_RANGES)}")
     _persist(plausible_range=rid)
+    return rid
+
+
+def posthog_projects():
+    value = get("posthog_projects")
+    if isinstance(value, list) and value:
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return tuple(DEFAULTS["posthog_projects"])
+
+
+def set_posthog_projects(projects=None):
+    """Persist which PostHog projects the card reads.
+
+    Empty means every project the key can list (or every configured fallback).
+    """
+    if projects is not None:
+        if isinstance(projects, str):
+            projects = [projects]
+        if not isinstance(projects, (list, tuple)):
+            raise ValueError("projects must be a list")
+        _persist(posthog_projects=_clean_list(
+            [str(item).strip() for item in projects], "projects"))
+    return {"projects": list(posthog_projects())}
+
+
+def posthog_host():
+    value = get("posthog_host") or DEFAULTS["posthog_host"]
+    return str(value).rstrip("/") or DEFAULTS["posthog_host"]
+
+
+def set_posthog_host(value):
+    """Persist the PostHog API host (US / EU / self-hosted)."""
+    host = str(value or "").strip().rstrip("/")
+    if not host:
+        raise ValueError("posthog_host must be a URL")
+    if "://" not in host:
+        host = "https://" + host
+    _persist(posthog_host=host)
+    return host
+
+
+POSTHOG_RANGES = ("day", "24h", "7d", "30d")
+POSTHOG_RANGE_LABELS = {
+    "day": "today",
+    "24h": "24h",
+    "7d": "7d",
+    "30d": "30d",
+}
+
+
+def posthog_range():
+    value = str(get("posthog_range") or DEFAULTS["posthog_range"]).strip().lower()
+    return value if value in POSTHOG_RANGES else DEFAULTS["posthog_range"]
+
+
+def posthog_range_label(range_id=None):
+    rid = range_id or posthog_range()
+    return POSTHOG_RANGE_LABELS.get(rid, rid)
+
+
+def set_posthog_range(value):
+    """Persist the primary PostHog window without disturbing other config."""
+    rid = str(value or "").strip().lower()
+    if rid not in POSTHOG_RANGES:
+        raise ValueError(
+            f"posthog_range must be one of {', '.join(POSTHOG_RANGES)}")
+    _persist(posthog_range=rid)
     return rid
 
 

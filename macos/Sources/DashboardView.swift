@@ -63,6 +63,7 @@ struct DashboardView: View {
                             ActivitySection(items: store.snapshot.activity ?? [])
                             SupabaseSection(data: store.snapshot.supabase)
                             PlausibleSection(data: store.snapshot.plausible)
+                            PostHogSection(data: store.snapshot.posthog)
                             ServersSection(store: store, pendingStop: $serverToStop)
                             MachinesSection(machines: store.snapshot.peerMachines)
                         } else {

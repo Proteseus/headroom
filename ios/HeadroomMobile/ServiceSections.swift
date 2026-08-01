@@ -1,15 +1,14 @@
 import LocalAuthentication
 import SwiftUI
 
-/// Supabase, Plausible and the listening ports, as sections rather than a
-/// screen. They were their own tab until the phone was split by urgency
+/// Supabase, Plausible, PostHog and the listening ports, as sections rather
+/// than a screen. They were their own tab until the phone was split by urgency
 /// instead of by source; now they sit under the feed on `ActivityScreen`,
 /// which owns the list and therefore the confirmation dialogs too — a
 /// `confirmationDialog` hung off a `Section` presents from nowhere in
 /// particular.
 struct ServiceSections: View {
     @ObservedObject var store: MobileUsageStore
-    @Environment(\.openURL) private var openURL
     /// Asking to stop a server is this view's whole outbound surface. The
     /// screen above it owns the confirm, the biometric check and the failure.
     var requestStop: (LocalServer) -> Void
@@ -17,6 +16,7 @@ struct ServiceSections: View {
     var body: some View {
         supabaseSection
         plausibleSection
+        posthogSection
         localServersSection
     }
 
@@ -33,56 +33,42 @@ struct ServiceSections: View {
                         .foregroundStyle(HeadroomPalette.amber)
                 } else {
                     ForEach(usage?.projects ?? []) { project in
-                        DisclosureGroup {
-                            ForEach(project.services ?? []) { service in
-                                LabeledContent(
-                                    service.name,
-                                    value: service.status ?? (service.healthy == true ? "healthy" : "unhealthy")
-                                )
-                                .foregroundStyle(
-                                    service.healthy == false
-                                        ? AnyShapeStyle(HeadroomPalette.red)
-                                        : AnyShapeStyle(.secondary)
-                                )
-                            }
-                            lintRows(project)
+                        NavigationLink {
+                            SupabaseProjectDetail(project: project)
                         } label: {
-                            Button {
-                                if let raw = project.dashboardURL, let url = URL(string: raw) {
-                                    openURL(url)
-                                }
-                            } label: {
-                                HStack {
-                                    Circle()
-                                        .fill(project.healthy == true
-                                              ? HeadroomPalette.green
-                                              : HeadroomPalette.red)
-                                        .frame(width: 8, height: 8)
-                                    VStack(alignment: .leading) {
-                                        Text(project.name ?? project.ref)
-                                            .foregroundStyle(.primary)
-                                        Text([project.region, project.status].compactMap { $0 }.joined(separator: " · "))
+                            HStack {
+                                Circle()
+                                    .fill(project.healthy == true
+                                          ? HeadroomPalette.green
+                                          : HeadroomPalette.red)
+                                    .frame(width: 8, height: 8)
+                                VStack(alignment: .leading) {
+                                    Text(project.name ?? project.ref)
+                                        .foregroundStyle(.primary)
+                                    let subtitle = supabaseSubtitle(project)
+                                    if !subtitle.isEmpty {
+                                        Text(subtitle)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
-                                    Spacer()
-                                    if let errors = project.lintErrorCount, errors > 0 {
-                                        Label("\(errors)", systemImage: "shield.lefthalf.filled")
-                                            .font(.caption)
-                                            .foregroundStyle(HeadroomPalette.red)
-                                    } else if let warns = project.lintWarnCount, warns > 0 {
-                                        Label("\(warns)", systemImage: "shield.lefthalf.filled")
-                                            .font(.caption)
-                                            .foregroundStyle(HeadroomPalette.amber)
-                                    }
+                                }
+                                Spacer()
+                                if let errors = project.lintErrorCount, errors > 0 {
+                                    Text("\(errors)")
+                                        .font(.caption.monospacedDigit().weight(.medium))
+                                        .foregroundStyle(HeadroomPalette.red)
+                                } else if let warns = project.lintWarnCount, warns > 0 {
+                                    Text("\(warns)")
+                                        .font(.caption.monospacedDigit().weight(.medium))
+                                        .foregroundStyle(HeadroomPalette.amber)
                                 }
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
             } header: {
-                HStack {
+                HStack(spacing: 6) {
+                    ProviderMark(providerID: "supabase", size: 12)
                     Text(HeadroomCopy.supabase)
                     Spacer()
                     if let count = usage?.projectCount {
@@ -94,52 +80,16 @@ struct ServiceSections: View {
         }
     }
 
-    /// Security advisor findings under each project, worst first. Tapping one
-    /// opens Supabase's remediation doc, or the project's advisor page.
-    @ViewBuilder
-    private func lintRows(_ project: SupabaseProject) -> some View {
-        if let failure = project.advisorError {
-            Label("\(HeadroomCopy.serviceNotReporting("Advisors")) · \(failure)", systemImage: "shield.slash")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        ForEach(project.lints ?? []) { lint in
-            Button {
-                let target = lint.remediation ?? project.advisorsURL
-                if let url = URL(string: target) { openURL(url) }
-            } label: {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: lint.isError
-                          ? "exclamationmark.shield.fill"
-                          : "shield.lefthalf.filled")
-                        .foregroundStyle(lint.isError
-                                         ? HeadroomPalette.red
-                                         : HeadroomPalette.amber)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(lint.title ?? lint.name)
-                            .font(.callout)
-                            .foregroundStyle(.primary)
-                        if let entity = lint.entity {
-                            Text(entity)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                        if let detail = lint.detail ?? lint.description {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                        }
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        if project.lintTruncated == true, let total = project.lintTotal {
-            Text("+ \(total - (project.lints ?? []).count) more in the dashboard")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+    /// Region always; raw status / unhealthy services only when the dot is
+    /// red — same rule as the Mac card, so `ACTIVE_HEALTHY` never rides next
+    /// to a green light.
+    private func supabaseSubtitle(_ project: SupabaseProject) -> String {
+        let detail: String? = project.healthy == true
+            ? nil
+            : ((project.unhealthyServices ?? []).isEmpty
+               ? project.status
+               : (project.unhealthyServices ?? []).joined(separator: ", "))
+        return [project.region, detail].compactMap { $0 }.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -156,10 +106,8 @@ struct ServiceSections: View {
                         Array(plausibleSites.enumerated()),
                         id: \.offset
                     ) { _, site in
-                        Button {
-                            if let raw = site.dashboardURL, let url = URL(string: raw) {
-                                openURL(url)
-                            }
+                        NavigationLink {
+                            PlausibleSiteDetail(site: site)
                         } label: {
                             HStack {
                                 Circle()
@@ -188,16 +136,75 @@ struct ServiceSections: View {
                                 }
                             }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             } header: {
-                HStack {
+                HStack(spacing: 6) {
+                    ProviderMark(providerID: "plausible", size: 12)
                     Text(HeadroomCopy.plausible)
                     Spacer()
                     if let today = usage?.visitorsToday {
                         let label = usage?.windowLabel ?? "today"
                         Text("\(HeadroomFormat.compact(today)) \(label)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var posthogSection: some View {
+        let usage = store.snapshot.posthog
+        if usage?.configured == true {
+            Section {
+                if usage?.ok != true {
+                    Label(usage?.error ?? HeadroomCopy.serviceStatus(
+                        HeadroomCopy.posthog, configured: usage?.configured),
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(HeadroomPalette.amber)
+                } else {
+                    ForEach(posthogProjects) { project in
+                        NavigationLink {
+                            PostHogProjectDetail(project: project)
+                        } label: {
+                            HStack {
+                                Circle()
+                                    .fill(
+                                        (project.realtime ?? 0) > 0
+                                            ? HeadroomPalette.green
+                                            : Color.secondary.opacity(0.3)
+                                    )
+                                    .frame(width: 8, height: 8)
+                                VStack(alignment: .leading) {
+                                    Text(project.displayName)
+                                        .foregroundStyle(.primary)
+                                    Text(posthogDetail(project))
+                                        .font(.caption)
+                                        .foregroundStyle(
+                                            project.error == nil
+                                                ? AnyShapeStyle(.secondary)
+                                                : AnyShapeStyle(HeadroomPalette.amber)
+                                        )
+                                }
+                                Spacer()
+                                if let live = project.realtime, live > 0 {
+                                    Text("\(live) live")
+                                        .font(.caption.monospacedDigit().weight(.semibold))
+                                        .foregroundStyle(HeadroomPalette.green)
+                                }
+                            }
+                        }
+                    }
+                }
+            } header: {
+                HStack(spacing: 6) {
+                    ProviderMark(providerID: "posthog", size: 12)
+                    Text(HeadroomCopy.posthog)
+                    Spacer()
+                    if let events = usage?.eventsToday {
+                        let label = usage?.windowLabel ?? "today"
+                        Text("\(HeadroomFormat.compact(events)) \(label)")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -215,19 +222,32 @@ struct ServiceSections: View {
             } else {
                 ForEach(servers) { server in
                     HStack {
-                        Circle()
-                            .fill(server.reachable == false
-                                  ? HeadroomPalette.red
-                                  : HeadroomPalette.green)
-                            .frame(width: 8, height: 8)
-                        VStack(alignment: .leading) {
-                            Text(server.name ?? "Server")
-                            Text(serverDetail(server))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                        NavigationLink {
+                            LocalServerDetail(
+                                server: server,
+                                hostName: serverComputerName,
+                                canStop: store.mobilePermissions.servers
+                                    && !store.isStale
+                                    && server.pid != nil,
+                                isStopping: store.stoppingServerID == server.id,
+                                onStop: { requestStop(server) }
+                            )
+                        } label: {
+                            HStack {
+                                Circle()
+                                    .fill(server.reachable == false
+                                          ? HeadroomPalette.red
+                                          : HeadroomPalette.green)
+                                    .frame(width: 8, height: 8)
+                                VStack(alignment: .leading) {
+                                    Text(server.name ?? "Server")
+                                    Text(serverDetail(server))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
                         }
-                        Spacer()
                         if store.stoppingServerID == server.id {
                             ProgressView()
                         } else if server.pid != nil {
@@ -277,6 +297,25 @@ struct ServiceSections: View {
 
     private var plausibleSites: [PlausibleSite] {
         store.snapshot.plausible?.sites ?? []
+    }
+
+    private func posthogDetail(_ project: PostHogProject) -> String {
+        if let error = project.error { return error }
+        var bits: [String] = []
+        if let events = project.eventsToday {
+            bits.append("\(HeadroomFormat.compact(events)) events \(project.windowLabel)")
+        }
+        if let users = project.usersToday {
+            bits.append("\(HeadroomFormat.compact(users)) users")
+        }
+        if let week = project.events7d, project.range != "7d" {
+            bits.append("\(HeadroomFormat.compact(week)) / 7d")
+        }
+        return bits.isEmpty ? "No stats yet" : bits.joined(separator: " · ")
+    }
+
+    private var posthogProjects: [PostHogProject] {
+        store.snapshot.posthog?.projects ?? []
     }
 
     private func serverDetail(_ server: LocalServer) -> String {

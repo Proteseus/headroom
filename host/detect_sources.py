@@ -141,6 +141,54 @@ def plausible_signed_in():
         return False
 
 
+def posthog_signed_in():
+    if (os.environ.get("POSTHOG_PERSONAL_API_KEY")
+            or os.environ.get("HEADROOM_POSTHOG_TOKEN")):
+        return True
+    try:
+        raw = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.posthog", "-a", "access-token", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        return bool(raw)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def openrouter_signed_in():
+    if (os.environ.get("OPENROUTER_API_KEY")
+            or os.environ.get("HEADROOM_OPENROUTER_TOKEN")):
+        return True
+    try:
+        raw = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.openrouter",
+             "-a", "access-token", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        return bool(raw)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def ai_gateway_signed_in():
+    if (os.environ.get("AI_GATEWAY_API_KEY")
+            or os.environ.get("HEADROOM_AI_GATEWAY_TOKEN")
+            or os.environ.get("VERCEL_OIDC_TOKEN")):
+        return True
+    try:
+        raw = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.ai-gateway",
+             "-a", "access-token", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        return bool(raw)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 def local_available():
     return True
 
@@ -166,6 +214,9 @@ PROBES = {
     "local": local_available,
     "supabase": supabase_signed_in,
     "plausible": plausible_signed_in,
+    "posthog": posthog_signed_in,
+    "openrouter": openrouter_signed_in,
+    "ai-gateway": ai_gateway_signed_in,
 }
 
 

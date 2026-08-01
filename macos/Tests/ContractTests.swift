@@ -16,6 +16,14 @@ final class ContractTests: XCTestCase {
             "windsurf": "ProviderWindsurf",
             "jetbrains": "ProviderJetBrains",
             "zed": "ProviderZed",
+            "openrouter": "ProviderOpenRouter",
+            "ai-gateway": "ProviderAIGateway",
+            "git": "ProviderGit",
+            "github": "ProviderGitHub",
+            "vercel": "ProviderVercel",
+            "supabase": "ProviderSupabase",
+            "plausible": "ProviderPlausible",
+            "posthog": "ProviderPostHog",
         ]
 
         for (providerID, assetName) in expectedAssets {
@@ -25,6 +33,14 @@ final class ContractTests: XCTestCase {
                 assetName
             )
         }
+        // Activity / Attention kinds that alias a source.
+        XCTAssertEqual(ProviderIcon.assetName(for: "deployment"), "ProviderVercel")
+        XCTAssertEqual(ProviderIcon.assetName(for: "commit"), "ProviderGit")
+        XCTAssertEqual(ProviderIcon.assetName(for: "github-inbox"), "ProviderGitHub")
+        XCTAssertEqual(ProviderIcon.assetName(for: "supabase-security"), "ProviderSupabase")
+        XCTAssertEqual(ProviderIcon.assetName(for: "claude-status"), "ProviderClaude")
+        XCTAssertEqual(ProviderIcon.sourceID(forKind: "deployment"), "vercel")
+        XCTAssertNil(ProviderIcon.sourceID(forKind: "stale"))
         XCTAssertNil(ProviderIcon.assetName(for: "unknown"))
     }
 
@@ -62,15 +78,20 @@ final class ContractTests: XCTestCase {
         XCTAssertNotNil(snapshot.byDay, "by_day")
         XCTAssertNotNil(snapshot.providers, "providers")
         XCTAssertGreaterThanOrEqual(snapshot.providers?.count ?? 0, 1)
-        XCTAssertEqual(
-            Set(snapshot.providers?.map(\.id) ?? []),
-            Set(snapshot.activeQuotaProviders.map(\.rawValue)))
+        XCTAssertTrue(
+            Set(snapshot.activeQuotaProviders.map(\.rawValue))
+                .isSubset(of: Set(snapshot.providers?.map(\.id) ?? [])))
         XCTAssertEqual(
             snapshot.activeQuotaProviders.map(\.rawValue),
             ["claude", "codex", "cursor"])
-        XCTAssertEqual(
-            snapshot.visibleQuotaProviders.map(\.id),
-            ["claude", "codex", "cursor"])
+        XCTAssertTrue(
+            Set(["claude", "codex", "cursor", "openrouter", "ai-gateway"])
+                .isSubset(of: Set(snapshot.visibleQuotaProviders.map(\.id))))
+        let openrouter = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "openrouter" })
+        XCTAssertEqual(openrouter.primaryBalance?.meterKind, "balance")
+        XCTAssertEqual(openrouter.primaryBalance?.headroom?.unit, "usd")
+        XCTAssertEqual(openrouter.primaryBalance?.headroom?.value, 62.5)
         XCTAssertNotNil(snapshot.codex, "codex")
         XCTAssertNotNil(snapshot.cursor, "cursor")
         XCTAssertNotNil(snapshot.vercel, "vercel")
@@ -78,6 +99,8 @@ final class ContractTests: XCTestCase {
         XCTAssertNotNil(snapshot.local, "local")
         XCTAssertNotNil(snapshot.plausible, "plausible")
         XCTAssertEqual(snapshot.plausible?.sites?.count, 2)
+        XCTAssertNotNil(snapshot.posthog, "posthog")
+        XCTAssertEqual(snapshot.posthog?.projects?.count, 2)
         XCTAssertNotNil(snapshot.sources, "sources")
         XCTAssertNotNil(snapshot.attention, "attention")
     }
@@ -184,7 +207,7 @@ final class ContractTests: XCTestCase {
         }
         XCTAssertEqual(
             sources.filter { $0.kind == "quota" }.map(\.id),
-            ["claude", "codex", "cursor"])
+            ["claude", "codex", "cursor", "openrouter", "ai-gateway"])
         let github = try XCTUnwrap(sources.first { $0.id == "github" })
         XCTAssertEqual(github.title, HeadroomCopy.githubActions)
     }
@@ -196,12 +219,13 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(grouped.map(\.group), [.ai, .devtools])
         XCTAssertEqual(
             grouped.first { $0.group == .ai }?.sources.map(\.id),
-            ["claude", "codex", "cursor", "claude-status"])
+            ["claude", "codex", "cursor", "openrouter", "ai-gateway", "claude-status"])
         let ai = try XCTUnwrap(grouped.first { $0.group == .ai })
         XCTAssertEqual(
             ai.sources.first { $0.id == "claude-status" }?.kind, "activity")
         let devtools = try XCTUnwrap(grouped.first { $0.group == .devtools })
         XCTAssertTrue(devtools.sources.contains { $0.id == "plausible" })
+        XCTAssertTrue(devtools.sources.contains { $0.id == "posthog" })
         XCTAssertFalse(devtools.sources.contains { $0.kind == "quota" })
     }
 
@@ -278,12 +302,14 @@ final class ContractTests: XCTestCase {
             if provider.id == "cursor" { provider.enabled = false }
             return provider
         }
+        // UsageProvider is the fixed three-case legacy enum; openrouter and
+        // ai-gateway are source-registry providers and never appear here.
         XCTAssertEqual(
             snapshot.activeQuotaProviders.map(\.rawValue),
             ["claude", "codex"])
         XCTAssertEqual(
             snapshot.visibleQuotaProviders.map(\.id),
-            ["claude", "codex"])
+            ["claude", "codex", "openrouter", "ai-gateway"])
     }
 
     func testEmptyQuotaSourcesYieldNoActiveProviders() throws {
@@ -368,6 +394,62 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(groups[2].rows.first?.subject, "New")
     }
 
+    func testInboxActivityCaptionNamesRepoAuthorAndNumber() throws {
+        let row = try JSONDecoder().decode(
+            ActivityItem.self,
+            from: Data(
+                """
+                {
+                  "id":"github-inbox:pr_1",
+                  "kind":"github",
+                  "status":"review_request",
+                  "subject":"Tighten the menu bar glyph",
+                  "repo":"acme/web",
+                  "author":"alice",
+                  "number":42,
+                  "ago":"12m"
+                }
+                """.utf8
+            )
+        )
+        let style = ActivityStatusStyle.resolve(row.status)
+        XCTAssertEqual(
+            row.caption(label: style.label),
+            "\(HeadroomCopy.activityReviewRequest) · web · @alice · #42")
+    }
+
+    func testARateLimitedProviderSaysPausedNotNotUpdating() throws {
+        // A 429 is the host backing off on purpose. Amber "Not updating" plus
+        // the raw HTTP error is what made Refresh feel like the fix.
+        let json = """
+        {
+          "providers": [
+            {"id": "claude", "title": "Claude", "kind": "quota",
+             "enabled": true, "ok": true, "stale": true,
+             "stale_cause": "rate_limited", "retry_in_s": 300,
+             "stale_for_s": 120,
+             "error": "HTTP Error 429: Too Many Requests, retrying in 5m",
+             "headline": "week",
+             "pools": {
+               "week": {"title": "Weekly", "pct": 35.0, "ring": true}
+             }}
+          ]
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+        let claude = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "claude" })
+        XCTAssertTrue(claude.isRateLimited)
+        XCTAssertFalse(claude.statusAlarming)
+        XCTAssertEqual(claude.statusNote, "Paused · retries in 5m")
+        XCTAssertNil(claude.displayError)
+        let meter = snapshot.meter(for: claude)
+        XCTAssertEqual(meter.statusNote, claude.statusNote)
+        XCTAssertFalse(meter.statusAlarming)
+        XCTAssertNil(meter.displayError)
+    }
+
     func testAReplayedProviderSaysSoDespiteBeingOK() throws {
         // The host keeps ok=true on a replay — the numbers were real once —
         // so `stale` is the only thing standing between a frozen meter and a
@@ -442,10 +524,11 @@ final class ContractTests: XCTestCase {
 
         let meter = snapshot.meter(for: claude)
         XCTAssertTrue(meter.needsSignIn)
+        XCTAssertTrue(meter.statusAlarming)
         XCTAssertEqual(meter.statusNote, claude.statusNote)
         // The card draws this whenever it is non-nil now, so the reason
         // reaches the reader while `ok` is still true.
-        XCTAssertEqual(meter.error, "keychain has no claudeAiOauth.accessToken")
+        XCTAssertEqual(meter.displayError, "keychain has no claudeAiOauth.accessToken")
 
         let row = try XCTUnwrap(snapshot.sources?.first)
         XCTAssertTrue(row.needsSignIn)

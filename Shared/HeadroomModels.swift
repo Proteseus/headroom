@@ -66,6 +66,7 @@ struct UsageSnapshot: Decodable, Sendable {
     var local: LocalUsage?
     var supabase: SupabaseUsage?
     var plausible: PlausibleUsage?
+    var posthog: PostHogUsage?
     var claudeStatus: ClaudeStatus?
     var sources: [SyncSource]?
     var attention: Attention?
@@ -124,6 +125,7 @@ struct UsageSnapshot: Decodable, Sendable {
         local: LocalUsage? = nil,
         supabase: SupabaseUsage? = nil,
         plausible: PlausibleUsage? = nil,
+        posthog: PostHogUsage? = nil,
         claudeStatus: ClaudeStatus? = nil,
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
@@ -154,6 +156,7 @@ struct UsageSnapshot: Decodable, Sendable {
         self.local = local
         self.supabase = supabase
         self.plausible = plausible
+        self.posthog = posthog
         self.claudeStatus = claudeStatus
         self.sources = sources
         self.attention = attention
@@ -164,7 +167,7 @@ struct UsageSnapshot: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case updated, contract, plan, today, codex, cursor, providers, vercel, git, github, activity, local
-        case supabase, plausible, sources, attention, focus, burndown, machines
+        case supabase, plausible, posthog, sources, attention, focus, burndown, machines
         case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
@@ -207,6 +210,7 @@ struct UsageSnapshot: Decodable, Sendable {
         local = try value(.local)
         supabase = try value(.supabase)
         plausible = try value(.plausible)
+        posthog = try value(.posthog)
         claudeStatus = try value(.claudeStatus)
         attention = try value(.attention)
         focus = try value(.focus)
@@ -327,9 +331,10 @@ struct UsageSnapshot: Decodable, Sendable {
             ? all.filter { $0.pool == "total" || $0.pool == "api" }
             : all
         return visible.sorted { lhs, rhs in
-            let lw = lhs.windowS ?? .greatestFiniteMagnitude
-            let rw = rhs.windowS ?? .greatestFiniteMagnitude
-            if lw != rw { return lw < rw }
+            // Longer window first — same outside-in order as the rings.
+            let lw = lhs.windowS ?? 0
+            let rw = rhs.windowS ?? 0
+            if lw != rw { return lw > rw }
             let li = QuotaProviderInfo.poolPrecedence.firstIndex(
                 of: lhs.pool ?? "") ?? QuotaProviderInfo.poolPrecedence.count
             let ri = QuotaProviderInfo.poolPrecedence.firstIndex(
@@ -416,6 +421,8 @@ struct UsageSnapshot: Decodable, Sendable {
         var resetCreditsLabel: String?
         var resetCreditsExpiryLabel: String?
         var costLabel: String?
+        var balanceLabel: String?
+        var balanceLevel: Double?
         switch info.id {
         case UsageProvider.claude.rawValue:
             costLabel = today?.costUSD.map { $0.dollarLabel + " today" }
@@ -430,6 +437,10 @@ struct UsageSnapshot: Decodable, Sendable {
             costLabel = cursorCostLabel
         default:
             break
+        }
+        if let balance = info.primaryBalance {
+            balanceLabel = balance.balanceRemainingLabel
+            balanceLevel = balance.level
         }
 
         return ProviderMeter(
@@ -446,9 +457,13 @@ struct UsageSnapshot: Decodable, Sendable {
             resetCreditsLabel: resetCreditsLabel,
             resetCreditsExpiryLabel: resetCreditsExpiryLabel,
             costLabel: costLabel,
+            balanceLabel: balanceLabel,
+            balanceLevel: balanceLevel,
             headlinePoolID: info.headline,
             statusNote: info.statusNote,
-            needsSignIn: info.needsSignIn
+            needsSignIn: info.needsSignIn,
+            statusAlarming: info.statusAlarming,
+            displayError: info.displayError
         )
     }
 
@@ -802,6 +817,10 @@ struct ProviderMeter: Sendable {
     /// Joined expiry countdowns for those credits, e.g. "6d 5h · 18d 3h".
     var resetCreditsExpiryLabel: String?
     var costLabel: String?
+    /// Prepaid balance remaining, e.g. "$12.34 left".
+    var balanceLabel: String?
+    /// Fraction of the pot still there, 0…1. Nil when there is no denominator.
+    var balanceLevel: Double?
     /// Host registry headline pool id (`week`, `total`, …) for menu-bar tanks.
     var headlinePoolID: String?
     /// Set when the host cannot refresh this meter — a dead login or frozen
@@ -812,6 +831,10 @@ struct ProviderMeter: Sendable {
     /// Carried alongside the note so a card can lead with it without having
     /// to parse prose back into a state.
     var needsSignIn: Bool
+    /// True when the status note is an alarm (dead login), not a quiet pause.
+    var statusAlarming: Bool
+    /// Error text worth drawing; nil when `statusNote` already covers it.
+    var displayError: String?
 
     var knownProvider: UsageProvider? { UsageProvider(rawValue: id) }
 
@@ -829,9 +852,13 @@ struct ProviderMeter: Sendable {
         resetCreditsLabel: String? = nil,
         resetCreditsExpiryLabel: String? = nil,
         costLabel: String? = nil,
+        balanceLabel: String? = nil,
+        balanceLevel: Double? = nil,
         headlinePoolID: String? = nil,
         statusNote: String? = nil,
-        needsSignIn: Bool = false
+        needsSignIn: Bool = false,
+        statusAlarming: Bool = false,
+        displayError: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -846,9 +873,16 @@ struct ProviderMeter: Sendable {
         self.resetCreditsLabel = resetCreditsLabel
         self.resetCreditsExpiryLabel = resetCreditsExpiryLabel
         self.costLabel = costLabel
+        self.balanceLabel = balanceLabel
+        self.balanceLevel = balanceLevel
         self.headlinePoolID = headlinePoolID
         self.statusNote = statusNote
         self.needsSignIn = needsSignIn
+        self.statusAlarming = statusAlarming
+        // Nil means "do not draw an error" — including when the raw `error`
+        // is set but already summarised by `statusNote` (rate limits). Do not
+        // coalesce back to `error` here.
+        self.displayError = displayError
     }
 
     /// Compatibility for call sites still typed on the known-provider enum.
@@ -881,7 +915,8 @@ struct ProviderMeter: Sendable {
             resetCreditsLabel: resetCreditsLabel,
             resetCreditsExpiryLabel: resetCreditsExpiryLabel,
             costLabel: costLabel,
-            headlinePoolID: headlinePoolID
+            headlinePoolID: headlinePoolID,
+            displayError: error
         )
     }
 
@@ -890,9 +925,13 @@ struct ProviderMeter: Sendable {
     }
 
     /// A weekly-only Codex account should not show the empty compatibility
-    /// slot that the legacy meter uses for Session.
+    /// slot that the legacy meter uses for Session. Synthetic "—" placeholders
+    /// for balance-only providers are dropped the same way.
     var displayableWindows: [MeterWindow] {
         allWindows.filter { window in
+            if window.percent == nil && window.id == nil && window.title == "—" {
+                return false
+            }
             let baseID = id.split(separator: ":", maxSplits: 1)
                 .first.map(String.init)
             guard baseID == UsageProvider.codex.rawValue,
@@ -1089,6 +1128,14 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// a symptom shared by rate limits and dropped networks, and only this one
     /// names something the reader can go and do.
     var authRequired: Bool?
+    /// Why the bars froze, when the host could classify it:
+    /// `rate_limited` / `provider` / `network`. Nil on healthy rows and on
+    /// hosts that only send the free-text `error`.
+    var staleCause: String?
+    /// Seconds until the host will ask the provider again. Set during an
+    /// active rate-limit hold so the card can count down without implying
+    /// anything is broken.
+    var retryInS: Double?
     var plan: String?
     var error: String?
     var accent: String?
@@ -1116,6 +1163,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         stale: Bool? = nil,
         staleForS: Double? = nil,
         authRequired: Bool? = nil,
+        staleCause: String? = nil,
+        retryInS: Double? = nil,
         plan: String? = nil,
         error: String? = nil,
         accent: String? = nil,
@@ -1135,6 +1184,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.stale = stale
         self.staleForS = staleForS
         self.authRequired = authRequired
+        self.staleCause = staleCause
+        self.retryInS = retryInS
         self.plan = plan
         self.error = error
         self.accent = accent
@@ -1150,6 +1201,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         case headline, pools
         case staleForS = "stale_for_s"
         case authRequired = "auth_required"
+        case staleCause = "stale_cause"
+        case retryInS = "retry_in_s"
         case accentDefault = "accent_default"
         case resetNoteURL = "reset_note_url"
         case subscriptionPricing = "subscription_pricing"
@@ -1193,18 +1246,49 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// a reason.
     var needsSignIn: Bool { authRequired == true }
 
+    /// The host is holding off because the provider rate-limited it. Older
+    /// hosts only put that fact in `error`; prefer the typed cause when it
+    /// is there.
+    var isRateLimited: Bool {
+        if staleCause == "rate_limited" { return true }
+        guard isStale, let error else { return false }
+        let low = error.lowercased()
+        return low.contains("429") || low.contains("too many requests")
+    }
+
     /// The numbers on this card cannot be read as current — frozen, or behind
-    /// a login that is no longer working. What drains a ring and ambers a
-    /// caption, since both failures make the arc a claim about the past.
+    /// a login that is no longer working. What drains a ring, since both
+    /// failures make the arc a claim about the past.
     var readingSuspect: Bool { needsSignIn || isStale }
 
-    /// "Needs sign-in · 2 hours ago", "Not updating · 2 hours ago", or nil
-    /// when the provider is fetching normally. One place decides what a meter
-    /// in trouble says, so the Mac and the phone cannot word it differently.
+    /// Amber / alarm colour is reserved for a dead login. Rate limits and
+    /// brief freezes stay secondary — the host is already retrying, and
+    /// painting them as warnings taught people to hammer Refresh.
+    var statusAlarming: Bool { needsSignIn }
+
+    /// Free-text `error` worth drawing under the status note. Rate-limit
+    /// prose is already summarised by `statusNote` ("Paused · retries in…"),
+    /// so repeating `HTTP Error 429…` next to it is pure noise.
+    var displayError: String? {
+        guard let error, !error.isEmpty else { return nil }
+        if isRateLimited { return nil }
+        return error
+    }
+
+    /// "Needs sign-in · 2 hours ago", "Paused · retries in 5m",
+    /// "Not updating · 2 hours ago", or nil when the provider is fetching
+    /// normally. One place decides what a meter in trouble says, so the Mac
+    /// and the phone cannot word it differently.
     var statusNote: String? {
         if needsSignIn {
             guard let age = staleForS else { return HeadroomCopy.needsSignIn }
             return HeadroomCopy.needsSignIn(age: age)
+        }
+        if isRateLimited {
+            if let retry = retryInS, retry > 0 {
+                return HeadroomCopy.updatingPaused(retryIn: retry)
+            }
+            return HeadroomCopy.updatingPaused
         }
         guard isStale else { return nil }
         guard let age = staleForS else { return HeadroomCopy.notUpdating }
@@ -1214,7 +1298,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// Fallback pool order for hosts that predate `pools[].rank`. It only
     /// names the pools those hosts could serve — Copilot, Gemini, JetBrains
     /// and Zed all arrived with the rank field, so they never land here.
-    static let poolPrecedence = ["session", "total", "api", "auto", "week"]
+    /// Week before session: longer window outer, matching the host registry.
+    static let poolPrecedence = ["week", "total", "api", "auto", "session"]
 
     /// Rank a pool for sorting: the host's declared order when it sent one,
     /// otherwise the legacy precedence list, otherwise last.
@@ -1252,6 +1337,23 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
             return entry.pool.pct != nil
         }
     }
+
+    /// Prepaid balance meters on this provider. `ring=False` keeps them out of
+    /// `visiblePools`, so rings stay window-only; these are drawn as depletion
+    /// bars instead.
+    var balancePools: [(id: String, pool: QuotaPoolInfo)] {
+        (pools ?? [:])
+            .filter { $0.value.isBalance }
+            .sorted {
+                let lhs = Self.poolRank(id: $0.key, pool: $0.value)
+                let rhs = Self.poolRank(id: $1.key, pool: $1.value)
+                if lhs != rhs { return lhs < rhs }
+                return $0.key < $1.key
+            }
+            .map { (id: $0.key, pool: $0.value) }
+    }
+
+    var primaryBalance: QuotaPoolInfo? { balancePools.first?.pool }
 
     /// This provider's burndown pools in exactly the selection and order of
     /// `displayablePools`, so a provider's charts line up one-for-one with the
@@ -1378,9 +1480,20 @@ extension QuotaPoolInfo {
     /// exist — a balance has no arc to sweep and must not be handed to one.
     var isWindow: Bool { meterKind == "window" }
 
+    /// Prepaid credit remaining. Distinct from a window: no refill clock.
+    var isBalance: Bool { meterKind == "balance" }
+
     /// True when the numbers were computed here rather than read from the
     /// provider. A surface showing a figure this is true for has to say so.
     var isEstimated: Bool { meterBasis == "estimated" }
+
+    /// `$12.34 left` when this pool is a balance with a USD headroom reading.
+    var balanceRemainingLabel: String? {
+        guard isBalance,
+              headroom?.unit == "usd",
+              let value = headroom?.value else { return nil }
+        return String(format: "$%.2f \(HeadroomCopy.balanceLeft)", value)
+    }
 }
 
 struct CodexUsage: Decodable, Sendable {
@@ -1635,16 +1748,16 @@ struct GitHubInboxItem: Decodable, Identifiable, Sendable {
     var repo: String?
     var number: Int?
     var title: String?
+    var author: String?
     var url: String?
     var isPr: Bool?
     var ago: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, reason, repo, number, title, url, ago
+        case id, reason, repo, number, title, author, url, ago
         case isPr = "is_pr"
     }
 }
-
 
 struct GitHubRun: Decodable, Identifiable, Sendable {
     var id: String
@@ -1699,13 +1812,17 @@ struct ActivityItem: Decodable, Identifiable, Sendable {
     var sha: String?
     var shortSHA: String?
     var target: String?
+    /// Opener login for GitHub inbox rows (`review_request` / `assigned`).
+    var author: String?
+    /// Issue or PR number for GitHub inbox rows.
+    var number: Int?
     var ago: String?
     var errorMessage: String?
     var url: String?
     var inspectorURL: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, status, subject, repo, project, branch, sha, target, ago, url
+        case id, kind, status, subject, repo, project, branch, sha, target, author, number, ago, url
         case shortSHA = "short_sha"
         case errorMessage = "error_message"
         case inspectorURL = "inspector_url"
@@ -1789,6 +1906,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     /// says so in words: a row that reads "not connected" invites you to check
     /// a network, which is the wrong half of the problem.
     var authRequired: Bool?
+    /// Same typed freeze cause as `QuotaProviderInfo.staleCause`.
+    var staleCause: String?
     var configured: Bool?
     var error: String?
     var detail: String?
@@ -1796,12 +1915,20 @@ struct SyncSource: Decodable, Identifiable, Sendable {
 
     var needsSignIn: Bool { authRequired == true }
 
+    var isRateLimited: Bool {
+        if staleCause == "rate_limited" { return true }
+        guard stale == true, let error else { return false }
+        let low = error.lowercased()
+        return low.contains("429") || low.contains("too many requests")
+    }
+
     var isDismissed: Bool { dismissed ?? !(enabled ?? true) }
 
     enum CodingKeys: String, CodingKey {
         case id, title, label, hint, kind, group, accent, enabled, ok, stale
         case configured, error, detail, dismissed
         case authRequired = "auth_required"
+        case staleCause = "stale_cause"
         case accentDefault = "accent_default"
         case ageS = "age_s"
     }
@@ -1864,6 +1991,11 @@ struct SupabaseProject: Decodable, Identifiable, Sendable {
     var unhealthyServices: [String]?
     var healthError: String?
     var dashboardURL: String?
+    /// ISO-8601 from the Management API (`created_at` / `inserted_at`).
+    var createdAt: String?
+    /// Postgres host / version when the list payload included a `database`
+    /// object. Nil on older hosts and on projects that omitted it.
+    var database: SupabaseDatabase?
     /// Security advisor findings, ERROR first. Capped host-side; `lintTotal`
     /// is the real count.
     var lints: [SupabaseLint]?
@@ -1883,11 +2015,12 @@ struct SupabaseProject: Decodable, Identifiable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case ref, name, region, status, healthy, services, lints
+        case ref, name, region, status, healthy, services, lints, database
         case organizationID = "organization_id"
         case unhealthyServices = "unhealthy_services"
         case healthError = "health_error"
         case dashboardURL = "dashboard_url"
+        case createdAt = "created_at"
         case lintTruncated = "lint_truncated"
         case lintErrorCount = "lint_error_count"
         case lintWarnCount = "lint_warn_count"
@@ -1914,6 +2047,8 @@ struct SupabaseProject: Decodable, Identifiable, Sendable {
         unhealthyServices = try value(.unhealthyServices)
         healthError = try value(.healthError)
         dashboardURL = try value(.dashboardURL)
+        createdAt = try value(.createdAt)
+        database = try value(.database)
         lintTruncated = try value(.lintTruncated)
         lintErrorCount = try value(.lintErrorCount)
         lintWarnCount = try value(.lintWarnCount)
@@ -1925,6 +2060,21 @@ struct SupabaseProject: Decodable, Identifiable, Sendable {
             SupabaseService.self, forKey: .services)
         lints = try container.decodeLossyArrayIfPresent(
             SupabaseLint.self, forKey: .lints)
+    }
+}
+
+/// Postgres metadata on a Supabase project — subset of the Management API's
+/// `database` object that is useful to show without being a secret.
+struct SupabaseDatabase: Decodable, Sendable, Equatable {
+    var host: String?
+    var version: String?
+    var postgresEngine: String?
+    var releaseChannel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case host, version
+        case postgresEngine = "postgres_engine"
+        case releaseChannel = "release_channel"
     }
 }
 
@@ -2050,6 +2200,87 @@ struct PlausibleSite: Decodable, Identifiable, Sendable {
         case pageviews7d = "pageviews_7d"
         case bounceRate7d = "bounce_rate_7d"
         case visitDuration7d = "visit_duration_7d"
+        case dashboardURL = "dashboard_url"
+        case rangeLabel = "range_label"
+    }
+}
+
+struct PostHogUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var projects: [PostHogProject]?
+    var projectCount: Int?
+    var eventsToday: Int?
+    var usersToday: Int?
+    var realtime: Int?
+    /// Primary window id from the host (`day`, `24h`, `7d`, `30d`).
+    var range: String?
+    var rangeLabel: String?
+
+    var windowLabel: String {
+        rangeLabel ?? range ?? "today"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, projects, stale, realtime, range
+        case projectCount = "project_count"
+        case eventsToday = "events_today"
+        case usersToday = "users_today"
+        case rangeLabel = "range_label"
+    }
+
+    /// Hand-written so one malformed project does not cost the whole document.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        projectCount = try value(.projectCount)
+        eventsToday = try value(.eventsToday)
+        usersToday = try value(.usersToday)
+        realtime = try value(.realtime)
+        range = try value(.range)
+        rangeLabel = try value(.rangeLabel)
+        projects = try container.decodeLossyArrayIfPresent(
+            PostHogProject.self, forKey: .projects)
+    }
+}
+
+struct PostHogProject: Decodable, Identifiable, Sendable {
+    var id: String
+    var name: String?
+    var eventsToday: Int?
+    var usersToday: Int?
+    var events7d: Int?
+    var users7d: Int?
+    var realtime: Int?
+    var dashboardURL: String?
+    var error: String?
+    var range: String?
+    var rangeLabel: String?
+
+    var windowLabel: String {
+        rangeLabel ?? range ?? "today"
+    }
+
+    var displayName: String {
+        let trimmed = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? id : trimmed
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, realtime, error, range
+        case eventsToday = "events_today"
+        case usersToday = "users_today"
+        case events7d = "events_7d"
+        case users7d = "users_7d"
         case dashboardURL = "dashboard_url"
         case rangeLabel = "range_label"
     }

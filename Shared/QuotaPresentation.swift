@@ -4,8 +4,8 @@ import SwiftUI
 /// — the Mac's overview, the phone's quota cards, and the widget cache both
 /// apps write.
 extension QuotaProviderInfo {
-    /// Bands for the pools this provider actually reports, fastest window
-    /// outermost.
+    /// Bands for the pools this provider actually reports, longer window
+    /// outermost (week outside, session inside).
     ///
     /// A pool with no percentage gets no band. The host ships every pool its
     /// registry declares for a provider, value or not — Codex on a plan with

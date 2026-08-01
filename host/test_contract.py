@@ -157,7 +157,7 @@ class DeviceViewContractTests(unittest.TestCase):
         self.assertEqual(rows[0]["title"], "Claude")
         self.assertEqual(rows[0]["accent"], "#D97757")
         self.assertEqual([pool["t"] for pool in rows[0]["pools"]],
-                         ["Session", "Weekly"])
+                         ["Weekly", "Session"])
 
     def test_device_view_sends_only_ring_pools_with_readings(self):
         doc = {
@@ -326,7 +326,7 @@ class RollupContractTests(unittest.TestCase):
         doc = headroom_server.publish()
         for key in ("updated", "today", "by_day", "codex", "cursor", "vercel",
                     "git", "github", "activity", "local", "supabase",
-                    "plausible", "claude_status", "sources", "attention",
+                    "plausible", "posthog", "claude_status", "sources", "attention",
                     "quota_ok", "session_pct", "week_pct"):
             self.assertIn(key, doc)
 

@@ -9,8 +9,6 @@ struct SupabaseSection: View {
 
     @AppStorage("supabaseFavoriteRefs")
     private var favoriteRefsRaw = ""
-    @AppStorage("supabaseRowLimit")
-    private var supabaseRowLimit = 6
     @State private var expandedRef: String?
     @State private var showAll = false
 
@@ -34,11 +32,11 @@ struct SupabaseSection: View {
                 || ($0.lintErrorCount ?? 0) > 0
                 || favorites.contains($0.ref)
         }
-        let preferred = attention.isEmpty ? allProjects : attention
-        let limit = max(1, min(supabaseRowLimit, 20))
-        let rows = showAll ? allProjects : Array(preferred.prefix(limit))
+        // Settings picks which projects the host returns; draw all of them.
+        // Attention-first when something is wrong, with Show all to expand.
+        let rows = showAll || attention.isEmpty ? allProjects : attention
 
-        return DataSection(title: "Supabase") {
+        return DataSection(title: "Supabase", iconID: "supabase") {
             if data?.ok != true {
                 Text(data?.error ?? HeadroomCopy.serviceStatus("Supabase", configured: data?.configured))
                     .font(.caption)
@@ -63,7 +61,7 @@ struct SupabaseSection: View {
                     row(project)
                 }
 
-                if allProjects.count > limit {
+                if !attention.isEmpty, attention.count < allProjects.count {
                     Button {
                         showAll.toggle()
                     } label: {

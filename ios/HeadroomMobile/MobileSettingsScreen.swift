@@ -55,7 +55,7 @@ struct MobileSettingsScreen: View {
             Section {
                 if pairedComputers.isEmpty {
                     Text(HeadroomCopy.noComputersPaired)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.secondary) 
                 } else {
                     ForEach(pairedComputers) { computer in
                         Button {
@@ -107,18 +107,23 @@ struct MobileSettingsScreen: View {
             // belong next to the connection they qualify.
             Section {
                 ForEach(MobilePermission.allCases, id: \.rawValue) { permission in
+                    let allowed = store.mobilePermissions[permission]
+                    // A trailing `Label` inside `LabeledContent` inflates the
+                    // Form row on iOS; keep the status as a fixed-size HStack.
                     LabeledContent(permission.title) {
-                        Label(
-                            store.mobilePermissions[permission] ? "Allowed" : "Off",
-                            systemImage: store.mobilePermissions[permission]
-                                ? "checkmark.circle.fill"
-                                : "minus.circle"
-                        )
+                        HStack(spacing: 4) {
+                            Image(systemName: allowed
+                                  ? "checkmark.circle.fill"
+                                  : "minus.circle")
+                            Text(allowed ? "Allowed" : "Off")
+                        }
+                        .font(.body)
                         .foregroundStyle(
-                            store.mobilePermissions[permission]
+                            allowed
                                 ? AnyShapeStyle(HeadroomPalette.green)
                                 : AnyShapeStyle(.secondary)
                         )
+                        .fixedSize()
                     }
                 }
             } header: {
@@ -141,7 +146,9 @@ struct MobileSettingsScreen: View {
                         sourceRow(source)
                     }
                 } header: {
-                    Text(section.group.title)
+                    // Mac Settings splits these under Integrations; the phone
+                    // has no nested hub, so the section wears that name.
+                    Text(sectionTitle(for: section.group))
                 } footer: {
                     Text(footerText(for: section.group))
                 }
@@ -149,12 +156,23 @@ struct MobileSettingsScreen: View {
         }
     }
 
+    private func sectionTitle(for group: SourceGroup) -> String {
+        switch group {
+        case .ai: return group.title
+        case .devtools: return HeadroomCopy.settingsIntegrations
+        }
+    }
+
     /// Group subtitle, with the "where this list comes from" line tacked onto
     /// the last one. No refresh button down here: pull to refresh works on
     /// every tab and the status card already carries the icon.
     private func footerText(for group: SourceGroup) -> String {
-        var parts = [group.subtitle]
-        if group == .devtools {
+        var parts: [String] = []
+        switch group {
+        case .ai:
+            parts.append(group.subtitle)
+        case .devtools:
+            parts.append(HeadroomCopy.devToolsHint)
             parts.append(
                 "Add keys on the Mac under Settings → \(HeadroomCopy.settingsIntegrations)."
             )
@@ -258,12 +276,21 @@ struct MobileSettingsScreen: View {
     }
 
     private func sourceStatus(_ source: SyncSource) -> String {
+        // Off / Library rows keep a blank poll payload whose detail is
+        // "not connected". That string means no Keychain key on the Mac
+        // Integrations hub — here it would lie about a source you paused.
+        if source.enabled == false {
+            if source.configured == true, let detail = source.detail {
+                return detail
+            }
+            return "Off"
+        }
         if source.ok == false {
             return source.error ?? source.detail ?? "Error"
         }
         if let detail = source.detail ?? source.hint {
             return detail
         }
-        return source.enabled == false ? "Off" : "OK"
+        return "OK"
     }
 }

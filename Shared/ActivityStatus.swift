@@ -182,3 +182,31 @@ enum ActivityGrouping {
         return known + [ActivityGroup(kind: "other", rows: unknown)]
     }
 }
+
+extension ActivityItem {
+    /// "Review · web · @alice · #42" / "Failed · headroom · Release · main ·
+    /// 1901f54" — state first, then the coordinates. Mac and iOS both call
+    /// this so Attention and Activity stay word-for-word across appearances.
+    func caption(label: String) -> String {
+        var parts = [label]
+        let repoLeaf = Self.leafName(repo)
+        if let repoLeaf { parts.append(repoLeaf) }
+        if let project, project != repoLeaf { parts.append(project) }
+        if let author, !author.isEmpty {
+            parts.append(author.hasPrefix("@") ? author : "@\(author)")
+        }
+        if let number { parts.append("#\(number)") }
+        if let branch { parts.append(branch) }
+        if let shortSHA { parts.append(shortSHA) }
+        if status == "ready" {
+            parts.append(target == "production" ? "prod" : "preview")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// `owner/name` → `name`. The owner is the same on every row here.
+    static func leafName(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        return raw.split(separator: "/").last.map(String.init)
+    }
+}

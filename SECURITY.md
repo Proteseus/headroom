@@ -19,8 +19,10 @@ there:
   Keychain or credential file; refreshes never write back into Claude Code)
 - Gemini and Zed OAuth material via Keychain
 - `~/.codex/auth.json`, Cursor's `state.vscdb`, IDE plan caches
-- optional GitHub, Supabase and Plausible keys you paste into Mac Settings,
-  stored in Keychain and never written into `/usage`
+- optional GitHub, Supabase, Plausible, PostHog, OpenRouter and Vercel AI Gateway keys
+  you paste into Mac Settings, stored in Keychain and never written into
+  `/usage`. An OpenRouter Management key or AI Gateway key can read org-wide
+  spend — prefer the narrowest key the provider offers
 - `git log`, `gh`, the Vercel CLI, and `lsof` for listening ports
 
 It sends none of it anywhere. There is no Headroom account and no server.

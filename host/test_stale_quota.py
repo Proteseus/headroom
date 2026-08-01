@@ -439,6 +439,11 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("retrying in", first["error"])
         self.assertEqual(second["error"], first["error"])
+        # Typed cause + absolute deadline so clients can say Paused without
+        # parsing the error string, and so retry_in_s keeps counting down.
+        self.assertEqual(first["stale_cause"], "rate_limited")
+        self.assertIsInstance(first.get("retry_at"), float)
+        self.assertGreater(first["retry_at"], time.time())
 
     def test_the_endpoint_is_asked_again_once_the_backoff_expires(self):
         blob = {"claudeAiOauth": {"accessToken": "t", "refreshToken": "r"}}
@@ -504,20 +509,33 @@ class AuthRequiredTests(unittest.TestCase):
         # "Stuck at 17h old" alone reads the same whether the fix is patience
         # or a login — the line has to say which. The recorded error is on the
         # provider row already; the reason phrases it.
-        def summary_for(error):
-            doc = {"providers": [{
+        def summary_for(error, held=None, cause=None):
+            row = {
                 "id": "claude", "title": "Claude", "kind": "quota",
                 "enabled": True, "ok": True, "stale": True,
-                "stale_for_s": cache_util.STALE_ALERT_S + 60,
+                "stale_for_s": held if held is not None
+                else cache_util.STALE_ALERT_S + 60,
                 "error": error,
-            }]}
+            }
+            if cause is not None:
+                row["stale_cause"] = cause
+            doc = {"providers": [row]}
             reasons = headroom_server._build_attention(doc)["reasons"]
             return next(
-                r["summary"] for r in reasons if r["kind"] == "stale")
+                (r["summary"] for r in reasons if r["kind"] == "stale"),
+                None)
 
         self.assertIn(
             "provider is rate-limiting, retrying",
-            summary_for("HTTP Error 429: Too Many Requests"))
+            summary_for("HTTP Error 429: Too Many Requests",
+                        held=cache_util.STALE_ALERT_RATE_LIMIT_S + 60,
+                        cause="rate_limited"))
+        # Under the rate-limit threshold, Attention stays quiet — the card
+        # already says Paused.
+        self.assertIsNone(summary_for(
+            "HTTP Error 429: Too Many Requests",
+            held=cache_util.STALE_ALERT_S + 60,
+            cause="rate_limited"))
         self.assertIn(
             "provider error, retrying",
             summary_for("HTTP Error 503: Service Unavailable"))
@@ -528,3 +546,19 @@ class AuthRequiredTests(unittest.TestCase):
         # An unrecognized error shows verbatim rather than vanishing.
         self.assertIn("keychain said no", summary_for("keychain said no"))
         self.assertIn("try Refresh all", summary_for(None))
+
+    def test_providers_payload_carries_stale_cause_and_retry(self):
+        now = time.time()
+        state = {"claude": quota_payload(
+            stale=True,
+            error="HTTP Error 429: Too Many Requests, retrying in 5m",
+            stale_cause="rate_limited",
+            retry_at=now + 300,
+        )}
+        row = next(
+            r for r in headroom_server._providers_payload(state, burndowns={})
+            if r["id"] == "claude")
+        self.assertEqual(row["stale_cause"], "rate_limited")
+        self.assertIsInstance(row["retry_in_s"], int)
+        self.assertGreater(row["retry_in_s"], 0)
+        self.assertLessEqual(row["retry_in_s"], 300)

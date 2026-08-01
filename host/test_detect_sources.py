@@ -33,22 +33,25 @@ class DetectSourcesTests(unittest.TestCase):
             "local": True,
             "supabase": False,
             "plausible": False,
+            "posthog": False,
         }):
             got = detect_sources.suggested_enabled(
                 ("claude", "codex", "cursor", "vercel", "git",
-                 "github", "local", "supabase", "plausible"))
+                 "github", "local", "supabase", "plausible", "posthog"))
         self.assertTrue(got["claude"])
         self.assertFalse(got["codex"])
         self.assertFalse(got["cursor"])
         self.assertTrue(got["local"])
         self.assertFalse(got["vercel"])
         self.assertFalse(got["plausible"])
+        self.assertFalse(got["posthog"])
 
     def test_suggested_falls_back_when_no_quota_detected(self):
         with patch.object(detect_sources, "detected_map", return_value={
             "claude": False, "codex": False, "cursor": False,
             "vercel": False, "git": False, "github": False,
             "local": True, "supabase": False, "plausible": False,
+            "posthog": False,
         }):
             got = detect_sources.suggested_enabled(
                 ("claude", "codex", "cursor", "local"))
@@ -82,6 +85,7 @@ class SeedSourcesTests(unittest.TestCase):
             "local": True,
             "supabase": False,
             "plausible": False,
+            "posthog": False,
         }):
             enabled = sources_config.enabled_map()
         self.assertTrue(enabled["claude"])
@@ -93,6 +97,7 @@ class SeedSourcesTests(unittest.TestCase):
         self.assertEqual(saved.get("seeded_from"), "detect")
         self.assertFalse(saved["enabled"]["codex"])
         self.assertFalse(saved["enabled"].get("plausible", False))
+        self.assertFalse(saved["enabled"].get("posthog", False))
 
 
 class ProviderOrderTests(unittest.TestCase):

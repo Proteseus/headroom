@@ -8,8 +8,9 @@ try to do.
 
 Quota is account-scoped. Two Macs signed into the same Claude, Codex or Cursor
 login read the same percentages off the provider, because the provider is
-counting the account and not the machine. Same for Vercel, GitHub, Supabase and
-Plausible. So the headline numbers on a second Mac were always right, and none
+counting the account and not the machine. Same for Vercel, GitHub, Supabase,
+Plausible and PostHog. So the headline numbers on a second Mac were always right,
+and none
 of them are synced by anything here.
 
 What did not travel was everything around those numbers.
@@ -23,7 +24,7 @@ CLIs there, which you do anyway.
 **Synced by this feature.** The settings that are the same person's answer on
 any machine: which sources are enabled, the order you pinned providers in, the
 colours you gave them, and the non-secret half of `config.json` — git authors,
-Vercel teams, GitHub org filters, Plausible sites.
+Vercel teams, GitHub org filters, Plausible sites, PostHog projects.
 
 **Never merged, but reported.** Local servers, git commits, the Claude token
 log, agent attention events, whether the ESP32 is on this desk. These are
@@ -300,6 +301,7 @@ encrypted with the user's own keys, never through the record above:
 |---|---|
 | `com.centaur-labs.headroom.github` | yes |
 | `com.centaur-labs.headroom.plausible` | yes |
+| `com.centaur-labs.headroom.posthog` | yes |
 | `com.centaur-labs.headroom.supabase` | yes |
 | `com.centaur-labs.headroom.host` | **no** — authorizes one Mac's host, and the phone pairs to one Mac |
 
@@ -326,7 +328,7 @@ found* for an item that is plainly in Keychain Access. This is the whole trap:
 - `TokenStore.save()` tries the synced write first and **falls back to local**
   when it fails. Ad-hoc / unsigned builds (no Team ID) and iCloud Keychain
   being off both refuse `kSecAttrSynchronizable`; without the fallback,
-  Settings → Supabase/GitHub/Plausible Connect hard-fails with
+  Settings → Supabase/GitHub/Plausible/PostHog Connect hard-fails with
   "Could not save … token" even though a this-Mac-only item would work.
 - The accessible class cannot be a `…ThisDeviceOnly` variant; those are refused
   outright for a synchronizable item.

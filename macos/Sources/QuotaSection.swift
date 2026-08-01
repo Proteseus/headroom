@@ -115,6 +115,13 @@ struct ProviderQuotaCard: View {
             ) { _, window in
                 QuotaRow(window: window, tint: brand)
             }
+            if let balance = meter.balanceLabel {
+                BalanceRow(
+                    label: balance,
+                    level: meter.balanceLevel,
+                    tint: brand
+                )
+            }
             if let pace = meter.paceLabel {
                 HStack {
                     Text(pace)
@@ -160,16 +167,21 @@ struct ProviderQuotaCard: View {
                         : "exclamationmark.arrow.circlepath"
                 )
                 .font(.caption)
-                .foregroundStyle(HeadroomPalette.amber)
+                .foregroundStyle(
+                    meter.statusAlarming
+                        ? HeadroomPalette.amber : Color.secondary)
             }
             // Not gated on `ok`. The host holds `ok` true while it replays the
             // last good bars, so gating here hid the message on exactly the
             // failures that had one worth reading — including the one that
-            // named the command to run.
-            if let error = meter.error {
+            // named the command to run. Rate-limit prose is folded into the
+            // status note above, so `displayError` drops it.
+            if let error = meter.displayError {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(
+                        meter.statusAlarming
+                            ? HeadroomPalette.amber : Color.secondary)
                     .lineLimit(2)
             }
         }
@@ -256,6 +268,40 @@ struct QuotaRow: View {
     }
 }
 
+/// Prepaid balance: a bar that drains as credits go, dollars under it.
+/// Not a ring — docs/metering.md decision 2.
+struct BalanceRow: View {
+    let label: String
+    var level: Double?
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Balance")
+                .font(.body)
+                .fontWeight(.medium)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                    Capsule()
+                        .fill(tint)
+                        .frame(
+                            width: geo.size.width
+                                * CGFloat(max(0, min(level ?? 0, 1)))
+                        )
+                }
+            }
+            .frame(height: 8)
+            .accessibilityLabel("Balance remaining")
+            .accessibilityValue(label)
+            Text(label)
+                .font(.footnote)
+                .monospacedDigit()
+        }
+    }
+}
+
 struct ProviderQuotaRing: View {
     let provider: QuotaProviderInfo
     let meter: ProviderMeter
@@ -272,6 +318,19 @@ struct ProviderQuotaRing: View {
     private var ringLayers: [HeadroomRingLayer] {
         let layers = provider.ringLayers(burndown: rings)
         guard layers.isEmpty else { return layers }
+        // Balance-only providers have no window bands. Draw spent fraction so
+        // the arc empties as credits go — still not a pace ring, just a glance
+        // mark that matches the depletion bar on the detail card.
+        if let balance = provider.primaryBalance, let level = balance.level {
+            return [
+                HeadroomRingLayer(
+                    id: "balance",
+                    name: "Balance",
+                    percent: (1 - level) * 100,
+                    pacePercent: nil
+                ),
+            ]
+        }
         // A host predating the pool registry ships no pools, which leaves the
         // headline window as the only thing there is to draw.
         return [
@@ -290,6 +349,9 @@ struct ProviderQuotaRing: View {
     /// the fetch is failing, the age of the data replaces it.
     private var windowCaption: String {
         if let note = provider.statusNote { return note }
+        if let balance = provider.primaryBalance?.balanceRemainingLabel {
+            return balance
+        }
         if let reset = headline.reset, !reset.isEmpty {
             return "\(headline.title) · \(reset)"
         }
@@ -310,7 +372,8 @@ struct ProviderQuotaRing: View {
                 .minimumScaleFactor(0.8)
             Text(windowCaption)
                 .font(.caption2)
-                .foregroundStyle(provider.readingSuspect ? HeadroomPalette.amber : .secondary)
+                .foregroundStyle(
+                    provider.statusAlarming ? HeadroomPalette.amber : .secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)

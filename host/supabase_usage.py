@@ -79,6 +79,11 @@ def _token():
         return None
 
 
+def has_token():
+    """True when any credential source has a value — not that it works."""
+    return bool(_token())
+
+
 def _get(path, token, query=None, timeout=15):
     return http_util.request_json(
         API + path, auth=f"Bearer {token}", query=query, timeout=timeout)
@@ -266,6 +271,22 @@ def _count_levels(lints):
     return counts
 
 
+def _database_block(project):
+    """Postgres host / version from the Management API list payload."""
+    raw = project.get("database")
+    if not isinstance(raw, dict):
+        return None
+    block = {}
+    for key in ("host", "version", "postgres_engine", "release_channel"):
+        value = raw.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            block[key] = text
+    return block or None
+
+
 def _flatten_project(project, services, health_error, lints, advisor_error):
     ref = project.get("ref") or project.get("id")
     status = project.get("status")
@@ -292,6 +313,7 @@ def _flatten_project(project, services, health_error, lints, advisor_error):
         "lint_total": len(lints),
         "advisor_error": advisor_error,
         "created_at": project.get("inserted_at") or project.get("created_at"),
+        "database": _database_block(project),
         "dashboard_url": (
             f"https://supabase.com/dashboard/project/{ref}" if ref else None
         ),
@@ -321,12 +343,13 @@ def _list_projects(token):
 def available_projects():
     """Projects the PAT can see, for the Settings picker.
 
-    Returns `[{ref, name}, …]` with no health fan-out — Settings only needs
-    identity. Empty when nobody is connected or the API refuses.
+    Returns `{"projects": [{ref, name}, …], "error": str|None}`. Empty
+    projects with an error means the key failed; empty with no error means
+    the token works and the account has nothing to list.
     """
     token = _token()
     if not token:
-        return []
+        return {"projects": [], "error": "Connect Supabase in Headroom Settings"}
     try:
         out = []
         seen = set()
@@ -342,9 +365,16 @@ def available_projects():
                 "name": str(project.get("name") or ref).strip() or ref,
             })
         out.sort(key=lambda row: (row["name"] or "").casefold())
-        return out
-    except Exception:
-        return []
+        return {"projects": out, "error": None}
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            return {"projects": [], "error": "Supabase token rejected"}
+        return {"projects": [], "error": f"Supabase HTTP {error.code}"}
+    except Exception as error:
+        return {
+            "projects": [],
+            "error": str(error) or "Supabase not reporting",
+        }
 
 
 def _filter_projects(projects):

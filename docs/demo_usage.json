@@ -131,20 +131,20 @@
       },
       "headline": "week",
       "pools": {
-        "session": {
-          "title": "Session",
-          "rank": 0,
-          "pct": 42.0,
-          "pace_pct": 38.0,
-          "resets_in": "2h 14m",
-          "ring": true
-        },
         "week": {
           "title": "Weekly",
-          "rank": 1,
+          "rank": 0,
           "pct": 63.0,
           "pace_pct": 55.0,
           "resets_in": "3d 6h",
+          "ring": true
+        },
+        "session": {
+          "title": "Session",
+          "rank": 1,
+          "pct": 42.0,
+          "pace_pct": 38.0,
+          "resets_in": "2h 14m",
           "ring": true
         }
       }
@@ -171,18 +171,18 @@
       },
       "headline": "week",
       "pools": {
-        "session": {
-          "title": "Session",
-          "rank": 0,
-          "pct": null,
-          "ring": true
-        },
         "week": {
           "title": "Weekly",
-          "rank": 1,
+          "rank": 0,
           "pct": 72.0,
           "pace_pct": 58.0,
           "resets_in": "3d 17h",
+          "ring": true
+        },
+        "session": {
+          "title": "Session",
+          "rank": 1,
+          "pct": null,
           "ring": true
         }
       }
@@ -229,6 +229,58 @@
           "pct": 41.0,
           "pace_pct": 48.0,
           "ring": true
+        }
+      }
+    },
+    {
+      "id": "openrouter",
+      "title": "OpenRouter",
+      "kind": "quota",
+      "rank": 3,
+      "enabled": true,
+      "ok": true,
+      "plan": null,
+      "accent": "#8B5CF6",
+      "pools": {
+        "balance": {
+          "title": "Balance",
+          "rank": 0,
+          "kind": "balance",
+          "basis": "observed",
+          "level": 0.625,
+          "headroom": {"value": 62.5, "unit": "usd"},
+          "pct": null,
+          "window_s": null,
+          "resets_in_s": null,
+          "resets_in": null,
+          "pace_pct": null,
+          "ring": false
+        }
+      }
+    },
+    {
+      "id": "ai-gateway",
+      "title": "AI Gateway",
+      "kind": "quota",
+      "rank": 4,
+      "enabled": true,
+      "ok": true,
+      "plan": null,
+      "accent": "#111111",
+      "pools": {
+        "balance": {
+          "title": "Balance",
+          "rank": 0,
+          "kind": "balance",
+          "basis": "observed",
+          "level": 0.955,
+          "headroom": {"value": 95.5, "unit": "usd"},
+          "pct": null,
+          "window_s": null,
+          "resets_in_s": null,
+          "resets_in": null,
+          "pace_pct": null,
+          "ring": false
         }
       }
     }
@@ -368,6 +420,7 @@
         "repo": "acme/web",
         "number": 42,
         "title": "Tighten the menu bar glyph",
+        "author": "alice",
         "url": "https://github.com/acme/web/pull/42",
         "is_pr": true,
         "ago": "12m"
@@ -404,8 +457,26 @@
       {
         "ref": "abcd1234",
         "name": "prod",
+        "organization_id": "acme-labs",
         "status": "ACTIVE_HEALTHY",
         "region": "eu-central-1",
+        "healthy": true,
+        "created_at": "2024-03-29T16:32:59Z",
+        "database": {
+          "host": "db.abcd1234.supabase.co",
+          "version": "15.8.1.034",
+          "postgres_engine": "15",
+          "release_channel": "ga"
+        },
+        "services": [
+          {"name": "auth", "status": "ACTIVE_HEALTHY", "healthy": true},
+          {"name": "db", "status": "ACTIVE_HEALTHY", "healthy": true},
+          {"name": "rest", "status": "ACTIVE_HEALTHY", "healthy": true},
+          {"name": "realtime", "status": "ACTIVE_HEALTHY", "healthy": true},
+          {"name": "storage", "status": "ACTIVE_HEALTHY", "healthy": true}
+        ],
+        "unhealthy_services": [],
+        "dashboard_url": "https://supabase.com/dashboard/project/abcd1234",
         "lints": [
           {
             "name": "rls_disabled_in_public",
@@ -442,8 +513,24 @@
       {
         "ref": "efgh5678",
         "name": "staging",
+        "organization_id": "acme-labs",
         "status": "ACTIVE_HEALTHY",
         "region": "eu-central-1",
+        "healthy": true,
+        "created_at": "2025-01-12T09:00:00Z",
+        "database": {
+          "host": "db.efgh5678.supabase.co",
+          "version": "15.8.1.034",
+          "postgres_engine": "15",
+          "release_channel": "ga"
+        },
+        "services": [
+          {"name": "auth", "status": "ACTIVE_HEALTHY", "healthy": true},
+          {"name": "db", "status": "ACTIVE_HEALTHY", "healthy": true},
+          {"name": "rest", "status": "ACTIVE_HEALTHY", "healthy": true}
+        ],
+        "unhealthy_services": [],
+        "dashboard_url": "https://supabase.com/dashboard/project/efgh5678",
         "lints": [],
         "lint_truncated": false,
         "lint_error_count": 0,
@@ -494,6 +581,46 @@
         "visit_duration_7d": 88,
         "realtime": 1,
         "dashboard_url": "https://plausible.io/docs.acme.dev",
+        "error": null
+      }
+    ]
+  },
+  "posthog": {
+    "ok": true,
+    "configured": true,
+    "error": null,
+    "stale": false,
+    "range": "24h",
+    "range_label": "24h",
+    "project_count": 2,
+    "events_today": 4200,
+    "users_today": 310,
+    "realtime": 5,
+    "projects": [
+      {
+        "id": "12345",
+        "name": "Acme Web",
+        "range": "24h",
+        "range_label": "24h",
+        "events_today": 3100,
+        "users_today": 220,
+        "events_7d": 18000,
+        "users_7d": 1400,
+        "realtime": 4,
+        "dashboard_url": "https://us.posthog.com/project/12345",
+        "error": null
+      },
+      {
+        "id": "67890",
+        "name": "Acme Docs",
+        "range": "24h",
+        "range_label": "24h",
+        "events_today": 1100,
+        "users_today": 90,
+        "events_7d": 6200,
+        "users_7d": 480,
+        "realtime": 1,
+        "dashboard_url": "https://us.posthog.com/project/67890",
         "error": null
       }
     ]
@@ -604,6 +731,30 @@
       "stale": false
     },
     {
+      "id": "openrouter",
+      "title": "OpenRouter",
+      "kind": "quota",
+      "group": "ai",
+      "accent": "#8B5CF6",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false,
+      "detail": "$62.50 left"
+    },
+    {
+      "id": "ai-gateway",
+      "title": "AI Gateway",
+      "kind": "quota",
+      "group": "ai",
+      "accent": "#111111",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false,
+      "detail": "$95.50 left"
+    },
+    {
       "id": "claude-status",
       "title": "Claude Status",
       "kind": "activity",
@@ -656,6 +807,16 @@
     {
       "id": "plausible",
       "title": "Plausible",
+      "kind": "activity",
+      "group": "devtools",
+      "enabled": true,
+      "ok": true,
+      "configured": true,
+      "stale": false
+    },
+    {
+      "id": "posthog",
+      "title": "PostHog",
       "kind": "activity",
       "group": "devtools",
       "enabled": true,

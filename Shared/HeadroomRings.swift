@@ -2,10 +2,10 @@ import SwiftUI
 
 /// One quota pool in the Headroom rings glyph.
 ///
-/// Layers are ordered outside-in. Most surfaces use at most two: the fastest
-/// quota window first, followed by the slower window. The watch's combined dial
-/// spends its bands on providers instead, which is what `tint` is for — one
-/// glyph, one hue per band.
+/// Layers are ordered outside-in. Most surfaces use at most two: the longer
+/// quota window first (week), then the shorter (session). The watch's combined
+/// dial spends its bands on providers instead, which is what `tint` is for —
+/// one glyph, one hue per band.
 struct HeadroomRingLayer: Identifiable, Sendable {
     /// Stable identity — a pool id, a provider id. Never spoken or drawn.
     let id: String

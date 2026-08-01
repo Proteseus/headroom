@@ -30,6 +30,7 @@ import errno
 import ipaddress
 import json
 import os
+import random
 import signal
 import socket
 import subprocess
@@ -64,6 +65,7 @@ import local_servers
 import meters
 import oauth_usage
 import plausible_usage
+import posthog_usage
 import quota_samples
 import sources_config
 import supabase_usage
@@ -288,6 +290,8 @@ def _build_activity(vercel, git, supabase=None, github=None,
             "sha": None,
             "short_sha": None,
             "target": None,
+            "author": item.get("author"),
+            "number": item.get("number"),
             "created_at": _unix_seconds(item.get("created_at")),
             "ago": item.get("ago"),
             "error_message": None,
@@ -780,6 +784,7 @@ def _compute_doc():
     local = state["local"]
     supabase = state["supabase"]
     plausible = state["plausible"]
+    posthog = state["posthog"]
     claude_status_payload = state.get("claude-status") or {}
 
     local_tz = _local_tz()
@@ -853,6 +858,7 @@ def _compute_doc():
             vercel, git, supabase, github, claude_status_payload, burndowns),
         "supabase": supabase,
         "plausible": plausible,
+        "posthog": posthog,
         "claude_status": {
             "ok": bool(claude_status_payload.get("ok")),
             "configured": bool(claude_status_payload.get("configured", True)),
@@ -971,7 +977,7 @@ def _bodies():
         return _cache["usage"], _cache["device"]
 
 
-def _stale_cause(error):
+def _stale_cause(error, kind=None):
     """One clause naming why a quota froze and whether waiting fixes it.
 
     The glossary splits staleness into things you wait out (rate limits,
@@ -979,22 +985,37 @@ def _stale_cause(error):
     attention line has to say which one this is, or "stuck at 17h old"
     reads as equally mysterious either way.
     """
-    text = str(error or "")
-    low = text.lower()
-    if "429" in low or "too many requests" in low:
+    kind = kind or cache_util.stale_kind(error)
+    if kind == "rate_limited":
         return "provider is rate-limiting, retrying"
-    if ("http error 5" in low or "usage http 5" in low
-            or "bad gateway" in low or "service unavailable" in low):
+    if kind == "provider":
         return "provider error, retrying"
-    if any(mark in low for mark in (
-            "timed out", "timeout", "unreachable", "connection",
-            "getaddrinfo", "nodename", "network", "temporary failure")):
+    if kind == "network":
         return "no route to provider — check network"
+    text = str(error or "")
     if text:
         # An error nothing above recognizes is exactly the one worth
         # showing verbatim, clipped to fit a menu-bar subtitle.
         return text if len(text) <= 48 else text[:47] + "…"
     return "no error recorded — try Refresh all"
+
+
+def _provider_stale_cause(provider):
+    """Prefer the stamped cause; fall back to classifying the error string."""
+    cause = provider.get("stale_cause")
+    if cause in ("rate_limited", "provider", "network"):
+        return cause
+    return cache_util.stale_kind(provider.get("error"))
+
+
+def _retry_in_s(payload, now=None):
+    """Seconds until a rate-limit hold lifts, or None when none is active."""
+    retry_at = (payload or {}).get("retry_at")
+    if not isinstance(retry_at, (int, float)) or retry_at <= 0:
+        return None
+    when = time.time() if now is None else float(now)
+    left = int(retry_at - when)
+    return left if left > 0 else None
 
 
 def _build_attention(doc):
@@ -1118,13 +1139,19 @@ def _build_attention(doc):
         held = provider.get("stale_for_s")
         if not provider.get("stale") or not isinstance(held, (int, float)):
             continue
-        if held < cache_util.STALE_ALERT_S:
+        cause = _provider_stale_cause(provider)
+        # Rate limits are the host backing off on purpose. Wait longer before
+        # Attention pages — the card already says Paused with a retry time.
+        threshold = (cache_util.STALE_ALERT_RATE_LIMIT_S
+                     if cause == "rate_limited"
+                     else cache_util.STALE_ALERT_S)
+        if held < threshold:
             continue
         add(
             "warn",
             "stale",
             f"{title} quota stuck at {oauth_usage.fmt_resets(held)} old"
-            f" — {_stale_cause(provider.get('error'))}",
+            f" — {_stale_cause(provider.get('error'), cause)}",
             30,
         )
 
@@ -1219,6 +1246,11 @@ def _sources_payload(state):
             # the "N minutes stale" line stays at one minute forever.
             "age_s": (fetched_age if fetched_age is not None
                       else (int(max(0, now - age)) if age > 0 else None)),
+            # Same typed cause the meters carry, so Settings can say Paused
+            # for a rate limit instead of painting every freeze amber.
+            "stale_cause": (
+                _provider_stale_cause(payload) if payload.get("stale")
+                else None),
         }
         # Named accounts only. Clients put this next to the brand mark so the
         # mark names the tool and the label names the login — "Claude · Work"
@@ -1323,6 +1355,14 @@ def _providers_payload(state, burndowns=None):
             # age_s for clients already shipped against the first freshness
             # payload; both are derived from the same fetched_at timestamp.
             "stale_for_s": age,
+            # Typed freeze reason + seconds until the host will ask again.
+            # Absolute `retry_at` on the payload is turned into a countdown
+            # here so a card that redraws every minute keeps moving without
+            # another Anthropic round-trip.
+            "stale_cause": (
+                _provider_stale_cause(payload) if payload.get("stale")
+                else None),
+            "retry_in_s": _retry_in_s(payload),
             "plan": payload.get("plan"),
             "error": payload.get("error"),
             "accent": sources_config.accent_for(source.id),
@@ -1428,10 +1468,36 @@ def _vercel_config_payload():
 
 
 def _supabase_config_payload():
+    listing = supabase_usage.available_projects()
     return {
-        "ok": True,
+        "ok": listing.get("error") is None,
+        "configured": bool(supabase_usage.has_token()),
         "projects": list(app_config.supabase_project_refs()),
-        "available": supabase_usage.available_projects(),
+        "available": listing.get("projects") or [],
+        "error": listing.get("error"),
+    }
+
+
+def _plausible_config_payload():
+    listing = plausible_usage.available_sites()
+    return {
+        "ok": listing.get("error") is None,
+        "configured": bool(plausible_usage.has_token()),
+        "sites": list(app_config.plausible_sites()),
+        "available": listing.get("sites") or [],
+        "error": listing.get("error"),
+    }
+
+
+def _posthog_config_payload():
+    listing = posthog_usage.available_projects()
+    return {
+        "ok": listing.get("error") is None,
+        "configured": bool(posthog_usage.has_token()),
+        "host": app_config.posthog_host(),
+        "projects": list(app_config.posthog_projects()),
+        "available": listing.get("projects") or [],
+        "error": listing.get("error"),
     }
 
 
@@ -1595,9 +1661,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, _github_watch_payload())
             return
-        if path in ("/config/git", "/config/vercel", "/config/supabase"):
-            # Names folders on this disk and the teams / projects a login can
-            # reach — Mac-local, same class as /github/watch.
+        if path in ("/config/git", "/config/vercel", "/config/supabase",
+                    "/config/plausible", "/config/posthog"):
+            # Names folders on this disk and the teams / projects / sites a
+            # login can reach — Mac-local, same class as /github/watch.
             if not self._is_loopback():
                 self._send_json(403, {"ok": False, "error": "localhost only"})
                 return
@@ -1605,8 +1672,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _git_config_payload())
             elif path == "/config/vercel":
                 self._send_json(200, _vercel_config_payload())
-            else:
+            elif path == "/config/supabase":
                 self._send_json(200, _supabase_config_payload())
+            elif path == "/config/plausible":
+                self._send_json(200, _plausible_config_payload())
+            else:
+                self._send_json(200, _posthog_config_payload())
             return
         if path == "/accounts":
             # Names folders holding live credentials — Mac-local, like the
@@ -1733,6 +1804,7 @@ class Handler(BaseHTTPRequestHandler):
             "/local/stop",
             "/supabase/refresh",
             "/plausible/refresh",
+            "/posthog/refresh",
             "/sync/refresh",
             "/sources",
             "/mobile/permissions",
@@ -1741,6 +1813,8 @@ class Handler(BaseHTTPRequestHandler):
             "/config/git",
             "/config/vercel",
             "/config/supabase",
+            "/config/plausible",
+            "/config/posthog",
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
@@ -2080,6 +2154,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, _supabase_config_payload())
             return
 
+        if path == "/config/plausible":
+            try:
+                app_config.set_plausible_sites(sites=payload.get("sites"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            plausible_usage.invalidate()
+            self._send_json(200, _plausible_config_payload())
+            return
+
+        if path == "/config/posthog":
+            try:
+                if "host" in payload:
+                    app_config.set_posthog_host(payload.get("host"))
+                app_config.set_posthog_projects(projects=payload.get("projects"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            posthog_usage.invalidate()
+            self._send_json(200, _posthog_config_payload())
+            return
+
         if path == "/accounts":
             remove = payload.get("remove")
             try:
@@ -2214,12 +2310,18 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if path in ("/supabase/refresh", "/plausible/refresh", "/sync/refresh"):
+        if path in ("/supabase/refresh", "/plausible/refresh",
+                    "/posthog/refresh", "/sync/refresh"):
             wanted = payload.get("sources")
+            # Named refreshes (Integrations Connect / Refresh) may target a
+            # source that is still in Library; a blanket sync must not.
+            explicit = isinstance(wanted, list) and bool(wanted)
             if path == "/supabase/refresh":
                 wanted = ["supabase"]
+                explicit = True
             elif path == "/plausible/refresh":
                 wanted = ["plausible"]
+                explicit = True
                 if "range" in payload:
                     try:
                         range_id = app_config.set_plausible_range(
@@ -2237,9 +2339,30 @@ class Handler(BaseHTTPRequestHandler):
                         "range": range_id,
                         "range_label": app_config.plausible_range_label(range_id),
                     })
-                    _refresh_async(wanted)
+                    _refresh_async(wanted, require_enabled=False)
                     return
-            elif not isinstance(wanted, list) or not wanted:
+            elif path == "/posthog/refresh":
+                wanted = ["posthog"]
+                explicit = True
+                if "range" in payload:
+                    try:
+                        range_id = app_config.set_posthog_range(
+                            payload.get("range"))
+                    except ValueError as error:
+                        self._send_json(400, {
+                            "ok": False, "error": str(error),
+                        })
+                        return
+                    posthog_usage._cache.update(t=0.0, data=None)
+                    self._send_json(202, {
+                        "ok": True,
+                        "sources": wanted,
+                        "range": range_id,
+                        "range_label": app_config.posthog_range_label(range_id),
+                    })
+                    _refresh_async(wanted, require_enabled=False)
+                    return
+            elif not explicit:
                 wanted = list(sources_config.SOURCE_IDS)
             wanted = [
                 sid for sid in wanted
@@ -2253,7 +2376,7 @@ class Handler(BaseHTTPRequestHandler):
                     source = sources_config.BY_ID.get(sid)
                     oauth_usage.rearm_keychain(
                         None if source is None else source.account)
-            _refresh_async(wanted)
+            _refresh_async(wanted, require_enabled=not explicit)
             self._send_json(202, {"ok": True, "sources": wanted})
             return
 
@@ -2331,12 +2454,19 @@ def _sample_quotas():
         print("quota_samples error:", exc)
 
 
-def _refresh_selected(sources, force=False):
-    """Refresh the given sources in parallel (enabled filter still applies)."""
+def _refresh_selected(sources, force=False, require_enabled=True):
+    """Refresh the given sources in parallel.
+
+    The poller and a blanket sync respect `enabled` so Library / paused rows
+    stay quiet. An explicit Integrations refresh (`require_enabled=False`)
+    still fetches — otherwise a Keychain-connected source that was never
+    promoted to Active keeps serving the blank "not connected" payload.
+    """
     enabled = sources_config.enabled_map()
     wanted = [
         sid for sid in sources
-        if sid in sources_config.BY_ID and enabled.get(sid, True)
+        if sid in sources_config.BY_ID
+        and (not require_enabled or enabled.get(sid, True))
     ]
     if not wanted:
         return
@@ -2352,10 +2482,14 @@ def _refresh_selected(sources, force=False):
     publish()
 
 
-def _refresh_async(sources, force=True):
+def _refresh_async(sources, force=True, require_enabled=True):
     threading.Thread(
         target=_refresh_selected,
-        kwargs={"sources": list(sources), "force": force},
+        kwargs={
+            "sources": list(sources),
+            "force": force,
+            "require_enabled": require_enabled,
+        },
         daemon=True,
     ).start()
 
@@ -2406,9 +2540,15 @@ def _local_health_ok(port, timeout=0.4):
 def _poller(interval):
     """One loop, driven by each source's own poll_s from the registry."""
     # Warmup already forced a full pass, so start the clocks now rather than
-    # refetching everything on the first tick.
+    # refetching everything on the first tick. A small per-source phase keeps
+    # identical poll_s values (and two Macs that restarted together) from
+    # sync-firing the same upstream on every wake.
     started = time.time()
-    last_run = {sid: started for sid in sources_config.SOURCE_IDS}
+    last_run = {
+        source.id: started - random.uniform(
+            0, max(1.0, source.poll_s * 0.15))
+        for source in sources_config.SOURCES
+    }
     last_rotate = started
     while True:
         try:

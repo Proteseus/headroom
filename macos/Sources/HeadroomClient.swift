@@ -175,6 +175,20 @@ struct HeadroomClient: Sendable {
         return (object?["range"] as? String) ?? range
     }
 
+    /// Persist the PostHog primary window and force a fresh poll.
+    @discardableResult
+    func setPostHogRange(_ range: String) async throws -> String {
+        let url = try base()
+            .appendingPathComponent("posthog")
+            .appendingPathComponent("refresh")
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(withJSONObject: ["range": range]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["range"] as? String) ?? range
+    }
+
     /// The host answers a refresh with 202 and does the work in the background,
     /// so poll /health until the requested sources report a fresh age instead
     /// of sleeping a guessed interval and hoping.
@@ -538,6 +552,54 @@ struct HeadroomClient: Sendable {
         return try JSONDecoder().decode(SupabaseConfiguration.self, from: data)
     }
 
+    func fetchPlausibleConfiguration() async throws -> PlausibleConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("plausible")
+        let data = try await send(request(url, timeout: 12))
+        return try JSONDecoder().decode(PlausibleConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setPlausibleConfiguration(
+        sites: [String]
+    ) async throws -> PlausibleConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("plausible")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["sites": sites])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(PlausibleConfiguration.self, from: data)
+    }
+
+    func fetchPostHogConfiguration() async throws -> PostHogConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("posthog")
+        let data = try await send(request(url, timeout: 12))
+        return try JSONDecoder().decode(PostHogConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setPostHogConfiguration(
+        projects: [String],
+        host: String? = nil
+    ) async throws -> PostHogConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("posthog")
+        var payload: [String: Any] = ["projects": projects]
+        if let host {
+            payload["host"] = host
+        }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(PostHogConfiguration.self, from: data)
+    }
+
     func stopServer(pid: Int, port: Int) async throws {
         let url = try base()
             .appendingPathComponent("local")
@@ -666,6 +728,12 @@ struct SupabaseConfiguration: Decodable, Sendable {
     /// Empty means every project the PAT can see.
     var projects: [String] = []
     var available: [SupabaseProjectOption] = []
+    /// False when the listing failed (bad key, network). Nil on older hosts.
+    var ok: Bool?
+    /// Token present somewhere the host can read — not that it works.
+    var configured: Bool?
+    /// Why `available` is empty when the listing failed.
+    var error: String?
 }
 
 struct SupabaseProjectOption: Decodable, Sendable, Identifiable, Hashable {
@@ -673,6 +741,37 @@ struct SupabaseProjectOption: Decodable, Sendable, Identifiable, Hashable {
     var name: String
 
     var id: String { ref }
+}
+
+struct PlausibleConfiguration: Decodable, Sendable {
+    /// Empty means every site the key can list.
+    var sites: [String] = []
+    var available: [PlausibleSiteOption] = []
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+}
+
+struct PlausibleSiteOption: Decodable, Sendable, Identifiable, Hashable {
+    var domain: String
+    var name: String
+
+    var id: String { domain }
+}
+
+struct PostHogConfiguration: Decodable, Sendable {
+    /// Empty means every project the key can list.
+    var projects: [String] = []
+    var available: [PostHogProjectOption] = []
+    var host: String?
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+}
+
+struct PostHogProjectOption: Decodable, Sendable, Identifiable, Hashable {
+    var id: String
+    var name: String
 }
 
 struct AgentGatewayConfiguration: Decodable, Sendable {

@@ -54,7 +54,10 @@ KEYCHAIN_SERVICE_PREFIX = KEYCHAIN_SERVICE + "-"
 KEYCHAIN_STORE_PREFIX = "keychain:"
 HEADROOM_STORE_PREFIX = "headroom:"
 OAUTH_DIR = os.path.expanduser("~/.headroom/oauth")
-CACHE_TTL_S = 60
+# Quota windows move on the order of hours, not seconds. A minute was enough
+# to turn one Anthropic 429 into a self-feeding loop once refresh and multi-Mac
+# joined in; two minutes is still current and halves the steady traffic.
+CACHE_TTL_S = 120
 FAIL_TTL_S = 20          # retry sooner after transient misses (429, etc.)
 EXPIRY_SKEW_S = 120
 

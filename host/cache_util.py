@@ -43,6 +43,44 @@ FAILURE_BACKOFF_MAX_SHIFT = 20
 # drawn from that source quietly wrong.
 STALE_ALERT_S = 15 * 60
 
+# A rate limit is the host doing the right thing, not a source falling over.
+# Attention waits longer before paging on those so a backoff the user already
+# sees as "Paused" does not also light the menu-bar warning.
+STALE_ALERT_RATE_LIMIT_S = 45 * 60
+
+
+def stale_kind(error):
+    """Machine-readable reason a fetch froze, or None when unknown.
+
+    Clients use this to pick quiet wording for things the host is already
+    waiting out (rate limits, 5xx, network) without parsing error prose.
+    """
+    low = str(error or "").lower()
+    if "429" in low or "too many requests" in low:
+        return "rate_limited"
+    if ("http error 5" in low or "usage http 5" in low
+            or "bad gateway" in low or "service unavailable" in low):
+        return "provider"
+    if any(mark in low for mark in (
+            "timed out", "timeout", "unreachable", "connection",
+            "getaddrinfo", "nodename", "network", "temporary failure")):
+        return "network"
+    return None
+
+
+def _stamp_stale_meta(payload, cache, now, err):
+    """Attach cause + absolute retry deadline onto a frozen payload."""
+    kind = stale_kind(err)
+    if kind:
+        payload["stale_cause"] = kind
+    else:
+        payload.pop("stale_cause", None)
+    retry_at = cache.get("retry_at", 0.0)
+    if isinstance(retry_at, (int, float)) and retry_at > now:
+        payload["retry_at"] = float(retry_at)
+    else:
+        payload.pop("retry_at", None)
+
 
 def _disk_path(name: str) -> str:
     return os.path.join(CACHE_DIR, f"{name}.json")
@@ -256,6 +294,7 @@ def keep_stale(cache, now, err, empty, disk_name=None, auth_required=False):
             since = cache.get("stale_since") or now
         cache["stale_since"] = since
         stale["stale_for_s"] = int(max(0, now - since))
+        _stamp_stale_meta(stale, cache, now, err)
         cache.update(t=now, data=stale, err=err)
         return stale
     out = dict(empty)
@@ -263,6 +302,7 @@ def keep_stale(cache, now, err, empty, disk_name=None, auth_required=False):
     out["error"] = err
     out["stale"] = False
     out["auth_required"] = bool(auth_required)
+    _stamp_stale_meta(out, cache, now, err)
     cache.update(t=now, data=out, err=err)
     return out
 

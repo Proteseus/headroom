@@ -252,7 +252,12 @@ class QuotaRegistryTests(unittest.TestCase):
         self.assertEqual(
             sources_config.BURN_SOURCE_IDS,
             tuple(s.id for s in sources_config.QUOTA_SOURCES))
-        self.assertEqual(quota_samples.PROVIDERS, sources_config.BURN_SOURCE_IDS)
+        # Not every quota source is a burn source: a balance meter (no window,
+        # no headline pct) never produces a sample, so it can sit in
+        # BURN_SOURCE_IDS without ever appearing in quota_samples.PROVIDERS.
+        self.assertTrue(
+            set(quota_samples.PROVIDERS).issubset(
+                set(sources_config.BURN_SOURCE_IDS)))
         self.assertTrue({"claude", "codex", "cursor"}.issubset(
             set(sources_config.BURN_SOURCE_IDS)))
         # Windows, not every meter. The sample store records percentages
@@ -311,8 +316,8 @@ class QuotaRegistryTests(unittest.TestCase):
         self.assertEqual(set(sources_config.BURN_SOURCE_IDS) - ai_ids, set())
         self.assertTrue({"claude", "codex", "cursor"}.issubset(ai_ids))
         self.assertEqual(
-            ai_ids & {"plausible", "supabase", "github", "vercel", "git",
-                      "local"},
+            ai_ids & {"plausible", "posthog", "supabase", "github", "vercel",
+                      "git", "local"},
             set())
 
     def test_group_travels_on_both_payloads(self):
@@ -322,6 +327,8 @@ class QuotaRegistryTests(unittest.TestCase):
         self.assertEqual(by_id["claude"]["group"], sources_config.GROUP_AI)
         self.assertEqual(
             by_id["plausible"]["group"], sources_config.GROUP_DEVTOOLS)
+        self.assertEqual(
+            by_id["posthog"]["group"], sources_config.GROUP_DEVTOOLS)
 
         setup = sources_config.detection_payload()
         setup_by_id = {row["id"]: row for row in setup["sources"]}

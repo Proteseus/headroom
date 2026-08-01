@@ -197,9 +197,24 @@ struct TokenStore: Sendable {
         failureMessage: "Could not save Plausible token.",
         synced: true
     )
+    static let posthog = TokenStore(
+        service: "com.centaur-labs.headroom.posthog",
+        failureMessage: "Could not save PostHog token.",
+        synced: true
+    )
     static let github = TokenStore(
         service: "com.centaur-labs.headroom.github",
         failureMessage: "Could not save GitHub token.",
+        synced: true
+    )
+    static let openrouter = TokenStore(
+        service: "com.centaur-labs.headroom.openrouter",
+        failureMessage: "Could not save OpenRouter key.",
+        synced: true
+    )
+    static let aiGateway = TokenStore(
+        service: "com.centaur-labs.headroom.ai-gateway",
+        failureMessage: "Could not save AI Gateway key.",
         synced: true
     )
     /// Only needed when the endpoint is not loopback — the host lets local
@@ -214,7 +229,9 @@ struct TokenStore: Sendable {
     )
 
     /// Every store whose token travels.
-    static let syncedStores: [TokenStore] = [.supabase, .plausible, .github]
+    static let syncedStores: [TokenStore] = [
+        .supabase, .plausible, .posthog, .github, .openrouter, .aiGateway,
+    ]
 
     /// Migrate pre-existing local tokens into the synced keyspace. Cheap, and
     /// a no-op once each has moved, so it can just run at every launch.

@@ -430,15 +430,19 @@ private struct ActiveServiceRow: View {
             guard canPickColor else { return }
             isPickingColor = true
         } label: {
-            // Providers get the design's square color swatch; dev tools keep
-            // the round health dot — their dot *is* the status light. The
-            // swatch grows a status-colored ring only when something is
-            // wrong, so brand color never swallows an Error the row text
-            // has no other place to show.
+            // Providers get the design's square color swatch with the brand
+            // mark inset; dev tools get the mark tinted by health — their
+            // colour *is* the status light. The swatch grows a status-colored
+            // ring only when something is wrong, so brand color never swallows
+            // an Error the row text has no other place to show.
             if let brandColor {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(brandColor)
                     .frame(width: 20, height: 20)
+                    .overlay {
+                        ProviderMark(providerID: service.id, size: 11)
+                            .foregroundStyle(.white)
+                    }
                     .overlay {
                         if isUnhealthy {
                             RoundedRectangle(cornerRadius: 8)
@@ -447,6 +451,11 @@ private struct ActiveServiceRow: View {
                         }
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 6))
+            } else if ProviderIcon.assetName(for: service.id) != nil {
+                ProviderMark(providerID: service.id, size: 14)
+                    .foregroundStyle(statusColor)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
             } else {
                 Circle()
                     .fill(statusColor)
@@ -564,9 +573,11 @@ private struct ActiveServiceRow: View {
 
     /// Warning-amber once a *stale* source is an hour behind. Age alone is
     /// not the trigger: a provider polled hourly is not a provider in
-    /// trouble.
+    /// trouble. Rate-limit holds stay quiet — the host is waiting on purpose.
     private var isStaleWarning: Bool {
-        guard service.enabledRows.contains(where: { $0.stale == true }),
+        guard service.enabledRows.contains(where: {
+            $0.stale == true && !$0.isRateLimited
+        }),
               let age = worstAge else { return false }
         return age >= 3600
     }
@@ -603,14 +614,24 @@ private struct ActiveServiceRow: View {
         if service.enabledRows.contains(where: { $0.ok != true }) {
             return "Error"
         }
+        // A rate-limit hold is the host doing its job — not a stale failure.
+        if service.enabledRows.contains(where: \.isRateLimited),
+           !service.enabledRows.contains(where: {
+               $0.stale == true && !$0.isRateLimited
+           }) {
+            return HeadroomCopy.updatingPaused
+        }
         return service.enabledRows.contains { $0.stale == true }
             ? "Stale" : "Healthy"
     }
 
     /// Anything the status light would not paint green.
+    /// Rate-limited rows stay out: they are paused on purpose, and painting
+    /// them amber is what made Refresh feel like the fix.
     private var isUnhealthy: Bool {
         service.enabledRows.contains {
-            $0.needsSignIn || $0.ok != true || $0.stale == true
+            $0.needsSignIn || $0.ok != true
+                || ($0.stale == true && !$0.isRateLimited)
         }
     }
 
@@ -621,8 +642,12 @@ private struct ActiveServiceRow: View {
         if service.enabledRows.contains(where: { $0.ok != true }) {
             return HeadroomPalette.red
         }
-        return service.enabledRows.contains { $0.stale == true }
-            ? HeadroomPalette.amber : HeadroomPalette.green
+        if service.enabledRows.contains(where: {
+            $0.stale == true && !$0.isRateLimited
+        }) {
+            return HeadroomPalette.amber
+        }
+        return HeadroomPalette.green
     }
 
     private var brandColor: Color? {
@@ -822,9 +847,14 @@ private struct LibraryChip: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Circle()
-                    .fill(Color(nsColor: .tertiaryLabelColor))
-                    .frame(width: 8, height: 8)
+                if ProviderIcon.assetName(for: service.id) != nil {
+                    ProviderMark(providerID: service.id, size: 11)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                } else {
+                    Circle()
+                        .fill(Color(nsColor: .tertiaryLabelColor))
+                        .frame(width: 8, height: 8)
+                }
                 Text(service.title)
                     .font(.system(size: 12))
                     .lineLimit(1)

@@ -10,7 +10,7 @@ development status. This policy covers the **Headroom iOS / iPadOS app**
 
 - Headroom does **not** operate a cloud account for itself.
 - The iOS app does **not** sell, rent, or share personal data with advertisers.
-- Provider credentials (Claude, Codex, Cursor, GitHub, Supabase, Plausible, …)
+- Provider credentials (Claude, Codex, Cursor, GitHub, Supabase, Plausible, PostHog, …)
   remain on your Mac. The phone never stores those secrets.
 - The phone stores only what it needs to talk to *your* Mac: endpoint URL and a
   **mobile pairing token**, plus a local cache of the last usage snapshot for
@@ -56,6 +56,7 @@ profiles. We do not sell data.
 | Mobile pairing token | iOS Keychain |
 | Host endpoint | iOS app preferences |
 | Last `/usage` snapshot | On-device archive / App Group (widgets) |
+| Last `/attention/events` payload | On-device archive / App Group |
 | Provider API credentials | Mac Keychain / local CLIs only |
 | Host auth token (ESP32 / LAN) | Mac `~/.headroom/token` |
 | Multi-Mac settings + machine summary | Off by default. When you turn on `icloud_sync`, your own iCloud Drive |
@@ -90,7 +91,7 @@ state.
 
 The iOS app communicates with the Mac host you choose. That host may call
 third-party APIs (Anthropic, OpenAI/Codex, Cursor, GitHub, Vercel, Supabase,
-Plausible, …) using credentials you already configured on the Mac. Those
+Plausible, PostHog, …) using credentials you already configured on the Mac. Those
 requests are between your Mac and those providers under *their* policies —
 not uploaded to a Headroom server.
 

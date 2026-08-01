@@ -96,6 +96,7 @@ class InboxTests(unittest.TestCase):
                 "html_url": "https://github.com/acme/web/pull/7",
                 "repository_url": "https://api.github.com/repos/acme/web",
                 "pull_request": {},
+                "user": {"login": "alice"},
                 "updated_at": "2026-08-01T12:00:00Z",
             }],
         }
@@ -109,6 +110,7 @@ class InboxTests(unittest.TestCase):
                     "html_url": "https://github.com/acme/web/pull/7",
                     "repository_url": "https://api.github.com/repos/acme/web",
                     "pull_request": {},
+                    "user": {"login": "alice"},
                     "updated_at": "2026-08-01T12:00:00Z",
                 },
                 {
@@ -117,6 +119,7 @@ class InboxTests(unittest.TestCase):
                     "title": "Fix lint",
                     "html_url": "https://github.com/other/skip/issues/3",
                     "repository_url": "https://api.github.com/repos/other/skip",
+                    "user": {"login": "bob"},
                     "updated_at": "2026-08-01T11:00:00Z",
                 },
             ],
@@ -137,6 +140,8 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["reason"], "review_request")
         self.assertEqual(rows[0]["repo"], "acme/web")
+        self.assertEqual(rows[0]["author"], "alice")
+        self.assertEqual(rows[0]["number"], 7)
 
     def test_attention_summary_names_a_single_repo(self):
         summary = ga.attention_inbox_summary([{

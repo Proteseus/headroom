@@ -34,13 +34,18 @@ struct ResetHistoryList: View {
         let hidden = max(0, ordered.count - Self.visibleLimit)
 
         VStack(alignment: .leading, spacing: 4) {
-            if let noteURL {
-                Link(HeadroomCopy.resetHistory, destination: noteURL)
-                    .font(.caption.weight(.medium))
-            } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(HeadroomCopy.resetHistory)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                // Codex resets are announced on the lead's account rather than
+                // a status page — credit that source beside the list, not as
+                // the section title itself.
+                if let noteURL, let handle = Self.handle(from: noteURL) {
+                    Link(handle, destination: noteURL)
+                        .font(.caption.weight(.medium))
+                }
             }
 
             ForEach(visible) { reset in
@@ -68,5 +73,17 @@ struct ResetHistoryList: View {
                     .monospacedDigit()
             }
         }
+    }
+
+    /// `@handle` from an x.com / twitter.com profile URL. Anything else (a
+    /// status page, a blog post) returns nil and the header stays plain.
+    private static func handle(from url: URL) -> String? {
+        let host = url.host?.lowercased() ?? ""
+        guard host == "x.com" || host == "twitter.com" || host == "www.x.com"
+                || host == "www.twitter.com"
+        else { return nil }
+        let parts = url.path.split(separator: "/").map(String.init)
+        guard let name = parts.first, !name.isEmpty else { return nil }
+        return "@\(name)"
     }
 }

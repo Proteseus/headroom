@@ -112,11 +112,41 @@ def _dollars(bucket):
     return level, {"value": round(max(0.0, remaining), 2), "unit": UNIT_USD}
 
 
+def _balance(bucket):
+    """Dollars remaining on a prepaid account that never refills on a clock.
+
+    Level is how much of the known pot is still there — remaining over the
+    last top-up when the fetcher knows one, else remaining over
+    remaining+used when only lifetime totals exist. No denominator means no
+    level: inventing one would draw a full bar for an empty balance.
+
+    Headroom is the dollars left. Runway-in-days needs a burn series and
+    lands when sampling covers balances; until then the unit stays `usd`.
+    """
+    remaining = _number(bucket.get("remaining_usd"))
+    if remaining is None:
+        return None, None
+    remaining = max(0.0, remaining)
+
+    topped = _number(bucket.get("topped_up_usd"))
+    used = _number(bucket.get("used_usd"))
+    level = None
+    if topped is not None and topped > 0:
+        level = round(min(1.0, max(0.0, remaining / topped)), 4)
+    elif used is not None:
+        total = remaining + max(0.0, used)
+        if total > 0:
+            level = round(min(1.0, max(0.0, remaining / total)), 4)
+
+    return level, {"value": round(remaining, 2), "unit": UNIT_USD}
+
+
 _BY_KIND = {
     sources_config.KIND_WINDOW: _window,
     sources_config.KIND_GRANT: _grant,
     sources_config.KIND_OVERAGE: _dollars,
     sources_config.KIND_CALENDAR: _dollars,
+    sources_config.KIND_BALANCE: _balance,
 }
 
 

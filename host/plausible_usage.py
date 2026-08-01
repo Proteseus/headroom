@@ -56,6 +56,45 @@ def _token():
     return _keychain_token()
 
 
+def has_token():
+    """True when any credential source has a value — not that it works."""
+    return bool(_token())
+
+
+def invalidate():
+    """Site filter changed: drop the cache so the next poll re-reads."""
+    _cache.update(t=0.0)
+
+
+def available_sites():
+    """Sites the key can see, for the Settings picker.
+
+    Returns `{"sites": [{domain, name}, …], "error": str|None}`. `name` is
+    the domain — Plausible has no separate display title.
+    """
+    token = _token()
+    if not token:
+        return {"sites": [], "error": "Connect Plausible in Headroom Settings"}
+    listed, list_error = _list_sites(token)
+    if listed:
+        return {
+            "sites": [{"domain": d, "name": d} for d in listed],
+            "error": None,
+        }
+    configured = _configured_sites()
+    if configured:
+        return {
+            "sites": [{"domain": d, "name": d} for d in configured],
+            "error": None,
+        }
+    return {
+        "sites": [],
+        "error": list_error or (
+            "Could not list sites — use a Sites API key with sites:read"
+        ),
+    }
+
+
 def _api_host():
     return app_config.plausible_host() or DEFAULT_HOST
 

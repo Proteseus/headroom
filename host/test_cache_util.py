@@ -151,6 +151,27 @@ class RateLimitTests(unittest.TestCase):
         self.assertIsNone(cache_util.parse_retry_after(""))
         self.assertIsNone(cache_util.parse_retry_after(None))
 
+    def test_keep_stale_stamps_rate_limit_meta_for_clients(self):
+        cache = {}
+        cache_util.store(cache, NOW, {"ok": True, "plan": "Max"})
+        cache_util.note_rate_limit(cache, NOW)
+        out = cache_util.keep_stale(
+            cache, NOW, "HTTP Error 429: Too Many Requests", EMPTY)
+        self.assertEqual(out["stale_cause"], "rate_limited")
+        self.assertEqual(out["retry_at"], cache["retry_at"])
+
+    def test_stale_kind_classifies_common_freezes(self):
+        self.assertEqual(
+            cache_util.stale_kind("HTTP Error 429: Too Many Requests"),
+            "rate_limited")
+        self.assertEqual(
+            cache_util.stale_kind("HTTP Error 503: Service Unavailable"),
+            "provider")
+        self.assertEqual(
+            cache_util.stale_kind("timed out"),
+            "network")
+        self.assertIsNone(cache_util.stale_kind("keychain said no"))
+
 
 class FailureBackoffTests(unittest.TestCase):
     """Repeated failure widens the retry, not just a repeated 429."""

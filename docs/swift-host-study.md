@@ -15,7 +15,7 @@ removes the one argument that would otherwise favour keeping Python.
 | Job | Modules | Lines |
 |---|---|---|
 | **Serve** | `headroom_server.py` (HTTP, routing, cache, poll loop), `auth.py`, `usb_bridge.py`, `device_view.py` | ~2,040 |
-| **Scrape** | `oauth_usage`, `codex_usage`, `cursor_usage`, `github_actions`, `vercel_builds`, `supabase_usage`, `plausible_usage`, `claude_status`, `local_servers`, `git_activity`, `detect_sources` | ~3,290 |
+| **Scrape** | `oauth_usage`, `codex_usage`, `cursor_usage`, `github_actions`, `vercel_builds`, `supabase_usage`, `plausible_usage`, `posthog_usage`, `claude_status`, `local_servers`, `git_activity`, `detect_sources` | ~3,290 |
 | **Aggregate** | `burndown`, `quota_samples`, `claude_history`, `daily_burn`, `pricing`, `quota` | ~1,550 |
 | **Persist / plumb** | `sources_config`, `app_config`, `cache_util`, `keychain`, `host_version` | ~950 |
 
@@ -57,7 +57,7 @@ no loss.
 Ten modules whose entire job is coping with third-party JSON that nobody
 documents and that changes without notice: Anthropic OAuth, OpenAI's
 `wham/usage`, Cursor's `GetCurrentPeriodUsage` (read out of a **SQLite**
-`state.vscdb`), the GitHub, Vercel, Supabase, and Plausible APIs, plus `lsof`,
+`state.vscdb`), the GitHub, Vercel, Supabase, Plausible, and PostHog APIs, plus `lsof`,
 `git`, and `gh` subprocess output.
 
 Python's forgiving `data.get("a", {}).get("b")` is not incidental here. It is

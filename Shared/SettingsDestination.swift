@@ -99,8 +99,11 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
     case git
     case github
     case vercel
+    case openrouter
+    case aiGateway = "ai-gateway"
     case supabase
     case plausible
+    case posthog
 
     /// Hub grouping. Agents can run code, the rest only report — worth a
     /// visible line between them in a list someone scans for "what did I
@@ -108,12 +111,14 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
     enum Group: String, CaseIterable, Sendable {
         case agents
         case code
+        case balances
         case services
 
         var title: String {
             switch self {
             case .agents: return HeadroomCopy.codingAgents
             case .code: return HeadroomCopy.integrationsCode
+            case .balances: return HeadroomCopy.integrationsBalances
             case .services: return HeadroomCopy.integrationsServices
             }
         }
@@ -123,7 +128,8 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         switch self {
         case .claudeCode, .codex: return .agents
         case .git, .github, .vercel: return .code
-        case .supabase, .plausible: return .services
+        case .openrouter, .aiGateway: return .balances
+        case .supabase, .plausible, .posthog: return .services
         }
     }
 
@@ -138,8 +144,11 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .git: return "Git"
         case .github: return HeadroomCopy.githubActions
         case .vercel: return "Vercel"
+        case .openrouter: return HeadroomCopy.openRouter
+        case .aiGateway: return HeadroomCopy.aiGateway
         case .supabase: return "Supabase"
         case .plausible: return "Plausible"
+        case .posthog: return HeadroomCopy.posthog
         }
     }
 
@@ -150,8 +159,11 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .git: return "arrow.triangle.branch"
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .vercel: return "triangle"
+        case .openrouter: return "arrow.triangle.swap"
+        case .aiGateway: return "bolt.horizontal"
         case .supabase: return "cylinder.split.1x2"
         case .plausible: return "chart.xyaxis.line"
+        case .posthog: return "chart.bar.doc.horizontal"
         }
     }
 
@@ -161,7 +173,9 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
     var runsCode: Bool {
         switch self {
         case .claudeCode, .codex: return true
-        case .git, .github, .vercel, .supabase, .plausible: return false
+        case .git, .github, .vercel, .openrouter, .aiGateway,
+             .supabase, .plausible, .posthog:
+            return false
         }
     }
 }
