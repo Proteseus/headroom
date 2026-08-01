@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.5",
-  "published": "2026-08-01T22:15:41Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.5/Headroom-macOS.zip",
-  "sha256": "ffa1c77572f25ac14ee941594b8691f627d560011404fc73f7e9244699aaec73",
-  "size": 4419567,
+  "version": "1.5.6",
+  "published": "2026-08-01T22:31:39Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.6/Headroom-macOS.zip",
+  "sha256": "480fcc616f41986d08e1061289e83596fb3902f44aac8c086d32097e21930944",
+  "size": 4417443,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **OpenRouter and Vercel AI Gateway**, the first sources reporting a\n  prepaid balance rather than a windowed quota. No ring — the mark is a\n  depletion bar, since there is no window to draw as an arc.\n- **PostHog**, sitting beside Plausible as a Services integration, with a\n  project picker on the phone matching the Mac.\n- Git, GitHub Actions, Vercel, Plausible and Supabase now carry real brand\n  marks in Activity and Attention rows — they were unbranded there before,\n  even though Settings already showed their icons.\n\n### Changed\n\n- **Settings splits into one file per integration** instead of one 2,700-line\n  file everything shared. Adding the next source now touches one new file.\n- **Burndown reads week before session** everywhere a provider shows both —\n  the longer window is what you actually plan around.\n- **A stale reading says why.** Attention now distinguishes a rate limit from\n  a real outage, so a 429 the host is already backing off from calmly does\n  not also light the menu-bar warning the way a genuine failure does.\n- GitHub inbox rows carry the author who opened them."
+  "notes_md": "### Added\n\n- **The Attention queue survives a cold launch.** Coding-agent events used to\n  live in memory only, so a process death between polls — the Mac asleep, the\n  app backgrounded past its budget — opened to an empty queue even though the\n  same rows would reappear on the next poll. They now have the same on-device\n  archive the rest of the app already relies on.\n- **An empty queue reads as open, not broken.** A large ghost icon replaces\n  the list-with-nothing-in-it look on both the Attention and Activity tabs.\n\n### Changed\n\n- The Attention tab icon becomes an eye — watching is closer to what the tab\n  does than a speech bubble asking a question.\n- App Store screenshots and copy drop the Quotas and Services frames in\n  favor of an Attention frame, matching where those tabs live now."
 }
