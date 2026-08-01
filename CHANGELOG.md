@@ -7,6 +7,23 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.6 — 2026-08-01
+
+### Changed
+
+- **Amber in Settings now means something you can act on, and nothing else.**
+  Every integration was picking its own colour and inventing its own phrase for
+  the same three outcomes, so "the host is too old to tell us" and "your token
+  is missing" could arrive looking equally alarming. One resolver decides the
+  caption and the tone for all of them: **Not connected**, **Keychain**, **Hooks
+  installed**, **Gateway on**, and their opposites. Unknown reads as quiet grey,
+  because warning about something nobody can fix is just noise.
+- Every integration detail pane carries the same **Status** row, so the hub
+  caption and the detail agree instead of each phrasing it their own way.
+- The TestFlight invite link lives in one place now. Welcome's phone step and
+  Settings → iPhone were carrying separate copies of the same URL, which is the
+  arrangement where one of them quietly goes stale.
+
 ## 1.4.5 — 2026-08-01
 
 One release rather than six, because the rename underneath runs through every
