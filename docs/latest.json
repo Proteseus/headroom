@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.1",
-  "published": "2026-08-01T20:15:11Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.1/Headroom-macOS.zip",
-  "sha256": "088a3146f3d0fca95dd9a26188a6271fdeb3b0339a21a415db775ce642ec53ab",
-  "size": 4058621,
+  "version": "1.5.2",
+  "published": "2026-08-01T20:27:01Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.2/Headroom-macOS.zip",
+  "sha256": "caceb1c20b663808442b7f0d18e03dfe3b76c88576a2f02ffb9dfcae95dcb092",
+  "size": 4058633,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Pick GitHub repos and Vercel teams from a list instead of typing them.**\n  Both settings were free text, which meant a typo produced an empty panel with\n  nothing to say why, and getting it right meant knowing the exact slug. Headroom\n  now asks the service what you have access to and offers it. Blank still means\n  everything the login can see, so nothing changes if you never set one."
+  "notes_md": "### Fixed\n\n- **A read-only question from Claude still offers Claude's own options.** The\n  Attention row was showing generic yes/no controls on a question that had its\n  own named choices, because the read-only path skipped the branch that reads\n  them. The options Claude actually asked for now render either way."
 }
