@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.0",
-  "published": "2026-08-01T18:23:40Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.0/Headroom-macOS.zip",
-  "sha256": "728c79b7c95a8588ff3cae9e2ded9bcbbe69d9aa73f89db8ef2ca2ec24098be8",
-  "size": 4012485,
+  "version": "1.5.1",
+  "published": "2026-08-01T20:15:11Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.1/Headroom-macOS.zip",
+  "sha256": "088a3146f3d0fca95dd9a26188a6271fdeb3b0339a21a415db775ce642ec53ab",
+  "size": 4058621,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Agent push titles name the repo, the agent, and the Mac** —\n  `headroom • Claude • Studio` — instead of the repository alone. Opus vs\n  Sonnet does not matter on a lock screen; Claude vs Codex and which computer\n  does.\n- **Start task is back on the Attention tab.** The `+` moved there when the\n  phone split by urgency, but it loaded the task surface before the Mac-granted\n  **Answer coding agents** permission had arrived, then never tried again. The\n  button stayed missing for anyone who landed on Attention first. It now\n  reloads once permissions are known, and shows whenever agents are allowed.\n- **Passive agent notices leave Attention on their own.** Idle / finished rows\n  and notify-only questions no longer sit until you tap Dismiss; they expire\n  after an hour and drop out of the open feed on the next poll. Requests that\n  need an answer are unchanged."
+  "notes_md": "### Changed\n\n- **Pick GitHub repos and Vercel teams from a list instead of typing them.**\n  Both settings were free text, which meant a typo produced an empty panel with\n  nothing to say why, and getting it right meant knowing the exact slug. Headroom\n  now asks the service what you have access to and offers it. Blank still means\n  everything the login can see, so nothing changes if you never set one."
 }
