@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.3 — 2026-08-01
+
+### Added
+
+- **Attention surfaces review requests and assignments from your watched
+  repos.** GitHub review requests and issue/PR assignments now raise a row the
+  same way a failed check or a waiting agent does, so the queue is one place to
+  look rather than a second tab you have to remember to check.
+
 ## 1.5.2 — 2026-08-01
 
 ### Fixed
