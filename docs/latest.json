@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.2",
-  "published": "2026-08-01T20:27:01Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.2/Headroom-macOS.zip",
-  "sha256": "caceb1c20b663808442b7f0d18e03dfe3b76c88576a2f02ffb9dfcae95dcb092",
-  "size": 4058633,
+  "version": "1.5.3",
+  "published": "2026-08-01T20:59:43Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.3/Headroom-macOS.zip",
+  "sha256": "ae3fecb44462496bc61f0c37995bbe31237571ba54aaa6f8de524ea72102ad65",
+  "size": 4071175,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **A read-only question from Claude still offers Claude's own options.** The\n  Attention row was showing generic yes/no controls on a question that had its\n  own named choices, because the read-only path skipped the branch that reads\n  them. The options Claude actually asked for now render either way."
+  "notes_md": "### Added\n\n- **Attention surfaces review requests and assignments from your watched\n  repos.** GitHub review requests and issue/PR assignments now raise a row the\n  same way a failed check or a waiting agent does, so the queue is one place to\n  look rather than a second tab you have to remember to check."
 }
