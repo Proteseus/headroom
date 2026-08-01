@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.4.1",
-  "published": "2026-08-01T08:10:31Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.1/Headroom-macOS.zip",
-  "sha256": "bd2ca3f5e2acdffbde21dd8c651fc345679799d519b39398a7fc828d25bc23fa",
-  "size": 3642230,
+  "version": "1.4.4",
+  "published": "2026-08-01T14:01:41Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.4.4/Headroom-macOS.zip",
+  "sha256": "d1bcca2a0fee50ef7a996729809b516f6fbe0af958dfd71246c13b2631fbf35f",
+  "size": 3716952,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **`Retry-After` can no longer shorten a backoff.** 1.4.0 let the header win\n  outright, on the reasoning that the provider knows the real window better\n  than we do. It does, in one direction. Anthropic answers a 429 with a\n  sub-minute `Retry-After`, so honouring it literally retried *sooner* than the\n  schedule's own first step and the backoff never got off the ground. The\n  header raises the wait now and never lowers it, which is the shape\n  [#13](https://github.com/michellzappa/headroom/pull/13) had and 1.4.0 got\n  wrong.\n- **\"retrying in 0m\" is gone**, and was always meaningless: the wait was real\n  but shorter than a minute, and the countdown floors to whole minutes. Nothing\n  can produce a wait that short any more.\n- **A rate limit is visible in the host log.** A stale replay still reads `ok`,\n  so the log printed the last-known numbers and a bare `stale` marker and threw\n  the reason away. Every 429 this host has ever served was invisible there,\n  which is exactly long enough to convince someone reading it that no 429 had\n  ever happened. The reason is printed now."
+  "notes_md": "### Fixed\n\n- **The update feed is being written again.** `docs/latest.json` is what an\n  installed copy polls to find out a newer Headroom exists, and it has said\n  1.4.1 since this morning while 1.4.2 and 1.4.3 shipped past it. The script\n  that writes it made its staging directory with `mktemp -d -t headroom-feed`,\n  which macOS accepts and GNU coreutils rejects for having too few trailing\n  X's. The feed job is the one part of a release that runs on Linux, so it died\n  on its first line, four seconds in, every time.\n- Nothing about that was visible from the outside, which is the part worth\n  keeping in mind: both releases built, notarized, published their GitHub\n  Release and uploaded to TestFlight exactly as they should. Only the last step\n  failed, and its only symptom was installed copies quietly believing they were\n  current. If you have been running 1.4.1 and wondering why no update appeared,\n  this was why."
 }
