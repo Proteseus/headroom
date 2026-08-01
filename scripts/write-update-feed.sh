@@ -55,7 +55,9 @@ URL="${URL:-https://github.com/$REPO/releases/download/$TAG/Headroom-macOS.zip}"
 NOTES="$(NO_COLOR=1 "$ROOT/scripts/changelog-section.sh" "$VERSION")" \
   || die "no CHANGELOG.md section for $VERSION"
 
-STAGE="$(mktemp -d -t headroom-feed)"
+# GNU mktemp (used by the Linux release runner) requires a template with at
+# least three trailing Xs; macOS accepts the same portable form.
+STAGE="$(mktemp -d -t headroom-feed.XXXXXX)"
 trap 'rm -rf "$STAGE"' EXIT
 
 # --retry-all-errors so a 404 is retried too: called straight after a release
