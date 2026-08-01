@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import tempfile
 import unittest
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -92,7 +92,11 @@ class DailyBurnTests(unittest.TestCase):
         )
         rows = daily_burn.series(tz=TZ, days=3)
         self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[-1]["date"], date.today().isoformat())
+        # "Today" per the same tz daily_burn was told to use, not the
+        # runner's system tz — CI runs in UTC, and Berlin can already be on
+        # the next calendar day while UTC has not rolled over yet.
+        self.assertEqual(
+            rows[-1]["date"], datetime.now(TZ).date().isoformat())
         self.assertEqual(rows[-1]["claude"], 3.0)
         self.assertEqual(rows[-1]["total"], 3.0)
         self.assertEqual(rows[0]["total"], 0.0)
