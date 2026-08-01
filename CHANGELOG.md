@@ -7,7 +7,7 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
-## 1.4.0 — unreleased
+## 1.4.0 — 2026-08-01
 
 ### Fixed
 
@@ -33,6 +33,23 @@ tag a version that has no entry.
 Credit for the diagnosis and the general shape here goes to @leolobato, whose
 [#13](https://github.com/michellzappa/headroom/pull/13) called this a week
 before it was fixed properly and covered the case 1.3.3 left out.
+
+- **CI checks the `/usage` contract against the fixture, not against this
+  machine.** 1.3.9 went red because the allowlist-hygiene test asserts every
+  excused key is still served, and the six `history` fields are absent on a
+  bare runner: no `~/.claude`, no session log, no history block. It passed
+  locally because this machine has 400 days of it. `demo_usage.json` carries
+  history now, which is the whole reason a committed fixture exists.
+
+### Documentation
+
+- `docs/metering.md` is reachable. It existed for five releases linked from
+  nowhere, and the standing-decisions section still claimed there were three
+  such docs. A decision record nobody can find is not doing its job.
+- `AGENTS.md` describes the workflow this repo actually uses: commit to `main`,
+  version as you go, no branches and no pull requests. It documented a
+  branch-per-set flow that had stopped being true, which is worse than
+  documenting nothing.
 
 ## 1.3.9 — 2026-07-31
 

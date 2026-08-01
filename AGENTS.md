@@ -267,18 +267,31 @@ only fires on a version it has not tagged.
 
 That has one consequence worth stating plainly: **you cannot ship a subset of
 `main`.** The bump ships whatever is on `main` at that moment, documented or
-not. So one-set-per-release means one branch per set, merged and shipped one at
-a time:
+not.
+
+**Work on `main`. No branches, no pull requests.** Commit your set and version
+it in the same pass, then push:
 
 ```
-branch per set  →  merge to main  →  bump + push  →  ships  →  next set
+commit your set on main  →  bump + push  →  ships  →  next set
 ```
 
-Land your set with **no** version bump. The bump is a separate `chore: bump to
-X.Y.Z` commit made when that set is ready to go out, and it is the last thing
-before pushing. If someone else's unshipped work is sitting on `main` when you
-bump, it rides along — check `git log` against the last tag before bumping, and
-either wait or document what came with it.
+The bump is still its own `chore: bump to X.Y.Z` commit and still the last
+thing before pushing, but it happens as you go rather than waiting for someone
+to merge something. Do not open a PR and do not cut a branch to hold a set;
+both were the old shape here and neither is used now.
+
+Because there is no branch to hold work back, **whatever else is sitting
+unshipped on `main` ships with you.** Check before you bump:
+
+```bash
+git log --oneline $(git describe --tags --abbrev=0)..main
+```
+
+Anything listed there goes out under your number, so give it a `CHANGELOG.md`
+line even when it is not yours. Uncommitted work in the tree is safe — it does
+not ship — which is the other reason to stage paths explicitly rather than
+`git commit -a`.
 
 `scripts/cut-release.sh` and the workflow both refuse a version with no
 `CHANGELOG.md` section, because that section becomes the release notes.
@@ -295,16 +308,16 @@ than a retry.
 
 ## Working alongside other agents
 
-Assume someone else is committing to this repo right now, possibly to your
-branch.
+Assume someone else is committing to this repo right now, to `main`, which is
+where everyone works.
 
-- **Append only on anything shared.** Never `--amend`, `rebase`, `reset`, or
-  force-push a branch someone else may be on. Re-check `git log -1` immediately
-  before any history rewrite; HEAD may not be where you left it. An amend that
-  lands on someone else's commit silently replaces their message and folds your
-  changes into their commit.
-- **Your branch is not private** unless you made it and said so. Prefer a
-  branch named for your set.
+- **Append only.** Never `--amend`, `rebase`, `reset`, or force-push `main`.
+  Re-check `git log -1` immediately before any history rewrite; HEAD may not be
+  where you left it. An amend that lands on someone else's commit silently
+  replaces their message and folds your changes into their commit.
+- **Pull before you push, and expect to.** Everyone shares one branch, so a
+  rejected push is the normal case and not a problem. `git pull --rebase` only
+  on commits you have not pushed; once yours are public, merge.
 - **Stage your own hunks.** A shared working tree accumulates other agents'
   edits in files you also touched. `git commit -a` sweeps them into your commit.
   Check `git status` and stage paths explicitly; for a file with both your work
