@@ -7,6 +7,24 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.4.4 — 2026-08-01
+
+### Fixed
+
+- **The update feed is being written again.** `docs/latest.json` is what an
+  installed copy polls to find out a newer Headroom exists, and it has said
+  1.4.1 since this morning while 1.4.2 and 1.4.3 shipped past it. The script
+  that writes it made its staging directory with `mktemp -d -t headroom-feed`,
+  which macOS accepts and GNU coreutils rejects for having too few trailing
+  X's. The feed job is the one part of a release that runs on Linux, so it died
+  on its first line, four seconds in, every time.
+- Nothing about that was visible from the outside, which is the part worth
+  keeping in mind: both releases built, notarized, published their GitHub
+  Release and uploaded to TestFlight exactly as they should. Only the last step
+  failed, and its only symptom was installed copies quietly believing they were
+  current. If you have been running 1.4.1 and wondering why no update appeared,
+  this was why.
+
 ## 1.4.3 — 2026-08-01
 
 ### Fixed
