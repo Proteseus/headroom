@@ -27,7 +27,7 @@ struct WatchRootView: View {
                 .frame(width: 110, height: 110)
 
             VStack(spacing: 6) {
-                ForEach(snapshot.providers.sorted { $0.percent > $1.percent }) {
+                ForEach(snapshot.providers) {
                     row($0)
                 }
             }

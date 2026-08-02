@@ -21,10 +21,11 @@ menu bar, and the desk display.
 ## The combined dial (Apple Watch)
 
 A watch face has room for one glyph, not three, so the watch spends its bands
-on the other axis: **one band per source**, outside-in, most spent first, each
-filled to the pool that binds it. Position identifies the source the way it
-does on Activity. Everything above still holds — accent arc, pace dot, 20%
-track, 12 o'clock start.
+on the other axis: **one band per source**, outside-in in pinned Sources order
+(first provider outermost), each filled to the pool that binds it. Position
+identifies the source the way left-to-right order does on Activity and on the
+board. Everything above still holds — accent arc, pace dot, 20% track,
+12 o'clock start.
 
 Two things are watch-only, both forced by the `.accented` rendering mode a
 complication draws in, where the system flattens the view to a single tint:
