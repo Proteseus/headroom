@@ -1812,7 +1812,7 @@ struct ActivityItem: Decodable, Identifiable, Sendable {
     var sha: String?
     var shortSHA: String?
     var target: String?
-    /// Opener login for GitHub inbox rows (`review_request` / `assigned`).
+    /// Opener login for GitHub inbox rows (`review_request` / `assigned` / `mention`).
     var author: String?
     /// Issue or PR number for GitHub inbox rows.
     var number: Int?

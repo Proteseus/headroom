@@ -104,7 +104,7 @@ extension SettingsView {
                 }
             }
         } footer: {
-            Text("CI on GitHub — failed and running Actions, plus review/assignment inbox on watched repos. Not local commits (that is Git). Tick repos under \(githubDevRoot) to always watch them; owners and the discover cap still filter anything not ticked.")
+            Text("CI on GitHub — failed and running Actions, plus review / assignment / @mention inbox on watched repos. Not local commits (that is Git). Tick repos under \(githubDevRoot) to always watch them; owners and the discover cap still filter anything not ticked.")
         }
     }
 

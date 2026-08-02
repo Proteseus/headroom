@@ -124,6 +124,31 @@ class InboxTests(unittest.TestCase):
                 },
             ],
         }
+        mentions = {
+            "total_count": 2,
+            "items": [
+                {
+                    # Same PR also @mentions you — review_request must win.
+                    "id": 11,
+                    "number": 7,
+                    "title": "Review me",
+                    "html_url": "https://github.com/acme/web/pull/7",
+                    "repository_url": "https://api.github.com/repos/acme/web",
+                    "pull_request": {},
+                    "user": {"login": "alice"},
+                    "updated_at": "2026-08-01T13:00:00Z",
+                },
+                {
+                    "id": 33,
+                    "number": 9,
+                    "title": "Hey @mz",
+                    "html_url": "https://github.com/acme/web/issues/9",
+                    "repository_url": "https://api.github.com/repos/acme/web",
+                    "user": {"login": "carol"},
+                    "updated_at": "2026-08-01T10:00:00Z",
+                },
+            ],
+        }
 
         def fake_get(path, token, query=None, timeout=12):
             if path == "/user":
@@ -133,15 +158,19 @@ class InboxTests(unittest.TestCase):
                 return review
             if "assignee:" in q:
                 return assigned
+            if "mentions:" in q:
+                return mentions
             raise AssertionError(q)
 
         with mock.patch.object(ga, "_get", side_effect=fake_get):
             rows = ga.fetch_inbox("tok", ["acme/web"])
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["reason"], "review_request")
         self.assertEqual(rows[0]["repo"], "acme/web")
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["number"], 7)
+        self.assertEqual(rows[1]["reason"], "mention")
+        self.assertEqual(rows[1]["number"], 9)
 
     def test_attention_summary_names_a_single_repo(self):
         summary = ga.attention_inbox_summary([{
@@ -150,6 +179,23 @@ class InboxTests(unittest.TestCase):
             "title": "x",
         }])
         self.assertEqual(summary, "web · review requested")
+
+    def test_attention_summary_names_a_mention(self):
+        summary = ga.attention_inbox_summary([{
+            "reason": "mention",
+            "repo": "acme/web",
+            "title": "x",
+            "is_pr": False,
+        }])
+        self.assertEqual(summary, "web · mentioned on issue")
+
+    def test_attention_summary_counts_mixed(self):
+        summary = ga.attention_inbox_summary([
+            {"reason": "review_request", "repo": "acme/web"},
+            {"reason": "mention", "repo": "acme/api"},
+            {"reason": "mention", "repo": "acme/web"},
+        ])
+        self.assertEqual(summary, "1 review request · 2 mentions")
 
 
 if __name__ == "__main__":

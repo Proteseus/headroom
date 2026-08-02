@@ -173,6 +173,7 @@ feed still reads in greyscale. Host status string → word, mapped once in
 | `running` | **Running** | Amber. In flight |
 | `review_request` | **Review** | Amber, and sorted under **Needs attention**. A PR on a watched repo wants your review. Caption carries repo leaf, opener `@login`, and `#number` |
 | `assigned` | **Assigned** | Amber, same group. An issue or PR on a watched repo is assigned to you. Same caption shape |
+| `mention` | **Mention** | Amber, same group. An open issue or PR on a watched repo @mentions you. Same caption shape |
 | `queued`, `pending` | **Queued** | Amber. In flight |
 | `ready` | **Deployed** | Green. Finished well |
 | `success`, `completed` | **Passed** | Green. Finished well |

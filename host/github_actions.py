@@ -434,11 +434,19 @@ def _search_inbox(token, query, reason, watched):
     return out
 
 
-def fetch_inbox(token, repos):
-    """Review requests + assignments on watched repos (#23).
+# When the same issue/PR matches more than one search, keep the loudest reason.
+_INBOX_REASON_RANK = {
+    "review_request": 0,
+    "assigned": 1,
+    "mention": 2,
+}
 
-    Mentions are deliberately out: they are noisier and the issue asked for
-    incoming PRs/issues on the watch list, not every @you across GitHub.
+
+def fetch_inbox(token, repos):
+    """Review requests, assignments, and @mentions on watched repos.
+
+    Scoped to the watch list — not every @you on GitHub — so the Attention pip
+    stays useful for someone watching CI and review on their own repos.
     """
     if not repos:
         return []
@@ -463,19 +471,30 @@ def fetch_inbox(token, repos):
         "assigned",
         repos,
     ))
-    # Prefer review_request when the same PR is also assigned to you.
-    deduped = []
-    seen = set()
-    for row in sorted(
-            rows, key=lambda item: item.get("created_at") or 0, reverse=True):
+    rows.extend(_search_inbox(
+        token,
+        f"is:open mentions:{login}",
+        "mention",
+        repos,
+    ))
+    best = {}
+    for row in rows:
         key = row.get("id")
-        if not key or key in seen:
+        if not key:
             continue
-        seen.add(key)
-        deduped.append(row)
-        if len(deduped) >= KEEP_INBOX:
-            break
-    return deduped
+        prev = best.get(key)
+        if prev is None:
+            best[key] = row
+            continue
+        rank = _INBOX_REASON_RANK.get(row.get("reason"), 99)
+        prev_rank = _INBOX_REASON_RANK.get(prev.get("reason"), 99)
+        if rank < prev_rank:
+            best[key] = row
+    return sorted(
+        best.values(),
+        key=lambda item: item.get("created_at") or 0,
+        reverse=True,
+    )[:KEEP_INBOX]
 
 
 def attention_inbox_summary(items):
@@ -484,19 +503,25 @@ def attention_inbox_summary(items):
         return None
     count = len(items)
     reviews = sum(1 for item in items if item.get("reason") == "review_request")
-    assigned = count - reviews
+    assigned = sum(1 for item in items if item.get("reason") == "assigned")
+    mentions = sum(1 for item in items if item.get("reason") == "mention")
     first = items[0]
     repo = (first.get("repo") or "").rsplit("/", 1)[-1]
     if count == 1 and repo:
-        if first.get("reason") == "review_request":
+        reason = first.get("reason")
+        if reason == "review_request":
             return f"{repo} · review requested"
         kind = "PR" if first.get("is_pr") else "issue"
+        if reason == "mention":
+            return f"{repo} · mentioned on {kind}"
         return f"{repo} · assigned {kind}"
     bits = []
     if reviews:
         bits.append(f"{reviews} review request" + ("" if reviews == 1 else "s"))
     if assigned:
         bits.append(f"{assigned} assigned")
+    if mentions:
+        bits.append(f"{mentions} mention" + ("" if mentions == 1 else "s"))
     return " · ".join(bits) if bits else f"{count} GitHub inbox"
 
 

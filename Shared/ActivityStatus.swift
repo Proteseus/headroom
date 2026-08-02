@@ -71,6 +71,13 @@ struct ActivityStatusStyle {
                 tint: HeadroomPalette.amber,
                 weight: .attention
             )
+        case "mention":
+            ActivityStatusStyle(
+                label: HeadroomCopy.activityMention,
+                symbol: "at",
+                tint: HeadroomPalette.amber,
+                weight: .attention
+            )
         case "queued", "pending":
             ActivityStatusStyle(
                 label: HeadroomCopy.activityQueued,
