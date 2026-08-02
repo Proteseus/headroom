@@ -9,34 +9,42 @@ import SwiftUI
 /// — this screen takes the complement, so the two can't disagree.
 struct ActivityScreen: View {
     @ObservedObject var store: MobileUsageStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var serverToStop: LocalServer?
     @State private var controlError: String?
+
+    /// Wide iPhone: feed on the left, service panels on the right — the same
+    /// split the screen already had as "above / below" in portrait.
+    private var splitLayout: Bool {
+        WidePhoneLayout.isActive(horizontalSizeClass)
+    }
 
     var body: some View {
         let rows = (store.snapshot.activity ?? []).filter {
             !ActivityStatusStyle.resolve($0.status).needsAttention
         }
-        List {
-            ArchivedDataNotice(store: store)
-            if rows.isEmpty {
-                PageEmptyState(
-                    systemImage: "list.bullet.rectangle.fill",
-                    title: HeadroomCopy.noActivityYet
-                )
-                .frame(minHeight: 220)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets())
-            } else {
-                ForEach(ActivityGrouping.groups(from: rows)) { group in
-                    Section(group.title) {
-                        ForEach(group.rows) { ActivityRow(item: $0) }
+        Group {
+            if splitLayout {
+                HStack(spacing: 0) {
+                    List {
+                        ArchivedDataNotice(store: store)
+                        feedSections(rows: rows)
                     }
+                    .listStyle(.insetGrouped)
+                    List {
+                        ServiceSections(store: store) { serverToStop = $0 }
+                    }
+                    .listStyle(.insetGrouped)
                 }
+            } else {
+                List {
+                    ArchivedDataNotice(store: store)
+                    feedSections(rows: rows)
+                    ServiceSections(store: store) { serverToStop = $0 }
+                }
+                .listStyle(.insetGrouped)
             }
-            ServiceSections(store: store) { serverToStop = $0 }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle(HeadroomCopy.activity)
         .refreshable { await store.refresh(forceServerSync: true) }
         .confirmationDialog(
@@ -66,6 +74,26 @@ struct ActivityScreen: View {
             Button("OK") { controlError = nil }
         } message: {
             Text(controlError ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func feedSections(rows: [ActivityItem]) -> some View {
+        if rows.isEmpty {
+            PageEmptyState(
+                systemImage: "list.bullet.rectangle.fill",
+                title: HeadroomCopy.noActivityYet
+            )
+            .frame(minHeight: 220)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets())
+        } else {
+            ForEach(ActivityGrouping.groups(from: rows)) { group in
+                Section(group.title) {
+                    ForEach(group.rows) { ActivityRow(item: $0) }
+                }
+            }
         }
     }
 

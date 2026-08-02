@@ -11,6 +11,7 @@ struct AttentionScreen: View {
     @ObservedObject var store: MobileUsageStore
     @Binding var focusedEventID: String?
     @Binding var showsSettings: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showsStartTask = false
 
     var body: some View {
@@ -25,6 +26,11 @@ struct AttentionScreen: View {
         let events = store.agentAttentionEvents
         let dismissibleEvents = events.filter(\.isDismissOnly)
         let isAllClear = events.isEmpty && !hasNeedsAttention
+        // Split only when both halves of the queue have something to show —
+        // otherwise a lone column would sit at half width for no reason.
+        let splitLayout = WidePhoneLayout.isActive(horizontalSizeClass)
+            && !events.isEmpty
+            && hasNeedsAttention
         Group {
             if isAllClear {
                 // ScrollView so pull-to-refresh still works with no rows.
@@ -36,7 +42,7 @@ struct AttentionScreen: View {
                                 .padding(.top, 8)
                         }
                         PageEmptyState(
-                            systemImage: "checkmark.circle",
+                            systemImage: "eye",
                             title: HeadroomCopy.allClear
                         )
                         .containerRelativeFrame(.vertical) { height, _ in
@@ -45,94 +51,56 @@ struct AttentionScreen: View {
                     }
                 }
                 .background(Color(.systemGroupedBackground))
+            } else if splitLayout {
+                HStack(spacing: 0) {
+                    ScrollViewReader { proxy in
+                        List {
+                            ArchivedDataNotice(store: store)
+                            agentsSection(
+                                events: events,
+                                dismissibleEvents: dismissibleEvents
+                            )
+                        }
+                        .listStyle(.insetGrouped)
+                        .attentionFocus(
+                            focusedEventID: focusedEventID,
+                            events: store.agentAttentionEvents,
+                            focus: focus,
+                            proxy: proxy
+                        )
+                    }
+                    List {
+                        needsAttentionSection(
+                            reasons: reasons,
+                            failures: failures
+                        )
+                    }
+                    .listStyle(.insetGrouped)
+                }
             } else {
                 ScrollViewReader { proxy in
                     List {
                         ArchivedDataNotice(store: store)
                         if !events.isEmpty {
-                            Section {
-                                ForEach(events) { event in
-                                    agentRow(event)
-                                        .id(event.id)
-                                        .swipeActions(
-                                            edge: .trailing,
-                                            allowsFullSwipe: true
-                                        ) {
-                                            if event.isDismissOnly,
-                                               store.mobilePermissions.agents,
-                                               !store.isStale,
-                                               let dismiss = event.actions.first(
-                                                   where: { $0.id == "dismiss" }
-                                               ) {
-                                                Button(dismiss.label) {
-                                                    Task {
-                                                        await store.answer(
-                                                            event, with: dismiss)
-                                                    }
-                                                }
-                                                .tint(HeadroomPalette.dim)
-                                            }
-                                        }
-                                }
-                            } header: {
-                                attentionSectionHeader(
-                                    HeadroomCopy.codingAgents,
-                                    showsDismissAll: !dismissibleEvents.isEmpty
-                                        && store.mobilePermissions.agents
-                                        && !store.isStale
-                                ) {
-                                    Task { await store.dismissAllAgentNotices() }
-                                }
-                            }
+                            agentsSection(
+                                events: events,
+                                dismissibleEvents: dismissibleEvents
+                            )
                         }
                         if hasNeedsAttention {
-                            Section {
-                                ForEach(reasons) { reason in
-                                    attentionReasonRow(reason)
-                                        .swipeActions(
-                                            edge: .trailing,
-                                            allowsFullSwipe: true
-                                        ) {
-                                            Button(HeadroomCopy.dismiss) {
-                                                store.dismissAttention(id: reason.id)
-                                            }
-                                            .tint(HeadroomPalette.dim)
-                                        }
-                                }
-                                ForEach(failures) { failure in
-                                    ActivityRow(item: failure)
-                                        .swipeActions(
-                                            edge: .trailing,
-                                            allowsFullSwipe: true
-                                        ) {
-                                            Button(HeadroomCopy.dismiss) {
-                                                store.dismissAttention(id: failure.id)
-                                            }
-                                            .tint(HeadroomPalette.dim)
-                                        }
-                                }
-                            } header: {
-                                attentionSectionHeader(
-                                    HeadroomCopy.needsAttention,
-                                    showsDismissAll: true
-                                ) {
-                                    Task { await store.dismissAllAttention() }
-                                }
-                            }
+                            needsAttentionSection(
+                                reasons: reasons,
+                                failures: failures
+                            )
                         }
                     }
                     .listStyle(.insetGrouped)
-                    .onChange(of: focusedEventID) { _, eventID in
-                        focus(eventID, using: proxy)
-                    }
-                    .onChange(of: store.agentAttentionEvents) { _, _ in
-                        // The notification route refreshes before assigning focus,
-                        // but this also handles a slow Mac response safely.
-                        focus(focusedEventID, using: proxy)
-                    }
-                    .task {
-                        focus(focusedEventID, using: proxy)
-                    }
+                    .attentionFocus(
+                        focusedEventID: focusedEventID,
+                        events: store.agentAttentionEvents,
+                        focus: focus,
+                        proxy: proxy
+                    )
                 }
             }
         }
@@ -196,6 +164,87 @@ struct AttentionScreen: View {
     nonisolated static func failures(in snapshot: UsageSnapshot) -> [ActivityItem] {
         (snapshot.activity ?? []).filter {
             ActivityStatusStyle.resolve($0.status).needsAttention
+        }
+    }
+
+    @ViewBuilder
+    private func agentsSection(
+        events: [AgentAttentionEvent],
+        dismissibleEvents: [AgentAttentionEvent]
+    ) -> some View {
+        Section {
+            ForEach(events) { event in
+                agentRow(event)
+                    .id(event.id)
+                    .swipeActions(
+                        edge: .trailing,
+                        allowsFullSwipe: true
+                    ) {
+                        if event.isDismissOnly,
+                           store.mobilePermissions.agents,
+                           !store.isStale,
+                           let dismiss = event.actions.first(
+                               where: { $0.id == "dismiss" }
+                           ) {
+                            Button(dismiss.label) {
+                                Task {
+                                    await store.answer(
+                                        event, with: dismiss)
+                                }
+                            }
+                            .tint(HeadroomPalette.dim)
+                        }
+                    }
+            }
+        } header: {
+            attentionSectionHeader(
+                HeadroomCopy.codingAgents,
+                showsDismissAll: !dismissibleEvents.isEmpty
+                    && store.mobilePermissions.agents
+                    && !store.isStale
+            ) {
+                Task { await store.dismissAllAgentNotices() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func needsAttentionSection(
+        reasons: [AttentionReason],
+        failures: [ActivityItem]
+    ) -> some View {
+        Section {
+            ForEach(reasons) { reason in
+                attentionReasonRow(reason)
+                    .swipeActions(
+                        edge: .trailing,
+                        allowsFullSwipe: true
+                    ) {
+                        Button(HeadroomCopy.dismiss) {
+                            store.dismissAttention(id: reason.id)
+                        }
+                        .tint(HeadroomPalette.dim)
+                    }
+            }
+            ForEach(failures) { failure in
+                ActivityRow(item: failure)
+                    .swipeActions(
+                        edge: .trailing,
+                        allowsFullSwipe: true
+                    ) {
+                        Button(HeadroomCopy.dismiss) {
+                            store.dismissAttention(id: failure.id)
+                        }
+                        .tint(HeadroomPalette.dim)
+                    }
+            }
+        } header: {
+            attentionSectionHeader(
+                HeadroomCopy.needsAttention,
+                showsDismissAll: true
+            ) {
+                Task { await store.dismissAllAttention() }
+            }
         }
     }
 
@@ -345,5 +394,29 @@ struct AttentionScreen: View {
         withAnimation {
             proxy.scrollTo(eventID, anchor: .center)
         }
+    }
+}
+
+private extension View {
+    /// Scroll-to-focus wiring shared by the stacked and side-by-side Attention
+    /// lists so a notification tap still lands on the matching agent row.
+    func attentionFocus(
+        focusedEventID: String?,
+        events: [AgentAttentionEvent],
+        focus: @escaping (String?, ScrollViewProxy) -> Void,
+        proxy: ScrollViewProxy
+    ) -> some View {
+        self
+            .onChange(of: focusedEventID) { _, eventID in
+                focus(eventID, proxy)
+            }
+            .onChange(of: events) { _, _ in
+                // The notification route refreshes before assigning focus,
+                // but this also handles a slow Mac response safely.
+                focus(focusedEventID, proxy)
+            }
+            .task {
+                focus(focusedEventID, proxy)
+            }
     }
 }
