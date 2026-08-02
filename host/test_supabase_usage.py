@@ -41,6 +41,35 @@ class SupabaseUsageTests(unittest.TestCase):
         self.assertTrue(rows[0]["healthy"])
         self.assertFalse(rows[1]["healthy"])
 
+    def test_flatten_keeps_management_api_metadata(self):
+        row = supabase_usage._flatten_project(
+            {
+                "ref": "abcd1234abcdefghij",
+                "name": "prod",
+                "organization_id": "acme",
+                "region": "eu-central-1",
+                "status": "ACTIVE_HEALTHY",
+                "created_at": "2024-03-29T16:32:59Z",
+                "database": {
+                    "host": "db.abcd1234abcdefghij.supabase.co",
+                    "version": "15.8.1.034",
+                    "postgres_engine": "15",
+                    "release_channel": "ga",
+                },
+            },
+            [{"name": "db", "status": "healthy", "healthy": True}],
+            None,
+            [],
+            None,
+        )
+
+        self.assertEqual(row["created_at"], "2024-03-29T16:32:59Z")
+        self.assertEqual(row["organization_id"], "acme")
+        self.assertEqual(row["database"]["host"],
+                         "db.abcd1234abcdefghij.supabase.co")
+        self.assertEqual(row["database"]["postgres_engine"], "15")
+        self.assertEqual(row["database"]["release_channel"], "ga")
+
     @patch("supabase_usage._project_advisors", return_value=([], None))
     @patch("supabase_usage._project_health")
     @patch("supabase_usage._get")

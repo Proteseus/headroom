@@ -4,7 +4,7 @@ The rings are one indicator with the same meaning on macOS, iOS, widgets, the
 menu bar, and the desk display.
 
 - A provider uses at most two concentric bands.
-- The fastest quota window is the outer band.
+- The longer quota window is the outer band (week outside, session inside).
 - The provider accent is the usage arc; arcs begin at 12 o'clock and grow
   clockwise.
 - The track is the same accent mixed 20% over the surface.

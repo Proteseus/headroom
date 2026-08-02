@@ -103,7 +103,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Quota resets** | Coding quota reset events | iOS, macOS |
 | **Claude status** | Claude service status events | iOS, macOS |
 | **Other activity** | Fallback group for activity kinds added by a newer host | iOS, macOS |
-| **Services** | Supabase, Plausible, local servers | Sections on the iOS Activity tab and macOS Activity mode |
+| **Services** | Supabase, Plausible, PostHog, local servers | Sections on the iOS Activity tab and macOS Activity mode |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
 | **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs, App updates | macOS Settings |
@@ -111,9 +111,9 @@ surface-specific (see the end of this file), but the shape does not.
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
 | **Sources** | What to watch — AI tools, extra accounts, dev tools | macOS Settings, iOS Settings, Welcome |
 | **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
-| **Integrations** | Hub for everything Headroom connects to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible | macOS Settings |
-| **Code and deploys** | Integrations group: Git, GitHub Actions, Vercel | macOS Settings |
-| **Services** | Integrations group: Supabase, Plausible — also the Activity section for those panels | macOS Settings, Activity |
+| **Integrations** | Hub for everything Headroom connects to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible, PostHog | macOS Settings |
+| **Code and deploys** | Integrations group: **Git** (local commits on this Mac), **GitHub Actions** (CI via PAT), **Vercel** (CLI login) — three leaves because they use three different credentials | macOS Settings |
+| **Services** | Integrations group: Supabase, Plausible, PostHog — also the Activity section for those panels | macOS Settings, Activity |
 | **Dashboard** | How many rows this Mac draws — Activity and Local servers under General; projects and sites on each Integration page | macOS Settings |
 | **Status** | Integration detail caption: connected, Keychain, hooks state, signed-in | macOS Settings |
 | **Connect** / **Replace** / **Disconnect** | Paste, overwrite, or clear a Keychain credential | macOS Settings |
@@ -170,8 +170,8 @@ feed still reads in greyscale. Host status string → word, mapped once in
 | `error`, `failure` | **Failed** | Red, and sorted above the rest under **N need attention**. Tinted per row — the feed is one list of equal items, not a box stacked on a list |
 | `building`, `initializing` | **Building** | Amber. In flight |
 | `running` | **Running** | Amber. In flight |
-| `review_request` | **Review** | Amber, and sorted under **Needs attention**. A PR on a watched repo wants your review |
-| `assigned` | **Assigned** | Amber, same group. An issue or PR on a watched repo is assigned to you |
+| `review_request` | **Review** | Amber, and sorted under **Needs attention**. A PR on a watched repo wants your review. Caption carries repo leaf, opener `@login`, and `#number` |
+| `assigned` | **Assigned** | Amber, same group. An issue or PR on a watched repo is assigned to you. Same caption shape |
 | `queued`, `pending` | **Queued** | Amber. In flight |
 | `ready` | **Deployed** | Green. Finished well |
 | `success`, `completed` | **Passed** | Green. Finished well |
@@ -266,9 +266,9 @@ blank axis.
 
 | Term | Meaning |
 |---|---|
-| **Connected** | iOS link health when the Mac host is reachable; also Integrations hub when a token-backed service has a key |
+| **Connected** | iOS link health when the Mac host is reachable. Token-backed Integrations hub rows prefer the live poll caption (**3 projects**, **Supabase token rejected**) over Connected-from-Keychain alone |
 | **Not connected** | Integrations hub / detail when nothing is pasted yet |
-| **Keychain** | Integration detail Status: the credential is in this Mac's Keychain |
+| **Keychain** | Integration detail Credential row: a token is stored on this Mac. Status beside it says whether the last poll accepted it |
 | **Mac unavailable** | iOS cannot reach the host |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |
@@ -276,6 +276,7 @@ blank axis.
 | **Needs attention** | Warning fallback when a reason has no summary; the iPhone Attention section header, and counted as **N need attention** above the Mac's Activity feed |
 | **Collecting history** | Burndown empty / early verdict |
 | **Not updating** | The host is replaying a source's last good numbers; the age travels with it (**Not updating · 2 hours ago**) |
+| **Paused** | The host is deliberately not refreshing — usually a provider rate limit (`stale_cause: rate_limited`). Carries the wait when known (**Paused · retries in 5m**). Secondary, not amber |
 | **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way |
 | **Clear** | Dismiss attention on every surface |
 | **Dismiss** | Swipe one row out of the iPhone Attention queue — a passive coding-agent notice, a rollup reason, or a failed feed row |
@@ -287,10 +288,11 @@ blank axis.
 | **Add account…** | Inline link under a multi-account-capable service; opens the add sheet that carries the credential-path prose |
 | **not detected** | A Library chip whose credential has no local trace to import — dimmed, never a dead toggle. On a service that takes accounts the chip stays live and opens **Add account…** instead |
 
-**Needs sign-in** outranks **Not updating** wherever both are true, which is
-most of the time — a dead login also freezes the numbers. Staleness is shared
-by rate limits and dropped networks and reads as something to wait out; only
-this one names a thing the reader can go and do. `QuotaProviderInfo.statusNote`
+**Needs sign-in** outranks **Paused** and **Not updating** wherever both are
+true — a dead login also freezes the numbers. **Paused** outranks **Not
+updating** when the freeze is a rate limit the host is already backing off
+from. Only Needs sign-in ambers a meter; the other two stay secondary so a
+backoff does not read as something to go and fix. `QuotaProviderInfo.statusNote`
 picks between them so no surface has to.
 
 Do not use **All clear** for connection health — that word belongs on the
@@ -298,7 +300,7 @@ Attention card. The Usage status row uses **Connected** / **Mac unavailable**.
 
 ### Service health
 
-Supabase, Plausible and the Supabase advisors sit on the same axis as source
+Supabase, Plausible, PostHog and the Supabase advisors sit on the same axis as source
 health: **does the reader wait, or go and do something.** The host's own
 `error` string wins when there is one; these are the fallbacks for when there
 isn't. `HeadroomCopy.serviceStatus(_:configured:)` picks between them.
@@ -362,12 +364,15 @@ undifferentiated pile of toggles:
 | `windsurf` | Windsurf | `ai` |
 | `jetbrains` | JetBrains AI | `ai` |
 | `zed` | Zed | `ai` |
+| `openrouter` | OpenRouter | `ai` |
+| `ai-gateway` | AI Gateway | `ai` |
 | `claude-status` | Claude Status | `ai` |
 | `vercel` | Vercel | `devtools` |
 | `git` | Git | `devtools` |
 | `github` | GitHub Actions | `devtools` |
 | `supabase` | Supabase | `devtools` |
 | `plausible` | Plausible | `devtools` |
+| `posthog` | PostHog | `devtools` |
 | `local` | Local | `devtools` |
 
 **Extra accounts** is the user-facing name (macOS Settings section header);
@@ -392,8 +397,10 @@ served as `sources[].group`). Section titles are chrome and live in
 
 | Term | Meaning | Surfaces |
 |---|---|---|
-| **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left, no key to paste; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
-| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, local servers | macOS Settings + onboarding, iOS Settings |
+| **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left; OpenRouter and AI Gateway are prepaid balances with a pasted key; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
+| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, local servers | macOS Settings Sources + onboarding |
+| **Integrations** (iOS Sources section) | Same membership as Dev tools; the phone has no nested Integrations hub, so the section uses that name | iOS Settings |
+| **API balances** (Integrations hub) | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac | macOS Settings → Integrations |
 
 Don't call the first group **Sources** on its own, and don't call the second
 **Activity** — that word belongs to the merged feed.
