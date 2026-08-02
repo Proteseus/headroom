@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.9",
-  "published": "2026-08-02T07:04:10Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.9/Headroom-macOS.zip",
-  "sha256": "750c7a2a2851863def629e27bfb3b844a39ce66cb64a20a6cb5ac397d9a44450",
-  "size": 4444778,
+  "version": "1.6.0",
+  "published": "2026-08-02T09:15:18Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.0/Headroom-macOS.zip",
+  "sha256": "f192d098033d8081f397f04c330bcc505f8e4658781dc244bf0050b6e3aa5133",
+  "size": 4444783,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Sources lists providers; Integrations lists connections.** The two\n  pages used to show the same nouns: every integration was also a source,\n  so neither page said which question it answered. Sources now lists only\n  what Headroom reads a meter for. Dev tools move to their Integrations\n  leaf (with the on/off that used to live on the Sources row). Local\n  servers, which has nothing to configure, gets its switch under General.\n  The phone gains an Integrations root for the same split."
+  "notes_md": "### Changed\n\n- **The watch burndown ghosts the windows you already spent**, same faint\n  sawtooth the phone, Mac and widget draw behind the live curve. The\n  rectangular complication and the in-app chart were skipping `history` even\n  though the phone already forwards it."
 }
