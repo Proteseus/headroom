@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.9 — 2026-08-02
+
+### Changed
+
+- **Sources lists providers; Integrations lists connections.** The two
+  pages used to show the same nouns: every integration was also a source,
+  so neither page said which question it answered. Sources now lists only
+  what Headroom reads a meter for. Dev tools move to their Integrations
+  leaf (with the on/off that used to live on the Sources row). Local
+  servers, which has nothing to configure, gets its switch under General.
+  The phone gains an Integrations root for the same split.
+
 ## 1.5.8 — 2026-08-02
 
 ### Fixed
