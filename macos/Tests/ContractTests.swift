@@ -181,7 +181,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(pro.compactPrice, "$20 / user / mo · $200 / user / yr")
         XCTAssertEqual(
             pricing.currentPrice(for: "Max 5x")?.compactPrice,
-            "$100 / user / mo · $1200 / user / yr")
+            "$100 / user / mo · $1,200 / user / yr")
         XCTAssertNil(pricing.currentPrice(for: "Team"))
 
         let codex = try XCTUnwrap(

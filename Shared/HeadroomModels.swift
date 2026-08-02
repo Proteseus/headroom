@@ -1106,7 +1106,8 @@ struct SubscriptionPricing: Decodable, Sendable {
 
 private extension Double {
     var cleanCurrency: String {
-        HeadroomFormat.usd(self, maximumFractionDigits: 2)
+        // Whole dollars — subscription catalogs do not quote cents.
+        HeadroomFormat.usd(self)
             .replacingOccurrences(of: "$", with: "")
     }
 }
