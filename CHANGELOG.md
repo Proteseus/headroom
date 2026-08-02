@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.3 — 2026-08-02
+
+### Changed
+
+- **Activity and Attention split on wide iPhones**, matching the Overview
+  layout from 1.6.2. Landscape and unfoldable phones get two columns
+  instead of one tall scroll.
+
 ## 1.6.2 — 2026-08-02
 
 ### Added
