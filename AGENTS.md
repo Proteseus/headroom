@@ -315,6 +315,66 @@ bump, check the macOS job actually went green. If it went red you want to stop,
 and a tag that already exists means the recovery is a new patch version rather
 than a retry.
 
+## Chunking and shipping someone else's work
+
+Splitting one large uncommitted change into several coherent releases —
+because it touches sixty or ninety files and reads as three or four things
+that happened to land in the same working tree, not one — is a normal task
+here, not an edge case. It has its own failure modes, distinct from the ones
+above.
+
+**Green build gates do not prove a partition was complete.** A missing icon
+asset, a doc file that never got copied into any set, a test file left
+behind — none of these fail `xcodebuild`, because nothing references them at
+compile time or the gap is in prose nobody type-checks. The gates prove each
+set you *did* ship builds and passes; they say nothing about content you
+forgot to include in any set. After every set has shipped, diff the original
+dirty working tree against `origin/main` file by file — not `git diff
+--stat`, an actual per-file byte comparison, since a summary stat can bury a
+handful of real gaps in a wall of expected noise from later commits. Whatever
+still differs and isn't explained by something that shipped *after* your
+snapshot is a gap. Ship it as one more small release; do not fold it in
+disguise.
+
+**Host tests must run with an isolated `HOME`.** `unittest discover` reads
+`~/.headroom/config.json` if you let it, meaning a test asserting the
+*default* value of a setting can pass or fail depending on what this specific
+Mac has configured — not on whether the code is correct. Always:
+
+```bash
+T=$(mktemp -d); HOME="$T" python3 -m unittest discover -p "test_*.py"
+```
+
+A green run without this proves the suite agrees with your machine, not that
+it agrees with a clean one.
+
+**A test asserting `date.today()` against code given an explicit `tz=` is a
+timer, not a test.** It passes locally right up until the run lands between
+that timezone's midnight and the runner's — `Europe/Berlin` is two hours
+ahead of the `UTC` GitHub Actions runs on, so any CI run between 22:00 and
+midnight UTC hits a day the runner has not reached yet. Assert against
+`datetime.now(the same tz the code uses)`, never against the system clock.
+
+**`git apply` on a patch mixing text and binary hunks fails atomically** —
+none of it lands, including the text hunks that would have applied cleanly
+on their own. Screenshots, icons, and other binary diffs need a direct file
+copy into the target worktree, not a patch; keep them out of the `git diff`
+you feed to `git apply` and copy them separately.
+
+**When a bare `git cherry-pick` chain needs a bump *between* two commits you
+already applied in sequence**, `git reset --hard` back to the earlier
+commit, bump there, then re-apply what came after — do not bump after both
+land and try to sort it out with two changelog sections on one version.
+
+**Merging someone else's PR into a tree that moved past it** (new sources,
+new files, renamed functions) is a hand rebase, not a checkout-and-merge.
+Read their diff in full before touching anything: a same-day change on
+`main` may have solved the identical problem their PR set out to solve,
+sometimes with a weaker fix, sometimes a stronger one — compare the two and
+keep whichever is actually correct rather than defaulting to what already
+landed. Credit the original author in the commit trailer and the CHANGELOG
+line regardless of how much hand-editing the merge took.
+
 ## Working alongside other agents
 
 Assume someone else is committing to this repo right now, to `main`, which is
