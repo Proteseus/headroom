@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.4 — 2026-08-02
+
+### Changed
+
+- **Watch dial bands follow pinned Sources order.** Outside-in used to
+  sort by most spent, so positions drifted every poll. First pinned
+  provider is outermost, matching Activity and the board.
+
 ## 1.6.3 — 2026-08-02
 
 ### Changed
