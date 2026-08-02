@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.5 — 2026-08-02
+
+### Changed
+
+- **ESP32 home follows the Mac dashboard.** The lower pane cycles Daily
+  burn, History, Spend, then Burndown — stacked seven-day burn and the
+  estimated spend figures the Mac card already leads with. The Activity
+  feed leaves that cycle for its detail pages.
+
 ## 1.6.4 — 2026-08-02
 
 ### Changed
