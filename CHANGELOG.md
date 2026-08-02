@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.1 — 2026-08-02
+
+### Added
+
+- **@mentions on watched GitHub repos join the Attention inbox**, beside
+  review requests and assignments. Still scoped to the watch list, not every
+  @you on GitHub, so the pip stays useful for CI and review oversight.
+
 ## 1.6.0 — 2026-08-02
 
 ### Changed
