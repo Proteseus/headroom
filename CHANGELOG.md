@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.0 — 2026-08-02
+
+### Changed
+
+- **The watch burndown ghosts the windows you already spent**, same faint
+  sawtooth the phone, Mac and widget draw behind the live curve. The
+  rectangular complication and the in-app chart were skipping `history` even
+  though the phone already forwards it.
+
 ## 1.5.9 — 2026-08-02
 
 ### Changed
