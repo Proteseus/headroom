@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.6.4",
-  "published": "2026-08-02T14:22:40Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.4/Headroom-macOS.zip",
-  "sha256": "13499959e030d05bdbf17fb5ea34738fd735ebde483548dab7325c75b892307d",
-  "size": 4553883,
+  "version": "1.6.5",
+  "published": "2026-08-02T20:34:34Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.5/Headroom-macOS.zip",
+  "sha256": "c723116ea0ae41dd84ae90e92ce6a88add65d72ccaf4cfa51e5863c0f8c48732",
+  "size": 4554438,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Watch dial bands follow pinned Sources order.** Outside-in used to\n  sort by most spent, so positions drifted every poll. First pinned\n  provider is outermost, matching Activity and the board."
+  "notes_md": "### Changed\n\n- **ESP32 home follows the Mac dashboard.** The lower pane cycles Daily\n  burn, History, Spend, then Burndown — stacked seven-day burn and the\n  estimated spend figures the Mac card already leads with. The Activity\n  feed leaves that cycle for its detail pages."
 }
