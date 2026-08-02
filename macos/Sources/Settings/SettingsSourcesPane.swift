@@ -9,11 +9,14 @@ import SwiftUI
 // not a Claude feature — so the old flat 14-row list, the separate "Extra
 // accounts" section, and the footnote paragraphs are all gone.
 //
-// Ordering stays AI-only and account-level on the wire: the host's `order`
-// holds quota-account ids, dragging a service moves its accounts as a block,
-// and dev tools keep their registry order below the AI rows. The ①②③ badges
-// mark menu-bar slots honestly — a service whose accounts fill three slots
-// wears ①–③ alone, and a dev tool never wears one.
+// The pane lists AI providers only — things Headroom reads a meter for.
+// Dev tools (Git, GitHub, Vercel, Supabase, Plausible, PostHog) live under
+// Integrations, which owns both their credentials and their on/off.
+//
+// Ordering is account-level on the wire: the host's `order` holds
+// quota-account ids and dragging a service moves its accounts as a block.
+// The ①②③ badges mark menu-bar slots honestly — a service whose accounts
+// fill three slots wears ①–③ alone.
 
 /// One row of the Active card / one chip of the Library: a provider with its
 /// account-level source rows grouped back together.
@@ -97,18 +100,22 @@ struct SettingsSourcesPane: View {
         SourceService.services(from: sources)
     }
 
-    /// Active: AI services in pinned order, then dev tools in registry
-    /// order. The category rides each row's subtitle; the split is not
-    /// structural here — only the Library groups by it. Paused services
-    /// (configured, switched off, not dismissed) stay in this list.
+    /// Active: AI providers in pinned order. Paused services (configured,
+    /// switched off, not dismissed) stay in this list.
+    ///
+    /// Dev tools are deliberately absent. They used to sit below the AI rows
+    /// here *and* have a leaf under Integrations, which made one list read as
+    /// a duplicate of the other — every integration is also a source, so the
+    /// two pages showed the same nouns without saying they answer different
+    /// questions. Sources now answers "what do I watch"; Integrations answers
+    /// "how is it connected", and owns the on/off for anything that needs a
+    /// credential. See `SettingsIntegration`.
     private var activeServices: [SourceService] {
-        let listed = services.filter(\.isListed)
-        return listed.filter { $0.group == .ai }
-            + listed.filter { $0.group == .devtools }
+        services.filter { $0.isListed && $0.group == .ai }
     }
 
     private var libraryServices: [SourceService] {
-        services.filter { !$0.isListed }
+        services.filter { !$0.isListed && $0.group == .ai }
     }
 
     /// Menu-bar slots: the first three enabled quota accounts in pinned
@@ -138,7 +145,6 @@ struct SettingsSourcesPane: View {
                     HeadroomCopy.sourcesLibrary,
                     hint: HeadroomCopy.sourcesLibraryHint)
                 libraryGroup(.ai, title: HeadroomCopy.aiProvidersGroup)
-                libraryGroup(.devtools, title: HeadroomCopy.devTools)
                 footerBar
             }
             .padding(20)

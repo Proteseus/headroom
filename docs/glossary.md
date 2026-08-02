@@ -109,9 +109,10 @@ surface-specific (see the end of this file), but the shape does not.
 | **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs, App updates | macOS Settings |
 | **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
-| **Sources** | What to watch — AI tools, extra accounts, dev tools | macOS Settings, iOS Settings, Welcome |
+| **Sources** | What to watch — AI providers and their extra accounts, i.e. everything Headroom reads a meter for. A dev tool has no meter, so it is not listed here; its on/off lives on its Integrations leaf. Claude, Codex, OpenRouter and AI Gateway appear on both pages on purpose: Sources owns their on/off and order, Integrations owns their credential | macOS Settings, iOS Settings, Welcome |
 | **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
-| **Integrations** | Hub for everything Headroom connects to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible, PostHog | macOS Settings |
+| **Integrations** | What Headroom is connected to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible, PostHog, OpenRouter, AI Gateway. The Mac gives each a leaf with its credential and config; the phone lists the same set on/off with status only | macOS Settings, iOS Settings |
+| **Show in Headroom** | The dev-tool on/off on its Integrations leaf. Off stops polling and hides the rows; the key stays in the Keychain, which is what **Disconnect** clears | macOS Settings |
 | **Code and deploys** | Integrations group: **Git** (local commits on this Mac), **GitHub Actions** (CI via PAT), **Vercel** (CLI login) — three leaves because they use three different credentials | macOS Settings |
 | **Services** | Integrations group: Supabase, Plausible, PostHog — also the Activity section for those panels | macOS Settings, Activity |
 | **Dashboard** | How many rows this Mac draws — Activity and Local servers under General; projects and sites on each Integration page | macOS Settings |
@@ -283,7 +284,7 @@ blank axis.
 | **Dismiss all** | Bulk version of the same, per section: every passive coding-agent notice (answer-required requests stay), or every warning in **Needs attention** |
 | **Refresh all** | Force-sync every source |
 | **Active** | Mac Settings → Sources: the services you track, rich reorderable rows with live usage. A switched-off row stays here as **Off** — paused, configured, not polled |
-| **Library** | Mac Settings → Sources: everything you don't track, as compact chips grouped **AI providers** / **Dev tools** |
+| **Library** | Mac Settings → Sources: the **AI providers** you don't track, as compact chips |
 | **Move to Library** | The Active row's ✕: stop tracking a service. Never touches credentials — Headroom has no sign-ins to revoke, so wording must not imply signing out |
 | **Add account…** | Inline link under a multi-account-capable service; opens the add sheet that carries the credential-path prose |
 | **not detected** | A Library chip whose credential has no local trace to import — dimmed, never a dead toggle. On a service that takes accounts the chip stays live and opens **Add account…** instead |
@@ -398,8 +399,7 @@ served as `sources[].group`). Section titles are chrome and live in
 | Term | Meaning | Surfaces |
 |---|---|---|
 | **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left; OpenRouter and AI Gateway are prepaid balances with a pasted key; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
-| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, local servers | macOS Settings Sources + onboarding |
-| **Integrations** (iOS Sources section) | Same membership as Dev tools; the phone has no nested Integrations hub, so the section uses that name | iOS Settings |
+| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, local servers | onboarding; **not** Sources — they live under Integrations on both platforms |
 | **API balances** (Integrations hub) | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac | macOS Settings → Integrations |
 
 Don't call the first group **Sources** on its own, and don't call the second

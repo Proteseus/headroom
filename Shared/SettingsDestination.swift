@@ -39,8 +39,13 @@ enum SettingsDestination: Hashable, Sendable {
 
     /// iPhone Settings tab roots. Connection is the phone’s view of pairing;
     /// Mac’s General covers host endpoint on the Mac itself.
+    ///
+    /// Integrations earns a root here for the same reason it has one on the
+    /// Mac: Sources lists what you watch, Integrations lists what Headroom is
+    /// connected to. The phone's version is on/off and status only — keys are
+    /// entered on the Mac and the phone never sees them.
     static let iOSRoots: [SettingsDestination] = [
-        .connection, .sources, .iPhone, .about,
+        .connection, .sources, .integrations, .iPhone, .about,
     ]
 
     var title: String {
@@ -74,11 +79,17 @@ enum SettingsDestination: Hashable, Sendable {
     }
 
     /// True when this destination only makes sense on the Mac host UI.
+    ///
+    /// `integrations` is on both now — the phone lists the same connections
+    /// read-only-ish (on/off and status, no credential fields). The
+    /// per-integration leaf stays Mac-only, because configuring one means
+    /// typing a key, and keys are never entered on the phone.
     var isMacOnly: Bool {
         switch self {
-        case .general, .codingAgents, .integrations, .otherMacs, .integration:
+        case .general, .codingAgents, .otherMacs, .integration:
             return true
-        case .sources, .iPhone, .about, .connection, .permissions:
+        case .integrations, .sources, .iPhone, .about, .connection,
+             .permissions:
             return false
         }
     }

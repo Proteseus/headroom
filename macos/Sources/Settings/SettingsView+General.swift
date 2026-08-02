@@ -66,12 +66,31 @@ extension SettingsView {
 
             // Activity and Local servers are Mac-wide; Supabase / Plausible
             // density lives on each integration's own page.
+            //
+            // Local servers carries its own on/off here because it is the one
+            // dev-tool source with nothing to configure — no key, no account,
+            // so no leaf under Integrations to hold the switch that used to
+            // live in the Sources pane.
             Section {
                 Stepper(
                     "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
                     value: $activityRowLimit,
                     in: 3...14
                 )
+                if let local = sources.first(where: { $0.id == "local" }) {
+                    Toggle(
+                        HeadroomCopy.localServers,
+                        isOn: Binding(
+                            get: { local.enabled ?? true },
+                            set: { on in
+                                Task {
+                                    await setSourceRows([local.id], enabled: on)
+                                }
+                            }
+                        )
+                    )
+                    .disabled(togglingSourceID == local.id)
+                }
                 Stepper(
                     "\(HeadroomCopy.localServers): \(serverRowLimit)",
                     value: $serverRowLimit,

@@ -168,6 +168,7 @@ extension SettingsView {
     @ViewBuilder
     func integrationPane(_ kind: SettingsIntegration) -> some View {
         Form {
+            visibilitySection(kind)
             switch kind {
             case .claudeCode: claudeCodeSections
             case .codex: codexSections
@@ -182,6 +183,35 @@ extension SettingsView {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The on/off for a dev tool, which used to live as a row in the Sources
+    /// pane. Sources now lists AI providers only, so this leaf is the only
+    /// place left to switch one off.
+    ///
+    /// Which kinds get it is read off the payload rather than a second list
+    /// here: an integration whose source sits in the `devtools` group is
+    /// exactly one that left the Sources pane. AI-group integrations
+    /// (Claude, Codex, OpenRouter, AI Gateway) still have their row over
+    /// there, and a second switch for the same bit is how the two pages got
+    /// confusing in the first place. A host too old to send the source at
+    /// all simply shows no toggle.
+    @ViewBuilder
+    private func visibilitySection(_ kind: SettingsIntegration) -> some View {
+        if let source = sources.first(where: { $0.id == kind.rawValue }),
+           source.sourceGroup == .devtools {
+            Section {
+                Toggle(HeadroomCopy.showInHeadroom, isOn: Binding(
+                    get: { source.enabled ?? true },
+                    set: { on in
+                        Task { await setSourceRows([source.id], enabled: on) }
+                    }
+                ))
+                .disabled(togglingSourceID == source.id)
+            } footer: {
+                Text("Off stops polling and hides its rows. The key stays in the Keychain — \(HeadroomCopy.settingsDisconnect) is what forgets it.")
+            }
+        }
     }
 
     var aboutPane: some View {

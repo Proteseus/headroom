@@ -371,6 +371,13 @@ enum HeadroomCopy {
     /// ("AI coding tools"), which titles onboarding's checklist.
     static let aiProvidersGroup = "AI providers"
 
+    /// The on/off an integration leaf owns now that dev tools have left the
+    /// Sources pane. Deliberately about visibility rather than connection:
+    /// switching it off stops the polling and hides the rows, and leaves the
+    /// key in the Keychain — Disconnect is the other button, and it is the
+    /// one that forgets a credential.
+    static let showInHeadroom = "Show in Headroom"
+
     /// A meter the Mac is replaying instead of fetching. The word alone reads
     /// as a hiccup you can wait out, so the age travels with it — "2 hours
     /// ago" is what turns it into something to go and fix.

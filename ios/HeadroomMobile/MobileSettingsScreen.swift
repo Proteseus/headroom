@@ -41,6 +41,8 @@ struct MobileSettingsScreen: View {
             connectionPane
         case .sources:
             sourcesPane
+        case .integrations:
+            integrationsPane
         case .iPhone:
             iPhonePane
         case .about:
@@ -138,51 +140,41 @@ struct MobileSettingsScreen: View {
         }
     }
 
+    /// AI providers only, matching the Mac. This screen used to carry a
+    /// second section headed "Integrations" — the word, inside Sources —
+    /// which is the muddle the split fixes: every integration is also a
+    /// source, so one page appeared to list the other. Sources answers "what
+    /// do I watch"; `integrationsPane` answers "what is connected".
     private var sourcesPane: some View {
         Form {
-            ForEach(groupedSources, id: \.group) { section in
-                Section {
-                    ForEach(section.sources) { source in
-                        sourceRow(source)
-                    }
-                } header: {
-                    // Mac Settings splits these under Integrations; the phone
-                    // has no nested hub, so the section wears that name.
-                    Text(sectionTitle(for: section.group))
-                } footer: {
-                    Text(footerText(for: section.group))
+            Section {
+                ForEach(sources(in: .ai)) { source in
+                    sourceRow(source)
                 }
+            } footer: {
+                Text("\(SourceGroup.ai.subtitle) Same list as Mac Settings → \(HeadroomCopy.settingsSources).")
             }
         }
     }
 
-    private func sectionTitle(for group: SourceGroup) -> String {
-        switch group {
-        case .ai: return group.title
-        case .devtools: return HeadroomCopy.settingsIntegrations
+    /// The phone's half of Integrations: on/off and status, no credential
+    /// fields. Keys are typed on the Mac and the phone never sees them, so
+    /// there is nothing here worth a leaf per integration the way the Mac
+    /// has one.
+    private var integrationsPane: some View {
+        Form {
+            Section {
+                ForEach(sources(in: .devtools)) { source in
+                    sourceRow(source)
+                }
+            } footer: {
+                Text("\(HeadroomCopy.devToolsHint) Add keys on the Mac under Settings → \(HeadroomCopy.settingsIntegrations).")
+            }
         }
     }
 
-    /// Group subtitle, with the "where this list comes from" line tacked onto
-    /// the last one. No refresh button down here: pull to refresh works on
-    /// every tab and the status card already carries the icon.
-    private func footerText(for group: SourceGroup) -> String {
-        var parts: [String] = []
-        switch group {
-        case .ai:
-            parts.append(group.subtitle)
-        case .devtools:
-            parts.append(HeadroomCopy.devToolsHint)
-            parts.append(
-                "Add keys on the Mac under Settings → \(HeadroomCopy.settingsIntegrations)."
-            )
-        }
-        if group == groupedSources.last?.group {
-            parts.append(
-                "Same list as Mac Settings → \(HeadroomCopy.settingsSources)."
-            )
-        }
-        return parts.joined(separator: " ")
+    private func sources(in group: SourceGroup) -> [SyncSource] {
+        groupedSources.first { $0.group == group }?.sources ?? []
     }
 
     private var iPhonePane: some View {
