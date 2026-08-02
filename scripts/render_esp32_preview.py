@@ -35,6 +35,7 @@ SEAL_ROWS = 0
 COL_BG = (0, 0, 0)
 COL_WHITE = (240, 238, 234)
 COL_DIM = (120, 116, 110)
+COL_BAR = (42, 40, 38)
 COL_GREEN = (95, 155, 115)
 COL_RED = (175, 105, 100)
 COL_CRT = (0, 214, 236)
@@ -550,6 +551,98 @@ def draw_glance_history(draw, device, mid_y, low_bottom):
               fill=dim(COL_DIM, 0.35), width=1)
 
 
+def format_usd(value):
+    try:
+        return f"${float(value or 0):,.0f}"
+    except (TypeError, ValueError):
+        return "$0"
+
+
+def draw_glance_daily_burn(draw, device, mid_y, low_bottom):
+    daily = device.get("daily_burn") or {}
+    days = daily.get("days") or []
+    draw_text(draw, "Daily burn", PAD, mid_y + 8, FONT2, COL_WHITE)
+    if not days:
+        draw_text(draw, "Collecting burn", PAD, mid_y + 42, FONT2, COL_DIM)
+        return
+
+    today_total = float(days[-1].get("total") or 0)
+    summary = f"Today {today_total:.0f}%"
+    draw_text(draw, summary,
+              W - PAD - text_w(draw, summary, FONT2), mid_y + 8, FONT2, COL_DIM)
+
+    providers = (device.get("providers") or [])[:3]
+    max_total = max([float(day.get("total") or 0) for day in days] + [1])
+    label_y = low_bottom - 12
+    chart_top = mid_y + 34
+    chart_bottom = label_y - 5
+    chart_h = chart_bottom - chart_top
+    gap = 6
+    bar_w = (W - PAD * 2 - gap * (len(days) - 1)) // len(days)
+    if chart_h <= 4 or bar_w <= 2:
+        return
+
+    for index, day in enumerate(days):
+        x = PAD + index * (bar_w + gap)
+        draw.rounded_rectangle(
+            [x, chart_top, x + bar_w - 1, chart_bottom - 1],
+            radius=3,
+            fill=COL_BAR,
+        )
+        total = float(day.get("total") or 0)
+        filled_h = max(1, round(chart_h * total / max_total)) if total > 0 else 0
+        y = chart_bottom
+        burns = day.get("burns") or {}
+        for provider in reversed(providers):
+            amount = float(burns.get(provider.get("id"), 0) or 0)
+            if amount <= 0 or filled_h <= 0:
+                continue
+            segment = max(1, round(chart_h * amount / max_total))
+            segment = min(segment, y - chart_top)
+            if segment <= 0:
+                break
+            draw.rectangle(
+                [x, y - segment, x + bar_w - 1, y - 1],
+                fill=parse_accent(provider.get("accent")),
+            )
+            y -= segment
+        label = str(day.get("label") or "")
+        if label:
+            draw_text(draw, label,
+                      x + (bar_w - text_w(draw, label, FONT1)) // 2,
+                      label_y, FONT1, COL_DIM)
+
+
+def draw_glance_spend(draw, device, mid_y, low_bottom):
+    spend = device.get("spend") or {}
+    draw_text(draw, "Spend", PAD, mid_y + 8, FONT2, COL_WHITE)
+    estimated = "Estimated" if spend.get("estimated", True) else "Observed"
+    draw_text(draw, estimated,
+              W - PAD - text_w(draw, estimated, FONT2), mid_y + 8, FONT2,
+              COL_DIM)
+    total = float(spend.get("total") or 0)
+    today = float(spend.get("today") or 0)
+    if total <= 0 and today <= 0:
+        draw_text(draw, "No spend yet", PAD, mid_y + 45, FONT2, COL_DIM)
+        return
+
+    col_w = (W - PAD * 2) // 3
+    caption_y = mid_y + 24
+    value_y = mid_y + 41
+    today_x = PAD
+    avg_x = PAD + col_w
+    total_x = PAD + col_w * 2
+    draw_text(draw, "today", today_x, caption_y, FONT1, COL_DIM)
+    draw_text(draw, format_usd(today), today_x, value_y, FONT3, COL_WHITE)
+    draw_text(draw, "per active day", avg_x, caption_y, FONT1, COL_DIM)
+    draw_text(draw, format_usd(spend.get("avg")), avg_x, value_y,
+              FONT3, COL_WHITE)
+    draw_text(draw, "month", total_x, caption_y, FONT1, COL_DIM)
+    draw_text(draw, format_usd(total), total_x, value_y, FONT3, COL_WHITE)
+    draw.line([(PAD, low_bottom), (W - PAD - 1, low_bottom)],
+              fill=dim(COL_DIM, 0.35), width=1)
+
+
 def seal_edges(img: Image.Image, bg) -> Image.Image:
     """Repaint the bottom band the way the panel does, in the frame's own bg."""
     if SEAL_ROWS > 0:
@@ -564,7 +657,7 @@ def render_glance(
     demo_burndown: bool = False,
     power: str = "usb",
     battery_percent: int | None = None,
-    home_mode: str = "burndown",
+    home_mode: str = "daily",
 ) -> Image.Image:
     # Feed the same trimmed payload to the preview that the ESP32 receives.
     device = device_view.build(doc)
@@ -581,8 +674,9 @@ def render_glance(
     top = PAD + 10
     draw_text(draw, "Headroom", PAD, top, FONT3, COL_WHITE)
 
-    mode_name = {"burndown": "Burndown", "activity": "Activity",
-                 "history": "History"}.get(home_mode, "Burndown")
+    mode_name = {"daily": "Daily burn", "burndown": "Burndown",
+                 "history": "History", "spend": "Spend"}.get(
+                     home_mode, "Daily burn")
     chip_x = PAD + 152
     chip_w = text_w(draw, mode_name, FONT2) + 16
     draw.rounded_rectangle(
@@ -627,8 +721,12 @@ def render_glance(
 
     draw.line([(PAD, mid_y), (PAD + span - 1, mid_y)],
               fill=COL_DIM, width=1)
-    if home_mode == "history":
+    if home_mode == "daily":
+        draw_glance_daily_burn(draw, device, mid_y, low_bottom)
+    elif home_mode == "history":
         draw_glance_history(draw, device, mid_y, low_bottom)
+    elif home_mode == "spend":
+        draw_glance_spend(draw, device, mid_y, low_bottom)
     elif providers:
         draw_glance_burndown(
             draw, providers, burns, updated, mid_y, low_bottom
@@ -905,8 +1003,8 @@ def main():
     )
     parser.add_argument(
         "--home-mode",
-        choices=("burndown", "activity", "history"),
-        default="burndown",
+        choices=("daily", "history", "spend", "burndown"),
+        default="daily",
         help="Home lower-pane mode to render",
     )
     parser.add_argument("--raw", action="store_true", help="Skip device bezel")

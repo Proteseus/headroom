@@ -95,7 +95,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Quotas** | Coding quota detail, reached from Usage → Summary (no longer its own iOS tab) | iOS |
 | **Coding quotas** | Section title above the rings | macOS, iOS |
 | **Attention** | The queue: agent questions, rollup reasons, failed rows | macOS mode, iOS tab |
-| **Activity** | Merged deploys / commits / Actions feed, over the service panels | macOS mode, iOS tab, ESP32 home mode |
+| **Activity** | Merged deploys / commits / Actions feed, over the service panels | macOS mode, iOS tab, ESP32 detail pages |
 | **Recent** | Legacy name for the feed; the iOS Activity tab now groups rows by function | iOS |
 | **GitHub Actions** | GitHub workflow activity | iOS, macOS |
 | **Vercel deployments** | Deployment activity from Vercel | iOS, macOS |

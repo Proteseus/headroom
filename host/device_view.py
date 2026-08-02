@@ -26,6 +26,7 @@ MAX_SOURCES = 8
 # The glance mode has room for 24 columns of 14px square cells. Keep this in
 # step with firmware/src/main.cpp MAX_ACTIVITY_DAYS; empty cells stay black.
 MAX_ACTIVITY_DAYS = 162
+MAX_DAILY_BURN_DAYS = 7
 
 # The board's three slots. Mirrors sources_config.FOCUS_LIMIT and the
 # firmware's MAX_SLOTS: the host picks which providers those are (pinned
@@ -180,6 +181,68 @@ def _activity_history_for_device(history):
     if start_weekday is not None:
         out["start_weekday"] = start_weekday
     return {key: value for key, value in out.items() if value is not None}
+
+
+def _weekday_label(iso_date):
+    try:
+        labels = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        return labels[date.fromisoformat(str(iso_date)).weekday()]
+    except (TypeError, ValueError):
+        return ""
+
+
+def _daily_burn_for_device(rows):
+    """Trim the mixed-source burn series to the seven-day glance card."""
+    out = []
+    for row in (rows or [])[-MAX_DAILY_BURN_DAYS:]:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("burns")
+        if not isinstance(raw, dict):
+            raw = {
+                provider: row.get(provider)
+                for provider in ("claude", "codex", "cursor")
+                if row.get(provider) is not None
+            }
+        burns = {}
+        for provider, value in raw.items():
+            try:
+                amount = max(0.0, float(value or 0))
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                burns[str(provider)] = round(amount, 2)
+        iso_date = row.get("date")
+        out.append({
+            "date": iso_date,
+            "label": _weekday_label(iso_date),
+            "burns": burns,
+            "total": round(sum(burns.values()), 2),
+        })
+    if not out:
+        return None
+    return {"source": "mixed", "days": out}
+
+
+def _spend_for_device(doc):
+    """Project the app's estimated spend figures for the compact board."""
+    history = doc.get("history") or {}
+    today = doc.get("today") or {}
+    values = {
+        "today": today.get("cost_usd"),
+        "total": history.get("total_cost_usd"),
+        "days": history.get("active_days"),
+        "avg": history.get("avg_cost_per_active_day"),
+    }
+    out = {"estimated": True}
+    for key, value in values.items():
+        if value is None:
+            continue
+        try:
+            out[key] = round(float(value), 2) if key != "days" else int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _thin(points, limit):
@@ -482,6 +545,12 @@ def build(doc):
     activity = _activity_history_for_device(doc.get("activity_history"))
     if activity:
         device["activity_history"] = activity
+
+    daily_burn = _daily_burn_for_device(doc.get("by_day"))
+    if daily_burn:
+        device["daily_burn"] = daily_burn
+
+    device["spend"] = _spend_for_device(doc)
 
     providers = _device_providers(doc)
     if providers:

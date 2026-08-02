@@ -97,6 +97,12 @@ EMITTABLE = (
     | {("activity_history", key) for key in (
         "source", "start", "start_weekday", "levels", "active_days",
         "current_streak")}
+    | {("daily_burn",), ("daily_burn", "source"),
+       ("daily_burn", "days")}
+    | {("daily_burn", "days", key)
+       for key in ("date", "label", "burns", "total")}
+    | {("spend",), ("spend", "estimated")}
+    | {("spend", key) for key in ("today", "total", "days", "avg")}
     # Whole subtree, like burndown: device_view already trimmed it to the
     # focus providers and their ring pools.
     | {("providers",)}
@@ -240,6 +246,33 @@ class DeviceViewContractTests(unittest.TestCase):
         self.assertEqual(firmware_const("MAX_SOURCES"), device_view.MAX_SOURCES)
         self.assertEqual(firmware_const("MAX_ACTIVITY_DAYS"),
                          device_view.MAX_ACTIVITY_DAYS)
+        self.assertEqual(firmware_const("MAX_DAILY_BURN_DAYS"),
+                         device_view.MAX_DAILY_BURN_DAYS)
+
+    def test_device_view_projects_mixed_daily_burn(self):
+        rows = [
+            {"date": "2026-07-28", "burns": {"claude": 1.234,
+                                               "codex": -2}},
+            {"date": "2026-07-29", "claude": 2.5, "cursor": 0.5},
+        ]
+        device = device_view.build({"by_day": rows})
+        self.assertEqual(device["daily_burn"]["source"], "mixed")
+        self.assertEqual(device["daily_burn"]["days"][-1], {
+            "date": "2026-07-29", "label": "Wed",
+            "burns": {"claude": 2.5, "cursor": 0.5}, "total": 3.0,
+        })
+
+    def test_device_view_projects_estimated_spend(self):
+        device = device_view.build({
+            "today": {"cost_usd": 12.475},
+            "history": {"total_cost_usd": 12475.4,
+                        "active_days": 30,
+                        "avg_cost_per_active_day": 415.846},
+        })
+        self.assertEqual(device["spend"], {
+            "estimated": True, "today": 12.47, "total": 12475.4,
+            "days": 30, "avg": 415.85,
+        })
 
     def test_device_payload_is_much_smaller_than_the_full_document(self):
         doc = _demo_doc()
@@ -384,6 +417,7 @@ DYNAMIC_MAP_PATHS = {
     "quota",
     "by_model",
     "by_day[].burns",
+    "daily_burn.days[].burns",
     # Per-provider maps keyed by registry id, then by pool id.
     "burndown",
     "burndown[]",

@@ -402,6 +402,7 @@ enum Page : uint8_t {
 
 static const uint8_t MAX_SLOTS = 3;   // mirrors device_view.MAX_PROVIDERS
 static const uint8_t MAX_ACTIVITY_DAYS = 162;  // mirrors device_view.py
+static const uint8_t MAX_DAILY_BURN_DAYS = 7;  // mirrors device_view.py
 
 static inline bool isSlotPage(Page p) {
   return p >= PAGE_SLOT0 && p <= PAGE_SLOT2;
@@ -480,6 +481,29 @@ struct ActivityHistory {
   uint16_t currentStreak = 0;
 };
 static ActivityHistory activityHistory;
+
+// Seven-day mixed-source burn strip. Values are percentage points, so they
+// stay source-attributed in the stack without pretending providers share a
+// dollar or token unit.
+struct DailyBurnDay {
+  String label;
+  float burns[MAX_SLOTS] = {};
+  float total = 0;
+};
+static DailyBurnDay dailyBurnDays[MAX_DAILY_BURN_DAYS];
+static uint8_t dailyBurnN = 0;
+
+// Spend keeps the app's existing semantics: estimated local token value, not
+// a fabricated sum of provider billing controls and quota percentages.
+struct SpendSummary {
+  bool ok = false;
+  bool estimated = true;
+  float today = 0;
+  float total = 0;
+  float avg = 0;
+  uint16_t days = 0;
+};
+static SpendSummary spendSummary;
 // False when the payload carried no `providers` key at all — a host too old
 // to send them. Distinct from "you turned every provider off", because the
 // fix is different and the board is the only place either shows.
@@ -497,40 +521,43 @@ static uint8_t localN = 0;
 static ServerRow localRows[MAX_SERVERS];
 static Page page = PAGE_GLANCE;
 
-// Home's lower half has two readings of the same desk: what's left (a burndown
-// per provider, under its ring) or what shipped (Vercel / Git / Local columns).
-// Burndown leads — it's the reading you can't get anywhere else at a glance.
-// Tap the header band to switch; the choice survives reboots in NVS so the
-// board comes back the way it was left.
+// Home's lower half follows the Mac dashboard: mixed daily burn, activity
+// history, estimated spend, then burndown. Vercel / Git / Local remain detail
+// pages. Tap the header band to switch; the choice survives reboots in NVS so
+// the board comes back the way it was left.
 enum HomeMode : uint8_t {
-  HOME_BURNDOWN = 0,
-  HOME_ACTIVITY = 1,
-  HOME_HISTORY = 2,
+  HOME_DAILY_BURN = 0,
+  HOME_HISTORY = 1,
+  HOME_SPEND = 2,
+  HOME_BURNDOWN = 3,
 };
-static HomeMode homeMode = HOME_BURNDOWN;
+static HomeMode homeMode = HOME_DAILY_BURN;
 static Preferences prefs;
 static const char *PREFS_NS = "headroom";
-// Key renamed with the ordering flip — the old one's 0/1 meant the opposite,
-// and a stale value would silently pin a board to the wrong default.
-static const char *PREF_HOME_MODE = "home_pane";
+// Versioned so the old Burndown/Activity/History ordering cannot silently
+// restore the wrong card after this dashboard reshuffle.
+static const char *PREF_HOME_MODE = "home_pane_v2";
 
 // Must match docs/glossary.md / Shared/HeadroomCopy.swift.
 static const char *LABEL_BURNDOWN = "Burndown";
-static const char *LABEL_ACTIVITY = "Activity";
+static const char *LABEL_DAILY_BURN = "Daily burn";
 static const char *LABEL_HISTORY = "History";
+static const char *LABEL_SPEND = "Spend";
 static const char *LABEL_COLLECTING_HISTORY = "Collecting history";
 static const char *LABEL_NO_DATA = "no data";
 
 static const char *homeModeName(HomeMode m) {
   if (m == HOME_HISTORY) return LABEL_HISTORY;
-  return m == HOME_BURNDOWN ? LABEL_BURNDOWN : LABEL_ACTIVITY;
+  if (m == HOME_SPEND) return LABEL_SPEND;
+  if (m == HOME_BURNDOWN) return LABEL_BURNDOWN;
+  return LABEL_DAILY_BURN;
 }
 
 static void homeModeLoad() {
   // Read-only open on a namespace that doesn't exist yet just fails — default.
   if (!prefs.begin(PREFS_NS, true)) return;
-  const uint8_t saved = prefs.getUChar(PREF_HOME_MODE, HOME_BURNDOWN);
-  homeMode = saved <= HOME_HISTORY ? (HomeMode)saved : HOME_BURNDOWN;
+  const uint8_t saved = prefs.getUChar(PREF_HOME_MODE, HOME_DAILY_BURN);
+  homeMode = saved <= HOME_BURNDOWN ? (HomeMode)saved : HOME_DAILY_BURN;
   prefs.end();
 }
 
@@ -963,6 +990,17 @@ static bool usageFilterReady(JsonDocument **out) {
   filter["activity_history"]["levels"][0] = true;
   filter["activity_history"]["active_days"] = true;
   filter["activity_history"]["current_streak"] = true;
+  // Seven mixed-source daily-burn bars and the app's estimated spend figures
+  // power the compact home cards; source detail remains on the Mac/iPhone.
+  filter["daily_burn"]["source"] = true;
+  filter["daily_burn"]["days"][0]["label"] = true;
+  filter["daily_burn"]["days"][0]["burns"] = true;
+  filter["daily_burn"]["days"][0]["total"] = true;
+  filter["spend"]["estimated"] = true;
+  filter["spend"]["today"] = true;
+  filter["spend"]["total"] = true;
+  filter["spend"]["days"] = true;
+  filter["spend"]["avg"] = true;
 
   // Leave `built` false on overflow so the next fetch retries the build once
   // PSRAM frees up, rather than latching a filter that silently eats providers.
@@ -1151,6 +1189,51 @@ static bool applyUsageDoc(JsonDocument &doc) {
       }
     }
     activityHistory.ok = activityHistory.n > 0;
+  }
+
+  // Seven-day mixed-source burn strip. Source ids are matched to the same
+  // host-selected slots that own the rings, so the stack and the legend never
+  // disagree about color or provider order.
+  dailyBurnN = 0;
+  for (uint8_t i = 0; i < MAX_DAILY_BURN_DAYS; i++) {
+    dailyBurnDays[i] = DailyBurnDay{};
+  }
+  JsonObject db = doc["daily_burn"].as<JsonObject>();
+  if (!db.isNull()) {
+    JsonArray days = db["days"].as<JsonArray>();
+    if (!days.isNull()) {
+      for (JsonVariant value : days) {
+        if (dailyBurnN >= MAX_DAILY_BURN_DAYS) break;
+        JsonObject day = value.as<JsonObject>();
+        if (day.isNull()) continue;
+        DailyBurnDay &row = dailyBurnDays[dailyBurnN];
+        row.label = boardAscii((const char *)(day["label"] | ""));
+        row.total = (float)(day["total"] | 0.0);
+        JsonObject burns = day["burns"].as<JsonObject>();
+        if (!burns.isNull()) {
+          for (uint8_t i = 0; i < slotN; i++) {
+            row.burns[i] = (float)(burns[slots[i].id.c_str()] | 0.0);
+            if (row.burns[i] < 0) row.burns[i] = 0;
+          }
+        }
+        if (row.total <= 0) {
+          for (uint8_t i = 0; i < slotN; i++) row.total += row.burns[i];
+        }
+        dailyBurnN++;
+      }
+    }
+  }
+
+  spendSummary = SpendSummary{};
+  JsonObject spend = doc["spend"].as<JsonObject>();
+  if (!spend.isNull()) {
+    spendSummary.estimated = spend["estimated"].isNull()
+                                ? true : (bool)(spend["estimated"] | true);
+    spendSummary.today = (float)(spend["today"] | 0.0);
+    spendSummary.total = (float)(spend["total"] | 0.0);
+    spendSummary.avg = (float)(spend["avg"] | 0.0);
+    spendSummary.days = (uint16_t)(spend["days"] | 0);
+    spendSummary.ok = spendSummary.today > 0 || spendSummary.total > 0;
   }
 
   // Burndown series, looked up by the slot's provider id (Cursor may overlay
@@ -1576,6 +1659,30 @@ static void drawNetDiag() {
 static int16_t bootY = 0;
 static uint8_t bootBlink = 0;
 
+// The checklist gets longer than the panel when Wi-Fi is the first path. Keep
+// the lower border band clear and scroll completed rows inside the ROM frame;
+// redrawing the chrome is cheap and avoids making the panel's framebuffer a
+// second scrolling primitive.
+static const int16_t BOOT_ROW_STEP = 20;
+static const uint8_t BOOT_STATUS_MAX = 32;
+struct BootStatusLine {
+  char label[12];
+  char status[40];
+  uint16_t color;
+};
+static BootStatusLine bootStatusLines[BOOT_STATUS_MAX];
+static uint8_t bootStatusN = 0;
+
+static int16_t bootLastY() {
+  return (int16_t)(scrH() - UI_PAD - 48);
+}
+
+static uint8_t bootVisibleRows() {
+  const int16_t top = UI_PAD + 42;
+  if (bootLastY() < top) return 1;
+  return (uint8_t)((bootLastY() - top) / BOOT_ROW_STEP + 1);
+}
+
 static void bootScanlines() {
   const int16_t x0 = UI_PAD + 4;
   const int16_t x1 = scrW() - UI_PAD - 4;
@@ -1883,6 +1990,7 @@ static bool wantMaxSplash() {
 }
 
 static void bootSplash() {
+  bootStatusN = 0;
   if (wantMaxSplash()) {
     maxSplash();
   } else {
@@ -1898,11 +2006,8 @@ static void bootSplash() {
   bootFlush();
 }
 
-static void bootLine(const char *label, const char *status, uint16_t statusCol) {
-  if (bootY > scrH() - UI_PAD - 28) {
-    bootChrome();
-  }
-
+static void bootDrawLineAt(const char *label, const char *status,
+                           uint16_t statusCol, int16_t y) {
   const int16_t x0 = UI_PAD + 10;
   const int16_t xMax = scrW() - UI_PAD - 10;
   gfx->setTextSize(2);
@@ -1927,22 +2032,58 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
   if (sn == 0) rw = 0;
 
   // Label (bright) … leaders (faded) … status
-  drawTextAt(label, x0, bootY, 2, COL_CRT);
+  drawTextAt(label, x0, y, 2, COL_CRT);
   const int16_t statusX = (int16_t)(xMax - (int16_t)rw);
   gfx->setTextColor(statusCol);
-  gfx->setCursor(statusX, bootY);
+  gfx->setCursor(statusX, y);
   gfx->print(right);
 
   int16_t dotX = (int16_t)(x0 + (int16_t)lw + 4);
   const int16_t dotEnd = (int16_t)(statusX - 4);
   gfx->setTextColor(COL_CRT_DIM);
   while (dotX + (int16_t)dw <= dotEnd) {
-    gfx->setCursor(dotX, bootY);
+    gfx->setCursor(dotX, y);
     gfx->print('.');
     dotX = (int16_t)(dotX + (int16_t)dw + 2);
   }
+}
 
-  bootY = (int16_t)(bootY + 20);
+static void bootRedrawStatus() {
+  bootChrome();
+  const uint8_t visible = bootVisibleRows();
+  const uint8_t first = bootStatusN > visible ? bootStatusN - visible : 0;
+  uint8_t shown = 0;
+  for (uint8_t i = first; i < bootStatusN; i++) {
+    bootDrawLineAt(bootStatusLines[i].label, bootStatusLines[i].status,
+                   bootStatusLines[i].color,
+                   (int16_t)(UI_PAD + 42 + shown * BOOT_ROW_STEP));
+    shown++;
+  }
+  bootY = (int16_t)(UI_PAD + 42 + shown * BOOT_ROW_STEP);
+}
+
+static void bootLine(const char *label, const char *status, uint16_t statusCol) {
+  if (bootStatusN < BOOT_STATUS_MAX) {
+    strlcpy(bootStatusLines[bootStatusN].label, label,
+            sizeof(bootStatusLines[bootStatusN].label));
+    strlcpy(bootStatusLines[bootStatusN].status, status,
+            sizeof(bootStatusLines[bootStatusN].status));
+    bootStatusLines[bootStatusN].color = statusCol;
+    bootStatusN++;
+  } else {
+    // Keep the newest status visible if a future boot path grows beyond the
+    // fixed diagnostic history as well as beyond the panel height.
+    for (uint8_t i = 1; i < BOOT_STATUS_MAX; i++)
+      bootStatusLines[i - 1] = bootStatusLines[i];
+    strlcpy(bootStatusLines[BOOT_STATUS_MAX - 1].label, label,
+            sizeof(bootStatusLines[BOOT_STATUS_MAX - 1].label));
+    strlcpy(bootStatusLines[BOOT_STATUS_MAX - 1].status, status,
+            sizeof(bootStatusLines[BOOT_STATUS_MAX - 1].status));
+    bootStatusLines[BOOT_STATUS_MAX - 1].color = statusCol;
+  }
+
+  bootRedrawStatus();
+
   bootFlush();
   delay(55);
 }
@@ -1950,7 +2091,7 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
 // Growing dots after the label, marching toward the right edge (not a 4-dot loop).
 static void bootProgress(const char *label, uint8_t step) {
   const int16_t x0 = UI_PAD + 10;
-  const int16_t y = bootY;
+  const int16_t y = bootY > bootLastY() ? bootLastY() : bootY;
   const int16_t xMax = scrW() - UI_PAD - 10;
   const int16_t bw = (int16_t)(xMax - x0);
   gfx->fillRect(x0, y, bw, 18, COL_CRT_BG);
@@ -2862,14 +3003,14 @@ static void drawBurndown(const Burndown &b, int16_t x, int16_t y,
 }
 
 // Headroom tap targets (logical coords) → detail pages, plus the header chip
-// that flips the lower half between activity and burndowns.
+// and lower pane that flip between the home modes.
 enum HitKind : uint8_t { HIT_PAGE = 0, HIT_MODE = 1 };
 struct GlanceHit {
   int16_t x, y, w, h;
   HitKind kind;
   Page target;
 };
-static const uint8_t MAX_GLANCE_HITS = 10;  // mode + 3 rings + 3 chart + 3 legend
+static const uint8_t MAX_GLANCE_HITS = 11;  // 2 mode + 3 rings + 3 chart + 3 legend
 static GlanceHit glanceHits[MAX_GLANCE_HITS];
 static uint8_t glanceHitN = 0;
 
@@ -2969,6 +3110,107 @@ static void drawGlanceHistory(int16_t padX, int16_t span, int16_t midY,
   // A thin baseline keeps an entirely empty row legible without stealing a
   // second legend line from the glance pane.
   gfx->drawFastHLine(padX, lowBottom, span, dimToward(COL_DIM, COL_BG, 0.35f));
+}
+
+static String formatUsd(float value) {
+  if (value < 0) value = 0;
+  const uint32_t dollars = (uint32_t)(value + 0.5f);
+  char digits[16];
+  snprintf(digits, sizeof digits, "%lu", (unsigned long)dollars);
+
+  String out = "$";
+  const int len = (int)strlen(digits);
+  for (int i = 0; i < len; i++) {
+    if (i > 0 && ((len - i) % 3) == 0) out += ',';
+    out += digits[i];
+  }
+  return out;
+}
+
+// Lower half, Daily burn: the same seven-day mixed-source reading as the Mac
+// card, with provider colors stacked into one bar per calendar day.
+static void drawGlanceDailyBurn(int16_t padX, int16_t span, int16_t midY,
+                                int16_t lowBottom) {
+  drawTextAt(LABEL_DAILY_BURN, padX, (int16_t)(midY + 8), 2, COL_WHITE);
+  if (dailyBurnN == 0) {
+    drawTextAt("Update host for burn", padX, (int16_t)(midY + 42), 2, COL_DIM);
+    return;
+  }
+
+  char today[24];
+  snprintf(today, sizeof today, "Today %.0f%%",
+           dailyBurnDays[dailyBurnN - 1].total);
+  drawRightAt(today, (int16_t)(padX + span), (int16_t)(midY + 8), 2, COL_DIM);
+
+  float maxTotal = 1;
+  for (uint8_t i = 0; i < dailyBurnN; i++) {
+    if (dailyBurnDays[i].total > maxTotal) maxTotal = dailyBurnDays[i].total;
+  }
+
+  const int16_t labelY = (int16_t)(lowBottom - 12);
+  const int16_t chartTop = (int16_t)(midY + 34);
+  const int16_t chartBottom = (int16_t)(labelY - 5);
+  const int16_t chartH = (int16_t)(chartBottom - chartTop);
+  const int16_t gap = 6;
+  const int16_t barW = (int16_t)((span - (dailyBurnN - 1) * gap) / dailyBurnN);
+  if (chartH <= 4 || barW <= 2) return;
+
+  for (uint8_t i = 0; i < dailyBurnN; i++) {
+    const DailyBurnDay &day = dailyBurnDays[i];
+    const int16_t x = (int16_t)(padX + i * (barW + gap));
+    gfx->fillRoundRect(x, chartTop, barW, chartH, 3, COL_BAR);
+    int16_t filledH = day.total > 0
+        ? (int16_t)((chartH * day.total / maxTotal) + 0.5f) : 0;
+    if (filledH < 1 && day.total > 0) filledH = 1;
+    int16_t y = chartBottom;
+    for (int8_t slot = (int8_t)slotN - 1; slot >= 0; slot--) {
+      const float amount = dailyBurnDays[i].burns[slot];
+      if (amount <= 0 || filledH <= 0) continue;
+      int16_t segment = (int16_t)((chartH * amount / maxTotal) + 0.5f);
+      if (segment < 1) segment = 1;
+      if (segment > y - chartTop) segment = (int16_t)(y - chartTop);
+      if (segment <= 0) break;
+      gfx->fillRect(x, (int16_t)(y - segment), barW, segment,
+                    slots[slot].accent);
+      y = (int16_t)(y - segment);
+    }
+    if (day.label.length()) {
+      const int16_t labelW = textWidth(day.label.c_str(), 1);
+      drawTextAt(day.label, (int16_t)(x + (barW - labelW) / 2), labelY,
+                 1, COL_DIM);
+    }
+  }
+}
+
+// Lower half, Spend: the three estimated figures the Mac card leads with.
+// This is intentionally not a provider-billing sum; quota percentages and
+// provider spend controls do not share a trustworthy dollar unit.
+static void drawGlanceSpend(int16_t padX, int16_t span, int16_t midY,
+                            int16_t lowBottom) {
+  drawTextAt(LABEL_SPEND, padX, (int16_t)(midY + 8), 2, COL_WHITE);
+  drawRightAt("Estimated", (int16_t)(padX + span), (int16_t)(midY + 8), 2,
+              COL_DIM);
+  if (!spendSummary.ok) {
+    drawTextAt("No spend yet", padX, (int16_t)(midY + 45), 2, COL_DIM);
+    return;
+  }
+
+  const int16_t colW = (int16_t)(span / 3);
+  const int16_t captionY = (int16_t)(midY + 24);
+  const int16_t valueY = (int16_t)(midY + 41);
+  const int16_t todayX = padX;
+  const int16_t avgX = (int16_t)(padX + colW);
+  const int16_t totalX = (int16_t)(padX + colW * 2);
+  drawTextAt("today", todayX, captionY, 1, COL_DIM);
+  drawTextAt(formatUsd(spendSummary.today), todayX, valueY, 3, COL_WHITE);
+
+  drawTextAt("per active day", avgX, captionY, 1, COL_DIM);
+  drawTextAt(formatUsd(spendSummary.avg), avgX, valueY, 3, COL_WHITE);
+
+  drawTextAt("month", totalX, captionY, 1, COL_DIM);
+  drawTextAt(formatUsd(spendSummary.total), totalX, valueY, 3, COL_WHITE);
+  gfx->drawFastHLine(padX, lowBottom, span,
+                     dimToward(COL_DIM, COL_BG, 0.35f));
 }
 
 // Lower half, activity reading: what shipped lately.
@@ -3413,14 +3655,21 @@ static void drawGlancePage() {
   }
 
   gfx->drawFastHLine(padX, midY, span, COL_DIM);
+  // The lower pane is a second, much larger mode button. Register it before
+  // burndown's provider rows so the same tap gesture works everywhere on the
+  // lower half, while the quota rings above remain detail targets.
+  glanceAddModeHit(0, (int16_t)(midY + 1), W,
+                   (int16_t)(lowBottom - midY - 1));
 
-  if (homeMode == HOME_ACTIVITY || homeMode == HOME_HISTORY || slotN > 0) {
-    if (homeMode == HOME_BURNDOWN) {
-      drawGlanceBurndown(padX, span, midY, lowBottom);
+  if (homeMode != HOME_BURNDOWN || slotN > 0) {
+    if (homeMode == HOME_DAILY_BURN) {
+      drawGlanceDailyBurn(padX, span, midY, lowBottom);
     } else if (homeMode == HOME_HISTORY) {
       drawGlanceHistory(padX, span, midY, lowBottom);
+    } else if (homeMode == HOME_SPEND) {
+      drawGlanceSpend(padX, span, midY, lowBottom);
     } else {
-      drawGlanceActivity(padX, span, midY, lowBottom);
+      drawGlanceBurndown(padX, span, midY, lowBottom);
     }
   }
 
@@ -3893,6 +4142,12 @@ static uint8_t fetchFails = 0;
 static const uint8_t FETCH_BACKOFF_MAX = 8;   // POLL_INTERVAL_S * 8 ceiling
 
 static uint32_t pollIntervalMs() {
+  // A boot can finish before either USB-CDC or Wi-Fi is ready. Do not apply
+  // the normal 60-second backoff while the board has no payload at all: that
+  // turns one missed startup fetch into a screen that appears dead until a
+  // reboot. Keep trying at a short, bounded cadence until the first payload
+  // lands; once we have data, normal failure backoff applies again.
+  if (!haveData) return 5000u;
   // A successful-but-empty first payload after host restart used to park here
   // for a full POLL_INTERVAL_S with "Collecting history" frozen on screen.
   if (haveData && !burnHistoryReady()) return BURN_WARMUP_POLL_MS;
@@ -3915,12 +4170,14 @@ static void goHome() {
 }
 
 static void toggleHomeMode() {
-  if (homeMode == HOME_BURNDOWN) {
-    homeMode = HOME_ACTIVITY;
-  } else if (homeMode == HOME_ACTIVITY) {
+  if (homeMode == HOME_DAILY_BURN) {
     homeMode = HOME_HISTORY;
-  } else {
+  } else if (homeMode == HOME_HISTORY) {
+    homeMode = HOME_SPEND;
+  } else if (homeMode == HOME_SPEND) {
     homeMode = HOME_BURNDOWN;
+  } else {
+    homeMode = HOME_DAILY_BURN;
   }
   homeModeSave();
   Serial.printf("tap → home mode %s\n", homeModeName(homeMode));
@@ -4043,6 +4300,35 @@ static void handleInput() {
   }
 }
 
+// A board reset briefly tears down USB-Serial/JTAG while the host bridge is
+// reopening it. One request in that window is not evidence that the host is
+// down, so give the first boot a few short, bounded retries before falling
+// through to the Wi-Fi path.
+static const uint8_t BOOT_FETCH_ATTEMPTS = 3;
+static const uint32_t BOOT_FETCH_RETRY_MS = 650;
+
+static bool bootFetchUsb() {
+  for (uint8_t attempt = 0; attempt < BOOT_FETCH_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      bootProgress("LINK", attempt);
+      delay(BOOT_FETCH_RETRY_MS);
+    }
+    if (fetchUsageUsb(USB_TIMEOUT_SYNC_MS)) return true;
+  }
+  return false;
+}
+
+static bool bootFetch() {
+  for (uint8_t attempt = 0; attempt < BOOT_FETCH_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      bootProgress("LINK", attempt);
+      delay(BOOT_FETCH_RETRY_MS);
+    }
+    if (fetchUsage(USB_TIMEOUT_SYNC_MS)) return true;
+  }
+  return false;
+}
+
 void setup() {
   // /usage over CDC is ~30KB; the default 256-byte RX buffer drops it.
   Serial.setRxBufferSize(USB_RX_BUF);
@@ -4108,7 +4394,7 @@ void setup() {
   {
     int16_t hostY = bootY;
     bootProgress("LINK", 0);
-    bool ok = fetchUsageUsb(USB_TIMEOUT_SYNC_MS);
+    bool ok = bootFetchUsb();
     for (uint8_t i = 0; ok && !burnHistoryReady() && i < 8; i++) {
       bootProgress("BURN", i);
       delay(400);
@@ -4181,7 +4467,7 @@ void setup() {
 
       hostY = bootY;
       bootProgress("LINK", 0);
-      ok = fetchUsage(USB_TIMEOUT_SYNC_MS);
+      ok = bootFetch();
       // Host's first publish after restart often has meters but no burndown
       // pts yet. Pull a few more times before parking on "Collecting history".
       for (uint8_t i = 0; ok && !burnHistoryReady() && i < 8; i++) {
