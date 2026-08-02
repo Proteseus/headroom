@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.6.0",
-  "published": "2026-08-02T09:15:18Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.0/Headroom-macOS.zip",
-  "sha256": "f192d098033d8081f397f04c330bcc505f8e4658781dc244bf0050b6e3aa5133",
-  "size": 4444783,
+  "version": "1.6.1",
+  "published": "2026-08-02T09:21:53Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.1/Headroom-macOS.zip",
+  "sha256": "d1e3ede47e990fb74e5bc114500cd701a3bf2ef11edd3acad7f9ad2c9068a58e",
+  "size": 4445156,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **The watch burndown ghosts the windows you already spent**, same faint\n  sawtooth the phone, Mac and widget draw behind the live curve. The\n  rectangular complication and the in-app chart were skipping `history` even\n  though the phone already forwards it."
+  "notes_md": "### Added\n\n- **@mentions on watched GitHub repos join the Attention inbox**, beside\n  review requests and assignments. Still scoped to the watch list, not every\n  @you on GitHub, so the pip stays useful for CI and review oversight."
 }
