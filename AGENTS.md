@@ -223,6 +223,18 @@ start lying.
 
 ## Versioning
 
+**Writing code and shipping it are two different jobs, and by default only
+one of them is an agent's.** Land ordinary commits on `main` — build, test,
+commit, done. Do not bump `host/VERSION`, do not tag, do not push a commit
+that triggers the release workflow. MZ runs the bump-and-ship pass, in a
+separate session, on their own schedule, batching up whatever has landed
+since the last one — using the `cleanup` skill, or "Chunking and shipping
+someone else's work" below, as the playbook once a batch has grown into
+several unrelated things rather than one. The one exception is when MZ
+explicitly asks an agent to ship in the same message — "ship this," "cut a
+release," "build and push" — which authorizes that session for that pass
+and no other.
+
 `host/VERSION` is the marketing version, hand-bumped. Apple build numbers come
 from `git rev-list --count HEAD` and are not tracked.
 
@@ -259,6 +271,10 @@ Do not bundle unrelated work into one version. A release whose notes read as a
 list of things that happened is a release nobody can reason about later.
 
 ## Releasing
+
+**This section describes the release pass itself — MZ's job by default, per
+Versioning above, not something every agent runs at the end of its own set.**
+It stays here because an agent explicitly asked to ship still needs it.
 
 **A bump to `host/VERSION` landing on `main` is the release.** The workflow
 tags, notarizes, publishes the GitHub Release, and uploads to TestFlight with
