@@ -57,7 +57,7 @@ static Arduino_SH8601 *panel = new Arduino_SH8601(
     LCD_WIDTH, LCD_HEIGHT);
 
 // Shared palette (RGB565) — early so canvas flush can seal with COL_BG.
-static const uint16_t COL_BG     = RGB565(16, 14, 12);
+static const uint16_t COL_BG     = RGB565(0, 0, 0);        // true OLED black
 static const uint16_t COL_CLAUDE = RGB565(217, 119, 87);   // terracotta
 static const uint16_t COL_OPENAI = RGB565(16, 163, 127);   // OpenAI / ChatGPT green
 static const uint16_t COL_CURSOR = RGB565(120, 155, 200);  // faded blue (Cursor)
@@ -401,6 +401,7 @@ enum Page : uint8_t {
 };
 
 static const uint8_t MAX_SLOTS = 3;   // mirrors device_view.MAX_PROVIDERS
+static const uint8_t MAX_ACTIVITY_DAYS = 162;  // mirrors device_view.py
 
 static inline bool isSlotPage(Page p) {
   return p >= PAGE_SLOT0 && p <= PAGE_SLOT2;
@@ -467,6 +468,18 @@ struct ProviderSlot {
 };
 static ProviderSlot slots[MAX_SLOTS];
 static uint8_t slotN = 0;
+// Compact mixed-source activity history. The host sends a recent half-year of
+// daily levels for the board; native details remain on the Mac/iPhone payload.
+struct ActivityHistory {
+  bool ok = false;
+  String start;
+  uint8_t startWeekday = 0;  // Monday = 0
+  uint8_t n = 0;
+  uint8_t levels[MAX_ACTIVITY_DAYS];
+  uint16_t activeDays = 0;
+  uint16_t currentStreak = 0;
+};
+static ActivityHistory activityHistory;
 // False when the payload carried no `providers` key at all — a host too old
 // to send them. Distinct from "you turned every provider off", because the
 // fix is different and the board is the only place either shows.
@@ -489,7 +502,11 @@ static Page page = PAGE_GLANCE;
 // Burndown leads — it's the reading you can't get anywhere else at a glance.
 // Tap the header band to switch; the choice survives reboots in NVS so the
 // board comes back the way it was left.
-enum HomeMode : uint8_t { HOME_BURNDOWN = 0, HOME_ACTIVITY = 1 };
+enum HomeMode : uint8_t {
+  HOME_BURNDOWN = 0,
+  HOME_ACTIVITY = 1,
+  HOME_HISTORY = 2,
+};
 static HomeMode homeMode = HOME_BURNDOWN;
 static Preferences prefs;
 static const char *PREFS_NS = "headroom";
@@ -500,19 +517,20 @@ static const char *PREF_HOME_MODE = "home_pane";
 // Must match docs/glossary.md / Shared/HeadroomCopy.swift.
 static const char *LABEL_BURNDOWN = "Burndown";
 static const char *LABEL_ACTIVITY = "Activity";
+static const char *LABEL_HISTORY = "History";
 static const char *LABEL_COLLECTING_HISTORY = "Collecting history";
 static const char *LABEL_NO_DATA = "no data";
 
 static const char *homeModeName(HomeMode m) {
+  if (m == HOME_HISTORY) return LABEL_HISTORY;
   return m == HOME_BURNDOWN ? LABEL_BURNDOWN : LABEL_ACTIVITY;
 }
 
 static void homeModeLoad() {
   // Read-only open on a namespace that doesn't exist yet just fails — default.
   if (!prefs.begin(PREFS_NS, true)) return;
-  homeMode = prefs.getUChar(PREF_HOME_MODE, HOME_BURNDOWN) == HOME_ACTIVITY
-                 ? HOME_ACTIVITY
-                 : HOME_BURNDOWN;
+  const uint8_t saved = prefs.getUChar(PREF_HOME_MODE, HOME_BURNDOWN);
+  homeMode = saved <= HOME_HISTORY ? (HomeMode)saved : HOME_BURNDOWN;
   prefs.end();
 }
 
@@ -607,6 +625,11 @@ static void panelReset() {
 }
 
 // ---------------- Power ----------------
+// Tracks whether begin() found the AXP2101. Rails and the power glyph both
+// need it; a missing PMU leaves the panel dark, but the glyph still has to
+// know not to poke a chip that never answered.
+static bool pmuOk = false;
+
 static void powerInit() {
   Wire.begin(IIC_SDA, IIC_SCL, 400000);   // own the bus once
   delay(50);
@@ -617,13 +640,17 @@ static void powerInit() {
   Serial.printf("TCA9554 @ 0x%02X %s\n", tcaAddr,
                 i2cPresent(tcaAddr) ? "(ack)" : "(NO ACK — panel stays dark!)");
 
-  bool ok = PMU.begin(Wire, AXP2101_ADDR, IIC_SDA, IIC_SCL);
-  Serial.printf("AXP2101 begin: %s\n", ok ? "ok" : "FAIL (display rail off!)");
-  if (ok) {
+  pmuOk = PMU.begin(Wire, AXP2101_ADDR, IIC_SDA, IIC_SCL);
+  Serial.printf("AXP2101 begin: %s\n", pmuOk ? "ok" : "FAIL (display rail off!)");
+  if (pmuOk) {
     PMU.setALDO1Voltage(3300); PMU.enableALDO1();
     PMU.setALDO2Voltage(3300); PMU.enableALDO2();
     PMU.setALDO3Voltage(3300); PMU.enableALDO3();   // ALDO3 = the display rail
     PMU.setALDO4Voltage(3300); PMU.enableALDO4();
+    // Fuel gauge + detect: without these isBatteryConnect() stays false and
+    // getBatteryPercent() returns -1 even with a cell on the MX1.25 header.
+    PMU.enableBattDetection();
+    PMU.enableBattVoltageMeasure();
     delay(50);
   }
   panelReset();
@@ -928,6 +955,14 @@ static bool usageFilterReady(JsonDocument **out) {
   // Whole subtree, like codex/cursor above: device_view has already trimmed it
   // (one pool, or Total+API for Cursor), so there is nothing further to filter.
   filter["burndown"] = true;
+  // The board only needs the compact level strip and its start alignment. Day
+  // detail stays on the Mac/iPhone, keeping this projection small over USB.
+  filter["activity_history"]["source"] = true;
+  filter["activity_history"]["start"] = true;
+  filter["activity_history"]["start_weekday"] = true;
+  filter["activity_history"]["levels"][0] = true;
+  filter["activity_history"]["active_days"] = true;
+  filter["activity_history"]["current_streak"] = true;
 
   // Leave `built` false on overflow so the next fetch retries the build once
   // PSRAM frees up, rather than latching a filter that silently eats providers.
@@ -1093,6 +1128,29 @@ static bool applyUsageDoc(JsonDocument &doc) {
       }
       slotN++;
     }
+  }
+
+  // Mixed-source history: the board gets only the compact level strip. A
+  // missing section is normal on an older host, so it simply disables the
+  // History home mode's data rather than disturbing the quota view.
+  activityHistory = ActivityHistory{};
+  JsonObject ah = doc["activity_history"].as<JsonObject>();
+  if (!ah.isNull()) {
+    activityHistory.start = String((const char *)(ah["start"] | ""));
+    activityHistory.startWeekday = (uint8_t)(ah["start_weekday"] | 0);
+    activityHistory.activeDays = (uint16_t)(ah["active_days"] | 0);
+    activityHistory.currentStreak = (uint16_t)(ah["current_streak"] | 0);
+    JsonArray levels = ah["levels"].as<JsonArray>();
+    if (!levels.isNull()) {
+      for (JsonVariant value : levels) {
+        if (activityHistory.n >= MAX_ACTIVITY_DAYS) break;
+        int level = value | 0;
+        if (level < 0) level = 0;
+        if (level > 4) level = 4;
+        activityHistory.levels[activityHistory.n++] = (uint8_t)level;
+      }
+    }
+    activityHistory.ok = activityHistory.n > 0;
   }
 
   // Burndown series, looked up by the slot's provider id (Cursor may overlay
@@ -2127,16 +2185,6 @@ static const char *pageName(Page p) {
   }
 }
 
-static void drawHostErrorBorder() {
-  // Healthy link: nothing. A 2px red frame when last /usage fetch failed
-  // (Wi-Fi HTTP or USB CDC) — reads at desk distance; a corner pip did not.
-  if (hostOk) return;
-  const int16_t W = scrW();
-  const int16_t H = scrH();
-  gfx->drawRect(0, 0, W, H, COL_RED);
-  gfx->drawRect(1, 1, (int16_t)(W - 2), (int16_t)(H - 2), COL_RED);
-}
-
 // Blend a colour toward the background. RGB565 has to be unpacked to do it.
 static uint16_t dimToward(uint16_t color, uint16_t bg, float factor);
 
@@ -2217,6 +2265,102 @@ static void drawLinkGlyph(int16_t rightX, int16_t bottomY) {
   gfx->fillArc(cx, cy, 13, 11, -135, -45, col);
   gfx->fillArc(cx, cy, 8, 6, -135, -45, col);
   gfx->fillCircle(cx, (int16_t)(cy - 1), 1, col);
+}
+
+// Footprint the home page reserves for the power glyph, bottom-left.
+// Matches the link glyph's band so one lowBottom covers both corners.
+static const int16_t POWER_GLYPH_W = 22;
+static const int16_t POWER_GLYPH_H = 14;
+
+// Tiny lightning bolt for "charging" — three stacked wedges, SF Symbol scale.
+static void drawChargeBolt(int16_t cx, int16_t cy, uint16_t col) {
+  gfx->fillTriangle((int16_t)(cx + 1), (int16_t)(cy - 5),
+                    (int16_t)(cx - 3), (int16_t)(cy + 0),
+                    (int16_t)(cx + 1), (int16_t)(cy + 0), col);
+  gfx->fillTriangle((int16_t)(cx - 1), (int16_t)(cy + 0),
+                    (int16_t)(cx + 3), (int16_t)(cy + 0),
+                    (int16_t)(cx - 1), (int16_t)(cy + 5), col);
+}
+
+// Power source from the AXP2101, tucked into the bottom-left the way the link
+// glyph owns the bottom-right. USB on VBUS draws a plug (with percent beside
+// it when a cell is fitted); battery-only draws the cell with fill; charging
+// keeps the cell and adds a bolt. Percent always sits to the right of the
+// glyph so the corner still reads at desk distance.
+// (leftX, bottomY) is the bottom-left corner of the reserved band.
+static void drawPowerGlyph(int16_t leftX, int16_t bottomY) {
+  if (!pmuOk) return;
+
+  const bool vbus = PMU.isVbusIn();
+  const bool batt = PMU.isBatteryConnect();
+  const bool charging = batt && PMU.isCharging();
+  const int pct = batt ? PMU.getBatteryPercent() : -1;
+  // Same yellow the link glyph uses when the reading is suspect — low fuel is
+  // the one power state that wants to shout from across the desk.
+  const bool low = batt && pct >= 0 && pct <= 20;
+  const uint16_t col = low ? COL_CRT_YELLOW : COL_DIM;
+  const int16_t gx = leftX;
+  const int16_t gy = (int16_t)(bottomY - POWER_GLYPH_H);
+
+  // Source first: plug while VBUS is up and we aren't actively charging the
+  // cell (charging wants the battery+bolt so you can see it's taking a charge).
+  // Battery-only falls through to the cell.
+  if (vbus && !charging) {
+    const int16_t bx = (int16_t)(gx + 8);
+    const int16_t by = (int16_t)(gy + 2);
+    gfx->fillRect((int16_t)(gx + 1), (int16_t)(by + 1), 7, 2, col);
+    gfx->fillRect((int16_t)(gx + 1), (int16_t)(by + 6), 7, 2, col);
+    gfx->fillRoundRect(bx, by, 12, 10, 2, col);
+    if (pct >= 0) {
+      char label[8];
+      snprintf(label, sizeof label, "%d%%", pct > 100 ? 100 : pct);
+      drawTextAt(label, (int16_t)(gx + POWER_GLYPH_W + 4), gy, 2, col);
+    }
+    return;
+  }
+
+  if (!batt) {
+    // No VBUS reading and no cell — still put something in the corner so the
+    // layout matches the link glyph's presence. Plug is the least-wrong mark.
+    const int16_t bx = (int16_t)(gx + 8);
+    const int16_t by = (int16_t)(gy + 2);
+    gfx->fillRect((int16_t)(gx + 1), (int16_t)(by + 1), 7, 2, col);
+    gfx->fillRect((int16_t)(gx + 1), (int16_t)(by + 6), 7, 2, col);
+    gfx->fillRoundRect(bx, by, 12, 10, 2, col);
+    return;
+  }
+
+  // Battery body + positive terminal nub. Fill grows left→right inside a
+  // 1px inset so the outline stays readable at empty and full.
+  const int16_t bw = 16;
+  const int16_t bh = 10;
+  const int16_t bx = gx;
+  const int16_t by = (int16_t)(gy + 2);
+  gfx->drawRoundRect(bx, by, bw, bh, 2, col);
+  gfx->fillRoundRect((int16_t)(bx + bw), (int16_t)(by + 3), 2, 4, 1, col);
+
+  if (pct > 0) {
+    const int16_t innerW = (int16_t)(bw - 4);
+    int16_t fillW = (int16_t)((innerW * pct + 50) / 100);
+    if (fillW < 1) fillW = 1;
+    if (fillW > innerW) fillW = innerW;
+    gfx->fillRoundRect((int16_t)(bx + 2), (int16_t)(by + 2),
+                       fillW, (int16_t)(bh - 4), 1, col);
+  }
+
+  if (charging) {
+    // Knock a clear window out of the fill, then drop the bolt on top so it
+    // reads against both empty and full cells.
+    gfx->fillRect((int16_t)(bx + 5), (int16_t)(by + 1), 6, (int16_t)(bh - 2),
+                  COL_BG);
+    drawChargeBolt((int16_t)(bx + bw / 2), (int16_t)(by + bh / 2), col);
+  }
+
+  if (pct >= 0) {
+    char label[8];
+    snprintf(label, sizeof label, "%d%%", pct > 100 ? 100 : pct);
+    drawTextAt(label, (int16_t)(gx + POWER_GLYPH_W + 4), gy, 2, col);
+  }
 }
 
 // Hottest pool % + matching pace for a provider (-1 if unavailable).
@@ -2768,6 +2912,65 @@ static void flashGlanceSlot(const GlanceHit &h) {
 
 static const Burndown &burnFor(Page p);
 
+static uint16_t activityCellColor(uint8_t level) {
+  switch (level > 4 ? 4 : level) {
+    case 0: return COL_BLACK;
+    case 1: return dimToward(COL_GREEN, COL_BLACK, 0.28f);
+    case 2: return dimToward(COL_GREEN, COL_BLACK, 0.48f);
+    case 3: return dimToward(COL_GREEN, COL_BLACK, 0.72f);
+    default: return COL_GREEN;
+  }
+}
+
+// Lower half, history reading: a mixed-source coding cadence heatmap. The
+// host has already combined Claude session evidence and quota-source burns;
+// the board only paints the resulting levels and keeps its own memory small.
+static void drawGlanceHistory(int16_t padX, int16_t span, int16_t midY,
+                              int16_t lowBottom) {
+  drawTextAt("History", padX, (int16_t)(midY + 8), 2, COL_WHITE);
+  if (!activityHistory.ok || activityHistory.n == 0) {
+    drawTextAt("Collecting activity", padX, (int16_t)(midY + 38), 2, COL_DIM);
+    return;
+  }
+
+  char summary[28];
+  snprintf(summary, sizeof summary, "%u active · %ud streak",
+           (unsigned)activityHistory.activeDays,
+           (unsigned)activityHistory.currentStreak);
+  drawRightAt(summary, (int16_t)(padX + span), (int16_t)(midY + 8), 2, COL_DIM);
+
+  const int16_t cell = 14;
+  const int16_t gap = 2;
+  // Treat the board strip as a fixed recent window, even when an older host
+  // sends fewer days. This keeps today at the right edge instead of centering
+  // a short history in the middle of the display; empty leading cells remain
+  // true black and therefore disappear naturally.
+  const uint8_t visibleDays = MAX_ACTIVITY_DAYS;
+  const uint8_t leadingDays = visibleDays > activityHistory.n
+                                ? (uint8_t)(visibleDays - activityHistory.n)
+                                : 0;
+  const uint8_t startWeekday = (uint8_t)(activityHistory.startWeekday % 7);
+  const uint8_t gridStartWeekday = (uint8_t)(
+      (startWeekday + 7 - (leadingDays % 7)) % 7);
+  const uint8_t cols = (uint8_t)((gridStartWeekday + visibleDays + 6) / 7);
+  const int16_t gridW = (int16_t)(cols * cell + (cols - 1) * gap);
+  const int16_t gridX = (int16_t)(padX + span - gridW);
+  const int16_t gridY = (int16_t)(midY + 30);
+  for (uint8_t i = 0; i < activityHistory.n; i++) {
+    const uint16_t slot = (uint16_t)gridStartWeekday + leadingDays + i;
+    const uint8_t col = (uint8_t)(slot / 7);
+    const uint8_t row = (uint8_t)(slot % 7);
+    const int16_t x = (int16_t)(gridX + col * (cell + gap));
+    const int16_t y = (int16_t)(gridY + row * (cell + gap));
+    gfx->fillRoundRect(x, y, cell, cell, 3,
+                       activityCellColor(activityHistory.levels[i]));
+  }
+
+  // A thin baseline keeps an entirely empty row legible without stealing a
+  // second legend line from the glance pane.
+  gfx->drawFastHLine(padX, lowBottom, span, dimToward(COL_DIM, COL_BG, 0.35f));
+}
+
 // Lower half, activity reading: what shipped lately.
 static void drawGlanceActivity(int16_t padX, int16_t span, int16_t midY,
                                int16_t lowBottom) {
@@ -3187,8 +3390,9 @@ static void drawGlancePage() {
   const int16_t ringR = 32;
   const int16_t ringCy = top + 74;
   const int16_t midY = ringCy + ringR + 38;  // clear labels under rings
-  // No footer, but the bottom strip belongs to the link glyph — reserve it in
-  // both home modes so a long verdict or a sixth port can't run underneath.
+  // No footer, but the bottom strip belongs to the corner glyphs (power left,
+  // link right) — reserve it in both home modes so a long verdict or a sixth
+  // port can't run underneath.
   const int16_t lowBottom = (int16_t)(H - bot - LINK_GLYPH_H);
 
   for (uint8_t i = 0; i < slotN; i++) {
@@ -3210,15 +3414,17 @@ static void drawGlancePage() {
 
   gfx->drawFastHLine(padX, midY, span, COL_DIM);
 
-  if (homeMode == HOME_ACTIVITY || slotN > 0) {
+  if (homeMode == HOME_ACTIVITY || homeMode == HOME_HISTORY || slotN > 0) {
     if (homeMode == HOME_BURNDOWN) {
       drawGlanceBurndown(padX, span, midY, lowBottom);
+    } else if (homeMode == HOME_HISTORY) {
+      drawGlanceHistory(padX, span, midY, lowBottom);
     } else {
       drawGlanceActivity(padX, span, midY, lowBottom);
     }
   }
 
-  drawHostErrorBorder();
+  drawPowerGlyph(padX, (int16_t)(H - bot));
   drawLinkGlyph((int16_t)(W - padX), (int16_t)(H - bot));
   present();
 }
@@ -3327,7 +3533,6 @@ static void drawQuotaPage() {
     drawTextAt(missing, padX, top + 100, 2, COL_DIM);
   }
 
-  drawHostErrorBorder();
   present();
 }
 
@@ -3380,7 +3585,6 @@ static void drawVercelPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)vercelN) + " recent", padX, footY, 2, COL_DIM);
-  drawHostErrorBorder();
   present();
 }
 
@@ -3422,7 +3626,6 @@ static void drawGitPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)gitN) + " recent", padX, footY, 2, COL_DIM);
-  drawHostErrorBorder();
   present();
 }
 
@@ -3471,7 +3674,6 @@ static void drawLocalPage() {
   const int16_t footY = H - bot - 10;
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)localN) + " up", padX, footY, 2, COL_DIM);
-  drawHostErrorBorder();
   present();
 }
 
@@ -3713,7 +3915,13 @@ static void goHome() {
 }
 
 static void toggleHomeMode() {
-  homeMode = homeMode == HOME_ACTIVITY ? HOME_BURNDOWN : HOME_ACTIVITY;
+  if (homeMode == HOME_BURNDOWN) {
+    homeMode = HOME_ACTIVITY;
+  } else if (homeMode == HOME_ACTIVITY) {
+    homeMode = HOME_HISTORY;
+  } else {
+    homeMode = HOME_BURNDOWN;
+  }
   homeModeSave();
   Serial.printf("tap → home mode %s\n", homeModeName(homeMode));
   if (haveData) drawDashboard();

@@ -135,24 +135,29 @@ struct RootView: View {
 
 private struct OverviewScreen: View {
     @ObservedObject var store: MobileUsageStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// Wide iPhone: status + quotas on the left, burndown charts on the right.
+    private var splitLayout: Bool {
+        WidePhoneLayout.isActive(horizontalSizeClass)
+    }
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
-                MobileStatusCard(store: store)
-                QuotaOverviewCard(
-                    providers: store.visibleProviders,
-                    burndown: store.snapshot.burndown ?? [:],
-                    codex: store.snapshot.codex
-                )
-                OverallBurndownChart(
-                    providers: store.visibleProviders,
-                    snapshot: store.snapshot
-                )
-                DailyBurnChart(
-                    days: store.snapshot.byDay ?? [],
-                    providers: store.visibleProviders
-                )
+            Group {
+                if splitLayout {
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(spacing: 16) { leftColumn }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        VStack(spacing: 16) { rightColumn }
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                } else {
+                    LazyVStack(spacing: 16) {
+                        leftColumn
+                        rightColumn
+                    }
+                }
             }
             .padding()
         }
@@ -167,6 +172,27 @@ private struct OverviewScreen: View {
                 await store.refresh()
             }
         }
+    }
+
+    @ViewBuilder private var leftColumn: some View {
+        MobileStatusCard(store: store)
+        QuotaOverviewCard(
+            snapshot: store.snapshot
+        )
+    }
+
+    @ViewBuilder private var rightColumn: some View {
+        OverallBurndownChart(
+            providers: store.visibleProviders,
+            snapshot: store.snapshot
+        )
+        DailyBurnChart(
+            days: store.snapshot.byDay ?? [],
+            providers: store.visibleProviders
+        )
+        ActivityHistoryCard(
+            history: store.snapshot.activityHistory
+        )
     }
 }
 

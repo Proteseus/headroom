@@ -5,6 +5,32 @@ import Foundation
 /// These run inside chart bodies, so the formatters are built once and held
 /// rather than allocated per bar.
 enum HeadroomFormat {
+    private static let usdWhole: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.currencySymbol = "$"
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    private static let usdCents: NumberFormatter = {
+        let formatter = usdWhole.copy() as! NumberFormatter
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
+
+    /// USD with grouping, keeping the app's existing whole-dollar display by
+    /// default: `$12,475` rather than `$12475`.
+    static func usd(_ value: Double, maximumFractionDigits: Int = 0) -> String {
+        let formatter = maximumFractionDigits > 0 ? usdCents : usdWhole
+        return formatter.string(from: NSNumber(value: value))
+            ?? String(format: "$%.0f", value)
+    }
+
     /// "1.2k" / "3.4M". Chart axes and traffic counts, where the exact figure
     /// is not the point and the column is narrow.
     static func compact(_ value: Int) -> String {

@@ -55,6 +55,10 @@ struct UsageSnapshot: Decodable, Sendable {
     /// Emitted since 1.0 and decoded by nobody until the Spend card; a host
     /// too old to send it leaves this nil and the card does not draw.
     var history: UsageHistory?
+    /// Mixed-source daily activity: Claude session evidence plus daily burn
+    /// evidence from every quota source. Empty days are absent from `days`;
+    /// `levels` is the compact full-window series for the board.
+    var activityHistory: ActivityHistory?
     var codex: CodexUsage?
     var cursor: CursorUsage?
     /// Normalized quota providers from the host registry (additive).
@@ -115,6 +119,7 @@ struct UsageSnapshot: Decodable, Sendable {
         weekResetsIn: String? = nil,
         today: TokenBucket? = nil,
         byDay: [DailyBurnDay]? = nil,
+        activityHistory: ActivityHistory? = nil,
         codex: CodexUsage? = nil,
         cursor: CursorUsage? = nil,
         providers: [QuotaProviderInfo]? = nil,
@@ -146,6 +151,7 @@ struct UsageSnapshot: Decodable, Sendable {
         self.weekResetsIn = weekResetsIn
         self.today = today
         self.byDay = byDay
+        self.activityHistory = activityHistory
         self.codex = codex
         self.cursor = cursor
         self.providers = providers
@@ -172,6 +178,7 @@ struct UsageSnapshot: Decodable, Sendable {
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
         case history
+        case activityHistory = "activity_history"
         case quotaOK = "quota_ok"
         case quotaError = "quota_error"
         case sessionPct = "session_pct"
@@ -202,6 +209,8 @@ struct UsageSnapshot: Decodable, Sendable {
         weekPacePct = try value(.weekPacePct)
         weekResetsIn = try value(.weekResetsIn)
         today = try value(.today)
+        history = try value(.history)
+        activityHistory = try value(.activityHistory)
         codex = try value(.codex)
         cursor = try value(.cursor)
         vercel = try value(.vercel)
@@ -1097,8 +1106,8 @@ struct SubscriptionPricing: Decodable, Sendable {
 
 private extension Double {
     var cleanCurrency: String {
-        if rounded() == self { return String(format: "%.0f", self) }
-        return String(format: "%.2f", self)
+        HeadroomFormat.usd(self, maximumFractionDigits: 2)
+            .replacingOccurrences(of: "$", with: "")
     }
 }
 
@@ -1408,6 +1417,85 @@ struct UsageHistory: Decodable, Sendable {
     }
 }
 
+/// The date-indexed mixed activity series behind the app and ESP32 heatmap.
+/// `source` is always "mixed" for the current contract; keeping it explicit
+/// prevents a future source-specific view from silently changing cell meaning.
+struct ActivityHistory: Decodable, Sendable {
+    var source: String?
+    var windowDays: Int?
+    var start: String?
+    var end: String?
+    var startWeekday: Int?
+    var levels: [Int]?
+    var days: [ActivityHistoryDay]?
+    var activeDays: Int?
+    var currentStreak: Int?
+    var bestDay: String?
+    var availableSources: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case source
+        case windowDays = "window_days"
+        case start, end
+        case startWeekday = "start_weekday"
+        case levels, days
+        case activeDays = "active_days"
+        case currentStreak = "current_streak"
+        case bestDay = "best_day"
+        case availableSources = "available_sources"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        windowDays = try container.decodeIfPresent(Int.self, forKey: .windowDays)
+        start = try container.decodeIfPresent(String.self, forKey: .start)
+        end = try container.decodeIfPresent(String.self, forKey: .end)
+        startWeekday = try container.decodeIfPresent(Int.self, forKey: .startWeekday)
+        levels = try container.decodeIfPresent([Int].self, forKey: .levels)
+        days = try container.decodeLossyArrayIfPresent(
+            ActivityHistoryDay.self, forKey: .days)
+        activeDays = try container.decodeIfPresent(Int.self, forKey: .activeDays)
+        currentStreak = try container.decodeIfPresent(Int.self, forKey: .currentStreak)
+        bestDay = try container.decodeIfPresent(String.self, forKey: .bestDay)
+        availableSources = try container.decodeIfPresent(
+            [String].self, forKey: .availableSources)
+    }
+
+    var dayByDate: [String: ActivityHistoryDay] {
+        Dictionary(uniqueKeysWithValues: (days ?? []).map { ($0.date, $0) })
+    }
+
+    func day(for date: String) -> ActivityHistoryDay? {
+        dayByDate[date]
+    }
+
+    func level(for date: String) -> Int {
+        day(for: date)?.level ?? 0
+    }
+}
+
+struct ActivityHistoryDay: Decodable, Sendable, Identifiable {
+    var date: String
+    var level: Int
+    var activeMinutes: Int?
+    var sessions: Int?
+    var tokens: Double?
+    var costUSD: Double?
+    var sources: [String]?
+    var burns: [String: Double]?
+
+    var id: String { date }
+
+    enum CodingKeys: String, CodingKey {
+        case date, level
+        case activeMinutes = "active_minutes"
+        case sessions, tokens
+        case costUSD = "cost_usd"
+        case sources, burns
+    }
+}
+
 struct HistoryModel: Decodable, Sendable {
     var model: String?
     var tokens: Double?
@@ -1492,7 +1580,7 @@ extension QuotaPoolInfo {
         guard isBalance,
               headroom?.unit == "usd",
               let value = headroom?.value else { return nil }
-        return String(format: "$%.2f \(HeadroomCopy.balanceLeft)", value)
+        return "\(HeadroomFormat.usd(value, maximumFractionDigits: 2)) \(HeadroomCopy.balanceLeft)"
     }
 }
 
@@ -2398,7 +2486,7 @@ extension UsageSnapshot {
 extension Double {
     /// Always whole dollars with `$`, never cents or locale currency codes.
     var dollarLabel: String {
-        String(format: "$%.0f", rounded())
+        HeadroomFormat.usd(rounded())
     }
 }
 

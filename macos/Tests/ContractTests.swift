@@ -105,6 +105,27 @@ final class ContractTests: XCTestCase {
         XCTAssertNotNil(snapshot.attention, "attention")
     }
 
+    func testMixedActivityHistoryDecodesItsSparseDetails() throws {
+        let snapshot = try decodeDemo()
+        let activity = try XCTUnwrap(snapshot.activityHistory)
+        XCTAssertEqual(activity.source, "mixed")
+        XCTAssertEqual(activity.levels?.count, 14)
+        XCTAssertEqual(activity.activeDays, 11)
+        let busiest = try XCTUnwrap(activity.day(for: "2026-07-21"))
+        XCTAssertEqual(busiest.level, 4)
+        XCTAssertEqual(busiest.activeMinutes, 212)
+        XCTAssertEqual(busiest.sources, ["claude", "codex", "cursor"])
+    }
+
+    func testCurrencyLabelsUseThousandsSeparators() {
+        XCTAssertEqual(12_475.0.dollarLabel, "$12,475")
+        XCTAssertEqual(1_234.5.dollarLabel, "$1,235")
+        XCTAssertEqual(
+            HeadroomFormat.usd(1_234.5, maximumFractionDigits: 2),
+            "$1,234.50"
+        )
+    }
+
     func testEveryProviderMeterResolves() throws {
         let snapshot = try decodeDemo()
         for provider in snapshot.activeQuotaProviders {

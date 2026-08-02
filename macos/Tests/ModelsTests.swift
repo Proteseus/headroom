@@ -237,6 +237,14 @@ final class ModelsTests: XCTestCase {
             "6d 5h · 18d 3h"
         )
         XCTAssertEqual(value.cursor?.costLabel, "$15 / $20")
+        XCTAssertEqual(
+            value.meter(for: .cursor).costLabel,
+            "$15 / $20 · $30 / $30 on-demand"
+        )
+        XCTAssertEqual(
+            value.meter(for: .cursor).displayableWindows.map(\.title),
+            ["Total", "API"]
+        )
         XCTAssertEqual(value.meter(for: .claude).costLabel, "$4 today")
         XCTAssertNil(value.meter(for: .claude).resetCreditsLabel)
         XCTAssertNil(value.meter(for: .cursor).resetCreditsLabel)

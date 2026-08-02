@@ -64,6 +64,29 @@ So:
 { "by_day": [ { "claude": 12.0 } ] }
 ```
 
+### Mixed activity history
+
+`activity_history` is additive and optional. It is a mixed-source cadence
+series: Claude's local session history is combined with daily burn evidence
+from every quota source. The `level` is an evidence ramp, not a conversion
+between minutes and quota percentage points. Native details remain on each
+sparse day for the app; `levels` is the compact full-window array used by the
+ESP32.
+
+```jsonc
+{
+  "activity_history": {
+    "source": "mixed",
+    "start": "2026-07-01",
+    "levels": [0, 1, 2, 0, 4],
+    "days": [
+      { "date": "2026-07-02", "level": 1,
+        "sources": ["codex"], "burns": { "codex": 1.5 } }
+    ]
+  }
+}
+```
+
 `DailyBurnDay.date` is `String`, not `String?`. Synthesized decoding throws.
 `fetchUsage()` throws. The user does not lose the burndown chart — they lose
 **the entire popover**, with an error that names a date field nobody was

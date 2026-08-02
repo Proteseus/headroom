@@ -16,11 +16,16 @@ Stdlib only.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 # Mirror of firmware/src/main.cpp MAX_DEPLOYS / MAX_COMMITS / MAX_SERVERS.
 MAX_DEPLOYS = 6
 MAX_COMMITS = 6
 MAX_SERVERS = 6
 MAX_SOURCES = 8
+# The glance mode has room for 24 columns of 14px square cells. Keep this in
+# step with firmware/src/main.cpp MAX_ACTIVITY_DAYS; empty cells stay black.
+MAX_ACTIVITY_DAYS = 162
 
 # The board's three slots. Mirrors sources_config.FOCUS_LIMIT and the
 # firmware's MAX_SLOTS: the host picks which providers those are (pinned
@@ -122,6 +127,59 @@ def _rows(items, fields, limit):
         if isinstance(item, dict):
             out.append(_pick(item, fields))
     return out
+
+
+def _activity_history_for_device(history):
+    """Trim the mixed full-window levels to the board's readable half-year."""
+    if not isinstance(history, dict):
+        return None
+    raw = history.get("levels") or []
+    levels = []
+    for value in raw:
+        try:
+            levels.append(max(0, min(4, int(value))))
+        except (TypeError, ValueError):
+            levels.append(0)
+    if not levels:
+        return None
+
+    offset = max(0, len(levels) - MAX_ACTIVITY_DAYS)
+    levels = levels[offset:]
+    start = history.get("start")
+    if isinstance(start, str):
+        try:
+            start = (date.fromisoformat(start) + timedelta(days=offset)).isoformat()
+        except ValueError:
+            pass
+
+    start_weekday = history.get("start_weekday")
+    if start_weekday is not None:
+        try:
+            start_weekday = (int(start_weekday) + offset) % 7
+        except (TypeError, ValueError):
+            start_weekday = None
+    if start_weekday is None and isinstance(start, str):
+        try:
+            start_weekday = date.fromisoformat(start).weekday()
+        except ValueError:
+            pass
+
+    current_streak = 0
+    for level in reversed(levels):
+        if level <= 0:
+            break
+        current_streak += 1
+
+    out = {
+        "source": "mixed",
+        "start": start,
+        "levels": levels,
+        "active_days": sum(1 for level in levels if level > 0),
+        "current_streak": current_streak,
+    }
+    if start_weekday is not None:
+        out["start_weekday"] = start_weekday
+    return {key: value for key, value in out.items() if value is not None}
 
 
 def _thin(points, limit):
@@ -420,6 +478,10 @@ def build(doc):
         device["local"]["host"] = local["host"]
     device["sources"] = _rows(
         doc.get("sources"), SOURCE_FIELDS, MAX_SOURCES)
+
+    activity = _activity_history_for_device(doc.get("activity_history"))
+    if activity:
+        device["activity_history"] = activity
 
     providers = _device_providers(doc)
     if providers:

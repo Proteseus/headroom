@@ -193,9 +193,9 @@ def _on_demand(spend):
         used_d = round(max(0.0, lim_d - rem_d), 2)
     label = None
     if rem_d is not None and lim_d is not None:
-        label = f"${rem_d:.0f} / ${lim_d:.0f} on-demand"
+        label = f"${rem_d:,.0f} / ${lim_d:,.0f} on-demand"
     elif rem_d is not None:
-        label = f"${rem_d:.0f} on-demand left"
+        label = f"${rem_d:,.0f} on-demand left"
     return {
         "limit_cents": int(limit) if isinstance(limit, (int, float)) else None,
         "remaining_cents": (
@@ -233,9 +233,9 @@ def _plan_spend(plan_usage):
         return None
     label = None
     if used is not None and limit is not None:
-        label = f"${used:.0f} / ${limit:.0f}"
+        label = f"${used:,.0f} / ${limit:,.0f}"
     elif used is not None:
-        label = f"${used:.0f} used"
+        label = f"${used:,.0f} used"
     return {
         "used_usd": used,
         "included_usd": included,

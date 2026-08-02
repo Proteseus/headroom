@@ -35,6 +35,31 @@
     ],
     "unpriced_models": []
   },
+  "activity_history": {
+    "source": "mixed",
+    "window_days": 14,
+    "start": "2026-07-12",
+    "end": "2026-07-25",
+    "start_weekday": 6,
+    "levels": [0, 1, 2, 0, 3, 2, 1, 0, 2, 4, 3, 1, 2, 3],
+    "days": [
+      {"date": "2026-07-13", "level": 1, "sources": ["codex"], "burns": {"codex": 1.2}},
+      {"date": "2026-07-14", "level": 2, "sources": ["claude", "cursor"], "active_minutes": 24, "sessions": 2, "tokens": 120000, "burns": {"cursor": 0.8}},
+      {"date": "2026-07-16", "level": 3, "sources": ["claude"], "active_minutes": 74, "sessions": 3, "tokens": 420000},
+      {"date": "2026-07-17", "level": 2, "sources": ["claude", "codex"], "active_minutes": 18, "sessions": 1, "tokens": 90000, "burns": {"codex": 2.1}},
+      {"date": "2026-07-18", "level": 1, "sources": ["cursor"], "burns": {"cursor": 0.4}},
+      {"date": "2026-07-20", "level": 2, "sources": ["claude"], "active_minutes": 31, "sessions": 2, "tokens": 160000},
+      {"date": "2026-07-21", "level": 4, "sources": ["claude", "codex", "cursor"], "active_minutes": 212, "sessions": 5, "tokens": 1400000, "cost_usd": 1.8, "burns": {"claude": 6.0, "codex": 5.5, "cursor": 0.8}},
+      {"date": "2026-07-22", "level": 3, "sources": ["claude", "codex"], "active_minutes": 66, "sessions": 3, "tokens": 380000, "burns": {"codex": 3.2}},
+      {"date": "2026-07-23", "level": 1, "sources": ["codex"], "burns": {"codex": 1.1}},
+      {"date": "2026-07-24", "level": 2, "sources": ["claude"], "active_minutes": 26, "sessions": 1, "tokens": 150000},
+      {"date": "2026-07-25", "level": 3, "sources": ["claude", "cursor"], "active_minutes": 81, "sessions": 3, "tokens": 510000, "burns": {"cursor": 2.4}}
+    ],
+    "active_days": 11,
+    "current_streak": 6,
+    "best_day": "2026-07-21",
+    "available_sources": ["claude", "codex", "cursor"]
+  },
   "by_day": [
     {
       "date": "2026-07-20",

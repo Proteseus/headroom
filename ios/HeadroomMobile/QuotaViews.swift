@@ -2,13 +2,11 @@ import Charts
 import SwiftUI
 
 struct QuotaOverviewCard: View {
-    let providers: [QuotaProviderInfo]
-    let burndown: [String: [String: Burndown]]
-    /// Banked reset credits live in the flattened `codex` block rather than on
-    /// a provider row, so they have to be handed down separately. Built for the
-    /// default login, which is why only `codex` shows the line — an extra Codex
-    /// account gets its meters without it, same as on the board.
-    var codex: CodexUsage? = nil
+    let snapshot: UsageSnapshot
+
+    private var providers: [QuotaProviderInfo] {
+        snapshot.visibleQuotaProviders
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,17 +23,19 @@ struct QuotaOverviewCard: View {
                     NavigationLink {
                         ProviderQuotaDetail(
                             provider: provider,
+                            meter: snapshot.meter(for: provider),
                             burndown: provider.orderedBurndown(
-                                from: burndown[provider.id]
+                                from: snapshot.burndown?[provider.id]
                             ),
-                            codex: provider.id == "codex" ? codex : nil
+                            subscriptionPricing: provider.subscriptionPricing
                         )
                     } label: {
                         HStack(spacing: 10) {
                             ProviderSummaryRow(
                                 provider: provider,
+                                meter: snapshot.meter(for: provider),
                                 burndown: provider.orderedBurndown(
-                                    from: burndown[provider.id]
+                                    from: snapshot.burndown?[provider.id]
                                 )
                             )
                             Image(systemName: "chevron.right")
@@ -57,6 +57,7 @@ struct QuotaOverviewCard: View {
 
 private struct ProviderSummaryRow: View {
     let provider: QuotaProviderInfo
+    let meter: ProviderMeter
     /// The provider's burndown pools, for the pace dots. Empty is fine.
     var burndown: [Burndown] = []
 
@@ -74,23 +75,30 @@ private struct ProviderSummaryRow: View {
                     ProviderMark(providerID: provider.id, size: 16)
                     Text(provider.markTitle)
                         .font(.headline)
-                    if let plan = provider.plan {
+                    if let plan = meter.plan {
                         Text(plan)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                ForEach(Array(provider.displayablePools.prefix(3)), id: \.id) { item in
+                ForEach(
+                    Array(meter.displayableWindows.prefix(3).enumerated()),
+                    id: \.offset
+                ) { _, window in
                     HStack {
-                        Text(item.pool.title ?? item.id.capitalized)
+                        Text(window.title)
                         Spacer()
-                        Text(item.pool.pct.map { "\(Int($0.rounded()))%" } ?? "—")
+                        Text(
+                            window.percent.map {
+                                "\(Int($0.rounded()))%"
+                            } ?? "—"
+                        )
                             .monospacedDigit()
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                if let balance = provider.primaryBalance?.balanceRemainingLabel {
+                if let balance = meter.balanceLabel {
                     Text(balance)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -98,11 +106,11 @@ private struct ProviderSummaryRow: View {
                 }
                 // Ahead of the headline, because a headline written from
                 // frozen percentages is confidently wrong.
-                if let status = provider.statusNote {
+                if let status = meter.statusNote {
                     Text(status)
                         .font(.caption2)
                         .foregroundStyle(
-                            provider.statusAlarming
+                            meter.statusAlarming
                                 ? HeadroomPalette.amber : Color.secondary)
                         .lineLimit(1)
                 }
@@ -110,11 +118,11 @@ private struct ProviderSummaryRow: View {
                 // host replays frozen bars, so an error is worth showing
                 // whenever there is one. Rate-limit text is already in the
                 // status note ("Paused · retries in…").
-                if let error = provider.displayError {
+                if let error = meter.displayError {
                     Text(error)
                         .font(.caption2)
                         .foregroundStyle(
-                            provider.statusAlarming
+                            meter.statusAlarming
                                 ? HeadroomPalette.amber : Color.secondary)
                         .lineLimit(2)
                 } else if let headline = provider.headline {
@@ -130,21 +138,21 @@ private struct ProviderSummaryRow: View {
 
 private struct ProviderQuotaDetail: View {
     let provider: QuotaProviderInfo
+    let meter: ProviderMeter
     /// Already in `visiblePools` order — one chart per progress bar, same
     /// sequence. Do not re-sort here.
     let burndown: [Burndown]
-    /// Nil unless this is the default Codex login — see `QuotaOverviewCard`.
-    var codex: CodexUsage? = nil
+    let subscriptionPricing: SubscriptionPricing?
 
     /// "Connected" is a claim about right now, and a provider whose numbers
     /// stopped arriving is in no position to make it. `ok` alone would let it.
     private var statusLabel: String {
-        if let status = provider.statusNote { return status }
-        return provider.ok == false ? HeadroomCopy.needsAttention : "Connected"
+        if let status = meter.statusNote { return status }
+        return meter.ok == false ? HeadroomCopy.needsAttention : "Connected"
     }
 
     private var statusTint: Color {
-        if provider.statusAlarming || provider.ok == false {
+        if meter.statusAlarming || meter.ok == false {
             return HeadroomPalette.amber
         }
         if provider.readingSuspect {
@@ -166,7 +174,7 @@ private struct ProviderQuotaDetail: View {
                         .opacity(provider.readingSuspect ? 0.4 : 1)
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(provider.plan ?? HeadroomCopy.planUnknown)
+                            Text(meter.plan ?? HeadroomCopy.planUnknown)
                                 .foregroundStyle(.secondary)
                             Text(statusLabel)
                                 .foregroundStyle(statusTint)
@@ -175,55 +183,38 @@ private struct ProviderQuotaDetail: View {
                         .font(.subheadline)
                     }
 
-                    ForEach(provider.displayablePools, id: \.id) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(item.pool.title ?? item.id.capitalized)
-                                    .fontWeight(.medium)
-                                Spacer()
-                                Text(item.pool.pct.map { "\(Int($0.rounded()))%" } ?? "—")
-                                    .monospacedDigit()
-                            }
-                            ProgressView(value: min(max(item.pool.pct ?? 0, 0), 100), total: 100)
-                                .tint(provider.tint)
-                            HStack {
-                                if let pace = item.pool.pacePct {
-                                    Text("Pace \(Int(pace.rounded()))%")
-                                }
-                                Spacer()
-                                if let reset = item.pool.resetsIn {
-                                    Text("Resets \(reset)")
-                                }
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
+                    ForEach(
+                        Array(meter.displayableWindows.enumerated()),
+                        id: \.offset
+                    ) { _, window in
+                        MobileQuotaRow(window: window, tint: provider.tint)
                     }
 
-                    ForEach(provider.balancePools, id: \.id) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(item.pool.title ?? "Balance")
-                                    .fontWeight(.medium)
-                                Spacer()
-                                if let label = item.pool.balanceRemainingLabel {
-                                    Text(label)
-                                        .monospacedDigit()
-                                }
-                            }
-                            ProgressView(
-                                value: max(0, min(item.pool.level ?? 0, 1)),
-                                total: 1
-                            )
-                            .tint(provider.tint)
-                        }
+                    if let balance = meter.balanceLabel {
+                        MobileBalanceRow(
+                            label: balance,
+                            level: meter.balanceLevel,
+                            tint: provider.tint
+                        )
                     }
 
-                    if let credits = codex?.resetCreditsLabel {
+                    if let pace = meter.paceLabel {
+                        HStack {
+                            Text(pace)
+                            Spacer()
+                            if let runsOut = meter.runsOutIn {
+                                Text("Runs out in \(runsOut)")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    if let credits = meter.resetCreditsLabel {
                         HStack {
                             Text(credits)
                             Spacer()
-                            if let expiry = codex?.resetCreditsExpiryLabel {
+                            if let expiry = meter.resetCreditsExpiryLabel {
                                 Text(expiry)
                                     .monospacedDigit()
                                     .lineLimit(1)
@@ -233,13 +224,27 @@ private struct ProviderQuotaDetail: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
+
+                    if let cost = meter.costLabel {
+                        Text(cost)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let error = meter.displayError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(
+                                meter.statusAlarming
+                                    ? HeadroomPalette.amber : Color.secondary)
+                            .lineLimit(2)
+                    }
                 }
                 .headroomCard()
 
-                if let pricing = provider.subscriptionPricing {
+                if let subscriptionPricing {
                     SubscriptionPricingView(
-                        pricing: pricing,
-                        currentPlan: provider.plan)
+                        pricing: subscriptionPricing,
+                        currentPlan: meter.plan)
                 }
 
                 ForEach(burndown) { pool in
@@ -256,6 +261,62 @@ private struct ProviderQuotaDetail: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(provider.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct MobileQuotaRow: View {
+    let window: MeterWindow
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(window.title)
+                    .fontWeight(.medium)
+                Spacer()
+                Text(window.percent.map { "\(Int($0.rounded()))%" } ?? "—")
+                    .monospacedDigit()
+            }
+            ProgressView(
+                value: min(max(window.percent ?? 0, 0), 100),
+                total: 100
+            )
+            .tint(tint)
+            HStack {
+                if let pace = window.pacePercent {
+                    Text("Pace \(Int(pace.rounded()))%")
+                }
+                Spacer()
+                if let reset = window.reset {
+                    Text("Resets \(reset)")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct MobileBalanceRow: View {
+    let label: String
+    let level: Double?
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Balance")
+                    .fontWeight(.medium)
+                Spacer()
+                Text(label)
+                    .monospacedDigit()
+            }
+            ProgressView(
+                value: max(0, min(level ?? 0, 1)),
+                total: 1
+            )
+            .tint(tint)
+        }
     }
 }
 

@@ -7,6 +7,26 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.2 — 2026-08-02
+
+### Added
+
+- **A mixed activity heatmap** on the Mac, phone and ESP32. Claude's local
+  session history combines with daily burn from every quota source into one
+  cadence strip. The level is an evidence ramp, not a fake common unit;
+  tapping a day still shows the native minutes and burns.
+- **ESP32 glance shows power source in the bottom-left**, mirroring the
+  link glyph on the right. USB draws a plug (with percent when a cell is
+  fitted); battery-only draws the cell with fill; charging adds a bolt.
+  Reads the AXP2101 the board already has.
+
+### Changed
+
+- **Dollar amounts use thousands separators** (`$12,475` instead of
+  `$12475`) in the app and in Cursor / balance source labels.
+- **Wide iPhones split the Overview** into quotas beside charts, the same
+  regular-width gate the other phone tabs will follow.
+
 ## 1.6.1 — 2026-08-02
 
 ### Added

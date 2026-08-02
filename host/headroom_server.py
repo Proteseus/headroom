@@ -48,6 +48,7 @@ import accounts
 import agent_events
 import agent_gateway
 import app_config
+import activity_history
 import claude_hooks
 import auth
 import burndown
@@ -789,6 +790,14 @@ def _compute_doc():
 
     local_tz = _local_tz()
     history = claude_history.summary(days=30)
+    by_day = daily_burn.series(tz=local_tz)
+    mixed_activity = activity_history.build(
+        claude_history.series(days=activity_history.RETENTION_DAYS),
+        daily_burn.series(
+            tz=local_tz, days=activity_history.QUOTA_HISTORY_DAYS),
+        today=datetime.now(local_tz).date(),
+        available_sources=("claude", *sources_config.BURN_SOURCE_IDS),
+    )
     burndowns = burndown.compute_all(
         state, now=now, tz=local_tz,
         priors=_burn_priors(state, history, now),
@@ -826,7 +835,7 @@ def _compute_doc():
         "session_5h": session_5h,
         "last_hour": last_hour,
         "by_model": by_model,
-        "by_day": daily_burn.series(tz=local_tz),
+        "by_day": by_day,
         # Per-pool burndown: ideal decay, actual curve, and time-to-exhaustion.
         # `burndown_primary` is the pool most worth showing — what the menu-bar
         # icon and the board's headline follow.
@@ -835,6 +844,10 @@ def _compute_doc():
         # Months of real Claude usage, backfilled from the session logs. Token
         # history, not quota-percent history — see claude_history.
         "history": history,
+        # Mixed activity: Claude's local session history plus daily burn from
+        # every quota source. Native source numbers stay in each sparse day;
+        # the level is only an evidence ramp, never a fake common unit.
+        "activity_history": mixed_activity,
         "quota": quota,
         "codex": _flatten_codex(state["codex"], burndowns),
         "cursor": _flatten_cursor(state["cursor"], burndowns),

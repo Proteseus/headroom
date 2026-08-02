@@ -79,6 +79,9 @@ struct DashboardView: View {
                                     providerIDs: visibleProviders.map(\.id),
                                     tintFor: store.snapshot.tint(forProviderID:)
                                 )
+                                ActivityHistoryCard(
+                                    history: store.snapshot.activityHistory
+                                )
                                 SpendCard(
                                     history: store.snapshot.history,
                                     today: store.snapshot.today

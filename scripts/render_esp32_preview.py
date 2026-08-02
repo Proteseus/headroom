@@ -32,9 +32,10 @@ PAD = 28
 # a preview that promises rows the board paints over is a preview that lies.
 SEAL_ROWS = 0
 
-COL_BG = (16, 14, 12)
+COL_BG = (0, 0, 0)
 COL_WHITE = (240, 238, 234)
 COL_DIM = (120, 116, 110)
+COL_GREEN = (95, 155, 115)
 COL_RED = (175, 105, 100)
 COL_CRT = (0, 214, 236)
 COL_CRT_DIM = (150, 40, 120)
@@ -500,6 +501,55 @@ def draw_glance_burndown(draw, providers, burns, updated, mid_y, low_bottom):
             draw_text(draw, "-", text_x, row_y, FONT2, COL_DIM)
 
 
+def activity_cell_color(level):
+    if level <= 0:
+        return (0, 0, 0)
+    if level == 1:
+        return tuple(int(c * 0.28 + 0.5) for c in COL_GREEN)
+    if level == 2:
+        return tuple(int(c * 0.48 + 0.5) for c in COL_GREEN)
+    if level == 3:
+        return tuple(int(c * 0.72 + 0.5) for c in COL_GREEN)
+    return COL_GREEN
+
+
+def draw_glance_history(draw, device, mid_y, low_bottom):
+    history = device.get("activity_history") or {}
+    levels = [max(0, min(4, int(value)))
+              for value in (history.get("levels") or [])]
+    draw_text(draw, "History", PAD, mid_y + 8, FONT2, COL_WHITE)
+    if not levels:
+        draw_text(draw, "Collecting activity", PAD, mid_y + 38, FONT2, COL_DIM)
+        return
+
+    summary = f"{int(history.get('active_days') or 0)} active · " \
+              f"{int(history.get('current_streak') or 0)}d streak"
+    draw_text(draw, summary,
+              W - PAD - text_w(draw, summary, FONT2), mid_y + 8, FONT2, COL_DIM)
+
+    cell, gap = 14, 2
+    start_weekday = int(history.get("start_weekday") or 0) % 7
+    visible_days = device_view.MAX_ACTIVITY_DAYS
+    leading_days = max(0, visible_days - len(levels))
+    grid_start_weekday = (start_weekday - leading_days % 7) % 7
+    cols = (grid_start_weekday + visible_days + 6) // 7
+    grid_w = cols * cell + (cols - 1) * gap
+    grid_x = PAD + (W - PAD * 2 - grid_w)
+    grid_y = mid_y + 30
+    for index, level in enumerate(levels):
+        slot = grid_start_weekday + leading_days + index
+        col, row = slot // 7, slot % 7
+        x = grid_x + col * (cell + gap)
+        y = grid_y + row * (cell + gap)
+        draw.rounded_rectangle(
+            [x, y, x + cell - 1, y + cell - 1],
+            radius=3,
+            fill=activity_cell_color(level),
+        )
+    draw.line([(PAD, low_bottom), (W - PAD - 1, low_bottom)],
+              fill=dim(COL_DIM, 0.35), width=1)
+
+
 def seal_edges(img: Image.Image, bg) -> Image.Image:
     """Repaint the bottom band the way the panel does, in the frame's own bg."""
     if SEAL_ROWS > 0:
@@ -512,6 +562,9 @@ def render_glance(
     link_via: str = "wifi",
     link_error_minutes: int | None = None,
     demo_burndown: bool = False,
+    power: str = "usb",
+    battery_percent: int | None = None,
+    home_mode: str = "burndown",
 ) -> Image.Image:
     # Feed the same trimmed payload to the preview that the ESP32 receives.
     device = device_view.build(doc)
@@ -528,7 +581,8 @@ def render_glance(
     top = PAD + 10
     draw_text(draw, "Headroom", PAD, top, FONT3, COL_WHITE)
 
-    mode_name = "Burndown"
+    mode_name = {"burndown": "Burndown", "activity": "Activity",
+                 "history": "History"}.get(home_mode, "Burndown")
     chip_x = PAD + 152
     chip_w = text_w(draw, mode_name, FONT2) + 16
     draw.rounded_rectangle(
@@ -548,11 +602,6 @@ def render_glance(
             FONT2,
             COL_DIM,
         )
-    if link_error_minutes is not None:
-        # 2px red frame — mirrors drawHostErrorBorder() on the board.
-        draw.rectangle([0, 0, W - 1, H - 1], outline=COL_RED)
-        draw.rectangle([1, 1, W - 2, H - 2], outline=COL_RED)
-
     span = W - PAD * 2
     slot = span // len(providers) if providers else span
     ring_r = 32
@@ -578,7 +627,9 @@ def render_glance(
 
     draw.line([(PAD, mid_y), (PAD + span - 1, mid_y)],
               fill=COL_DIM, width=1)
-    if providers:
+    if home_mode == "history":
+        draw_glance_history(draw, device, mid_y, low_bottom)
+    elif providers:
         draw_glance_burndown(
             draw, providers, burns, updated, mid_y, low_bottom
         )
@@ -589,6 +640,13 @@ def render_glance(
         H - PAD,
         link_via=link_via,
         error_minutes=link_error_minutes,
+    )
+    draw_power_glyph(
+        draw,
+        PAD,
+        H - PAD,
+        power=power,
+        battery_percent=battery_percent,
     )
     return seal_edges(img, COL_BG)
 
@@ -637,6 +695,90 @@ def draw_link_glyph(
     draw.arc([cx - 7, cy - 7, cx + 7, cy + 7],
              start=225, end=315, fill=color, width=2)
     draw.ellipse([cx - 1, cy - 2, cx + 1, cy], fill=color)
+
+
+def draw_charge_bolt(draw: ImageDraw.ImageDraw, cx: int, cy: int, color):
+    """Mirror drawChargeBolt() — three stacked wedges at SF Symbol scale."""
+    draw.polygon(
+        [(cx + 1, cy - 5), (cx - 3, cy + 0), (cx + 1, cy + 0)],
+        fill=color,
+    )
+    draw.polygon(
+        [(cx - 1, cy + 0), (cx + 3, cy + 0), (cx - 1, cy + 5)],
+        fill=color,
+    )
+
+
+def draw_power_glyph(
+    draw: ImageDraw.ImageDraw,
+    left_x: int,
+    bottom_y: int,
+    power: str = "usb",
+    battery_percent: int | None = None,
+):
+    """Mirror drawPowerGlyph() — plug on USB, cell on battery / charging."""
+    glyph_w, glyph_h = 22, 14
+    gx = left_x
+    gy = bottom_y - glyph_h
+    charging = power == "charging"
+    # "usb" is VBUS; optional --battery-percent still prints beside the plug.
+    on_usb = power == "usb"
+    batt = power in ("battery", "charging") or battery_percent is not None
+    pct = battery_percent
+    if batt and pct is None and power != "usb":
+        pct = 72
+    low = pct is not None and pct <= 20
+    color = COL_CRT_YELLOW if low else COL_DIM
+
+    def draw_plug():
+        bx, by = gx + 8, gy + 2
+        draw.rectangle([gx + 1, by + 1, gx + 7, by + 2], fill=color)
+        draw.rectangle([gx + 1, by + 6, gx + 7, by + 7], fill=color)
+        draw.rounded_rectangle(
+            [bx, by, bx + 11, by + 9], radius=2, fill=color
+        )
+
+    def draw_pct():
+        if pct is None:
+            return
+        label = f"{min(100, max(0, pct))}%"
+        draw_text(draw, label, gx + glyph_w + 4, gy, FONT2, color)
+
+    # Match firmware: plug while on VBUS and not charging; cell otherwise.
+    if on_usb and not charging:
+        draw_plug()
+        draw_pct()
+        return
+
+    if not batt:
+        draw_plug()
+        return
+
+    bw, bh = 16, 10
+    bx, by = gx, gy + 2
+    draw.rounded_rectangle(
+        [bx, by, bx + bw - 1, by + bh - 1], radius=2, outline=color
+    )
+    draw.rounded_rectangle(
+        [bx + bw, by + 3, bx + bw + 1, by + 6], radius=1, fill=color
+    )
+
+    if pct is not None and pct > 0:
+        inner_w = bw - 4
+        fill_w = max(1, min(inner_w, (inner_w * pct + 50) // 100))
+        draw.rounded_rectangle(
+            [bx + 2, by + 2, bx + 1 + fill_w, by + bh - 3],
+            radius=1,
+            fill=color,
+        )
+
+    if charging:
+        draw.rectangle(
+            [bx + 5, by + 1, bx + 10, by + bh - 2], fill=COL_BG
+        )
+        draw_charge_bolt(draw, bx + bw // 2, by + bh // 2, color)
+
+    draw_pct()
 
 
 def render_no_host() -> Image.Image:
@@ -746,9 +888,26 @@ def main():
         help="Render a failed glance connection with this last-good age",
     )
     parser.add_argument(
+        "--power",
+        choices=("usb", "battery", "charging"),
+        default="usb",
+        help="Bottom-left power source (AXP2101): USB-only plug, or battery",
+    )
+    parser.add_argument(
+        "--battery-percent",
+        type=int,
+        help="Battery fill %% when --power is battery/charging (default 72)",
+    )
+    parser.add_argument(
         "--demo-burndown",
         action="store_true",
         help="Shape screenshot-only burndown stories like the Apple previews",
+    )
+    parser.add_argument(
+        "--home-mode",
+        choices=("burndown", "activity", "history"),
+        default="burndown",
+        help="Home lower-pane mode to render",
     )
     parser.add_argument("--raw", action="store_true", help="Skip device bezel")
     parser.add_argument("--scale", type=int, default=3)
@@ -765,6 +924,9 @@ def main():
             link_via=args.link_via,
             link_error_minutes=args.link_error_minutes,
             demo_burndown=args.demo_burndown,
+            power=args.power,
+            battery_percent=args.battery_percent,
+            home_mode=args.home_mode,
         )
     out = panel if args.raw else frame_device(panel, scale=args.scale)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)

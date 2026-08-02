@@ -93,6 +93,10 @@ EMITTABLE = (
     | {("local", "servers", key) for key in device_view.SERVER_FIELDS}
     | {("sources",)}
     | {("sources", key) for key in device_view.SOURCE_FIELDS}
+    | {("activity_history",)}
+    | {("activity_history", key) for key in (
+        "source", "start", "start_weekday", "levels", "active_days",
+        "current_streak")}
     # Whole subtree, like burndown: device_view already trimmed it to the
     # focus providers and their ring pools.
     | {("providers",)}
@@ -234,6 +238,8 @@ class DeviceViewContractTests(unittest.TestCase):
         self.assertEqual(firmware_const("MAX_COMMITS"), device_view.MAX_COMMITS)
         self.assertEqual(firmware_const("MAX_SERVERS"), device_view.MAX_SERVERS)
         self.assertEqual(firmware_const("MAX_SOURCES"), device_view.MAX_SOURCES)
+        self.assertEqual(firmware_const("MAX_ACTIVITY_DAYS"),
+                         device_view.MAX_ACTIVITY_DAYS)
 
     def test_device_payload_is_much_smaller_than_the_full_document(self):
         doc = _demo_doc()

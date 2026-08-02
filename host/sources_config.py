@@ -389,7 +389,7 @@ def _detail_balance(payload):
     rem = (payload.get("balance") or {}).get("remaining_usd")
     if rem is None:
         return payload.get("error") or "no balance"
-    return f"${rem:.2f} left"
+    return f"${rem:,.2f} left"
 
 
 def _summary_balance(payload):
