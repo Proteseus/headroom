@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.6.3",
-  "published": "2026-08-02T13:22:40Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.3/Headroom-macOS.zip",
-  "sha256": "86f7eab76ac9dcbe7c0b6470f7c937ce76eea798719b0780490338c3802415f2",
-  "size": 4553901,
+  "version": "1.6.4",
+  "published": "2026-08-02T14:22:40Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.4/Headroom-macOS.zip",
+  "sha256": "13499959e030d05bdbf17fb5ea34738fd735ebde483548dab7325c75b892307d",
+  "size": 4553883,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Activity and Attention split on wide iPhones**, matching the Overview\n  layout from 1.6.2. Landscape and unfoldable phones get two columns\n  instead of one tall scroll."
+  "notes_md": "### Changed\n\n- **Watch dial bands follow pinned Sources order.** Outside-in used to\n  sort by most spent, so positions drifted every poll. First pinned\n  provider is outermost, matching Activity and the board."
 }
