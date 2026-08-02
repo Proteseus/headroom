@@ -47,6 +47,9 @@ labels all stop working. What replaces them:
   the percent, the source, **Empty Thu** / **Resets Thu** — but that is the
   same sentence the inline and corner families already say, and it cost a fifth
   of the height that makes the lines readable.
+- **History ghosts stay.** The spent windows behind the live curve are the same
+  faint sawtooth the phone, Mac and widget draw — already on the snapshot the
+  phone forwards — so the week still reads as a week.
 - **The binding source's line is the only thick one.** The rest keep full
   colour as context — same as the board — and separate by weight, not by fading
   out.

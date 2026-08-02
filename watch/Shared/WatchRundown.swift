@@ -14,6 +14,9 @@ import SwiftUI
 ///     deadline it used to carry are the same sentence the inline and corner
 ///     families already say, and repeating them cost a fifth of the height
 ///     that makes the line readable.
+///   * **History ghosts stay.** The spent windows behind the live curve are
+///     the same faint sawtooth the phone, Mac and widget draw — already on
+///     the snapshot the phone forwards — so the week still reads as a week.
 ///   * **The binding source's line is the only thick one.** The rest keep full
 ///     colour as context — same as the board — and separate by weight, not by
 ///     fading out.
@@ -36,7 +39,12 @@ struct WatchRundownChart: View {
         Canvas { context, size in
             guard let plot = Self.plot(in: size) else { return }
             Self.drawFurniture(&context, plot: plot)
-            // Context lines first so the named source draws over them.
+            // Spent windows first, under every live stroke — same order as the
+            // Mac overview, the phone chart and the home-screen widget.
+            for provider in charted {
+                Self.drawHistory(provider, in: &context, plot: plot)
+            }
+            // Context lines next so the named source draws over them.
             for provider in charted where provider.id != lead?.id {
                 Self.draw(provider, in: &context, plot: plot, leading: false)
             }
@@ -95,8 +103,12 @@ struct WatchRundownChart: View {
     /// Heavier than the medium widget's, which draws the same week at 2pt over
     /// roughly twice the width. A hairline survives being looked at on a desk;
     /// it does not survive a wrist at arm's length, in sunlight, for the second
-    /// a glance lasts. Nothing here goes below 1.5.
+    /// a glance lasts. Nothing here goes below 1.5 — except the history ghost,
+    /// which has to stay thinner than the live curve or it stops reading as
+    /// history.
     private enum Ink {
+        static let history: CGFloat = 1.5
+        static let historyOpacity: Double = 0.3
         static let actualLead: CGFloat = 3.2
         static let actualContext: CGFloat = 2.0
         static let projectedLead: CGFloat = 2.2
@@ -105,6 +117,28 @@ struct WatchRundownChart: View {
         static let headDot: CGFloat = 6
         static let emptyLead: CGFloat = 6.5
         static let emptyContext: CGFloat = 4.5
+    }
+
+    /// Windows already spent, faint behind the live curve. Same opacity and
+    /// weight as the phone overview and the home-screen widget; re-clipped in
+    /// case the watch's clock has walked past the domain the phone wrote.
+    private static func drawHistory(
+        _ provider: HeadroomWidgetSnapshot.Provider,
+        in context: inout GraphicsContext,
+        plot: BurndownGeometry
+    ) {
+        guard let series = provider.burndown else { return }
+        let spent = OverallBurndownChartMath.clipPolyline(
+            series.history ?? [],
+            start: plot.domain.startEpoch,
+            end: plot.domain.endEpoch
+        )
+        guard let ghost = plot.line(spent) else { return }
+        context.stroke(
+            ghost,
+            with: .color(provider.watchTint.opacity(Ink.historyOpacity)),
+            style: StrokeStyle(lineWidth: Ink.history, lineJoin: .round)
+        )
     }
 
     /// One source's week, in that source's colour. Every line is opaque — same
