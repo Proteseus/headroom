@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.5.8 — 2026-08-02
+
+### Fixed
+
+- **PostHog's brand mark now actually renders.** The mapping shipped in
+  1.5.5; the asset itself did not. Every Activity row, Attention row and
+  Settings entry for PostHog has been showing a gap where the icon belongs
+  since that release.
+
 ## 1.5.7 — 2026-08-02
 
 ### Added
