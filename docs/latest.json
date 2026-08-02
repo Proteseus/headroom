@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.5.8",
-  "published": "2026-08-02T05:10:49Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.8/Headroom-macOS.zip",
-  "sha256": "a35ed3fac44b4b4ed6b6f734f1fb7b3856cae21fd25b24b174d7e081be659382",
-  "size": 4421442,
+  "version": "1.5.9",
+  "published": "2026-08-02T07:04:10Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.5.9/Headroom-macOS.zip",
+  "sha256": "750c7a2a2851863def629e27bfb3b844a39ce66cb64a20a6cb5ac397d9a44450",
+  "size": 4444778,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **PostHog's brand mark now actually renders.** The mapping shipped in\n  1.5.5; the asset itself did not. Every Activity row, Attention row and\n  Settings entry for PostHog has been showing a gap where the icon belongs\n  since that release."
+  "notes_md": "### Changed\n\n- **Sources lists providers; Integrations lists connections.** The two\n  pages used to show the same nouns: every integration was also a source,\n  so neither page said which question it answered. Sources now lists only\n  what Headroom reads a meter for. Dev tools move to their Integrations\n  leaf (with the on/off that used to live on the Sources row). Local\n  servers, which has nothing to configure, gets its switch under General.\n  The phone gains an Integrations root for the same split."
 }
