@@ -58,6 +58,8 @@ import claude_status
 import daily_burn
 import detect_sources
 import device_view
+import datadog_monitors
+import axiom_monitors
 import git_activity
 import github_actions
 import host_version
@@ -68,6 +70,7 @@ import oauth_usage
 import plausible_usage
 import posthog_usage
 import quota_samples
+import sentry_alerts
 import sources_config
 import supabase_usage
 import usb_bridge
@@ -179,7 +182,8 @@ def _reset_activity_rows(burndowns):
 
 
 def _build_activity(vercel, git, supabase=None, github=None,
-                    claude_status_payload=None, burndowns=None):
+                    claude_status_payload=None, burndowns=None,
+                    sentry=None, datadog=None, axiom=None):
     """Merge deploys, commits, Actions failures, backend alerts, and grants."""
     deployments = vercel.get("deployments") or []
     commits = git.get("commits") or []
@@ -391,6 +395,68 @@ def _build_activity(vercel, git, supabase=None, github=None,
             "inspector_url": (
                 claude_status_payload.get("url") or claude_status.PAGE_URL
             ),
+        })
+
+    sentry = sentry or {}
+    for issue in (sentry.get("issues") or [])[:6]:
+        if not sentry_alerts._is_fresh(issue):
+            continue
+        items.append({
+            "id": f"sentry:{issue.get('id')}",
+            "kind": "sentry",
+            "status": "error",
+            "subject": issue.get("title") or "Sentry issue",
+            "repo": issue.get("project") or "Sentry",
+            "project": issue.get("short_id") or issue.get("project"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(issue.get("last_seen")),
+            "ago": issue.get("ago"),
+            "error_message": issue.get("level"),
+            "url": issue.get("url"),
+            "inspector_url": issue.get("url"),
+        })
+
+    datadog = datadog or {}
+    for monitor in (datadog.get("monitors") or [])[:6]:
+        items.append({
+            "id": f"datadog:{monitor.get('id')}",
+            "kind": "datadog",
+            "status": "error",
+            "subject": monitor.get("name") or "Datadog monitor",
+            "repo": "Datadog",
+            "project": monitor.get("overall_state"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(monitor.get("created_at")),
+            "ago": monitor.get("ago"),
+            "error_message": monitor.get("overall_state"),
+            "url": monitor.get("url"),
+            "inspector_url": monitor.get("url"),
+        })
+
+    axiom = axiom or {}
+    for alert in (axiom.get("alerts") or [])[:6]:
+        items.append({
+            "id": f"axiom:{alert.get('id')}",
+            "kind": "axiom",
+            "status": "error",
+            "subject": alert.get("name") or "Axiom alert",
+            "repo": "Axiom",
+            "project": alert.get("type"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(alert.get("created_at")),
+            "ago": alert.get("ago"),
+            "error_message": alert.get("description"),
+            "url": alert.get("url"),
+            "inspector_url": alert.get("url"),
         })
 
     items.extend(_reset_activity_rows(burndowns))
@@ -786,6 +852,9 @@ def _compute_doc():
     supabase = state["supabase"]
     plausible = state["plausible"]
     posthog = state["posthog"]
+    sentry = state.get("sentry") or {}
+    datadog = state.get("datadog") or {}
+    axiom = state.get("axiom") or {}
     claude_status_payload = state.get("claude-status") or {}
 
     local_tz = _local_tz()
@@ -868,10 +937,40 @@ def _compute_doc():
             "commits": git.get("commits") or [],
         },
         "activity": _build_activity(
-            vercel, git, supabase, github, claude_status_payload, burndowns),
+            vercel, git, supabase, github, claude_status_payload, burndowns,
+            sentry, datadog, axiom),
         "supabase": supabase,
         "plausible": plausible,
         "posthog": posthog,
+        "sentry": {
+            "ok": bool(sentry.get("ok")),
+            "configured": bool(sentry.get("configured")),
+            "error": sentry.get("error"),
+            "stale": bool(sentry.get("stale")),
+            "org": sentry.get("org"),
+            "alert_count": sentry.get("alert_count") or 0,
+            "issues": sentry.get("issues") or [],
+        },
+        "datadog": {
+            "ok": bool(datadog.get("ok")),
+            "configured": bool(datadog.get("configured")),
+            "error": datadog.get("error"),
+            "stale": bool(datadog.get("stale")),
+            "site": datadog.get("site"),
+            "alert_count": datadog.get("alert_count") or 0,
+            "warn_count": datadog.get("warn_count") or 0,
+            "monitors": datadog.get("monitors") or [],
+        },
+        "axiom": {
+            "ok": bool(axiom.get("ok")),
+            "configured": bool(axiom.get("configured")),
+            "error": axiom.get("error"),
+            "stale": bool(axiom.get("stale")),
+            "host": axiom.get("host"),
+            "org_id": axiom.get("org_id"),
+            "alert_count": axiom.get("alert_count") or 0,
+            "alerts": axiom.get("alerts") or [],
+        },
         "claude_status": {
             "ok": bool(claude_status_payload.get("ok")),
             "configured": bool(claude_status_payload.get("configured", True)),
@@ -1115,6 +1214,45 @@ def _build_attention(doc):
             "vercel",
             f"{deploy_errors} failed deploy" + ("" if deploy_errors == 1 else "s"),
             20 + min(20, deploy_errors * 8),
+        )
+
+    sentry = doc.get("sentry") or {}
+    sentry_alerts_n = int(sentry.get("alert_count") or 0)
+    if sentry.get("configured") and sentry_alerts_n > 0:
+        add(
+            "critical" if sentry_alerts_n >= 3 else "warn",
+            "sentry",
+            f"{sentry_alerts_n} Sentry issue"
+            + ("" if sentry_alerts_n == 1 else "s"),
+            28 + min(24, sentry_alerts_n * 4),
+        )
+
+    datadog = doc.get("datadog") or {}
+    dd_alerts = int(datadog.get("alert_count") or 0)
+    dd_warns = int(datadog.get("warn_count") or 0)
+    if datadog.get("configured") and dd_alerts > 0:
+        add(
+            "critical" if dd_alerts >= 2 else "warn",
+            "datadog",
+            f"{dd_alerts} Datadog alert" + ("" if dd_alerts == 1 else "s"),
+            30 + min(25, dd_alerts * 5),
+        )
+    elif datadog.get("configured") and dd_warns > 0:
+        add(
+            "warn",
+            "datadog",
+            f"{dd_warns} Datadog warn" + ("" if dd_warns == 1 else "s"),
+            16 + min(16, dd_warns * 3),
+        )
+
+    axiom = doc.get("axiom") or {}
+    axiom_alerts = int(axiom.get("alert_count") or 0)
+    if axiom.get("configured") and axiom_alerts > 0:
+        add(
+            "critical" if axiom_alerts >= 2 else "warn",
+            "axiom",
+            f"{axiom_alerts} Axiom alert" + ("" if axiom_alerts == 1 else "s"),
+            28 + min(24, axiom_alerts * 5),
         )
 
     # Quota % lives on the rings — don't nag Attention for a drained meter.
@@ -1514,6 +1652,31 @@ def _posthog_config_payload():
     }
 
 
+def _sentry_config_payload():
+    return {
+        "ok": True,
+        "configured": bool(sentry_alerts.has_token()),
+        "org": app_config.sentry_org(),
+    }
+
+
+def _datadog_config_payload():
+    return {
+        "ok": True,
+        "configured": bool(datadog_monitors.has_keys()),
+        "site": app_config.datadog_site(),
+    }
+
+
+def _axiom_config_payload():
+    return {
+        "ok": True,
+        "configured": bool(axiom_monitors.has_token()),
+        "host": app_config.axiom_host(),
+        "org_id": app_config.axiom_org_id(),
+    }
+
+
 # The Bonjour advertiser, so a restart can take it down before re-exec rather
 # than leaving a second one advertising the same service.
 _bonjour = None
@@ -1657,6 +1820,8 @@ class Handler(BaseHTTPRequestHandler):
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch",
                         "/config/git", "/config/vercel", "/config/supabase",
+                        "/config/plausible", "/config/posthog",
+                        "/config/sentry", "/config/datadog", "/config/axiom",
                         "/agents/capabilities", "/agents/config",
                         "/agents/claude/config", "/agents/codex/task",
                         "/agents/tasks",
@@ -1675,7 +1840,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, _github_watch_payload())
             return
         if path in ("/config/git", "/config/vercel", "/config/supabase",
-                    "/config/plausible", "/config/posthog"):
+                    "/config/plausible", "/config/posthog",
+                    "/config/sentry", "/config/datadog", "/config/axiom"):
             # Names folders on this disk and the teams / projects / sites a
             # login can reach — Mac-local, same class as /github/watch.
             if not self._is_loopback():
@@ -1689,8 +1855,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _supabase_config_payload())
             elif path == "/config/plausible":
                 self._send_json(200, _plausible_config_payload())
-            else:
+            elif path == "/config/posthog":
                 self._send_json(200, _posthog_config_payload())
+            elif path == "/config/sentry":
+                self._send_json(200, _sentry_config_payload())
+            elif path == "/config/datadog":
+                self._send_json(200, _datadog_config_payload())
+            else:
+                self._send_json(200, _axiom_config_payload())
             return
         if path == "/accounts":
             # Names folders holding live credentials — Mac-local, like the
@@ -1828,6 +2000,9 @@ class Handler(BaseHTTPRequestHandler):
             "/config/supabase",
             "/config/plausible",
             "/config/posthog",
+            "/config/sentry",
+            "/config/datadog",
+            "/config/axiom",
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
@@ -2187,6 +2362,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
             posthog_usage.invalidate()
             self._send_json(200, _posthog_config_payload())
+            return
+
+        if path == "/config/sentry":
+            try:
+                if "org" in payload:
+                    app_config.set_sentry_org(payload.get("org"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            sentry_alerts.invalidate()
+            self._send_json(200, _sentry_config_payload())
+            return
+
+        if path == "/config/datadog":
+            try:
+                if "site" in payload:
+                    app_config.set_datadog_site(payload.get("site"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            datadog_monitors.invalidate()
+            self._send_json(200, _datadog_config_payload())
+            return
+
+        if path == "/config/axiom":
+            try:
+                if "host" in payload:
+                    app_config.set_axiom_host(payload.get("host"))
+                if "org_id" in payload:
+                    app_config.set_axiom_org_id(payload.get("org_id"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            axiom_monitors.invalidate()
+            self._send_json(200, _axiom_config_payload())
             return
 
         if path == "/accounts":

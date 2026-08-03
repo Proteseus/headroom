@@ -103,7 +103,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Quota resets** | Coding quota reset events | iOS, macOS |
 | **Claude status** | Claude service status events | iOS, macOS |
 | **Other activity** | Fallback group for activity kinds added by a newer host | iOS, macOS |
-| **Services** | Supabase, Plausible, PostHog, local servers | Sections on the iOS Activity tab and macOS Activity mode |
+| **Services** | Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers | Sections on the iOS Activity tab and macOS Activity mode |
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
 | **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs, App updates | macOS Settings |
@@ -375,6 +375,9 @@ undifferentiated pile of toggles:
 | `supabase` | Supabase | `devtools` |
 | `plausible` | Plausible | `devtools` |
 | `posthog` | PostHog | `devtools` |
+| `sentry` | Sentry | `devtools` |
+| `datadog` | Datadog | `devtools` |
+| `axiom` | Axiom | `devtools` |
 | `local` | Local | `devtools` |
 
 **Extra accounts** is the user-facing name (macOS Settings section header);
@@ -400,7 +403,7 @@ served as `sources[].group`). Section titles are chrome and live in
 | Term | Meaning | Surfaces |
 |---|---|---|
 | **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left; OpenRouter and AI Gateway are prepaid balances with a pasted key; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
-| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, local servers | onboarding; **not** Sources — they live under Integrations on both platforms |
+| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers | onboarding; **not** Sources — they live under Integrations on both platforms |
 | **API balances** (Integrations hub) | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac | macOS Settings → Integrations |
 
 Don't call the first group **Sources** on its own, and don't call the second

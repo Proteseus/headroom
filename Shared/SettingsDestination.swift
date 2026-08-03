@@ -115,6 +115,9 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
     case supabase
     case plausible
     case posthog
+    case sentry
+    case datadog
+    case axiom
 
     /// Hub grouping. Agents can run code, the rest only report — worth a
     /// visible line between them in a list someone scans for "what did I
@@ -140,7 +143,8 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .claudeCode, .codex: return .agents
         case .git, .github, .vercel: return .code
         case .openrouter, .aiGateway: return .balances
-        case .supabase, .plausible, .posthog: return .services
+        case .supabase, .plausible, .posthog, .sentry, .datadog, .axiom:
+            return .services
         }
     }
 
@@ -160,6 +164,9 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .supabase: return "Supabase"
         case .plausible: return "Plausible"
         case .posthog: return HeadroomCopy.posthog
+        case .sentry: return HeadroomCopy.sentry
+        case .datadog: return HeadroomCopy.datadog
+        case .axiom: return HeadroomCopy.axiom
         }
     }
 
@@ -175,6 +182,9 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .supabase: return "cylinder.split.1x2"
         case .plausible: return "chart.xyaxis.line"
         case .posthog: return "chart.bar.doc.horizontal"
+        case .sentry: return "ladybug"
+        case .datadog: return "chart.xyaxis.line"
+        case .axiom: return "scroll"
         }
     }
 
@@ -185,7 +195,7 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         switch self {
         case .claudeCode, .codex: return true
         case .git, .github, .vercel, .openrouter, .aiGateway,
-             .supabase, .plausible, .posthog:
+             .supabase, .plausible, .posthog, .sentry, .datadog, .axiom:
             return false
         }
     }

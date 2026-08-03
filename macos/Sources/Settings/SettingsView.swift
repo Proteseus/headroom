@@ -17,6 +17,8 @@ struct SettingsView: View {
     var confirmServerStops = true
     @AppStorage(ResetNotifications.defaultsKey)
     var notifyOnQuotaReset = false
+    @AppStorage(HeadroomTelemetry.enabledKey)
+    var telemetryEnabled = true
 
     @State var sources: [SyncSource] = []
     @State var sourcesMessage: String?
@@ -60,6 +62,21 @@ struct SettingsView: View {
     @State var posthogProjectsDraft = ""
     @State var savingPostHogProjects = false
     @State var posthogProjectsEditable = true
+
+    @State var sentryToken = ""
+    @State var sentryTokenStored = false
+    @State var sentryMessage: String?
+    @State var sentryOrgDraft = ""
+    @State var datadogAPIKey = ""
+    @State var datadogAppKey = ""
+    @State var datadogKeysStored = false
+    @State var datadogMessage: String?
+    @State var datadogSiteDraft = "datadoghq.com"
+    @State var axiomToken = ""
+    @State var axiomTokenStored = false
+    @State var axiomMessage: String?
+    @State var axiomHostDraft = "https://api.axiom.co"
+    @State var axiomOrgDraft = ""
 
     @State var openrouterToken = ""
     @State var openrouterTokenStored = false
@@ -205,6 +222,10 @@ struct SettingsView: View {
             tokenStored = TokenStore.supabase.exists()
             plausibleTokenStored = TokenStore.plausible.exists()
             posthogTokenStored = TokenStore.posthog.exists()
+            sentryTokenStored = TokenStore.sentry.exists()
+            datadogKeysStored = TokenStore.datadogAPI.exists()
+                && TokenStore.datadogApp.exists()
+            axiomTokenStored = TokenStore.axiom.exists()
             githubTokenStored = TokenStore.github.exists()
             openrouterTokenStored = TokenStore.openrouter.exists()
             aiGatewayTokenStored = TokenStore.aiGateway.exists()

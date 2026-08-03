@@ -71,6 +71,9 @@ struct UsageSnapshot: Decodable, Sendable {
     var supabase: SupabaseUsage?
     var plausible: PlausibleUsage?
     var posthog: PostHogUsage?
+    var sentry: SentryUsage?
+    var datadog: DatadogUsage?
+    var axiom: AxiomUsage?
     var claudeStatus: ClaudeStatus?
     var sources: [SyncSource]?
     var attention: Attention?
@@ -84,6 +87,10 @@ struct UsageSnapshot: Decodable, Sendable {
     /// least one row, so a single-Mac install has the same shape as a synced
     /// one and no surface needs a special case for "sync is off".
     var machines: [MachineSummary]?
+    /// Integrations catalog pin from the host. Activity paints watches in this
+    /// order. Legacy `services_order` is still accepted as a fallback.
+    var integrationsOrder: [String]?
+    var servicesOrder: [String]?
 
     static let empty = UsageSnapshot()
 
@@ -131,12 +138,17 @@ struct UsageSnapshot: Decodable, Sendable {
         supabase: SupabaseUsage? = nil,
         plausible: PlausibleUsage? = nil,
         posthog: PostHogUsage? = nil,
+        sentry: SentryUsage? = nil,
+        datadog: DatadogUsage? = nil,
+        axiom: AxiomUsage? = nil,
         claudeStatus: ClaudeStatus? = nil,
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
         burndown: [String: [String: Burndown]]? = nil,
         burndownPrimary: Burndown? = nil,
-        machines: [MachineSummary]? = nil
+        machines: [MachineSummary]? = nil,
+        integrationsOrder: [String]? = nil,
+        servicesOrder: [String]? = nil
     ) {
         self.updated = updated
         self.contract = contract
@@ -163,17 +175,22 @@ struct UsageSnapshot: Decodable, Sendable {
         self.supabase = supabase
         self.plausible = plausible
         self.posthog = posthog
+        self.sentry = sentry
+        self.datadog = datadog
+        self.axiom = axiom
         self.claudeStatus = claudeStatus
         self.sources = sources
         self.attention = attention
         self.burndown = burndown
         self.burndownPrimary = burndownPrimary
         self.machines = machines
+        self.integrationsOrder = integrationsOrder
+        self.servicesOrder = servicesOrder
     }
 
     enum CodingKeys: String, CodingKey {
         case updated, contract, plan, today, codex, cursor, providers, vercel, git, github, activity, local
-        case supabase, plausible, posthog, sources, attention, focus, burndown, machines
+        case supabase, plausible, posthog, sentry, datadog, axiom, sources, attention, focus, burndown, machines
         case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
@@ -187,6 +204,8 @@ struct UsageSnapshot: Decodable, Sendable {
         case weekPct = "week_pct"
         case weekPacePct = "week_pace_pct"
         case weekResetsIn = "week_resets_in"
+        case integrationsOrder = "integrations_order"
+        case servicesOrder = "services_order"
     }
 
     /// Hand-written so the list-valued fields can decode lossily. Everything
@@ -220,6 +239,9 @@ struct UsageSnapshot: Decodable, Sendable {
         supabase = try value(.supabase)
         plausible = try value(.plausible)
         posthog = try value(.posthog)
+        sentry = try value(.sentry)
+        datadog = try value(.datadog)
+        axiom = try value(.axiom)
         claudeStatus = try value(.claudeStatus)
         attention = try value(.attention)
         focus = try value(.focus)
@@ -236,6 +258,10 @@ struct UsageSnapshot: Decodable, Sendable {
             SyncSource.self, forKey: .sources)
         machines = try container.decodeLossyArrayIfPresent(
             MachineSummary.self, forKey: .machines)
+        integrationsOrder = try container.decodeLossyArrayIfPresent(
+            String.self, forKey: .integrationsOrder)
+        servicesOrder = try container.decodeLossyArrayIfPresent(
+            String.self, forKey: .servicesOrder)
     }
 
     /// Enabled coding-quota providers from the host registry (string ids).
@@ -2342,6 +2368,143 @@ struct PostHogUsage: Decodable, Sendable {
     }
 }
 
+
+struct SentryUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var org: String?
+    var alertCount: Int?
+    var issues: [SentryIssue]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, org, issues
+        case alertCount = "alert_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        org = try value(.org)
+        alertCount = try value(.alertCount)
+        issues = try container.decodeLossyArrayIfPresent(
+            SentryIssue.self, forKey: .issues)
+    }
+}
+
+struct SentryIssue: Decodable, Identifiable, Sendable {
+    var id: String
+    var title: String?
+    var project: String?
+    var shortId: String?
+    var level: String?
+    var status: String?
+    var ago: String?
+    var url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, project, level, status, ago, url
+        case shortId = "short_id"
+    }
+}
+
+struct DatadogUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var site: String?
+    var alertCount: Int?
+    var warnCount: Int?
+    var monitors: [DatadogMonitor]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, site, monitors
+        case alertCount = "alert_count"
+        case warnCount = "warn_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        site = try value(.site)
+        alertCount = try value(.alertCount)
+        warnCount = try value(.warnCount)
+        monitors = try container.decodeLossyArrayIfPresent(
+            DatadogMonitor.self, forKey: .monitors)
+    }
+}
+
+struct DatadogMonitor: Decodable, Identifiable, Sendable {
+    var id: String
+    var name: String?
+    var overallState: String?
+    var status: String?
+    var ago: String?
+    var url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, ago, url
+        case overallState = "overall_state"
+    }
+}
+
+struct AxiomUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var host: String?
+    var orgId: String?
+    var alertCount: Int?
+    var alerts: [AxiomAlert]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, host, alerts
+        case orgId = "org_id"
+        case alertCount = "alert_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        host = try value(.host)
+        orgId = try value(.orgId)
+        alertCount = try value(.alertCount)
+        alerts = try container.decodeLossyArrayIfPresent(
+            AxiomAlert.self, forKey: .alerts)
+    }
+}
+
+struct AxiomAlert: Decodable, Identifiable, Sendable {
+    var id: String
+    var name: String?
+    var type: String?
+    var status: String?
+    var ago: String?
+    var url: String?
+    var description: String?
+}
+
 struct PostHogProject: Decodable, Identifiable, Sendable {
     var id: String
     var name: String?
@@ -2381,6 +2544,7 @@ struct LocalUsage: Decodable, Sendable {
     var error: String?
     var stale: Bool?
     var servers: [LocalServer]?
+    var builds: [LocalBuild]?
 }
 
 struct LocalServer: Decodable, Identifiable, Sendable {
@@ -2398,6 +2562,28 @@ struct LocalServer: Decodable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case name, port, pid, cmd, cwd, bind, reachable
         case latencyMS = "latency_ms"
+    }
+}
+
+/// One active `xcodebuild` / `swift build` / Xcode IDE compile on this Mac.
+struct LocalBuild: Decodable, Identifiable, Sendable {
+    var name: String?
+    var kind: String?
+    var action: String?
+    var scheme: String?
+    var target: String?
+    var pid: Int?
+    var cmd: String?
+    var cwd: String?
+    var ageS: Int?
+
+    var id: String {
+        "\(kind ?? "build"):\(pid ?? 0):\(name ?? "")"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, kind, action, scheme, target, pid, cmd, cwd
+        case ageS = "age_s"
     }
 }
 

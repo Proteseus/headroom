@@ -19,7 +19,13 @@ enum HeadroomCopy {
     static let supabase = "Supabase"
     static let plausible = "Plausible"
     static let posthog = "PostHog"
+    static let sentry = "Sentry"
+    static let datadog = "Datadog"
+    static let axiom = "Axiom"
     static let localServers = "Local servers"
+    static let xcodeBuilds = "Xcode builds"
+    /// Settings leaf shared by local servers and Xcode builds.
+    static let local = "Local"
     static let otherMacs = "Other Macs"
     static let computers = "Computers"
     static let addComputer = "Add computer"
@@ -44,6 +50,8 @@ enum HeadroomCopy {
     static let integrationsCode = "Code and deploys"
     static let integrationsServices = "Services"
     static let integrationsBalances = "API balances"
+    static let integrationsOrderHint =
+        "Drag to set Activity order. The same pin is used on Mac and iPhone."
     static let openRouter = "OpenRouter"
     static let aiGateway = "AI Gateway"
     static let balanceLeft = "left"
@@ -495,6 +503,9 @@ enum HeadroomCopy {
         case "deployment": return vercelDeployments
         case "commit": return gitCommits
         case "supabase": return supabase
+        case "sentry": return sentry
+        case "datadog": return datadog
+        case "axiom": return axiom
         case "reset": return quotaResets
         case "claude-status": return claudeStatus
         default: return otherActivity
@@ -556,6 +567,19 @@ enum HeadroomCopy {
     static let updatesNotFromHere =
         "Updates install to /Applications. This copy runs from somewhere else."
     static let updateCheckFailed = "Could not reach the update feed."
+
+    // MARK: Telemetry
+
+    static let telemetryHeader = "Anonymous diagnostics"
+    static let telemetryToggle = "Share anonymous product diagnostics"
+    static let telemetryWhatIsShared = "What Headroom shares"
+    static let telemetrySharedDetail =
+        "Once a week: the app and host versions, macOS version, processor family, enabled and healthy service names, normalized model-family shares, and a few feature flags."
+    static let telemetryNeverSharedDetail =
+        "Never: prompts, commands, files, repositories, branches, account names, email addresses, tokens, exact spend, raw model names, or per-request activity."
+    static let telemetryViewSource = "Read the telemetry code on GitHub"
+    static let telemetryFooter =
+        "On by default so we can see which builds and services are actually in use. Turn it off at any time; pending data is deleted from this Mac."
 
     // MARK: Widget
 

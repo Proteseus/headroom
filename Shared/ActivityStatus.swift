@@ -172,7 +172,8 @@ struct ActivityGroup: Identifiable, Sendable {
 
 enum ActivityGrouping {
     static let kindOrder = [
-        "github", "deployment", "commit", "supabase", "reset", "claude-status",
+        "github", "deployment", "commit", "sentry", "datadog", "axiom",
+        "supabase", "reset", "claude-status",
     ]
 
     static func groups(from rows: [ActivityItem]) -> [ActivityGroup] {

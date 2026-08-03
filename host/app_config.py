@@ -32,6 +32,11 @@ DEFAULTS = {
     "posthog_projects": [],
     "posthog_host": "https://us.posthog.com",
     "posthog_range": "24h",
+    # Attention/Activity alert sources — org/site only; tokens stay in Keychain.
+    "sentry_org": "",
+    "datadog_site": "datadoghq.com",
+    "axiom_host": "https://api.axiom.co",
+    "axiom_org_id": "",
     # Authenticated iOS clients may use only these capabilities, and only from
     # a private/Tailscale address. Credential management remains Mac-local.
     "mobile_permissions": ["read", "refresh", "sources", "servers"],
@@ -75,6 +80,10 @@ SHARED_CONFIG_KEYS = (
     "posthog_projects",
     "posthog_host",
     "posthog_range",
+    "sentry_org",
+    "datadog_site",
+    "axiom_host",
+    "axiom_org_id",
 )
 
 _lock = threading.Lock()
@@ -454,6 +463,65 @@ def set_posthog_range(value):
             f"posthog_range must be one of {', '.join(POSTHOG_RANGES)}")
     _persist(posthog_range=rid)
     return rid
+
+
+def sentry_org():
+    value = get("sentry_org") or DEFAULTS["sentry_org"]
+    return str(value).strip()
+
+
+def set_sentry_org(value):
+    org = str(value or "").strip()
+    _persist(sentry_org=org)
+    return org
+
+
+def datadog_site():
+    value = get("datadog_site") or DEFAULTS["datadog_site"]
+    site = str(value).strip().lstrip(".")
+    site = site.removeprefix("https://").removeprefix("http://")
+    site = site.removeprefix("api.").removeprefix("app.")
+    site = site.split("/")[0].strip() or DEFAULTS["datadog_site"]
+    return site
+
+
+def set_datadog_site(value):
+    site = str(value or "").strip()
+    if not site:
+        raise ValueError("datadog_site must be a site like datadoghq.com")
+    site = site.removeprefix("https://").removeprefix("http://")
+    site = site.removeprefix("api.").removeprefix("app.")
+    site = site.split("/")[0].strip().lstrip(".")
+    if not site or " " in site:
+        raise ValueError("datadog_site must be a site like datadoghq.com")
+    _persist(datadog_site=site)
+    return site
+
+
+def axiom_host():
+    value = get("axiom_host") or DEFAULTS["axiom_host"]
+    return str(value).rstrip("/") or DEFAULTS["axiom_host"]
+
+
+def set_axiom_host(value):
+    host = str(value or "").strip().rstrip("/")
+    if not host:
+        raise ValueError("axiom_host must be a URL")
+    if not (host.startswith("http://") or host.startswith("https://")):
+        host = "https://" + host
+    _persist(axiom_host=host)
+    return host
+
+
+def axiom_org_id():
+    value = get("axiom_org_id") or DEFAULTS["axiom_org_id"]
+    return str(value).strip()
+
+
+def set_axiom_org_id(value):
+    org = str(value or "").strip()
+    _persist(axiom_org_id=org)
+    return org
 
 
 MOBILE_PERMISSION_ORDER = ("read", "refresh", "sources", "servers", "agents")

@@ -157,6 +157,71 @@ def posthog_signed_in():
         return False
 
 
+def sentry_signed_in():
+    if (os.environ.get("SENTRY_AUTH_TOKEN")
+            or os.environ.get("HEADROOM_SENTRY_TOKEN")):
+        return True
+    try:
+        raw = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.sentry", "-a", "access-token", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        return bool(raw)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def datadog_signed_in():
+    if ((os.environ.get("DD_API_KEY") or os.environ.get("HEADROOM_DATADOG_API_KEY"))
+            and (os.environ.get("DD_APP_KEY")
+                 or os.environ.get("DD_APPLICATION_KEY")
+                 or os.environ.get("HEADROOM_DATADOG_APP_KEY"))):
+        return True
+    try:
+        api = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.datadog", "-a", "api-key", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        app = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.datadog", "-a", "app-key", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        return bool(api and app)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def axiom_signed_in():
+    if (os.environ.get("AXIOM_TOKEN")
+            or os.environ.get("AXIOM_API_TOKEN")
+            or os.environ.get("HEADROOM_AXIOM_TOKEN")):
+        return True
+    try:
+        raw = subprocess.check_output(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", "com.centaur-labs.headroom.axiom", "-a", "access-token", "-w"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+        if raw:
+            return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    for path in (
+        os.path.join(os.getcwd(), ".axiom.toml"),
+        os.path.expanduser("~/.axiom.toml"),
+    ):
+        try:
+            with open(path) as handle:
+                if "token" in handle.read():
+                    return True
+        except OSError:
+            continue
+    return False
+
+
 def openrouter_signed_in():
     if (os.environ.get("OPENROUTER_API_KEY")
             or os.environ.get("HEADROOM_OPENROUTER_TOKEN")):
@@ -217,6 +282,9 @@ PROBES = {
     "supabase": supabase_signed_in,
     "plausible": plausible_signed_in,
     "posthog": posthog_signed_in,
+    "sentry": sentry_signed_in,
+    "datadog": datadog_signed_in,
+    "axiom": axiom_signed_in,
     "openrouter": openrouter_signed_in,
     "ai-gateway": ai_gateway_signed_in,
 }

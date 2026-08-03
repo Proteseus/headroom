@@ -302,6 +302,9 @@ encrypted with the user's own keys, never through the record above:
 | `com.centaur-labs.headroom.github` | yes |
 | `com.centaur-labs.headroom.plausible` | yes |
 | `com.centaur-labs.headroom.posthog` | yes |
+| `com.centaur-labs.headroom.sentry` | yes |
+| `com.centaur-labs.headroom.datadog` (`api-key` / `app-key`) | yes |
+| `com.centaur-labs.headroom.axiom` | yes |
 | `com.centaur-labs.headroom.supabase` | yes |
 | `com.centaur-labs.headroom.host` | **no** — authorizes one Mac's host, and the phone pairs to one Mac |
 

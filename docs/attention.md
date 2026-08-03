@@ -19,6 +19,9 @@ Policy that already lives next to the code (do not turn these into prefs):
 
 - Quota % never pages Attention — rings own that reading.
 - Supabase lints: ERROR only; WARN/INFO stay in the app without lighting the pip.
+- Sentry: unresolved issues with `lastSeen` inside 24h only — aged debt stays out of the pip.
+- Datadog: monitors in Alert (critical/warn by count); Warn-only is a quieter reason. Not APM or host maps.
+- Axiom: open monitor alerts only — not ingest volume.
 - Stale quotas alert after `STALE_ALERT_S`, not on every timeout.
 - GitHub Actions failures age out; Codex spend/time events are the only quota
   path into Attention.

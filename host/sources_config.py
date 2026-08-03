@@ -52,6 +52,9 @@ import oauth_usage
 import openrouter_usage
 import plausible_usage
 import posthog_usage
+import sentry_alerts
+import datadog_monitors
+import axiom_monitors
 import supabase_usage
 import vercel_builds
 import windsurf_usage
@@ -443,6 +446,45 @@ def _detail_posthog(payload):
     return " · ".join(bits)
 
 
+def _detail_sentry(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
+    alerts = payload.get("alert_count") or 0
+    org = payload.get("org")
+    if alerts:
+        bit = f"{alerts} fresh" + ("" if alerts == 1 else " issues")
+        return f"{org} · {bit}" if org else bit
+    return f"{org} · all clear" if org else "all clear"
+
+
+def _detail_datadog(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
+    alerts = payload.get("alert_count") or 0
+    warns = payload.get("warn_count") or 0
+    bits = []
+    if alerts:
+        bits.append(f"{alerts} alert" + ("" if alerts == 1 else "s"))
+    if warns:
+        bits.append(f"{warns} warn" + ("" if warns == 1 else "s"))
+    return " · ".join(bits) if bits else "all clear"
+
+
+def _detail_axiom(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
+    alerts = payload.get("alert_count") or 0
+    if alerts:
+        return f"{alerts} open" + ("" if alerts == 1 else " alerts")
+    return "all clear"
+
+
 # ---------------- log summaries (stdout under the LaunchAgent) ----------------
 
 def _summary_codex(payload):
@@ -505,6 +547,23 @@ def _summary_posthog(payload):
             f"events={payload.get('events_today')}")
 
 
+def _summary_sentry(payload):
+    return (f"org={payload.get('org')}  "
+            f"alerts={payload.get('alert_count')}  "
+            f"issues={len(payload.get('issues') or [])}")
+
+
+def _summary_datadog(payload):
+    return (f"alerts={payload.get('alert_count')}  "
+            f"warns={payload.get('warn_count')}  "
+            f"site={payload.get('site')}")
+
+
+def _summary_axiom(payload):
+    return (f"alerts={payload.get('alert_count')}  "
+            f"host={payload.get('host')}")
+
+
 # ---------------- blank payloads (shape before the first fetch) ----------------
 # Quota sources derive theirs from `pools`; only the shapes that carry more
 # than plan-plus-meters are spelled out.
@@ -558,6 +617,21 @@ def _blank_posthog():
     return {"ok": False, "configured": False, "projects": [],
             "project_count": 0, "events_today": 0, "users_today": 0,
             "realtime": 0, "range": "24h", "range_label": "24h"}
+
+
+def _blank_sentry():
+    return {"ok": False, "configured": False, "issues": [],
+            "alert_count": 0, "org": None, "error": None}
+
+
+def _blank_datadog():
+    return {"ok": False, "configured": False, "monitors": [],
+            "alert_count": 0, "warn_count": 0, "site": None, "error": None}
+
+
+def _blank_axiom():
+    return {"ok": False, "configured": False, "alerts": [],
+            "alert_count": 0, "host": None, "org_id": None, "error": None}
 
 
 # Order matters — Mac Settings rows and the ESP32 footer dots follow it, and
@@ -808,6 +882,18 @@ BASE_SOURCES = (
            posthog_usage.CACHE_TTL_S,
            posthog_usage.fetch_stats, _detail_posthog, _summary_posthog,
            _blank_posthog),
+    Source("sentry", "Sentry", "Auth token in Keychain",
+           sentry_alerts.CACHE_TTL_S,
+           sentry_alerts.fetch_issues, _detail_sentry, _summary_sentry,
+           _blank_sentry),
+    Source("datadog", "Datadog", "API + App key in Keychain",
+           datadog_monitors.CACHE_TTL_S,
+           datadog_monitors.fetch_monitors, _detail_datadog, _summary_datadog,
+           _blank_datadog),
+    Source("axiom", "Axiom", "API token in Keychain",
+           axiom_monitors.CACHE_TTL_S,
+           axiom_monitors.fetch_alerts, _detail_axiom, _summary_axiom,
+           _blank_axiom),
 )
 
 

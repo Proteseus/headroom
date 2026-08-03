@@ -600,6 +600,72 @@ struct HeadroomClient: Sendable {
         return try JSONDecoder().decode(PostHogConfiguration.self, from: data)
     }
 
+
+    func fetchSentryConfiguration() async throws -> SentryConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("sentry")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(SentryConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setSentryConfiguration(org: String) async throws -> SentryConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("sentry")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["org": org])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(SentryConfiguration.self, from: data)
+    }
+
+    func fetchDatadogConfiguration() async throws -> DatadogConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("datadog")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(DatadogConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setDatadogConfiguration(site: String) async throws -> DatadogConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("datadog")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["site": site])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(DatadogConfiguration.self, from: data)
+    }
+
+    func fetchAxiomConfiguration() async throws -> AxiomConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("axiom")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(AxiomConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setAxiomConfiguration(
+        host: String? = nil,
+        orgId: String? = nil
+    ) async throws -> AxiomConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("axiom")
+        var payload: [String: Any] = [:]
+        if let host { payload["host"] = host }
+        if let orgId { payload["org_id"] = orgId }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(AxiomConfiguration.self, from: data)
+    }
+
     func stopServer(pid: Int, port: Int) async throws {
         let url = try base()
             .appendingPathComponent("local")
@@ -772,6 +838,31 @@ struct PostHogConfiguration: Decodable, Sendable {
 struct PostHogProjectOption: Decodable, Sendable, Identifiable, Hashable {
     var id: String
     var name: String
+}
+
+
+struct SentryConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var org: String?
+}
+
+struct DatadogConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var site: String?
+}
+
+struct AxiomConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var host: String?
+    var orgId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, host
+        case orgId = "org_id"
+    }
 }
 
 struct AgentGatewayConfiguration: Decodable, Sendable {

@@ -112,6 +112,15 @@ extension SettingsView {
         case .posthog:
             return tokenBackedStatus(
                 stored: posthogTokenStored, sourceID: "posthog")
+        case .sentry:
+            return tokenBackedStatus(
+                stored: sentryTokenStored, sourceID: "sentry")
+        case .datadog:
+            return tokenBackedStatus(
+                stored: datadogKeysStored, sourceID: "datadog")
+        case .axiom:
+            return tokenBackedStatus(
+                stored: axiomTokenStored, sourceID: "axiom")
         case .openrouter:
             return tokenBackedStatus(
                 stored: openrouterTokenStored, sourceID: "openrouter")
@@ -178,6 +187,9 @@ extension SettingsView {
             case .supabase: supabaseSections
             case .plausible: plausibleSections
             case .posthog: posthogSections
+            case .sentry: sentrySections
+            case .datadog: datadogSections
+            case .axiom: axiomSections
             case .openrouter: openrouterSections
             case .aiGateway: aiGatewaySections
             }

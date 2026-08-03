@@ -217,6 +217,28 @@ struct TokenStore: Sendable {
         failureMessage: "Could not save AI Gateway key.",
         synced: true
     )
+    static let sentry = TokenStore(
+        service: "com.centaur-labs.headroom.sentry",
+        failureMessage: "Could not save Sentry token.",
+        synced: true
+    )
+    static let datadogAPI = TokenStore(
+        service: "com.centaur-labs.headroom.datadog",
+        failureMessage: "Could not save Datadog API key.",
+        account: "api-key",
+        synced: true
+    )
+    static let datadogApp = TokenStore(
+        service: "com.centaur-labs.headroom.datadog",
+        failureMessage: "Could not save Datadog App key.",
+        account: "app-key",
+        synced: true
+    )
+    static let axiom = TokenStore(
+        service: "com.centaur-labs.headroom.axiom",
+        failureMessage: "Could not save Axiom token.",
+        synced: true
+    )
     /// Only needed when the endpoint is not loopback — the host lets local
     /// callers through without one.
     ///
@@ -231,6 +253,7 @@ struct TokenStore: Sendable {
     /// Every store whose token travels.
     static let syncedStores: [TokenStore] = [
         .supabase, .plausible, .posthog, .github, .openrouter, .aiGateway,
+        .sentry, .datadogAPI, .datadogApp, .axiom,
     ]
 
     /// Migrate pre-existing local tokens into the synced keyspace. Cheap, and
