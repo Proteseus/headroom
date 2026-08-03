@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.6.5",
-  "published": "2026-08-02T20:34:34Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.5/Headroom-macOS.zip",
-  "sha256": "c723116ea0ae41dd84ae90e92ce6a88add65d72ccaf4cfa51e5863c0f8c48732",
-  "size": 4554438,
+  "version": "1.6.6",
+  "published": "2026-08-03T18:24:56Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.6/Headroom-macOS.zip",
+  "sha256": "65d6943c888afed3203f6b1061894b89368c8bcd5462da6863827cd3f9b03f52",
+  "size": 4708842,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **ESP32 home follows the Mac dashboard.** The lower pane cycles Daily\n  burn, History, Spend, then Burndown — stacked seven-day burn and the\n  estimated spend figures the Mac card already leads with. The Activity\n  feed leaves that cycle for its detail pages."
+  "notes_md": "### Added\n\n- **Sentry, Datadog, and Axiom as Attention sources.** Integrations leaves\n  that surface fresh unresolved Sentry issues, Datadog Alert/Warn monitors,\n  and open Axiom monitor alerts into Activity and the Attention pip — break\n  signals only, not dashboards. Keys stay in Keychain; org/site/host in\n  config."
 }
