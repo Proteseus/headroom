@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// PostHog project traffic. Live persons float to the top; each row opens the
-/// project dashboard. Which projects appear is chosen under Settings → Integrations.
+/// PostHog project traffic. Live persons float to the top; row tap opens the
+/// shared detail page. The link glyph opens the PostHog dashboard.
+/// Which projects appear is chosen under Settings → Integrations.
 struct PostHogSection: View {
     let data: PostHogUsage?
+    @Binding var selection: ServiceDetailSelection?
 
     @ViewBuilder
     var body: some View {
@@ -23,7 +25,7 @@ struct PostHogSection: View {
                 Text(data?.error ?? HeadroomCopy.serviceStatus(
                     HeadroomCopy.posthog, configured: data?.configured))
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else {
                 Text(summaryLine(projects: projects.count))
                     .font(.caption)
@@ -51,39 +53,42 @@ struct PostHogSection: View {
     @ViewBuilder
     private func row(_ project: PostHogProject) -> some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill((project.realtime ?? 0) > 0
-                      ? HeadroomPalette.green
-                      : Color.secondary.opacity(0.35))
-                .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(project.displayName)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Text(detail(project))
-                    .font(.caption)
-                    .foregroundStyle(
-                        project.error == nil
-                            ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(HeadroomPalette.amber)
-                    )
-                    .lineLimit(1)
-            }
-            Spacer()
-            if let live = project.realtime, live > 0 {
-                Text("\(live)")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(HeadroomPalette.green)
-                    .help("Persons active in the last 5 minutes")
-            }
             Button {
-                open(project)
+                selection = .posthog(project.id)
             } label: {
-                Image(systemName: "arrow.up.right")
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill((project.realtime ?? 0) > 0
+                              ? HeadroomPalette.green
+                              : Color.secondary.opacity(0.35))
+                        .frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(project.displayName)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        Text(detail(project))
+                            .font(.caption)
+                            .foregroundStyle(
+                                project.error == nil
+                                    ? AnyShapeStyle(.secondary)
+                                    : AnyShapeStyle(HeadroomPalette.orange)
+                            )
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    if let live = project.realtime, live > 0 {
+                        Text("\(live)")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(HeadroomPalette.green)
+                            .help("Persons active in the last 5 minutes")
+                    }
+                    ServiceDetailChevron()
+                }
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .help("Open in PostHog")
-            .accessibilityLabel("Open")
+            .buttonStyle(.plain)
+            .help("Show project detail")
+            PermalinkButton(url: Permalink.url(from: project.dashboardURL))
         }
     }
 
@@ -107,11 +112,5 @@ struct PostHogSection: View {
             bits.append("\(HeadroomFormat.compact(weekEvents)) / 7d")
         }
         return bits.isEmpty ? "No stats yet" : bits.joined(separator: " · ")
-    }
-
-    private func open(_ project: PostHogProject) {
-        guard let raw = project.dashboardURL,
-              let url = URL(string: raw) else { return }
-        NSWorkspace.shared.open(url)
     }
 }

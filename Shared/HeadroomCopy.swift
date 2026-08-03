@@ -24,8 +24,8 @@ enum HeadroomCopy {
     static let axiom = "Axiom"
     static let localServers = "Local servers"
     static let xcodeBuilds = "Xcode builds"
-    /// Settings leaf shared by local servers and Xcode builds.
     static let local = "Local"
+    static let integrationsOrderHint = "Drag to reorder · toggles what Activity watches"
     static let otherMacs = "Other Macs"
     static let computers = "Computers"
     static let addComputer = "Add computer"
@@ -42,29 +42,42 @@ enum HeadroomCopy {
     // friendlier rail titles for the same ideas (see `SettingsDestination`).
 
     static let settingsGeneral = "General"
-    static let settingsSources = "Sources"
+    static let settingsSources = "Providers"
     static let settingsiPhone = "iPhone"
+    static let settingsSync = "Sync"
+    static let settingsTelemetry = "Telemetry"
     static let settingsIntegrations = "Integrations"
     /// The two halves of Integrations that are not agents. Code is where work
     /// lands; services are what you point a key at.
     static let integrationsCode = "Code and deploys"
     static let integrationsServices = "Services"
     static let integrationsBalances = "API balances"
-    static let integrationsOrderHint =
-        "Drag to set Activity order. The same pin is used on Mac and iPhone."
     static let openRouter = "OpenRouter"
     static let aiGateway = "AI Gateway"
     static let balanceLeft = "left"
     static let settingsConnection = "Connection"
     static let settingsPermissions = "Permissions"
     /// General pane: row-count steppers for what this Mac draws.
-    static let settingsDashboard = "Dashboard"
     /// LabeledContent title on every integration detail Status row.
     static let settingsStatus = "Status"
     static let settingsConnect = "Connect"
     static let settingsDisconnect = "Disconnect"
     static let settingsReplace = "Replace"
     static let settingsRefresh = "Refresh"
+    static let hostRunning = "Running"
+    static let hostProcess = "Process"
+    static let hostStatus = "Host status"
+    static let hostVersion = "Version"
+    static let hostBuild = "Build"
+    static let hostUptime = "Uptime"
+    static let hostSourcesReporting = "Sources reporting"
+    static let hostReachable = "Reachable"
+    static let hostUnavailable = "Unavailable"
+    static let hostLocalLaunchAgent = "Local LaunchAgent"
+    static let hostLocalProcess = "Local process"
+    static let hostRemoteEndpoint = "Remote endpoint"
+    static let hostRefreshDetails = "Refresh details"
+    static let hostNotAvailable = "Not available"
     static let settingsSave = "Save"
     static let settingsCreateToken = "Create token…"
     static let settingsCreateKey = "Create key…"
@@ -256,7 +269,7 @@ enum HeadroomCopy {
     static let dismissAll = "Dismiss all"
     static let refreshAll = "Refresh all"
     static let answerCodingAgents = "Answer coding agents"
-    static let codingAgents = "Coding agents"
+    static let codingAgents = "Agents"
     static let agentCompanionTitle = "Your agents, wherever you are"
     static let agentQuestionMode = "Claude questions"
     static let agentQuestionNotify = "Show on Mac + iPhone"
@@ -369,6 +382,7 @@ enum HeadroomCopy {
     static let sourcePaused = "Off"
     /// The inline add link under a multi-account-capable service.
     static let addAccount = "Add account…"
+    static let addAccountSection = "Add account"
     /// A Library chip whose credential has no local trace to import.
     static let notDetected = "not detected"
     /// Row-subtitle category labels. The Library groups use `aiProvidersGroup`
@@ -483,14 +497,14 @@ enum HeadroomCopy {
     /// Open issue or PR on a watched repo that @mentions you.
     static let activityMention = "Mention"
 
-    /// The feed's section title on the iOS Activity tab, where it shares a
-    /// screen with the service panels. "Recent" rather than "Activity", which
-    /// is the tab it is already sitting in.
+    /// The feed's section title on the iOS Activity tab and Mac Activity
+    /// mode, where it shares a screen with the service panels. "Recent"
+    /// rather than "Activity", which is the tab / mode it already sits in.
     static let recentActivity = "Recent"
 
-    /// Function-level headers for the iOS Activity tab. The host's activity
-    /// feed is intentionally mixed, so the phone groups it by what happened
-    /// rather than asking the reader to decode a generic chronological list.
+    /// Function-level titles for activity kinds. The Activity tab itself is
+    /// one chronological list; these labels remain for Attention captions,
+    /// contract tests, and any surface that still groups by kind.
     static let vercelDeployments = "Vercel deployments"
     static let gitCommits = "Git commits"
     static let quotaResets = "Quota resets"
@@ -526,6 +540,7 @@ enum HeadroomCopy {
     static let noCodingSources = "No coding sources"
     static let noActivityYet = "No activity yet"
     static let noLocalServers = "No local servers"
+    static let noXcodeBuilds = "No Xcode builds"
     static let waitingForMacSync = "Waiting for Mac sync"
     static let searchingNearby = "Searching…"
 
@@ -578,13 +593,64 @@ enum HeadroomCopy {
     static let telemetryNeverSharedDetail =
         "Never: prompts, commands, files, repositories, branches, account names, email addresses, tokens, exact spend, raw model names, or per-request activity."
     static let telemetryViewSource = "Read the telemetry code on GitHub"
+    static let telemetryCommunityPulse = "See the public Community Pulse"
+    static let telemetryCommunityHeader = "Community Pulse"
+    static let telemetryCommunityLoading = "Loading the community snapshot…"
+    static let telemetryCommunityUnavailable = "Community data is unavailable right now."
+    static let telemetryCommunityGrowing = "The community is still growing."
+    static let telemetryCommunityThreshold = "Counts appear after at least five Macs contribute."
+    static let telemetryWeeklyActive = "Weekly active Macs"
+    static let telemetryLatestBuild = "Most common build"
+    static let telemetryServicesInUse = "Services in use"
+    static let telemetryModelMix = "Model family mix"
+    static let telemetryBuildSpread = "Build spread"
+    static let telemetryServiceMix = "Service mix"
+    static let telemetryFeatureAdoption = "Feature adoption"
+    static let telemetryNoPublishedData = "Not enough community data to publish this yet."
+    static let telemetryRefreshCommunity = "Refresh community"
+    static let telemetryLatestWeek = "latest week"
+    static let telemetryMacs = "Macs"
+    static let telemetryCommunityFooter =
+        "A public aggregate of other opted-in Macs. Small groups stay hidden; weekly counts are reports, not user identities. This Mac’s payload is shown above."
     static let telemetryFooter =
         "On by default so we can see which builds and services are actually in use. Turn it off at any time; pending data is deleted from this Mac."
+    static let telemetryVisualizer = "Inspect this week's aggregate"
+    static let telemetryWaitingForPreview = "No preview loaded"
+    static let telemetryPreviewReady = "This is what Headroom would send"
+    static let telemetryRefreshPreview = "Refresh"
+    static let telemetryCopyPayload = "Copy JSON"
+    static let telemetryCopied = "Copied"
+    static let telemetryPreviewOff =
+        "Turn diagnostics on to build a local preview. Nothing is sent by this view."
+    static let telemetryBuildingPreview = "Building preview…"
+    static let telemetryPreviewUnavailable =
+        "A preview is not available yet. Try Refresh."
+    static let telemetryApp = "App"
+    static let telemetryHost = "Host"
+    static let telemetryPeriod = "Period"
+    static let telemetryMac = "Mac"
+    static let telemetryLastSent = "Last sent"
+    static let telemetryHostVersionDetail = "host version"
+    static let telemetryWeeklyDetail = "one batch per week"
+    static let telemetryServices = "Services"
+    static let telemetryNoServices = "No enabled or observed services yet."
+    static let telemetryEnabled = "enabled"
+    static let telemetryUsed = "used"
+    static let telemetryHealthy = "healthy"
+    static let telemetryModels = "Model families"
+    static let telemetryNoModels = "No model-family history is available yet."
+    static let telemetryFeatures = "Feature flags"
+    static let telemetryNoFeatures = "No feature flags are available yet."
+    static let telemetryNever = "Never"
+    static let telemetryNoPending = "No pending batch"
+    static let telemetryPending = "Pending locally"
+    static let notAvailable = "Not available"
 
     // MARK: Widget
 
     static let openToSync = "Open to sync"
     static let openHeadroom = "Open Headroom"
+    static let openPermalink = "Open"
 
     // MARK: Watch
 

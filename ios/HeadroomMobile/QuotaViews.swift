@@ -27,7 +27,10 @@ struct QuotaOverviewCard: View {
                             burndown: provider.orderedBurndown(
                                 from: snapshot.burndown?[provider.id]
                             ),
-                            subscriptionPricing: provider.subscriptionPricing
+                            subscriptionPricing: provider.subscriptionPricing,
+                            todayBurn: snapshot.byDay?
+                                .last?
+                                .burn(forProviderID: provider.id)
                         )
                     } label: {
                         HStack(spacing: 10) {
@@ -111,7 +114,7 @@ private struct ProviderSummaryRow: View {
                         .font(.caption2)
                         .foregroundStyle(
                             meter.statusAlarming
-                                ? HeadroomPalette.amber : Color.secondary)
+                                ? HeadroomPalette.orange : Color.secondary)
                         .lineLimit(1)
                 }
                 // Same reasoning as the Mac card: `ok` stays true while the
@@ -123,7 +126,7 @@ private struct ProviderSummaryRow: View {
                         .font(.caption2)
                         .foregroundStyle(
                             meter.statusAlarming
-                                ? HeadroomPalette.amber : Color.secondary)
+                                ? HeadroomPalette.orange : Color.secondary)
                         .lineLimit(2)
                 } else if let headline = provider.headline {
                     Text(headline)
@@ -143,6 +146,8 @@ private struct ProviderQuotaDetail: View {
     /// sequence. Do not re-sort here.
     let burndown: [Burndown]
     let subscriptionPricing: SubscriptionPricing?
+    /// Headline-meter points burned today (`by_day`), same as the board.
+    var todayBurn: Double? = nil
 
     /// "Connected" is a claim about right now, and a provider whose numbers
     /// stopped arriving is in no position to make it. `ok` alone would let it.
@@ -153,7 +158,7 @@ private struct ProviderQuotaDetail: View {
 
     private var statusTint: Color {
         if meter.statusAlarming || meter.ok == false {
-            return HeadroomPalette.amber
+            return HeadroomPalette.orange
         }
         if provider.readingSuspect {
             return .secondary
@@ -176,6 +181,11 @@ private struct ProviderQuotaDetail: View {
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(meter.plan ?? HeadroomCopy.planUnknown)
                                 .foregroundStyle(.secondary)
+                            if let todayBurn {
+                                Text(HeadroomFormat.todayBurn(todayBurn))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
                             Text(statusLabel)
                                 .foregroundStyle(statusTint)
                                 .multilineTextAlignment(.trailing)
@@ -235,7 +245,7 @@ private struct ProviderQuotaDetail: View {
                             .font(.caption)
                             .foregroundStyle(
                                 meter.statusAlarming
-                                    ? HeadroomPalette.amber : Color.secondary)
+                                    ? HeadroomPalette.orange : Color.secondary)
                             .lineLimit(2)
                     }
                 }
@@ -908,13 +918,25 @@ struct DailyBurnChart: View {
 
     private var visibleDays: [DailyBurnDay] { Array(days.suffix(7)) }
 
+    private var todayTotal: Double {
+        let ids = providers.map(\.id)
+        return visibleDays.last.map { $0.total(forProviderIDs: ids) } ?? 0
+    }
+
+    private var subtitle: String {
+        if todayTotal > 0 {
+            return HeadroomFormat.todayBurn(todayTotal)
+        }
+        return HeadroomCopy.dailyBurnUnit
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(HeadroomCopy.dailyBurn)
                     .font(.headline)
                 Spacer()
-                Text(HeadroomCopy.dailyBurnUnit)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -145,6 +145,7 @@ struct SettingsSourcesPane: View {
                     HeadroomCopy.sourcesLibrary,
                     hint: HeadroomCopy.sourcesLibraryHint)
                 libraryGroup(.ai, title: HeadroomCopy.aiProvidersGroup)
+                addAccountButtons
                 footerBar
             }
             .padding(20)
@@ -177,7 +178,6 @@ struct SettingsSourcesPane: View {
                     ActiveServiceRow(
                         service: service,
                         usage: usage,
-                        capability: capability(for: service),
                         badgeSlots: focusSlots[service.id] ?? [],
                         isBusy: isBusy(service),
                         isDropTarget: dropTargetID == service.id,
@@ -186,7 +186,6 @@ struct SettingsSourcesPane: View {
                             onDismissRows(service.rows.map(\.id))
                         },
                         onRemoveAccount: onRemoveAccount,
-                        onAddAccount: onAddAccount,
                         onRefresh: onRefresh,
                         onNudge: { onNudgeService(service.id, $0) },
                         onAccent: onAccent
@@ -230,6 +229,39 @@ struct SettingsSourcesPane: View {
                             onEnable: {
                                 onToggleRows(service.rows.map(\.id), true)
                             },
+                            onAddAccount: onAddAccount
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Extra logins for providers already in Active — buttons live under
+    /// Library so Active rows stay meters-only. Library chips that are not
+    /// detected already open the same sheet, so they stay out of this row.
+    @ViewBuilder
+    private var addAccountButtons: some View {
+        let activeIDs = Set(activeServices.map(\.id))
+        let caps = accountProviders.filter {
+            !$0.isFull && activeIDs.contains($0.id)
+        }
+        if !caps.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(HeadroomCopy.addAccountSection.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .kerning(0.5)
+                    .foregroundStyle(.secondary)
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 8),
+                        count: 3),
+                    spacing: 8
+                ) {
+                    ForEach(caps) { provider in
+                        AddAccountChip(
+                            provider: provider,
+                            isBusy: busyID != nil,
                             onAddAccount: onAddAccount
                         )
                     }
@@ -294,14 +326,12 @@ struct SettingsSourcesPane: View {
 private struct ActiveServiceRow: View {
     let service: SourceService
     let usage: [String: QuotaProviderInfo]
-    let capability: AccountProvider?
     let badgeSlots: [Int]
     let isBusy: Bool
     let isDropTarget: Bool
     let onToggleRows: ([String], Bool) -> Void
     let onDismiss: () -> Void
     let onRemoveAccount: (String) -> Void
-    let onAddAccount: (AccountProvider) -> Void
     let onRefresh: ([String]?) -> Void
     let onNudge: (Int) -> Void
     let onAccent: ([String], String?) -> Void
@@ -331,6 +361,16 @@ private struct ActiveServiceRow: View {
         return service.enabledRows.first
     }
 
+    private func accountEmail(_ account: SyncSource) -> String? {
+        let fromUsage = usage[account.id]?.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let fromUsage, !fromUsage.isEmpty { return fromUsage }
+        let fromSource = account.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let fromSource, !fromSource.isEmpty { return fromSource }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
@@ -354,6 +394,12 @@ private struct ActiveServiceRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     titleLine
                     if let account = inlineAccount {
+                        if let email = accountEmail(account) {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                         AccountBar(
                             name: nil,
                             row: account,
@@ -367,7 +413,7 @@ private struct ActiveServiceRow: View {
                 trailing
             }
 
-            if namedAccounts != nil || capability != nil {
+            if namedAccounts != nil {
                 accountBlock
             }
         }
@@ -577,9 +623,10 @@ private struct ActiveServiceRow: View {
         return ages.max().map(TimeInterval.init)
     }
 
-    /// Warning-amber once a *stale* source is an hour behind. Age alone is
+    /// Soft amber once a *stale* source is an hour behind. Age alone is
     /// not the trigger: a provider polled hourly is not a provider in
     /// trouble. Rate-limit holds stay quiet — the host is waiting on purpose.
+    /// Needs-sign-in oranges elsewhere; stale stays soft.
     private var isStaleWarning: Bool {
         guard service.enabledRows.contains(where: {
             $0.stale == true && !$0.isRateLimited
@@ -600,14 +647,6 @@ private struct ActiveServiceRow: View {
                         onToggleRows: onToggleRows,
                         onRemoveAccount: onRemoveAccount)
                 }
-            }
-            if let capability, !capability.isFull {
-                Button(HeadroomCopy.addAccount) {
-                    onAddAccount(capability)
-                }
-                .buttonStyle(.link)
-                .font(.caption)
-                .disabled(isBusy)
             }
         }
         .padding(.leading, 74)
@@ -689,7 +728,7 @@ private struct AccountRow: View {
     var body: some View {
         HStack(spacing: 6) {
             AccountBar(
-                name: account.label ?? "Default",
+                name: accountTitle,
                 row: account,
                 usage: usage,
                 tint: tint)
@@ -727,6 +766,21 @@ private struct AccountRow: View {
             }
         }
     }
+
+    /// Label · email when both exist; email alone; else the user label.
+    private var accountTitle: String {
+        let label = account.label?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = (usage?.email ?? account.email)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasLabel = !(label ?? "").isEmpty
+        let hasEmail = !(email ?? "").isEmpty
+        if hasLabel, hasEmail, label != email {
+            return "\(label!) · \(email!)"
+        }
+        if hasEmail { return email! }
+        return label ?? "Default"
+    }
 }
 
 /// One account's usage: optional name, a thin bar tinted with the service
@@ -747,7 +801,7 @@ private struct AccountBar: View {
                     .font(.system(size: 12))
                     .foregroundStyle(isOff ? AnyShapeStyle(.secondary)
                                            : AnyShapeStyle(.primary))
-                    .frame(width: 70, alignment: .leading)
+                    .frame(minWidth: 70, maxWidth: 160, alignment: .leading)
                     .lineLimit(1)
             }
             if isOff {
@@ -758,7 +812,7 @@ private struct AccountBar: View {
             } else if row.needsSignIn {
                 Text(HeadroomCopy.needsSignIn)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if let pool = primaryPool, let pct = pool.pct {
                 bar(fraction: pct / 100)
@@ -821,6 +875,53 @@ private struct AccountBar: View {
             if lr != rr { return lr < rr }
             return lhs.key < rhs.key
         }?.value
+    }
+}
+
+/// Library chip that only opens the add-account sheet — for providers that
+/// already sit in Active and still have room for another login.
+private struct AddAccountChip: View {
+    let provider: AccountProvider
+    let isBusy: Bool
+    let onAddAccount: (AccountProvider) -> Void
+
+    var body: some View {
+        Button {
+            onAddAccount(provider)
+        } label: {
+            HStack(spacing: 6) {
+                if ProviderIcon.assetName(for: provider.id) != nil {
+                    ProviderMark(providerID: provider.id, size: 11)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                } else {
+                    Circle()
+                        .fill(Color(nsColor: .tertiaryLabelColor))
+                        .frame(width: 8, height: 8)
+                }
+                Text(provider.title)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "plus")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color(nsColor: .separatorColor))
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .help("Add another \(provider.title) account")
+        .accessibilityLabel("\(HeadroomCopy.addAccount) \(provider.title)")
     }
 }
 

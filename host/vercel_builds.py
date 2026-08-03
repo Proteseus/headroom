@@ -182,7 +182,11 @@ def _auth():
 
 
 def fmt_ago(created_ms):
-    """Relative age from a Vercel createdAt (ms) timestamp."""
+    """Compact age: minutes under an hour, then whole hours / days.
+
+    Matches git / GitHub activity — no ``2h 15m`` or ``1d 3h``. Activity
+    rows only need a glance; ESP32 already coarsens via ``glanceAgo``.
+    """
     if created_ms is None:
         return None
     try:
@@ -192,14 +196,13 @@ def fmt_ago(created_ms):
     if ts > 1e12:
         ts /= 1000.0
     ago_s = max(0, int(time.time() - ts))
-    d, rem = divmod(ago_s, 86400)
-    h, rem = divmod(rem, 3600)
-    m = rem // 60
-    if d > 0:
-        return f"{d}d" if d > 1 or h == 0 else f"{d}d {h}h"
-    if h > 0:
-        return f"{h}h" if m == 0 else f"{h}h {m}m"
-    return f"{m}m"
+    if ago_s < 60:
+        return f"{ago_s}s"
+    if ago_s < 3600:
+        return f"{ago_s // 60}m"
+    if ago_s < 86400:
+        return f"{ago_s // 3600}h"
+    return f"{ago_s // 86400}d"
 
 
 def _state_label(state):

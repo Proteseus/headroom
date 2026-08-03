@@ -1,37 +1,123 @@
 import SwiftUI
 
 extension SettingsView {
-    /// Everything Headroom connects to, in one list.
+    /// One catalog of watched things — order, enable, status, open leaf.
     ///
-    /// Grouped rather than flat because the agents can run code on this Mac
-    /// and the rest only read — a distinction worth seeing without opening
-    /// each leaf.
+    /// Flat list (not group sections): the pin is the layout, and Activity
+    /// follows the same order for ids that paint blocks. Claude Code / Codex
+    /// are under Coding agents, not here.
     var integrationsHub: some View {
         Form {
-            ForEach(SettingsIntegration.Group.allCases, id: \.self) { group in
-                Section {
-                    ForEach(
-                        SettingsIntegration.members(of: group), id: \.self
-                    ) { kind in
-                        integrationRow(kind)
-                    }
-                } header: {
-                    Text(group.title)
-                } footer: {
-                    switch group {
-                    case .agents:
-                        Text("These two can start work on this Mac. Everything else here only reads.")
-                    case .code:
-                        Text("Git is local commits on this Mac (no token). GitHub Actions is CI via a PAT. Vercel is deploys from the CLI login. All three feed \(HeadroomCopy.activity).")
-                    case .balances:
-                        Text("Prepaid API credits. Paste a key on this Mac; the phone only reads the balance.")
-                    case .services:
-                        Text("Keys stay in the Keychain on this Mac. The iPhone never sees them.")
-                    }
+            Section {
+                Stepper(
+                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
+                    value: $activityRowLimit,
+                    in: 3...14
+                )
+            } footer: {
+                Text("How many Recent rows the Activity feed draws on this Mac.")
+            }
+
+            Section {
+                ForEach(integrationsOrder, id: \.self) { id in
+                    catalogRow(id)
                 }
+            } footer: {
+                Text(HeadroomCopy.integrationsOrderHint)
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func catalogRow(_ id: String) -> some View {
+        let watch = IntegrationWatch(rawValue: id)
+        let title = watch?.title ?? id
+        let sourceID = watch?.sourceID ?? id
+        let enabled = sources.first(where: { $0.id == sourceID })?.enabled ?? true
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.tertiary)
+                .font(.caption)
+                .help("Drag to reorder")
+            if let watch {
+                ProviderMark(
+                    providerID: watch.sourceID == "local" ? "local" : watch.rawValue,
+                    size: 16,
+                    fallbackSystemImage: watch.symbol
+                )
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(catalogSubtitle(watch))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Toggle(
+                "Enabled",
+                isOn: Binding(
+                    get: { enabled },
+                    set: { on in
+                        Task { await setSourceRows([sourceID], enabled: on) }
+                    }
+                )
+            )
+            .labelsHidden()
+            .disabled(togglingSourceID == sourceID)
+            if let kind = watch?.settingsIntegration {
+                Button {
+                    leaf = .integration(kind)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Open")
+            }
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 2)
+        .opacity(enabled ? 1 : 0.55)
+        .background(
+            dropTargetID == id
+                ? HeadroomPalette.green.opacity(0.12)
+                : Color.clear
+        )
+        .modifier(DragReorder(
+            enabled: true,
+            id: id,
+            onTargeted: { targeted in
+                dropTargetID = targeted ? id : nil
+            },
+            onDrop: { dragged in
+                dropTargetID = nil
+                Task { await moveServicePanel(dragged, before: id) }
+            }
+        ))
+        .accessibilityAction(named: "Move up") {
+            Task { await nudgeServicePanel(id, by: -1) }
+        }
+        .accessibilityAction(named: "Move down") {
+            Task { await nudgeServicePanel(id, by: 1) }
+        }
+    }
+
+    private func catalogSubtitle(_ watch: IntegrationWatch?) -> String {
+        guard let watch else { return "" }
+        switch watch {
+        case .servers, .builds:
+            if let detail = sources.first(where: { $0.id == "local" })?.detail,
+               !detail.isEmpty {
+                return detail
+            }
+            return integrationStatus(.local).title
+        default:
+            guard let kind = watch.settingsIntegration else { return "" }
+            return integrationStatus(kind).title
+        }
     }
 
     /// One hub row. Shared with the Coding agents pane, which links to the two
@@ -87,8 +173,6 @@ extension SettingsView {
                 tone: agentGatewayEnabled ? .ok : .attention
             )
         case .git:
-            // A host predating /config/git leaves the defaults in place, and
-            // "0 repos" would be an answer rather than the non-answer it is.
             guard gitEditable else { return .unknown }
             guard gitConfig.devRootExists else { return .folderMissing }
             let count = gitConfig.repos.count
@@ -127,6 +211,12 @@ extension SettingsView {
         case .aiGateway:
             return tokenBackedStatus(
                 stored: aiGatewayTokenStored, sourceID: "ai-gateway")
+        case .local:
+            let on = sources.first(where: { $0.id == "local" })?.enabled ?? true
+            return SettingsConnectionStatus(
+                on ? HeadroomCopy.on : HeadroomCopy.off,
+                tone: on ? .ok : .attention
+            )
         }
     }
 
@@ -139,7 +229,6 @@ extension SettingsView {
             return .connected(false)
         }
         guard let source = sources.first(where: { $0.id == sourceID }) else {
-            // Keychain yes, never seen in /usage — still better than lying.
             return SettingsConnectionStatus(
                 HeadroomCopy.inKeychain,
                 tone: .ok,
@@ -192,26 +281,47 @@ extension SettingsView {
             case .axiom: axiomSections
             case .openrouter: openrouterSections
             case .aiGateway: aiGatewaySections
+            case .local: localWatchSections
             }
         }
         .formStyle(.grouped)
     }
 
-    /// The on/off for a dev tool, which used to live as a row in the Sources
-    /// pane. Sources now lists AI providers only, so this leaf is the only
-    /// place left to switch one off.
-    ///
-    /// Which kinds get it is read off the payload rather than a second list
-    /// here: an integration whose source sits in the `devtools` group is
-    /// exactly one that left the Sources pane. AI-group integrations
-    /// (Claude, Codex, OpenRouter, AI Gateway) still have their row over
-    /// there, and a second switch for the same bit is how the two pages got
-    /// confusing in the first place. A host too old to send the source at
-    /// all simply shows no toggle.
+    private var localWatchSections: some View {
+        Section {
+            if let local = sources.first(where: { $0.id == "local" }) {
+                Toggle(
+                    HeadroomCopy.showInHeadroom,
+                    isOn: Binding(
+                        get: { local.enabled ?? true },
+                        set: { on in
+                            Task {
+                                await setSourceRows([local.id], enabled: on)
+                            }
+                        }
+                    )
+                )
+                .disabled(togglingSourceID == local.id)
+            }
+            Stepper(
+                "\(HeadroomCopy.localServers): \(serverRowLimit)",
+                value: $serverRowLimit,
+                in: 1...8
+            )
+            Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
+        } footer: {
+            Text("Listening ports and Xcode builds on this Mac. Off stops both; the same toggle lives on the Integrations list.")
+        }
+    }
+
+    /// Leaf on/off for a keyed dev tool. AI-group integrations keep their
+    /// switch on Sources; Local has Show in Headroom on its own leaf (and the
+    /// same on/off on the catalog rows for servers/builds).
     @ViewBuilder
     private func visibilitySection(_ kind: SettingsIntegration) -> some View {
-        if let source = sources.first(where: { $0.id == kind.rawValue }),
-           source.sourceGroup == .devtools {
+        if kind == .local { EmptyView() }
+        else if let source = sources.first(where: { $0.id == kind.rawValue }),
+                source.sourceGroup == .devtools {
             Section {
                 Toggle(HeadroomCopy.showInHeadroom, isOn: Binding(
                     get: { source.enabled ?? true },

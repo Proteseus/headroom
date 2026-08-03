@@ -246,6 +246,7 @@ into one keyspace:
 | `sources.enabled.<id>` | bool |
 | `sources.accent.<id>` | `#RRGGBB`, or null for the registry colour |
 | `sources.order` | pinned provider ids |
+| `sources.integrations_order` | pinned Integrations catalog ids |
 | `config.<key>` | whitelisted config.json keys |
 
 Every key is always present, with an explicit null for "unset" — a missing key

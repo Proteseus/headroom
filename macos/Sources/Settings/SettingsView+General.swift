@@ -26,81 +26,6 @@ extension SettingsView {
             }
             .onAppear(perform: refreshOpenAtLogin)
 
-            Section {
-                Toggle(
-                    HeadroomCopy.notifyOnQuotaReset,
-                    isOn: $notifyOnQuotaReset
-                )
-                .onChange(of: notifyOnQuotaReset) { _, enabled in
-                    if enabled {
-                        Task { await ResetNotifications.requestAuthorization() }
-                    }
-                }
-            } footer: {
-                Text("Codex hands a window back when you spend a reset credit. Turning this on is what asks macOS for permission.")
-            }
-
-            Section {
-                Button {
-                    leaf = .otherMacs
-                } label: {
-                    LabeledContent {
-                        HStack(spacing: 6) {
-                            Text(multiMac.enabled ? HeadroomCopy.on : HeadroomCopy.off)
-                                .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    } label: {
-                        Label(
-                            HeadroomCopy.otherMacs,
-                            systemImage: SettingsDestination.otherMacs.symbol
-                        )
-                    }
-                }
-                .buttonStyle(.plain)
-            } footer: {
-                Text("Share sources and settings between Macs through iCloud Drive.")
-            }
-
-            // Activity and Local servers are Mac-wide; Supabase / Plausible
-            // density lives on each integration's own page.
-            //
-            // Local servers carries its own on/off here because it is the one
-            // dev-tool source with nothing to configure — no key, no account,
-            // so no leaf under Integrations to hold the switch that used to
-            // live in the Sources pane.
-            Section {
-                Stepper(
-                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
-                    value: $activityRowLimit,
-                    in: 3...14
-                )
-                if let local = sources.first(where: { $0.id == "local" }) {
-                    Toggle(
-                        HeadroomCopy.localServers,
-                        isOn: Binding(
-                            get: { local.enabled ?? true },
-                            set: { on in
-                                Task {
-                                    await setSourceRows([local.id], enabled: on)
-                                }
-                            }
-                        )
-                    )
-                    .disabled(togglingSourceID == local.id)
-                }
-                Stepper(
-                    "\(HeadroomCopy.localServers): \(serverRowLimit)",
-                    value: $serverRowLimit,
-                    in: 1...8
-                )
-                Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
-            } header: {
-                Text(HeadroomCopy.settingsDashboard)
-            }
-
             updatesSection
 
             Section {
@@ -111,6 +36,37 @@ extension SettingsView {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Drop an Integrations catalog row into another's slot.
+    func moveServicePanel(_ dragged: String, before target: String) async {
+        guard dragged != target else { return }
+        var order = integrationsOrder
+        guard let from = order.firstIndex(of: dragged) else { return }
+        order.remove(at: from)
+        guard let to = order.firstIndex(of: target) else { return }
+        order.insert(dragged, at: to)
+        await commitServicesOrder(order)
+    }
+
+    func nudgeServicePanel(_ id: String, by offset: Int) async {
+        var order = integrationsOrder
+        guard let from = order.firstIndex(of: id) else { return }
+        let to = from + offset
+        guard order.indices.contains(to) else { return }
+        order.swapAt(from, to)
+        await commitServicesOrder(order)
+    }
+
+    func commitServicesOrder(_ order: [String]) async {
+        do {
+            let stored = try await client.setIntegrationsOrder(order)
+            integrationsOrder = IntegrationWatch.ordered(from: stored).map(\.rawValue)
+            servicesOrder = IntegrationWatch.activityBlocks(from: stored).map(\.rawValue)
+            await reloadSources()
+        } catch {
+            sourcesMessage = error.localizedDescription
+        }
     }
 
     var updatesSection: some View {
@@ -197,9 +153,72 @@ extension SettingsView {
                         .foregroundStyle(
                             hostTokenStored
                                 ? AnyShapeStyle(.secondary)
-                                : AnyShapeStyle(HeadroomPalette.amber))
+                                : AnyShapeStyle(HeadroomPalette.orange))
                 }
             }
+
+            Divider()
+
+            LabeledContent(HeadroomCopy.hostRunning) {
+                Text(hostLocationLabel)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            LabeledContent(HeadroomCopy.hostProcess) {
+                Text(hostProcessLabel)
+                    .foregroundStyle(.secondary)
+            }
+            LabeledContent(HeadroomCopy.hostStatus) {
+                if hostHealthLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Label(
+                        hostHealth != nil && hostHealth?.ok != false
+                            ? HeadroomCopy.hostReachable
+                            : HeadroomCopy.hostUnavailable,
+                        systemImage: hostHealth != nil && hostHealth?.ok != false
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle"
+                    )
+                    .foregroundStyle(
+                        hostHealth != nil && hostHealth?.ok != false
+                            ? HeadroomPalette.green
+                            : HeadroomPalette.orange
+                    )
+                }
+            }
+            if let hostHealth {
+                LabeledContent(HeadroomCopy.hostVersion) {
+                    Text(hostHealth.version ?? HeadroomCopy.hostNotAvailable)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent(HeadroomCopy.hostBuild) {
+                    Text(hostHealth.build ?? HeadroomCopy.hostNotAvailable)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                LabeledContent(HeadroomCopy.hostUptime) {
+                    Text(hostUptimeLabel(hostHealth.uptimeS))
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent(HeadroomCopy.hostSourcesReporting) {
+                    Text("\(hostHealth.sources.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let hostHealthMessage {
+                Text(hostHealthMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Button(HeadroomCopy.hostRefreshDetails) {
+                Task { await reloadHostHealth() }
+            }
+            .disabled(hostHealthLoading)
         } header: {
             Text("Host")
         } footer: {
@@ -219,6 +238,42 @@ extension SettingsView {
             Task { await reloadSources() }
         } catch {
             sourcesMessage = error.localizedDescription
+        }
+    }
+
+    var hostLocationLabel: String {
+        guard let url = URL(string: endpoint), let host = url.host() else {
+            return endpoint
+        }
+        let address = url.port.map { "\(host):\($0)" } ?? host
+        return endpointIsRemote ? "Remote · \(address)" : "This Mac · \(address)"
+    }
+
+    var hostProcessLabel: String {
+        if endpointIsRemote { return HeadroomCopy.hostRemoteEndpoint }
+        if HostController.isBundled { return HeadroomCopy.hostLocalLaunchAgent }
+        return HeadroomCopy.hostLocalProcess
+    }
+
+    func hostUptimeLabel(_ seconds: Int?) -> String {
+        guard let seconds else { return HeadroomCopy.hostNotAvailable }
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h \(minutes)m" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
+    }
+
+    func reloadHostHealth() async {
+        hostHealthLoading = true
+        hostHealthMessage = nil
+        defer { hostHealthLoading = false }
+        do {
+            hostHealth = try await client.health()
+        } catch {
+            hostHealth = nil
+            hostHealthMessage = error.localizedDescription
         }
     }
 

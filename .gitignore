@@ -49,3 +49,4 @@ macos/Version.xcconfig
 # #include?d by the generated Version.xcconfig. See README, "Signing as
 # yourself". Per-machine by design, so never committed.
 macos/Local.xcconfig
+telemetry/.wrangler/

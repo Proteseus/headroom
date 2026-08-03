@@ -381,7 +381,7 @@ struct WelcomeView: View {
                 if let sourcesError {
                     Text(sourcesError)
                         .font(.callout)
-                        .foregroundStyle(HeadroomPalette.amber)
+                        .foregroundStyle(HeadroomPalette.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if sourceRows.isEmpty {

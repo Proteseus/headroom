@@ -58,6 +58,7 @@ import axiom_monitors
 import supabase_usage
 import vercel_builds
 import windsurf_usage
+import xcode_builds
 import zed_usage
 
 STORE_PATH = os.path.expanduser("~/.headroom/sources.json")
@@ -358,11 +359,32 @@ def _detail_claude_status(payload):
     return payload.get("description") or indicator
 
 
+def _fetch_local(force=False):
+    """Listening servers plus active Xcode / Swift builds on this Mac."""
+    servers = local_servers.fetch_servers(force=force)
+    builds = xcode_builds.fetch_builds(force=force)
+    server_ok = bool(servers.get("ok"))
+    build_ok = bool(builds.get("ok"))
+    return {
+        "ok": server_ok or build_ok,
+        "host": servers.get("host") or builds.get("host"),
+        "error": (None if (server_ok or build_ok)
+                  else (servers.get("error") or builds.get("error"))),
+        "stale": bool(servers.get("stale") or builds.get("stale")),
+        "servers": servers.get("servers") or [],
+        "builds": builds.get("builds") or [],
+    }
+
+
 def _detail_local(payload):
     if not payload.get("ok"):
         return payload.get("error")
-    count = len(payload.get("servers") or [])
-    return f"{payload.get('host') or 'local'} · {count} servers"
+    servers = len(payload.get("servers") or [])
+    builds = len(payload.get("builds") or [])
+    bits = [f"{servers} servers"]
+    if builds:
+        bits.append(f"{builds} builds")
+    return f"{payload.get('host') or 'local'} · " + " · ".join(bits)
 
 
 def _detail_supabase(payload):
@@ -526,7 +548,8 @@ def _summary_claude_status(payload):
 
 def _summary_local(payload):
     return (f"host={payload.get('host')}  "
-            f"servers={len(payload.get('servers') or [])}")
+            f"servers={len(payload.get('servers') or [])}  "
+            f"builds={len(payload.get('builds') or [])}")
 
 
 def _summary_supabase(payload):
@@ -598,7 +621,7 @@ def _blank_claude_status():
 
 
 def _blank_local():
-    return {"ok": False, "host": None, "servers": []}
+    return {"ok": False, "host": None, "servers": [], "builds": []}
 
 
 def _blank_supabase():
@@ -868,9 +891,9 @@ BASE_SOURCES = (
     Source("github", "GitHub Actions", "Failed / running workflows", 90,
            github_actions.fetch_actions, _detail_github, _summary_github,
            _blank_github),
-    Source("local", "Local", "Listening dev servers", local_servers.CACHE_TTL_S,
-           local_servers.fetch_servers, _detail_local, _summary_local,
-           _blank_local),
+    Source("local", "Local", "Listening servers and Xcode builds",
+           min(local_servers.CACHE_TTL_S, xcode_builds.CACHE_TTL_S),
+           _fetch_local, _detail_local, _summary_local, _blank_local),
     Source("supabase", "Supabase", "PAT in Headroom Keychain", 5 * 60,
            supabase_usage.fetch_projects, _detail_supabase, _summary_supabase,
            _blank_supabase),
@@ -940,6 +963,48 @@ BASE_BY_ID = {source.id: source for source in BASE_SOURCES}
 # Quota subset — pollers, daily burn, burndown samples, /usage providers[].
 QUOTA_SOURCES = tuple(s for s in SOURCES if s.kind == "quota")
 BURN_SOURCE_IDS = tuple(s.id for s in QUOTA_SOURCES)
+
+# Integrations catalog: everything you watch on Activity (and connect).
+# Distinct from quota `order` (Sources / rings). `servers`/`builds` are
+# Activity blocks under the `local` source; enable maps through SOURCE_FOR_WATCH.
+INTEGRATION_CATALOG_IDS = (
+    "git",
+    "github",
+    "vercel",
+    "openrouter",
+    "ai-gateway",
+    "supabase",
+    "plausible",
+    "posthog",
+    "sentry",
+    "datadog",
+    "axiom",
+    "servers",
+    "builds",
+)
+
+# Catalog ids that paint an Activity block. Prepaid balances stay in the
+# Settings list but are skipped when laying out Activity. Claude Code / Codex
+# are Coding agents, not Integrations catalog rows.
+ACTIVITY_BLOCK_IDS = (
+    "git",
+    "github",
+    "vercel",
+    "supabase",
+    "plausible",
+    "posthog",
+    "sentry",
+    "datadog",
+    "axiom",
+    "servers",
+    "builds",
+)
+
+# Watch catalog id → sources.enabled key.
+SOURCE_FOR_WATCH = {
+    "servers": "local",
+    "builds": "local",
+}
 
 
 def add_account(provider, label, root):
@@ -1134,6 +1199,23 @@ def _default_enabled():
     return enabled
 
 
+def _normalize_integrations_order(raw):
+    """Pinned Integrations catalog ids, deduped, with unknowns dropped.
+
+    New catalog entries after a pin land at the end. Ids that left the set
+    drop out rather than poisoning the list.
+    """
+    known = set(INTEGRATION_CATALOG_IDS)
+    out = []
+    for sid in (raw or []):
+        if sid in known and sid not in out:
+            out.append(sid)
+    for sid in INTEGRATION_CATALOG_IDS:
+        if sid not in out:
+            out.append(sid)
+    return out
+
+
 def _normalize_order(raw):
     """Pinned quota ids, deduped, with unpinned ones appended.
 
@@ -1167,6 +1249,7 @@ def _blank_store():
         "enabled": enabled,
         "dismissed": _infer_dismissed(enabled, None),
         "order": _normalize_order(None),
+        "integrations_order": _normalize_integrations_order(None),
         "accents": {},
     }
 
@@ -1202,6 +1285,7 @@ def _load():
             "enabled": enabled,
             "dismissed": _infer_dismissed(enabled, None),
             "order": _normalize_order(None),
+            "integrations_order": _normalize_integrations_order(None),
             "seeded_from": "detect",
             "detected": detect_sources.detected_map(),
         }
@@ -1210,13 +1294,24 @@ def _load():
         except OSError:
             pass
         return {"enabled": enabled, "dismissed": state["dismissed"],
-                "order": state["order"], "accents": {}}
+                "order": state["order"],
+                "integrations_order": state["integrations_order"],
+                "accents": {}}
     except (OSError, json.JSONDecodeError):
         return _blank_store()
     if not isinstance(data, dict):
         return _blank_store()
     order = _normalize_order(
         data.get("order") if isinstance(data.get("order"), list) else None)
+    # Prefer integrations_order; fall back to the short-lived services_order
+    # pin so a Mac that only ever set Activity panels keeps that prefix.
+    if isinstance(data.get("integrations_order"), list):
+        integrations_seed = data.get("integrations_order")
+    elif isinstance(data.get("services_order"), list):
+        integrations_seed = data.get("services_order")
+    else:
+        integrations_seed = None
+    integrations_order = _normalize_integrations_order(integrations_seed)
     accents = _clean_accents(data.get("accents"))
     known = _known_ids()
     enabled = {sid: False for sid in known}
@@ -1230,13 +1325,15 @@ def _load():
         enabled = {sid: True for sid in known}
         return {"enabled": enabled,
                 "dismissed": _infer_dismissed(enabled, data.get("dismissed")),
-                "order": order, "accents": accents}
+                "order": order, "integrations_order": integrations_order,
+                "accents": accents}
     for sid in known:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
     return {"enabled": enabled,
             "dismissed": _infer_dismissed(enabled, data.get("dismissed")),
-            "order": order, "accents": accents}
+            "order": order, "integrations_order": integrations_order,
+            "accents": accents}
 
 
 def _save(state):
@@ -1405,6 +1502,49 @@ def set_order(ids):
         return list(state["order"])
 
 
+def services_order_ids():
+    """Activity block ids in pin order (subset of integrations_order)."""
+    return [sid for sid in integrations_order_ids() if sid in ACTIVITY_BLOCK_IDS]
+
+
+def set_services_order(ids):
+    """Legacy write: merge Activity pins into the full integrations catalog."""
+    # Keep relative order of the rest of the catalog; put the given Activity
+    # ids first in the order supplied.
+    current = integrations_order_ids()
+    wanted = _normalize_integrations_order(ids)
+    activity = [sid for sid in wanted if sid in ACTIVITY_BLOCK_IDS]
+    rest = [sid for sid in current if sid not in ACTIVITY_BLOCK_IDS]
+    return set_integrations_order(activity + rest)
+
+
+def integrations_order_ids():
+    """Integrations catalog ids in the user's pinned order."""
+    with _lock:
+        state = _state_locked()
+        if "integrations_order" not in state:
+            legacy = state.get("services_order")
+            state["integrations_order"] = _normalize_integrations_order(
+                legacy if isinstance(legacy, list) else None)
+            state.pop("services_order", None)
+        return list(state["integrations_order"])
+
+
+def set_integrations_order(ids):
+    """Pin the Integrations catalog order. Returns the normalized full list."""
+    with _lock:
+        state = _state_locked()
+        state["integrations_order"] = _normalize_integrations_order(ids)
+        state.pop("services_order", None)
+        _save(state)
+        return list(state["integrations_order"])
+
+
+def source_id_for_watch(watch_id):
+    """sources.enabled key for a catalog watch id."""
+    return SOURCE_FOR_WATCH.get(watch_id, watch_id)
+
+
 def ordered_quota_sources():
     """QUOTA_SOURCES resequenced by the pinned order."""
     return tuple(BY_ID[sid] for sid in order_ids())
@@ -1480,6 +1620,7 @@ def detection_payload():
         "enabled": enabled,
         "groups": list(GROUP_IDS),
         "order": order_ids(),
+        "integrations_order": integrations_order_ids(),
         "focus": focus_ids(),
         "accents": accent_overrides(),
         "sources": [

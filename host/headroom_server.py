@@ -55,6 +55,8 @@ import burndown
 import cache_util
 import claude_history
 import claude_status
+import codex_usage
+import cursor_usage
 import daily_burn
 import detect_sources
 import device_view
@@ -1002,12 +1004,15 @@ def _compute_doc():
             "error": local.get("error"),
             "stale": bool(local.get("stale")),
             "servers": local.get("servers") or [],
+            "builds": local.get("builds") or [],
         },
         "sources": _sources_payload(state),
         # The providers the compact surfaces show, already picked. Menu bar,
         # widget and the board's three slots read this instead of each slicing
         # their own top-N.
         "focus": sources_config.focus_ids(),
+        # Integrations catalog order (Activity blocks + Settings list).
+        "integrations_order": sources_config.integrations_order_ids(),
     }
     doc["attention"] = _build_attention(doc)
     # Last, because it summarizes everything above it.
@@ -1348,6 +1353,25 @@ def _build_attention(doc):
     }
 
 
+def _login_email_for(source):
+    """Best-effort signed-in email for a quota source. Additive, Mac-local.
+
+    Codex reads the ChatGPT id_token; Cursor reads the IDE's cached profile.
+    Claude's OAuth token is opaque, so it stays unset until we have another
+    source. Never invents an address.
+    """
+    account = getattr(source, "account", None)
+    base = source.id.split(":", 1)[0]
+    try:
+        if base == "codex":
+            return codex_usage.login_email(account)
+        if base == "cursor":
+            return cursor_usage.login_email(account)
+    except Exception:
+        return None
+    return None
+
+
 def _sources_payload(state):
     enabled = sources_config.enabled_map()
     dismissed = sources_config.dismissed_map()
@@ -1409,6 +1433,9 @@ def _sources_payload(state):
         # obvious.
         if source.account is not None:
             row["label"] = source.account.label
+        email = _login_email_for(source)
+        if email:
+            row["email"] = email
         rows.append(row)
     return rows
 
@@ -1529,6 +1556,9 @@ def _providers_payload(state, burndowns=None):
         # See `_sources_payload`: brand mark + user label, not "Brand · Label".
         if source.account is not None:
             row["label"] = source.account.label
+        email = _login_email_for(source)
+        if email:
+            row["email"] = email
         rows.append(row)
     return rows
 
@@ -2451,8 +2481,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sources":
             enabled = payload.get("enabled")
             order = payload.get("order")
+            integrations_order = payload.get("integrations_order")
+            if integrations_order is None:
+                # One-release alias from the Activity-only pin.
+                integrations_order = payload.get("services_order")
             accents = payload.get("accents")
             dismissed = payload.get("dismissed")
+
+            def _sources_reply(**extra):
+                body = {
+                    "ok": True,
+                    "enabled": sources_config.enabled_map(),
+                    "dismissed": sources_config.dismissed_map(),
+                    "order": sources_config.order_ids(),
+                    "integrations_order": sources_config.integrations_order_ids(),
+                    "focus": sources_config.focus_ids(),
+                    "accents": sources_config.accent_overrides(),
+                }
+                body.update(extra)
+                self._send_json(200, body)
+
             if dismissed is not None:
                 if not isinstance(dismissed, dict):
                     self._send_json(
@@ -2464,15 +2512,9 @@ class Handler(BaseHTTPRequestHandler):
                 # by a later dismiss write in the same request.
                 sources_config.set_dismissed(dismissed)
                 publish()
-                if enabled is None and order is None and accents is None:
-                    self._send_json(200, {
-                        "ok": True,
-                        "enabled": sources_config.enabled_map(),
-                        "dismissed": sources_config.dismissed_map(),
-                        "order": sources_config.order_ids(),
-                        "focus": sources_config.focus_ids(),
-                        "accents": sources_config.accent_overrides(),
-                    })
+                if (enabled is None and order is None and accents is None
+                        and integrations_order is None):
+                    _sources_reply()
                     return
             if accents is not None:
                 if not isinstance(accents, dict):
@@ -2487,32 +2529,28 @@ class Handler(BaseHTTPRequestHandler):
                 # Colors are presentation only — no source needs refetching,
                 # but the cached document holds the old ones.
                 publish()
-                if enabled is None and order is None:
-                    self._send_json(200, {
-                        "ok": True,
-                        "accents": stored,
-                        "enabled": sources_config.enabled_map(),
-                        "dismissed": sources_config.dismissed_map(),
-                        "order": sources_config.order_ids(),
-                        "focus": sources_config.focus_ids(),
-                    })
+                if (enabled is None and order is None
+                        and integrations_order is None):
+                    _sources_reply(accents=stored)
                     return
+            if (enabled is None and isinstance(integrations_order, list)
+                    and order is None):
+                result_integrations = sources_config.set_integrations_order(
+                    integrations_order)
+                publish()
+                _sources_reply(integrations_order=result_integrations)
+                return
             if enabled is None and isinstance(order, list):
                 # Reorder-only write: don't force clients to resend the map.
                 result_order = sources_config.set_order(order)
+                if isinstance(integrations_order, list):
+                    sources_config.set_integrations_order(integrations_order)
                 # The cached document still names the old first three, and
                 # `focus` is what the menu bar, the widget and the board's
                 # three slots are cut from — a reorder nobody can see for a
                 # poll tick reads as one that didn't take.
                 publish()
-                self._send_json(200, {
-                    "ok": True,
-                    "enabled": sources_config.enabled_map(),
-                    "dismissed": sources_config.dismissed_map(),
-                    "order": result_order,
-                    "focus": sources_config.focus_ids(),
-                    "accents": sources_config.accent_overrides(),
-                })
+                _sources_reply(order=result_order)
                 return
             if not isinstance(enabled, dict):
                 self._send_json(400, {"ok": False, "error": "enabled map required"})
@@ -2520,17 +2558,12 @@ class Handler(BaseHTTPRequestHandler):
             result = sources_config.set_enabled(enabled)
             if isinstance(order, list):
                 sources_config.set_order(order)
+            if isinstance(integrations_order, list):
+                sources_config.set_integrations_order(integrations_order)
             publish()
             # Kick a refresh so ESP32/Mac see the change quickly.
             _refresh_async([sid for sid, on in result.items() if on])
-            self._send_json(200, {
-                "ok": True,
-                "enabled": result,
-                "dismissed": sources_config.dismissed_map(),
-                "order": sources_config.order_ids(),
-                "focus": sources_config.focus_ids(),
-                "accents": sources_config.accent_overrides(),
-            })
+            _sources_reply(enabled=result)
             return
 
         if path in ("/supabase/refresh", "/plausible/refresh",

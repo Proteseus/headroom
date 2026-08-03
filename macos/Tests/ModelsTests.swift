@@ -163,6 +163,17 @@ final class ModelsTests: XCTestCase {
               "pid": 4242,
               "reachable": true,
               "latency_ms": 2
+            }],
+            "builds": [{
+              "name": "Headroom",
+              "kind": "xcodebuild",
+              "action": "test",
+              "scheme": "Headroom",
+              "target": "Headroom.xcodeproj",
+              "pid": 5252,
+              "cmd": "xcodebuild",
+              "cwd": "/Users/mz/Dev/headroom/macos",
+              "age_s": 38
             }]
           }
         }
@@ -192,6 +203,9 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.local?.servers?.first?.port, 3000)
         XCTAssertEqual(value.local?.servers?.first?.pid, 4242)
         XCTAssertEqual(value.local?.servers?.first?.latencyMS, 2)
+        XCTAssertEqual(value.local?.builds?.first?.name, "Headroom")
+        XCTAssertEqual(value.local?.builds?.first?.kind, "xcodebuild")
+        XCTAssertEqual(value.local?.builds?.first?.ageS, 38)
         XCTAssertEqual(value.activity?.first?.status, "error")
         XCTAssertEqual(value.activity?.first?.shortSHA, "abc1234")
         XCTAssertEqual(value.supabase?.alertCount, 1)

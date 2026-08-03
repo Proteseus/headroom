@@ -9,6 +9,7 @@
 // Wire.begin() conflict that leaves the panel black (repo issue #3).
 
 #include <Arduino.h>
+#include <math.h>
 #include <string.h>
 #include <time.h>
 #include <Wire.h>
@@ -41,6 +42,37 @@
 #ifndef OTA_PASSWORD
 #define OTA_PASSWORD ""
 #endif
+// Auto-brightness defaults = Amsterdam desk. Override in config.h.
+#ifndef BRIGHTNESS_AUTO
+#define BRIGHTNESS_AUTO 1
+#endif
+#ifndef LATITUDE
+#define LATITUDE 52.3676
+#endif
+#ifndef LONGITUDE
+#define LONGITUDE 4.9041
+#endif
+#ifndef TIMEZONE_POSIX
+#define TIMEZONE_POSIX "CET-1CEST,M3.5.0/2,M10.5.0/3"
+#endif
+#ifndef BRIGHTNESS_DAY
+#define BRIGHTNESS_DAY 200
+#endif
+#ifndef BRIGHTNESS_EVENING_PCT
+#define BRIGHTNESS_EVENING_PCT 30
+#endif
+#ifndef BRIGHTNESS_NIGHT_PCT
+#define BRIGHTNESS_NIGHT_PCT 10
+#endif
+#ifndef BRIGHTNESS_BEDTIME_MIN
+#define BRIGHTNESS_BEDTIME_MIN (22 * 60)
+#endif
+#ifndef BRIGHTNESS_SUNSET_LAG_MIN
+#define BRIGHTNESS_SUNSET_LAG_MIN 30
+#endif
+#ifndef BRIGHTNESS_SUNRISE_LEAD_MIN
+#define BRIGHTNESS_SUNRISE_LEAD_MIN 30
+#endif
 
 // Reboot if a single loop pass wedges this long (stuck I2C, wedged HTTP stack).
 // Generous: a cold Wi-Fi associate plus a USB sync is legitimately slow.
@@ -69,7 +101,8 @@ static const uint16_t COL_BLACK  = RGB565(0, 0, 0);
 static const uint16_t COL_DIM    = RGB565(120, 116, 110);
 static const uint16_t COL_BAR    = RGB565(42, 40, 38);     // unfilled quota track
 static const uint16_t COL_GREEN  = RGB565(95, 155, 115);   // soft sage
-static const uint16_t COL_AMBER  = RGB565(195, 155, 85);    // soft amber
+static const uint16_t COL_AMBER  = RGB565(195, 155, 85);    // soft amber — in flight
+static const uint16_t COL_ORANGE = RGB565(217, 138, 60);    // warn — actionable
 static const uint16_t COL_RED    = RGB565(175, 105, 100);   // soft dusty red
 // Boot / diagnostic chrome. Carries the splash palette rather than the old
 // amber phosphor, so the ROM checklist reads as the same machine that just
@@ -681,6 +714,247 @@ static void powerInit() {
     delay(50);
   }
   panelReset();
+}
+
+// ---------------- Auto brightness ----------------
+// Desk AMOLED that follows the sun + a fixed bedtime. Clock from SNTP when
+// Wi-Fi is up, else the host's `updated` stamp advanced by millis — so a
+// sleeping Mac overnight still dims on schedule from the last good sample.
+
+enum BrightnessMode : uint8_t { BR_DAY = 0, BR_EVENING, BR_NIGHT };
+
+static uint8_t brightnessApplied = BRIGHTNESS_DAY;
+static BrightnessMode brightnessMode = BR_DAY;
+static bool ntpStarted = false;
+static uint32_t lastBrightnessTickMs = 0;
+
+// Host-updated fallback clock: unix-ish local civil time reconstructed from
+// the last /usage `updated` string, then stepped with millis.
+static bool hostClockValid = false;
+static uint32_t hostClockAtMs = 0;     // millis() when hostClockLocal was set
+static int hostY = 0, hostM = 0, hostD = 0;
+static int hostMinOfDay = 0;           // local minutes from midnight
+static int hostTzMin = 0;              // offset east of UTC, minutes
+
+static int clampi(int v, int lo, int hi) {
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
+
+static uint8_t brightnessLevel(BrightnessMode mode) {
+  const int day = clampi(BRIGHTNESS_DAY, 1, 255);
+  if (mode == BR_EVENING) {
+    return (uint8_t)clampi(day * BRIGHTNESS_EVENING_PCT / 100, 1, 255);
+  }
+  if (mode == BR_NIGHT) {
+    return (uint8_t)clampi(day * BRIGHTNESS_NIGHT_PCT / 100, 1, 255);
+  }
+  return (uint8_t)day;
+}
+
+static void applyBrightness(uint8_t level, BrightnessMode mode, const char *why) {
+  if (level == brightnessApplied && mode == brightnessMode) return;
+  brightnessApplied = level;
+  brightnessMode = mode;
+  panel->setBrightness(level);
+  static const char *names[] = {"day", "evening", "night"};
+  Serial.printf("brightness: %s → %u (%s)\n", names[mode], (unsigned)level,
+                why ? why : "");
+}
+
+// NOAA solar approx → local sunrise/sunset as minutes from local midnight.
+// Good to a couple of minutes at Amsterdam latitudes; polar day/night returns
+// false (never hits NL).
+static bool solarRiseSetLocal(int year, int month, int day,
+                              float lat, float lon, float tzHours,
+                              int *riseMin, int *setMin) {
+  static const int mdays[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int N = day;
+  for (int i = 1; i < month; i++) N += mdays[i];
+  const bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+  if (month > 2 && leap) N++;
+
+  const float gamma = (2.0f * (float)M_PI / 365.0f) * (float)(N - 1);
+  const float eqtime =
+      229.18f *
+      (0.000075f + 0.001868f * cosf(gamma) - 0.032077f * sinf(gamma) -
+       0.014615f * cosf(2.0f * gamma) - 0.040849f * sinf(2.0f * gamma));
+  const float decl =
+      0.006918f - 0.399912f * cosf(gamma) + 0.070257f * sinf(gamma) -
+      0.006758f * cosf(2.0f * gamma) + 0.000907f * sinf(2.0f * gamma) -
+      0.002697f * cosf(3.0f * gamma) + 0.00148f * sinf(3.0f * gamma);
+
+  const float latr = lat * ((float)M_PI / 180.0f);
+  float cosHa =
+      cosf(90.833f * ((float)M_PI / 180.0f)) / (cosf(latr) * cosf(decl)) -
+      tanf(latr) * tanf(decl);
+  if (cosHa < -1.0f || cosHa > 1.0f) return false;
+  const float ha = acosf(cosHa) * (180.0f / (float)M_PI);
+
+  const float riseUtc = 720.0f - 4.0f * (lon + ha) - eqtime;
+  const float setUtc = 720.0f - 4.0f * (lon - ha) - eqtime;
+  int rise = (int)lroundf(riseUtc + tzHours * 60.0f);
+  int aset = (int)lroundf(setUtc + tzHours * 60.0f);
+  // Keep in a generous range; schedule math wraps via mod 1440 later.
+  while (rise < 0) rise += 1440;
+  while (aset < 0) aset += 1440;
+  rise %= 1440;
+  aset %= 1440;
+  *riseMin = rise;
+  *setMin = aset;
+  return true;
+}
+
+// Parse host `updated` ("2026-08-02T14:32:00+0200") into the fallback clock.
+static void hostClockSyncFromUpdated() {
+  if (updatedZ.length() < 24) return;
+  const char *s = updatedZ.c_str();
+  int y = 0, mo = 0, d = 0, hh = 0, mi = 0;
+  if (sscanf(s, "%d-%d-%dT%d:%d", &y, &mo, &d, &hh, &mi) < 5) return;
+  if (y < 2020 || mo < 1 || mo > 12 || d < 1 || d > 31) return;
+  const int n = (int)updatedZ.length();
+  int tzMin = 0;
+  if (n >= 5) {
+    const char sign = s[n - 5];
+    if (sign == '+' || sign == '-') {
+      const int th = (s[n - 4] - '0') * 10 + (s[n - 3] - '0');
+      const int tm = (s[n - 2] - '0') * 10 + (s[n - 1] - '0');
+      if (th >= 0 && th <= 14 && tm >= 0 && tm <= 59) {
+        tzMin = th * 60 + tm;
+        if (sign == '-') tzMin = -tzMin;
+      }
+    }
+  }
+  hostY = y;
+  hostM = mo;
+  hostD = d;
+  hostMinOfDay = hh * 60 + mi;
+  hostTzMin = tzMin;
+  hostClockAtMs = millis();
+  hostClockValid = true;
+}
+
+static void ntpEnsureStarted() {
+  if (ntpStarted) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  configTzTime(TIMEZONE_POSIX, "pool.ntp.org", "time.google.com");
+  ntpStarted = true;
+  Serial.printf("ntp: started tz=%s\n", TIMEZONE_POSIX);
+}
+
+// Fill civil local date + minute-of-day. Prefers SNTP; falls back to host.
+static bool wallClockLocal(int *year, int *month, int *day, int *minOfDay,
+                           float *tzHours) {
+  time_t now = time(nullptr);
+  if (now > 1700000000LL) {  // sane post-2023
+    struct tm localTi {};
+    struct tm utcTi {};
+    localtime_r(&now, &localTi);
+    gmtime_r(&now, &utcTi);
+    *year = localTi.tm_year + 1900;
+    *month = localTi.tm_mon + 1;
+    *day = localTi.tm_mday;
+    *minOfDay = localTi.tm_hour * 60 + localTi.tm_min;
+    // ESP32's newlib tm lacks tm_gmtoff — diff local vs UTC minutes instead.
+    int localMin = localTi.tm_yday * 1440 + localTi.tm_hour * 60 + localTi.tm_min;
+    int utcMin = utcTi.tm_yday * 1440 + utcTi.tm_hour * 60 + utcTi.tm_min;
+    // Year boundary: Dec 31 UTC vs Jan 1 local (or the reverse).
+    if (localTi.tm_year != utcTi.tm_year) {
+      if (localTi.tm_year > utcTi.tm_year) localMin += 365 * 1440;
+      else utcMin += 365 * 1440;
+    }
+    *tzHours = (float)(localMin - utcMin) / 60.0f;
+    return true;
+  }
+  if (!hostClockValid) return false;
+  const uint32_t elapsedMin = (millis() - hostClockAtMs) / 60000UL;
+  int mod = hostMinOfDay + (int)elapsedMin;
+  int y = hostY, mo = hostM, d = hostD;
+  // Advance calendar days if we crossed midnight (desk stays up for weeks).
+  while (mod >= 1440) {
+    mod -= 1440;
+    d++;
+    static const int mdays[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int dim = mdays[mo];
+    if (mo == 2) {
+      const bool leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+      if (leap) dim = 29;
+    }
+    if (d > dim) {
+      d = 1;
+      mo++;
+      if (mo > 12) {
+        mo = 1;
+        y++;
+      }
+    }
+  }
+  *year = y;
+  *month = mo;
+  *day = d;
+  *minOfDay = mod;
+  *tzHours = (float)hostTzMin / 60.0f;
+  return true;
+}
+
+static BrightnessMode brightnessModeFor(int minOfDay, int riseMin, int setMin) {
+  int morning = riseMin - BRIGHTNESS_SUNRISE_LEAD_MIN;
+  int evening = setMin + BRIGHTNESS_SUNSET_LAG_MIN;
+  const int night = clampi(BRIGHTNESS_BEDTIME_MIN, 0, 1439);
+  // A pre-midnight morning (sunrise just after 00:00 with a 30m lead) wraps
+  // into late evening; the branch below then treats night as a same-day
+  // interval instead of a midnight span.
+  if (morning < 0) morning += 1440;
+  morning %= 1440;
+  if (evening < 0) evening += 1440;
+
+  // Night: bedtime → morning. Typical (morning < night) spans midnight;
+  // wrapped morning > night is a same-evening window only.
+  const bool inNight = (morning <= night)
+                           ? (minOfDay >= night || minOfDay < morning)
+                           : (minOfDay >= night && minOfDay < morning);
+  if (inNight) return BR_NIGHT;
+
+  // Summer guard: late dusk would put evening-dim after bedtime — skip it,
+  // go day straight until night. Stops August from sitting at 30% for one
+  // minute then slamming to 10%, and stops "evening after bed" nonsense.
+  if (evening >= night) return BR_DAY;
+
+  if (minOfDay >= (evening % 1440)) return BR_EVENING;
+  return BR_DAY;
+}
+
+static void tickBrightness(bool force = false) {
+#if !BRIGHTNESS_AUTO
+  (void)force;
+  return;
+#else
+  const uint32_t now = millis();
+  if (!force && lastBrightnessTickMs != 0 &&
+      (now - lastBrightnessTickMs) < 15000UL) {
+    return;
+  }
+  lastBrightnessTickMs = now;
+
+  ntpEnsureStarted();
+
+  int y = 0, mo = 0, d = 0, mod = 0;
+  float tzH = 0;
+  if (!wallClockLocal(&y, &mo, &d, &mod, &tzH)) return;
+
+  int rise = 0, aset = 0;
+  if (!solarRiseSetLocal(y, mo, d, (float)LATITUDE, (float)LONGITUDE, tzH,
+                         &rise, &aset)) {
+    return;
+  }
+
+  const BrightnessMode mode = brightnessModeFor(mod, rise, aset);
+  char why[48];
+  snprintf(why, sizeof why, "%02d:%02d rise=%02d:%02d set=%02d:%02d",
+           mod / 60, mod % 60, rise / 60, rise % 60, aset / 60, aset % 60);
+  applyBrightness(brightnessLevel(mode), mode, why);
+#endif
 }
 
 // ---------------- Formatting ----------------
@@ -1335,6 +1609,7 @@ static bool applyUsageDoc(JsonDocument &doc) {
 
   haveData = true;
   hostOk = true;
+  hostClockSyncFromUpdated();
   return true;
 }
 
@@ -3716,6 +3991,15 @@ static void drawQuotaPage() {
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",
            updatedHHMM(when, sizeof when) ? when : "--");
   drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
+  // Same "Today N%" reading as the Daily burn home pane, scoped to this
+  // provider's headline meter — how many percentage points of the pool went
+  // today, not the window's lifetime used figure on the bars below.
+  if (dailyBurnN > 0 && index < slotN) {
+    char todayBuf[24];
+    snprintf(todayBuf, sizeof todayBuf, "Today %.0f%%",
+             dailyBurnDays[dailyBurnN - 1].burns[index]);
+    drawRightAt(todayBuf, W - padX, top + 29, 2, COL_DIM);
+  }
   gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
 
   // Content below the header rule splits evenly: meters on top, burndown below.
@@ -4353,7 +4637,8 @@ void setup() {
   // which is the green line that used to flash along the bottom edge.
   panel->fillScreen(COL_BLACK);
   sealNativeEdges(COL_BLACK);
-  panel->setBrightness(200);
+  panel->setBrightness(BRIGHTNESS_DAY);
+  brightnessApplied = BRIGHTNESS_DAY;
 
   // Panel already started — skip nested begin inside the canvas.
   bool cok = gfx->begin(GFX_SKIP_OUTPUT_BEGIN);
@@ -4544,11 +4829,16 @@ void loop() {
     if (st == WL_CONNECTED) {
       if (!mdnsUp) mdnsUp = MDNS.begin(OTA_HOSTNAME);
       otaBegin();
+      ntpEnsureStarted();
     }
   }
 
   // Animate the collecting-history spinner between polls (partial flush).
   if (!touchDown) tickCollectingSpinner();
+
+  // Sun / bedtime brightness — independent of /usage so a quiet night still
+  // dims even when the Mac is asleep and polls are backing off.
+  tickBrightness();
 
   // Background poll — skip while finger is down.
   if (!touchDown && millis() - lastPoll >= pollIntervalMs()) {

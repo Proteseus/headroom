@@ -1,6 +1,10 @@
+#if os(macOS)
+import AppKit
+#endif
 import SwiftUI
 
 /// Shared LabeledContent row for API metadata detail pages.
+/// Used by iPhone Activity push pages and the Mac menubar drill-in.
 struct APIDetailMetaRow: View {
     let title: String
     let value: String?
@@ -32,7 +36,7 @@ struct PlausibleSiteDetail: View {
                 if let error = site.error, !error.isEmpty {
                     LabeledContent("Error") {
                         Text(error)
-                            .foregroundStyle(HeadroomPalette.amber)
+                            .foregroundStyle(HeadroomPalette.orange)
                             .multilineTextAlignment(.trailing)
                     }
                 }
@@ -56,14 +60,11 @@ struct PlausibleSiteDetail: View {
                     )
                 }
             }
-            if let raw = site.dashboardURL, let url = URL(string: raw) {
-                Section {
-                    Link("Open in Plausible", destination: url)
-                }
-            }
         }
-        .navigationTitle(site.domain)
-        .navigationBarTitleDisplayMode(.inline)
+        .serviceDetailChrome(
+            title: site.domain,
+            permalink: Permalink.url(from: site.dashboardURL)
+        )
     }
 
     @ViewBuilder
@@ -100,7 +101,7 @@ struct PostHogProjectDetail: View {
                 if let error = project.error, !error.isEmpty {
                     LabeledContent("Error") {
                         Text(error)
-                            .foregroundStyle(HeadroomPalette.amber)
+                            .foregroundStyle(HeadroomPalette.orange)
                             .multilineTextAlignment(.trailing)
                     }
                 }
@@ -112,14 +113,11 @@ struct PostHogProjectDetail: View {
                 intRow("Events · 7d", project.events7d)
                 intRow("Users · 7d", project.users7d)
             }
-            if let raw = project.dashboardURL, let url = URL(string: raw) {
-                Section {
-                    Link("Open in PostHog", destination: url)
-                }
-            }
         }
-        .navigationTitle(project.displayName)
-        .navigationBarTitleDisplayMode(.inline)
+        .serviceDetailChrome(
+            title: project.displayName,
+            permalink: Permalink.url(from: project.dashboardURL)
+        )
     }
 
     @ViewBuilder
@@ -175,6 +173,16 @@ struct LocalServerDetail: View {
                 APIDetailMetaRow(title: "Command", value: server.cmd, monospaced: true)
                 APIDetailMetaRow(title: "Working directory", value: server.cwd, monospaced: true)
             }
+            #if os(macOS)
+            if let cwd = server.cwd {
+                Section {
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.selectFile(
+                            nil, inFileViewerRootedAtPath: cwd)
+                    }
+                }
+            }
+            #endif
             if server.pid != nil {
                 Section {
                     Button("Stop server", role: .destructive) {
@@ -185,14 +193,69 @@ struct LocalServerDetail: View {
                         ProgressView()
                     }
                 } footer: {
+                    #if os(iOS)
                     if !canStop {
                         Text("Stopping servers needs the Mac permission, and a fresh reading.")
                     }
+                    #endif
                 }
             }
         }
-        .navigationTitle(server.name ?? "Server")
-        .navigationBarTitleDisplayMode(.inline)
+        .serviceDetailChrome(
+            title: server.name ?? "Server",
+            permalink: Permalink.localServer(server)
+        )
+    }
+}
+
+struct LocalBuildDetail: View {
+    let build: LocalBuild
+    let hostName: String
+
+    var body: some View {
+        List {
+            Section("Build") {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Circle()
+                        .fill(HeadroomPalette.green)
+                        .frame(width: 8, height: 8)
+                    Text(HeadroomCopy.activityBuilding)
+                        .foregroundStyle(.secondary)
+                }
+                APIDetailMetaRow(title: "Name", value: build.name)
+                APIDetailMetaRow(title: "Host", value: hostName)
+                APIDetailMetaRow(title: "Kind", value: build.kind, monospaced: true)
+                APIDetailMetaRow(title: "Action", value: build.action)
+                APIDetailMetaRow(title: "Scheme", value: build.scheme)
+                APIDetailMetaRow(title: "Target", value: build.target)
+                if let age = build.ageS {
+                    APIDetailMetaRow(
+                        title: "Age",
+                        value: age < 60 ? "\(age)s" : "\(age / 60)m"
+                    )
+                }
+                if let pid = build.pid {
+                    APIDetailMetaRow(title: "PID", value: "\(pid)", monospaced: true)
+                }
+            }
+            Section("Process") {
+                APIDetailMetaRow(title: "Command", value: build.cmd, monospaced: true)
+                APIDetailMetaRow(title: "Working directory", value: build.cwd, monospaced: true)
+            }
+            #if os(macOS)
+            if let cwd = build.cwd {
+                Section {
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.selectFile(
+                            nil, inFileViewerRootedAtPath: cwd)
+                    }
+                }
+            }
+            #endif
+        }
+        .serviceDetailChrome(title: build.name ?? "Xcode")
     }
 }
 
@@ -239,31 +302,10 @@ struct ActivityItemDetail: View {
                 }
                 APIDetailMetaRow(title: "ID", value: item.id, monospaced: true)
             }
-            if primaryURL != nil || inspectorURL != nil {
-                Section {
-                    if let url = primaryURL {
-                        Link("Open", destination: url)
-                    }
-                    if let url = inspectorURL, url != primaryURL {
-                        Link("Inspector", destination: url)
-                    }
-                }
-            }
         }
-        .navigationTitle(item.subject ?? style.label)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var primaryURL: URL? {
-        Self.url(from: item.url)
-    }
-
-    private var inspectorURL: URL? {
-        Self.url(from: item.inspectorURL)
-    }
-
-    private static func url(from raw: String?) -> URL? {
-        guard let raw, !raw.isEmpty else { return nil }
-        return URL(string: raw.contains("://") ? raw : "https://\(raw)")
+        .serviceDetailChrome(
+            title: item.subject ?? style.label,
+            permalink: Permalink.activity(item)
+        )
     }
 }

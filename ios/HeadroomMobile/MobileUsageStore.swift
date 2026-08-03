@@ -355,6 +355,16 @@ final class MobileUsageStore: ObservableObject {
         }
     }
 
+    func setServicesOrder(_ order: [String]) async {
+        guard mobilePermissions.sources else { return }
+        do {
+            _ = try await mobileClient.setServicesOrder(order)
+            await refresh(forceServerSync: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func acknowledgeAttention() async {
         guard let attention = snapshot.attention, attention.isWarning,
               mobilePermissions.read else { return }

@@ -314,6 +314,17 @@ struct MobileHeadroomClient: Sendable {
         return try JSONDecoder().decode(SourceControlResponse.self, from: data).enabled
     }
 
+    @discardableResult
+    func setServicesOrder(_ order: [String]) async throws -> [String] {
+        let url = try usageURL.deletingLastPathComponent()
+            .appending(path: "sources")
+        let body = try JSONEncoder().encode(
+            ServicesOrderRequest(servicesOrder: order))
+        let data = try await send(url: url, method: "POST", body: body)
+        return try JSONDecoder().decode(
+            ServicesOrderResponse.self, from: data).servicesOrder ?? order
+    }
+
     func stopServer(pid: Int, port: Int) async throws {
         let url = try usageURL.deletingLastPathComponent()
             .appending(path: "local")
@@ -366,6 +377,22 @@ private struct SourceControlRequest: Encodable {
 
 private struct SourceControlResponse: Decodable {
     let enabled: [String: Bool]
+}
+
+private struct ServicesOrderRequest: Encodable {
+    let servicesOrder: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case servicesOrder = "integrations_order"
+    }
+}
+
+private struct ServicesOrderResponse: Decodable {
+    let servicesOrder: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case servicesOrder = "integrations_order"
+    }
 }
 
 private struct StopServerControlRequest: Encodable {

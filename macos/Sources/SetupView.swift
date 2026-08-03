@@ -43,7 +43,7 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: hostReady ? "checkmark.circle.fill" : "server.rack")
-                    .foregroundStyle(hostReady ? HeadroomPalette.green : HeadroomPalette.amber)
+                    .foregroundStyle(hostReady ? HeadroomPalette.green : HeadroomPalette.orange)
                 Text(hostReady ? "Host is running" : "Host isn’t running")
                     .font(.headline)
                 Spacer()
@@ -84,7 +84,7 @@ struct SetupView: View {
                      ? "\(skew.title). \(skew.summary). Quit and reopen Headroom."
                      : "\(skew.title). \(skew.summary). Replacing it now.")
                     .font(.caption2)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
                     .fixedSize(horizontal: false, vertical: true)
             } else if hostReady, let version = store.hostVersionLabel {
                 Text(version)
@@ -113,7 +113,7 @@ struct SetupView: View {
             if let loadError {
                 Text(loadError)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             }
             if setupRows.isEmpty {
                 Text(hostReady ? "Loading…" : "Start the host to detect sources.")

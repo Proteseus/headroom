@@ -83,7 +83,7 @@ extension SettingsView {
             } else if let error = posthogConfig.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else if posthogConfig.available.isEmpty {
                 Text(posthogTokenStored
                       ? "0 projects this key can see."

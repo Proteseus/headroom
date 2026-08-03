@@ -366,7 +366,7 @@ class RollupContractTests(unittest.TestCase):
         for key in ("updated", "today", "by_day", "codex", "cursor", "vercel",
                     "git", "github", "activity", "local", "supabase",
                     "plausible", "posthog", "claude_status", "sources", "attention",
-                    "quota_ok", "session_pct", "week_pct"):
+                    "quota_ok", "session_pct", "week_pct", "integrations_order"):
             self.assertIn(key, doc)
 
     def test_demo_fixture_matches_the_served_shape(self):

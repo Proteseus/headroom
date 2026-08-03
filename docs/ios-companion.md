@@ -95,7 +95,7 @@ repo defaults to the maintainer's team and bundle ids. A fork needs both of
 these before the device build resolves:
 
 1. `HEADROOM_BUNDLE_PREFIX = com.example.you` in the gitignored
-   `macos/Local.xcconfig` (README, "Signing as yourself") → your own
+   `macos/Local.xcconfig` ([macos/README.md](../macos/README.md#signing-as-yourself)) → your own
    reverse-DNS prefix on every target. `com.centaur-labs.*` is already
    registered to someone else's team, so Apple will not mint you a profile for
    it. Change the `group.com.centaur-labs.headroom` App Group to match (the

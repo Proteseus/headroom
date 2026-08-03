@@ -272,7 +272,6 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.hooksInstalled, "Hooks installed")
         XCTAssertEqual(HeadroomCopy.gatewayOn, "Gateway on")
         XCTAssertEqual(HeadroomCopy.settingsStatus, "Status")
-        XCTAssertEqual(HeadroomCopy.settingsDashboard, "Dashboard")
         XCTAssertEqual(HeadroomCopy.on, "On")
         XCTAssertEqual(HeadroomCopy.off, "Off")
         XCTAssertEqual(HeadroomCopy.collectingHistory, "Collecting history")

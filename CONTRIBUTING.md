@@ -63,10 +63,10 @@ TestFlight upload does.
 
 A device build cannot go unsigned, and Apple will not mint anyone else a
 profile for `com.centaur-labs.*`. Forks set `DEVELOPMENT_TEAM` and
-`HEADROOM_BUNDLE_PREFIX` in a gitignored `macos/Local.xcconfig` (README,
-"Signing as yourself"), rename the matching App Group, and build with
-`-allowProvisioningUpdates` so Xcode registers the new ids. Full steps in
-[docs/ios-companion.md](docs/ios-companion.md).
+`HEADROOM_BUNDLE_PREFIX` in a gitignored `macos/Local.xcconfig`
+([macos/README.md](macos/README.md#signing-as-yourself)), rename the matching
+App Group, and build with `-allowProvisioningUpdates` so Xcode registers the
+new ids. Full steps in [docs/ios-companion.md](docs/ios-companion.md).
 
 `scripts/build-app.sh` passes `CODE_SIGNING_ALLOWED=NO`, so a local Mac build
 touches none of this. Only notarized releases and TestFlight uploads do.

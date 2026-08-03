@@ -80,6 +80,10 @@ struct UsageSnapshot: Decodable, Sendable {
     /// Provider ids the compact surfaces show, picked host-side so the menu
     /// bar, the widget, and the board never disagree about which three.
     var focus: [String]?
+    /// Activity service panel order (Supabase / local servers / …).
+    var servicesOrder: [String]?
+    /// Integrations catalog order (Settings list + Activity blocks).
+    var integrationsOrder: [String]?
     /// Per-provider, per-pool burndown keyed as ["claude": ["week": …]].
     var burndown: [String: [String: Burndown]]?
     var burndownPrimary: Burndown?
@@ -87,10 +91,6 @@ struct UsageSnapshot: Decodable, Sendable {
     /// least one row, so a single-Mac install has the same shape as a synced
     /// one and no surface needs a special case for "sync is off".
     var machines: [MachineSummary]?
-    /// Integrations catalog pin from the host. Activity paints watches in this
-    /// order. Legacy `services_order` is still accepted as a fallback.
-    var integrationsOrder: [String]?
-    var servicesOrder: [String]?
 
     static let empty = UsageSnapshot()
 
@@ -144,11 +144,12 @@ struct UsageSnapshot: Decodable, Sendable {
         claudeStatus: ClaudeStatus? = nil,
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
+        focus: [String]? = nil,
+        servicesOrder: [String]? = nil,
+        integrationsOrder: [String]? = nil,
         burndown: [String: [String: Burndown]]? = nil,
         burndownPrimary: Burndown? = nil,
-        machines: [MachineSummary]? = nil,
-        integrationsOrder: [String]? = nil,
-        servicesOrder: [String]? = nil
+        machines: [MachineSummary]? = nil
     ) {
         self.updated = updated
         self.contract = contract
@@ -181,16 +182,19 @@ struct UsageSnapshot: Decodable, Sendable {
         self.claudeStatus = claudeStatus
         self.sources = sources
         self.attention = attention
+        self.focus = focus
+        self.servicesOrder = servicesOrder
+        self.integrationsOrder = integrationsOrder
         self.burndown = burndown
         self.burndownPrimary = burndownPrimary
         self.machines = machines
-        self.integrationsOrder = integrationsOrder
-        self.servicesOrder = servicesOrder
     }
 
     enum CodingKeys: String, CodingKey {
         case updated, contract, plan, today, codex, cursor, providers, vercel, git, github, activity, local
         case supabase, plausible, posthog, sentry, datadog, axiom, sources, attention, focus, burndown, machines
+        case servicesOrder = "services_order"
+        case integrationsOrder = "integrations_order"
         case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
@@ -204,8 +208,6 @@ struct UsageSnapshot: Decodable, Sendable {
         case weekPct = "week_pct"
         case weekPacePct = "week_pace_pct"
         case weekResetsIn = "week_resets_in"
-        case integrationsOrder = "integrations_order"
-        case servicesOrder = "services_order"
     }
 
     /// Hand-written so the list-valued fields can decode lossily. Everything
@@ -245,6 +247,8 @@ struct UsageSnapshot: Decodable, Sendable {
         claudeStatus = try value(.claudeStatus)
         attention = try value(.attention)
         focus = try value(.focus)
+        servicesOrder = try value(.servicesOrder)
+        integrationsOrder = try value(.integrationsOrder)
         burndown = try value(.burndown)
         burndownPrimary = try value(.burndownPrimary)
 
@@ -258,10 +262,6 @@ struct UsageSnapshot: Decodable, Sendable {
             SyncSource.self, forKey: .sources)
         machines = try container.decodeLossyArrayIfPresent(
             MachineSummary.self, forKey: .machines)
-        integrationsOrder = try container.decodeLossyArrayIfPresent(
-            String.self, forKey: .integrationsOrder)
-        servicesOrder = try container.decodeLossyArrayIfPresent(
-            String.self, forKey: .servicesOrder)
     }
 
     /// Enabled coding-quota providers from the host registry (string ids).
@@ -305,6 +305,7 @@ struct UsageSnapshot: Decodable, Sendable {
                 id: row.id,
                 title: row.title,
                 label: row.label,
+                email: row.email,
                 kind: row.kind ?? "quota",
                 enabled: true
             )
@@ -1146,6 +1147,10 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// the default provider row. Drawn next to the brand mark so the mark
     /// names the tool and this names the account.
     var label: String?
+    /// Signed-in email when the host can read it from local credentials
+    /// (Codex id_token, Cursor cached profile). Nil when unknown — Claude's
+    /// OAuth token is opaque, so it often stays blank.
+    var email: String?
     var kind: String?
     /// Position in the user's pinned order. The host already sorted
     /// `providers[]`; this is here so a client that re-sorts can't drift.
@@ -1192,6 +1197,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         id: String,
         title: String? = nil,
         label: String? = nil,
+        email: String? = nil,
         kind: String? = nil,
         rank: Int? = nil,
         enabled: Bool? = nil,
@@ -1213,6 +1219,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.id = id
         self.title = title
         self.label = label
+        self.email = email
         self.kind = kind
         self.rank = rank
         self.enabled = enabled
@@ -1233,7 +1240,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, label, kind, rank, enabled, ok, plan, error, accent, stale
+        case id, title, label, email, kind, rank, enabled, ok, plan, error, accent, stale
         case headline, pools
         case staleForS = "stale_for_s"
         case authRequired = "auth_required"
@@ -1998,6 +2005,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     /// Settings keeps the full `title` ("Claude · Work"); surfaces that draw
     /// a brand mark use this instead — see `QuotaProviderInfo.markTitle`.
     var label: String?
+    /// Signed-in email when the host can read it locally. Nil when unknown.
+    var email: String?
     var hint: String?
     /// "quota" or "activity" — from the host registry.
     var kind: String?
@@ -2040,7 +2049,7 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var isDismissed: Bool { dismissed ?? !(enabled ?? true) }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, label, hint, kind, group, accent, enabled, ok, stale
+        case id, title, label, email, hint, kind, group, accent, enabled, ok, stale
         case configured, error, detail, dismissed
         case authRequired = "auth_required"
         case staleCause = "stale_cause"
@@ -2367,7 +2376,6 @@ struct PostHogUsage: Decodable, Sendable {
             PostHogProject.self, forKey: .projects)
     }
 }
-
 
 struct SentryUsage: Decodable, Sendable {
     var ok: Bool?

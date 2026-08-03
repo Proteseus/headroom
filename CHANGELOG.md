@@ -17,6 +17,69 @@ tag a version that has no entry.
   signals only, not dashboards. Keys stay in Keychain; org/site/host in
   config.
 
+## 1.6.7 — 2026-08-03
+
+### Changed
+
+- **Warn is orange, not soft amber.** Soft amber stays for in-flight (building,
+  syncing) and soft stale. Attention `warn`, review/mention/assigned, connection
+  trouble, and needs-sign-in use a hotter orange (`#D98A3C`) so warn no longer
+  reads as "stuff is happening." Critical stays dusty red.
+
+- **Sources: Add account lives under Library.** The Active meter rows no longer
+  carry an inline “Add account…” link. Multi-account providers get chip buttons
+  in an **Add account** section under Library. Active rows show the signed-in
+  email when the host can read it (Codex ChatGPT id_token, Cursor’s cached
+  profile); Claude’s OAuth token is opaque so it may stay blank.
+
+- **Integrations drops Coding agents.** Claude Code and Codex stay under the
+  Coding agents tab; the Integrations catalog is watches and connections only.
+
+- **Dashboard density leaves General.** Activity row count sits on Integrations;
+  Local servers count, stop confirmation, and show/hide sit on the Local leaf.
+
+### Added
+
+- **Provider pages show today’s quota burn.** Same `Today N%` reading as the
+  Daily burn card, scoped to that provider’s headline meter — on the ESP32
+  detail page (opposite Updated), and on Mac / iPhone provider cards.
+
+- **Menubar Activity drills into the same detail pages as iPhone.** Plausible,
+  PostHog, Supabase, local servers, Xcode builds, and feed/Attention rows open
+  a Back-stack detail inside the popover. A shared `link` permalink glyph on
+  each row and detail chrome opens the source; Supabase pin is gone.
+
+- **One Integrations catalog.** Settings → Integrations is a single Sources-style
+  list (drag, toggle, status, open leaf) — not a separate “Activity services”
+  reorderer plus connection groups. Host pin is `integrations_order` (migrates
+  from the short-lived `services_order`). Activity on Mac and iPhone lays out
+  git / Actions / Vercel / service panels / local servers / builds in that
+  order; API balances stay on the list for enable/open but skip the Activity
+  stack. Claude Code and Codex are under Coding agents only.
+
+- **Settings sidebar selection no longer races the detail.** A `TapGesture` on
+  each root was fighting `List(selection:)` and often left the highlight and
+  the pane disagreeing.
+- **Local Xcode builds next to local servers.** Activity on Mac and iPhone
+  lists live `xcodebuild` / `swift build` (agents, CLI) and IDE compiles that
+  are actually running compilers under XCBuildService / SWBBuildService —
+  labeled by scheme or DerivedData project. Idle Xcode with a warm build
+  service stays quiet. No stop action; Reveal in Finder only.
+
+- **ESP32 glance dims with the sun.** Amsterdam lat/lon by default (override
+  in `config.h`): full brightness until 30 minutes after sunset, then ~30%,
+  then ~10% at a fixed bedtime (22:00). Back to full 30 minutes before
+  sunrise. Late summer sunsets that would put the evening step after bedtime
+  skip evening and go day→night at bedtime, so winter dusk plateaus stay
+  long without August going haywire. Clock from SNTP when Wi-Fi is up, else
+  the host's `updated` stamp. Board setup lives in [`docs/esp32.md`](docs/esp32.md)
+  beside the iPhone and Watch guides.
+
+- **Root README is the product front door.** Setup detail, host reference,
+  troubleshooting, and Mac build/signing moved to [`docs/setup.md`](docs/setup.md),
+  [`docs/host.md`](docs/host.md), [`docs/troubleshooting.md`](docs/troubleshooting.md),
+  and [`macos/README.md`](macos/README.md).
+
 ## 1.6.5 — 2026-08-02
 
 ### Changed

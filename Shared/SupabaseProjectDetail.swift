@@ -16,10 +16,11 @@ struct SupabaseProjectDetail: View {
                 servicesSection(services)
             }
             advisorsSection
-            linksSection
         }
-        .navigationTitle(project.name ?? project.ref)
-        .navigationBarTitleDisplayMode(.inline)
+        .serviceDetailChrome(
+            title: project.name ?? project.ref,
+            permalink: Permalink.url(from: project.dashboardURL)
+        )
     }
 
     @ViewBuilder
@@ -44,7 +45,7 @@ struct SupabaseProjectDetail: View {
             if let error = project.healthError, !error.isEmpty {
                 LabeledContent("Health error") {
                     Text(error)
-                        .foregroundStyle(HeadroomPalette.amber)
+                        .foregroundStyle(HeadroomPalette.orange)
                         .multilineTextAlignment(.trailing)
                 }
             }
@@ -160,18 +161,6 @@ struct SupabaseProjectDetail: View {
         }
     }
 
-    @ViewBuilder
-    private var linksSection: some View {
-        Section {
-            if let raw = project.dashboardURL, let url = URL(string: raw) {
-                Link("Open in Supabase", destination: url)
-            }
-            if let url = URL(string: project.advisorsURL) {
-                Link("Security advisors", destination: url)
-            }
-        }
-    }
-
     private var advisorSummary: String {
         var bits: [String] = []
         if let errors = project.lintErrorCount, errors > 0 {
@@ -219,7 +208,7 @@ struct SupabaseProjectDetail: View {
         switch (lint.level ?? "WARN").uppercased() {
         case "ERROR": return HeadroomPalette.red
         case "INFO": return .secondary
-        default: return HeadroomPalette.amber
+        default: return HeadroomPalette.orange
         }
     }
 

@@ -346,7 +346,7 @@ extension SettingsView {
         _ status: AgentProviderStatus
     ) -> AnyShapeStyle {
         if !status.available || status.connection == "disconnected" {
-            return AnyShapeStyle(HeadroomPalette.amber)
+            return AnyShapeStyle(HeadroomPalette.orange)
         }
         if status.connection == "ready" {
             return AnyShapeStyle(HeadroomPalette.green)

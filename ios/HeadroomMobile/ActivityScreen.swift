@@ -1,50 +1,30 @@
 import SwiftUI
 
-/// What the Mac has been doing, and what it is running: the merged deploy /
-/// commit / Actions feed above the service panels that used to be a tab of
-/// their own.
-///
-/// Nothing on this screen is waiting for an answer. Rows that failed live on
-/// `AttentionScreen`, which is also the one place that decides which those are
-/// — this screen takes the complement, so the two can't disagree.
+/// What the Mac has been doing: one chronological mixed feed (commits,
+/// Actions, deploys, resets) plus service panels and local servers/builds
+/// in Integrations catalog order. Failed rows live on Attention — this
+/// screen takes the complement.
 struct ActivityScreen: View {
     @ObservedObject var store: MobileUsageStore
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var serverToStop: LocalServer?
     @State private var controlError: String?
 
-    /// Wide iPhone: feed on the left, service panels on the right — the same
-    /// split the screen already had as "above / below" in portrait.
-    private var splitLayout: Bool {
-        WidePhoneLayout.isActive(horizontalSizeClass)
-    }
-
     var body: some View {
-        let rows = (store.snapshot.activity ?? []).filter {
-            !ActivityStatusStyle.resolve($0.status).needsAttention
-        }
-        Group {
-            if splitLayout {
-                HStack(spacing: 0) {
-                    List {
-                        ArchivedDataNotice(store: store)
-                        feedSections(rows: rows)
-                    }
-                    .listStyle(.insetGrouped)
-                    List {
-                        ServiceSections(store: store) { serverToStop = $0 }
-                    }
-                    .listStyle(.insetGrouped)
-                }
-            } else {
-                List {
-                    ArchivedDataNotice(store: store)
-                    feedSections(rows: rows)
-                    ServiceSections(store: store) { serverToStop = $0 }
-                }
-                .listStyle(.insetGrouped)
+        List {
+            ArchivedDataNotice(store: store)
+            ServiceSections(store: store) { serverToStop = $0 }
+            if !hasAnyActivityBlock {
+                PageEmptyState(
+                    systemImage: "list.bullet.rectangle.fill",
+                    title: HeadroomCopy.noActivityYet
+                )
+                .frame(minHeight: 220)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle(HeadroomCopy.activity)
         .refreshable { await store.refresh(forceServerSync: true) }
         .confirmationDialog(
@@ -77,24 +57,35 @@ struct ActivityScreen: View {
         }
     }
 
-    @ViewBuilder
-    private func feedSections(rows: [ActivityItem]) -> some View {
-        if rows.isEmpty {
-            PageEmptyState(
-                systemImage: "list.bullet.rectangle.fill",
-                title: HeadroomCopy.noActivityYet
-            )
-            .frame(minHeight: 220)
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets())
-        } else {
-            ForEach(ActivityGrouping.groups(from: rows)) { group in
-                Section(group.title) {
-                    ForEach(group.rows) { ActivityRow(item: $0) }
-                }
+    /// True when any catalog block would paint something — used only for the
+    /// empty state when every section is quiet.
+    private var hasAnyActivityBlock: Bool {
+        let snap = store.snapshot
+        let feed = (snap.activity ?? []).filter {
+            !ActivityStatusStyle.resolve($0.status).needsAttention
+        }
+        if !feed.isEmpty { return true }
+        for watch in IntegrationWatch.activityBlocks(
+            from: snap.integrationsOrder ?? snap.servicesOrder
+        ) {
+            switch watch {
+            case .git, .github, .vercel, .sentry, .datadog, .axiom:
+                continue
+            case .supabase:
+                if snap.supabase?.configured == true { return true }
+            case .plausible:
+                if snap.plausible?.configured == true { return true }
+            case .posthog:
+                if snap.posthog?.configured == true { return true }
+            case .servers:
+                return true
+            case .builds:
+                if !(snap.local?.builds ?? []).isEmpty { return true }
+            case .openrouter, .aiGateway:
+                continue
             }
         }
+        return false
     }
 
     @MainActor
@@ -110,58 +101,61 @@ struct ActivityScreen: View {
     }
 }
 
-/// One feed row, drawn the same on both tabs. Status vocabulary comes from
-/// `Shared/ActivityStatus.swift` so the phone and the Mac card can't drift
-/// into different ideas of green.
+/// One feed row, drawn the same on Activity and Attention. Status vocabulary
+/// comes from `Shared/ActivityStatus.swift` so the phone and the Mac card
+/// can't drift into different ideas of green.
 struct ActivityRow: View {
     let item: ActivityItem
 
     var body: some View {
         let style = ActivityStatusStyle.resolve(item.status)
-        NavigationLink {
-            ActivityItemDetail(item: item)
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                // Brand marks stay monochrome — only AI providers own a
-                // colour. Status tint paints the fallback glyph alone.
-                let hasBrand = ProviderIcon.sourceID(forKind: item.kind) != nil
-                ProviderMark.forKind(
-                    item.kind,
-                    size: 16,
-                    fallbackSystemImage: style.symbol
-                )
-                .foregroundStyle(
-                    hasBrand
-                        ? AnyShapeStyle(.primary)
-                        : AnyShapeStyle(style.tint)
-                )
-                .frame(width: 16)
-                .padding(.top, 2)
-                .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.subject ?? "Event")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    // Caption stays secondary — the word ("Failed", "Review")
-                    // carries the state. Tinting it painted service rows in
-                    // status colour, and services don't own a colour.
-                    Text(item.caption(label: style.label))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    if style.needsAttention, let error = item.errorMessage {
-                        Text(error)
+        HStack(spacing: 8) {
+            NavigationLink {
+                ActivityItemDetail(item: item)
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    // Brand marks stay monochrome — only AI providers own a
+                    // colour. Status tint paints the fallback glyph alone.
+                    let hasBrand = ProviderIcon.sourceID(forKind: item.kind) != nil
+                    ProviderMark.forKind(
+                        item.kind,
+                        size: 16,
+                        fallbackSystemImage: style.symbol
+                    )
+                    .foregroundStyle(
+                        hasBrand
+                            ? AnyShapeStyle(.primary)
+                            : AnyShapeStyle(style.tint)
+                    )
+                    .frame(width: 16)
+                    .padding(.top, 2)
+                    .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.subject ?? "Event")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        // Caption stays secondary — the word ("Failed", "Review")
+                        // carries the state. Tinting it painted service rows in
+                        // status colour, and services don't own a colour.
+                        Text(item.caption(label: style.label))
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(3)
+                            .lineLimit(2)
+                        if style.needsAttention, let error = item.errorMessage {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                        }
                     }
+                    Spacer(minLength: 6)
+                    Text(item.ago ?? "")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
                 }
-                Spacer(minLength: 6)
-                Text(item.ago ?? "")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
+            PermalinkButton(url: Permalink.activity(item))
         }
     }
 }

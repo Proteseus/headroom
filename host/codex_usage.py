@@ -86,6 +86,41 @@ def _tokens(blob):
     return t
 
 
+def _jwt_claims(token):
+    """Decode a JWT payload without verifying — identity only, Mac-local."""
+    if not token or token.count(".") < 2:
+        return None
+    try:
+        import base64
+        payload = token.split(".")[1]
+        pad = "=" * ((4 - len(payload) % 4) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload + pad))
+    except (ValueError, json.JSONDecodeError, OSError):
+        return None
+
+
+def login_email(account=None):
+    """ChatGPT account email from the id_token, when present."""
+    tokens = _tokens(_read_auth(account)) or {}
+    claims = _jwt_claims(tokens.get("id_token")) or {}
+    email = claims.get("email")
+    if isinstance(email, str) and "@" in email:
+        return email.strip()
+    profile = claims.get("https://api.openai.com/profile")
+    if isinstance(profile, dict):
+        email = profile.get("email")
+        if isinstance(email, str) and "@" in email:
+            return email.strip()
+    # Access token sometimes carries the profile claim instead.
+    access = _jwt_claims(tokens.get("access_token")) or {}
+    profile = access.get("https://api.openai.com/profile")
+    if isinstance(profile, dict):
+        email = profile.get("email")
+        if isinstance(email, str) and "@" in email:
+            return email.strip()
+    return None
+
+
 def _refresh(blob, account=None):
     tokens = _tokens(blob) or {}
     refresh = tokens.get("refresh_token")

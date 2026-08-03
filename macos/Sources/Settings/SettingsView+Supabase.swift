@@ -67,7 +67,7 @@ extension SettingsView {
             } else if let error = supabaseConfig.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else if supabaseConfig.available.isEmpty {
                 Text(tokenStored
                       ? "0 projects this token can see."

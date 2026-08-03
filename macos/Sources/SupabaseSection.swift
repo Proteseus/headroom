@@ -1,20 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Supabase project health and security advisors. Unhealthy, unsafe, and
-/// pinned projects float to the top so a long portfolio still shows the ones
-/// that matter without expanding.
+/// Supabase project health and security advisors. Unhealthy and unsafe
+/// projects float to the top so a long portfolio still shows the ones that
+/// matter. Row tap opens the shared detail page; the link glyph opens the
+/// dashboard.
 struct SupabaseSection: View {
     let data: SupabaseUsage?
+    @Binding var selection: ServiceDetailSelection?
 
-    @AppStorage("supabaseFavoriteRefs")
-    private var favoriteRefsRaw = ""
-    @State private var expandedRef: String?
     @State private var showAll = false
-
-    private var favorites: Set<String> {
-        Set(favoriteRefsRaw.split(separator: ",").map(String.init))
-    }
 
     @ViewBuilder
     var body: some View {
@@ -28,9 +23,7 @@ struct SupabaseSection: View {
     private var connected: some View {
         let allProjects = data?.projects ?? []
         let attention = allProjects.filter {
-            $0.healthy == false
-                || ($0.lintErrorCount ?? 0) > 0
-                || favorites.contains($0.ref)
+            $0.healthy == false || ($0.lintErrorCount ?? 0) > 0
         }
         // Settings picks which projects the host returns; draw all of them.
         // Attention-first when something is wrong, with Show all to expand.
@@ -40,7 +33,7 @@ struct SupabaseSection: View {
             if data?.ok != true {
                 Text(data?.error ?? HeadroomCopy.serviceStatus("Supabase", configured: data?.configured))
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else {
                 HStack(spacing: 6) {
                     Text("\(data?.projectCount ?? allProjects.count) projects")
@@ -52,7 +45,7 @@ struct SupabaseSection: View {
                             .foregroundStyle(
                                 (data?.lintErrorCount ?? 0) > 0
                                     ? HeadroomPalette.red
-                                    : HeadroomPalette.amber
+                                    : HeadroomPalette.orange
                             )
                     }
                 }
@@ -82,149 +75,44 @@ struct SupabaseSection: View {
 
     @ViewBuilder
     private func row(_ project: SupabaseProject) -> some View {
-        let pinned = favorites.contains(project.ref)
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(project.healthy == true
-                          ? HeadroomPalette.green
-                          : HeadroomPalette.red)
-                    .frame(width: 7, height: 7)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(project.name ?? project.ref)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    let context = context(project)
-                    if !context.isEmpty {
-                        Text(context)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+            Button {
+                selection = .supabase(project.ref)
+            } label: {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(project.healthy == true
+                              ? HeadroomPalette.green
+                              : HeadroomPalette.red)
+                        .frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(project.name ?? project.ref)
+                            .font(.subheadline.weight(.medium))
                             .lineLimit(1)
-                    }
-                }
-                Spacer()
-                if let badge = lintBadge(project) {
-                    Label("\(badge.count)", systemImage: "shield.lefthalf.filled")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(badge.tint)
-                        .labelStyle(.titleAndIcon)
-                        .help(badge.help)
-                }
-                Button {
-                    toggleFavorite(project.ref)
-                } label: {
-                    Image(systemName: pinned ? "pin.fill" : "pin")
-                }
-                .buttonStyle(.borderless)
-                .help(pinned ? "Unpin project" : "Pin project")
-                .accessibilityLabel(pinned ? "Unpin" : "Pin")
-                Button {
-                    open(project)
-                } label: {
-                    Image(systemName: "arrow.up.right")
-                }
-                .buttonStyle(.borderless)
-                .help("Open in Supabase")
-                .accessibilityLabel("Open")
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                expandedRef = expandedRef == project.ref ? nil : project.ref
-            }
-            if expandedRef == project.ref {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(serviceSummary(project))
-                        .font(.caption)
-                        .foregroundStyle(
-                            project.healthy == true
-                                ? AnyShapeStyle(.secondary)
-                                : AnyShapeStyle(HeadroomPalette.red)
-                        )
-                    lintList(project)
-                }
-                .padding(.leading, 15)
-            }
-        }
-    }
-
-    /// Every advisor finding on the project, worst first — the point is to fix
-    /// them, so each row carries the entity and links to the remediation doc.
-    @ViewBuilder
-    private func lintList(_ project: SupabaseProject) -> some View {
-        let lints = project.lints ?? []
-        if let failure = project.advisorError {
-            Label("\(HeadroomCopy.serviceNotReporting("Advisors")) · \(failure)", systemImage: "shield.slash")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        if lints.isEmpty {
-            if project.advisorError == nil {
-                Label("No advisor findings", systemImage: "checkmark.shield")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            ForEach(lints) { lint in
-                Button {
-                    openLint(lint, project: project)
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(levelTag(lint))
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(levelTint(lint))
-                            .frame(width: 34, alignment: .leading)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(lint.title ?? lint.name)
+                        let context = context(project)
+                        if !context.isEmpty {
+                            Text(context)
                                 .font(.caption)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                            if let entity = lint.entity {
-                                Text(entity)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
                         }
-                        Spacer(minLength: 0)
                     }
-                    .contentShape(Rectangle())
+                    Spacer(minLength: 0)
+                    if let badge = lintBadge(project) {
+                        Label("\(badge.count)", systemImage: "shield.lefthalf.filled")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(badge.tint)
+                            .labelStyle(.titleAndIcon)
+                            .help(badge.help)
+                    }
+                    ServiceDetailChevron()
                 }
-                .buttonStyle(.plain)
-                .help(lintHelp(lint))
+                .contentShape(Rectangle())
             }
-            if project.lintTruncated == true {
-                Text("+ \((project.lintTotal ?? 0) - lints.count) more in the dashboard")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .buttonStyle(.plain)
+            .help("Show project detail")
+            PermalinkButton(url: Permalink.url(from: project.dashboardURL))
         }
-    }
-
-    private func levelTag(_ lint: SupabaseLint) -> String {
-        switch (lint.level ?? "WARN").uppercased() {
-        case "ERROR": return "ERROR"
-        case "INFO": return "INFO"
-        default: return "WARN"
-        }
-    }
-
-    private func levelTint(_ lint: SupabaseLint) -> Color {
-        switch (lint.level ?? "WARN").uppercased() {
-        case "ERROR": return HeadroomPalette.red
-        case "INFO": return HeadroomPalette.dim
-        default: return HeadroomPalette.amber
-        }
-    }
-
-    private func lintHelp(_ lint: SupabaseLint) -> String {
-        [lint.detail, lint.description, lint.name]
-            .compactMap { $0 }
-            .first ?? lint.name
-    }
-
-    private func openLint(_ lint: SupabaseLint, project: SupabaseProject) {
-        let target = lint.remediation ?? project.advisorsURL
-        guard let url = URL(string: target) else { return }
-        NSWorkspace.shared.open(url)
     }
 
     /// Portfolio headline: errors if there are any, otherwise the warn count.
@@ -250,20 +138,10 @@ struct SupabaseSection: View {
                     "\(errors) security error" + (errors == 1 ? "" : "s"))
         }
         if warns > 0 {
-            return (warns, HeadroomPalette.amber,
+            return (warns, HeadroomPalette.orange,
                     "\(warns) advisor warning" + (warns == 1 ? "" : "s"))
         }
         return nil
-    }
-
-    private func toggleFavorite(_ ref: String) {
-        var values = favorites
-        if values.contains(ref) {
-            values.remove(ref)
-        } else {
-            values.insert(ref)
-        }
-        favoriteRefsRaw = values.sorted().joined(separator: ",")
     }
 
     private func context(_ project: SupabaseProject) -> String {
@@ -274,23 +152,5 @@ struct SupabaseSection: View {
                ? project.status
                : (project.unhealthyServices ?? []).joined(separator: ", "))
         return [detail, project.region].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    private func serviceSummary(_ project: SupabaseProject) -> String {
-        let services = project.services ?? []
-        if services.isEmpty {
-            return project.healthError ?? project.status ?? "No service detail"
-        }
-        let unhealthy = services.filter { $0.healthy != true }.map(\.name)
-        if unhealthy.isEmpty {
-            return services.map(\.name).joined(separator: " · ")
-        }
-        return unhealthy.joined(separator: " · ") + " down"
-    }
-
-    private func open(_ project: SupabaseProject) {
-        guard let raw = project.dashboardURL,
-              let url = URL(string: raw) else { return }
-        NSWorkspace.shared.open(url)
     }
 }

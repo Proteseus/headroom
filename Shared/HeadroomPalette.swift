@@ -31,7 +31,12 @@ enum HeadroomPalette {
     static let git = rgb(155, 85, 200)      // COL_GIT
     static let local = rgb(70, 175, 165)    // COL_LOCAL
     static let green = rgb(95, 155, 115)    // COL_GREEN
+    /// In flight / soft caution — building, syncing, stale archive. Not alarm.
     static let amber = rgb(195, 155, 85)    // COL_AMBER
+    /// Actionable warn — Attention `warn`, needs-sign-in, review/mention rows.
+    /// Yellower and hotter than Claude's coral so the two don't collapse at
+    /// menu-bar pip size; same stop as the Settings accent named Orange.
+    static let orange = rgb(217, 138, 60)   // COL_ORANGE
     static let red = rgb(175, 105, 100)     // COL_RED
 
     static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Color {
@@ -68,7 +73,7 @@ enum HeadroomPalette {
     static func attention(_ level: String?) -> Color {
         switch level {
         case "critical": red
-        case "warn": amber
+        case "warn": orange
         default: green
         }
     }
@@ -76,7 +81,7 @@ enum HeadroomPalette {
     /// Link/attention dot for the surfaces that also have to say "stale".
     /// Saved-but-not-live outranks the level: a green dot over an hour-old
     /// payload reads as "all good right now", which is the one thing it
-    /// cannot promise.
+    /// cannot promise. Stale stays soft amber — not current, not a shout.
     static func status(level: String?, isStale: Bool) -> Color {
         isStale ? amber : attention(level)
     }

@@ -531,4 +531,4 @@ container answers.
 | `watch/` | Watch app + complications ([docs/watch.md](docs/watch.md)) |
 | `widget/` | One widget source, built for iOS and macOS |
 | `Shared/` | Models, copy, palette, rings, chart math — compiled by several targets |
-| `firmware/` | ESP32 |
+| `firmware/` | ESP32 ([docs/esp32.md](docs/esp32.md)) |

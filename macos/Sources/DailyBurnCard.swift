@@ -65,11 +65,7 @@ struct DailyBurnCard: View {
 
     private var subtitle: String {
         if todayTotal > 0 {
-            let rounded = (todayTotal * 10).rounded() / 10
-            if rounded == rounded.rounded() {
-                return "Today \(Int(rounded))%"
-            }
-            return "Today \(rounded)%"
+            return HeadroomFormat.todayBurn(todayTotal)
         }
         return HeadroomCopy.dailyBurnUnit
     }

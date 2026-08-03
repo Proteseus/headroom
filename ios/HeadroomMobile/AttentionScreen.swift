@@ -341,7 +341,7 @@ struct AttentionScreen: View {
                         ForEach(reasons, id: \.self) { reason in
                             Text(reason)
                                 .font(.caption)
-                                .foregroundStyle(HeadroomPalette.amber)
+                                .foregroundStyle(HeadroomPalette.orange)
                         }
                     }
                 }

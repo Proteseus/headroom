@@ -38,7 +38,7 @@ see [`attention.md`](attention.md).
   actions marked `requires_biometric` invoke device-owner authentication.
 
 The gateway itself is opt-in. On the Mac that runs the Headroom host, open
-**Headroom Settings → Coding agents**, enable the Codex attention gateway,
+**Headroom Settings → Agents**, enable the Codex attention gateway,
 choose the Codex executable if `codex` is not on the host's launchd path, and
 click **Apply & test**. That test starts `codex app-server`, performs its
 protocol handshake, and reports the live adapter version/status. It does not
@@ -58,7 +58,7 @@ uses localhost-only `GET` and `POST /agents/config`; this endpoint is
 intentionally unavailable over LAN because it controls a local executable.
 
 Claude Code does not require Headroom to launch its sessions. In
-**Headroom Settings → Coding agents**, click **Install hooks**. Headroom adds
+**Headroom Settings → Agents**, click **Install hooks**. Headroom adds
 only marked entries under `~/.claude/settings.json`, preserves every foreign
 hook, writes atomically, and keeps `settings.json.bak-headroom`. **Remove
 hooks** removes only Headroom-owned entries.
@@ -213,7 +213,7 @@ Two ways this was approached:
    of the adapter is ready: the ledger, typed fields, questions and interrupt
    are all provider-neutral and already tested.
 
-Until one of those lands, **Settings → Coding agents should not imply the Codex
+Until one of those lands, **Settings → Agents should not imply the Codex
 gateway is doing anything.** It connects, and that is all it does.
 
 ## Deliberate boundary

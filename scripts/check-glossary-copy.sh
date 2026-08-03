@@ -101,7 +101,7 @@ check_absent 'Text\("(We|Our|I) ' 'no first person in UI copy — say "you" or n
 # already deliver; red says it a second time, louder. Only exhaustion shifts
 # the colour, and it recedes (`tint.drained()`) rather than warns. Dropped
 # once in fd29592 and reintroduced by a later refactor — hence this guard.
-# Attention cards and source health dots keep their green/amber/red.
+# Attention cards and source health dots keep their green/orange/red.
 check_absent_in '(Color\.red|Color\.orange|: \.red\b|: \.orange\b|\(\.red\)|\(\.orange\))' \
   'burndown/quota views never alarm — see docs/glossary.md "Colour"' \
   macos/Sources/BurndownCard.swift \

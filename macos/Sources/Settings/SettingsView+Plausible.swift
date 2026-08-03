@@ -79,7 +79,7 @@ extension SettingsView {
             } else if let error = plausibleConfig.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else if plausibleConfig.available.isEmpty {
                 Text(plausibleTokenStored
                       ? "0 sites this key can see."

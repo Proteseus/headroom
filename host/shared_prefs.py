@@ -13,6 +13,7 @@ along with it.
     sources.dismissed.<id> bool (True = Library; off-but-not-dismissed = paused)
     sources.accent.<id>    "#RRGGBB" or None (None = use the registry colour)
     sources.order          [id, ...]
+    sources.integrations_order [id, ...]
     config.<key>           whatever config.json holds, or None when unset
 
 Every key is always present with an explicit None for "unset", because a
@@ -32,6 +33,9 @@ ENABLED_PREFIX = "sources.enabled."
 DISMISSED_PREFIX = "sources.dismissed."
 ACCENT_PREFIX = "sources.accent."
 ORDER_KEY = "sources.order"
+INTEGRATIONS_ORDER_KEY = "sources.integrations_order"
+# One-release read alias; apply still accepts it and writes integrations_order.
+SERVICES_ORDER_KEY = "sources.services_order"
 CONFIG_PREFIX = "config."
 
 
@@ -52,6 +56,7 @@ def read():
             dismissed.get(sid, not enabled.get(sid, False)))
         out[ACCENT_PREFIX + sid] = accents.get(sid)
     out[ORDER_KEY] = list(sources_config.order_ids())
+    out[INTEGRATIONS_ORDER_KEY] = list(sources_config.integrations_order_ids())
     stored = app_config.shared_config()
     for key in app_config.SHARED_CONFIG_KEYS:
         out[CONFIG_PREFIX + key] = stored.get(key)
@@ -61,10 +66,14 @@ def read():
 def _split(updates):
     enabled, dismissed, accents, config = {}, {}, {}, {}
     order = None
+    integrations_order = None
     for key, value in (updates or {}).items():
         if key == ORDER_KEY:
             if isinstance(value, list):
                 order = [str(item) for item in value]
+        elif key in (INTEGRATIONS_ORDER_KEY, SERVICES_ORDER_KEY):
+            if isinstance(value, list):
+                integrations_order = [str(item) for item in value]
         elif key.startswith(ENABLED_PREFIX):
             if isinstance(value, bool):
                 enabled[key[len(ENABLED_PREFIX):]] = value
@@ -76,7 +85,7 @@ def _split(updates):
                 accents[key[len(ACCENT_PREFIX):]] = value
         elif key.startswith(CONFIG_PREFIX):
             config[key[len(CONFIG_PREFIX):]] = value
-    return enabled, dismissed, accents, order, config
+    return enabled, dismissed, accents, order, integrations_order, config
 
 
 def apply(updates):
@@ -88,7 +97,8 @@ def apply(updates):
     `set_accents` already filter to known ids — this reports what survived so
     the caller does not record a stamp for a setting it did not keep.
     """
-    enabled, dismissed, accents, order, config = _split(updates)
+    enabled, dismissed, accents, order, integrations_order, config = _split(
+        updates)
     known = set(_source_ids())
     applied = []
 
@@ -124,6 +134,10 @@ def apply(updates):
     if order is not None:
         sources_config.set_order(order)
         applied.append(ORDER_KEY)
+
+    if integrations_order is not None:
+        sources_config.set_integrations_order(integrations_order)
+        applied.append(INTEGRATIONS_ORDER_KEY)
 
     if config:
         landed = app_config.set_shared_config(config)

@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Plausible site traffic. Live visitors float to the top; each row opens the
-/// site dashboard. Which sites appear is chosen under Settings → Integrations.
+/// Plausible site traffic. Live visitors float to the top; row tap opens the
+/// shared detail page. The link glyph opens the Plausible dashboard.
+/// Which sites appear is chosen under Settings → Integrations.
 struct PlausibleSection: View {
     let data: PlausibleUsage?
+    @Binding var selection: ServiceDetailSelection?
 
     @ViewBuilder
     var body: some View {
@@ -23,7 +25,7 @@ struct PlausibleSection: View {
             if data?.ok != true {
                 Text(data?.error ?? HeadroomCopy.serviceStatus("Plausible", configured: data?.configured))
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else {
                 Text(summaryLine(sites: sites.count))
                     .font(.caption)
@@ -51,39 +53,42 @@ struct PlausibleSection: View {
     @ViewBuilder
     private func row(_ site: PlausibleSite) -> some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill((site.realtime ?? 0) > 0
-                      ? HeadroomPalette.green
-                      : Color.secondary.opacity(0.35))
-                .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(site.domain)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Text(detail(site))
-                    .font(.caption)
-                    .foregroundStyle(
-                        site.error == nil
-                            ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(HeadroomPalette.amber)
-                    )
-                    .lineLimit(1)
-            }
-            Spacer()
-            if let live = site.realtime, live > 0 {
-                Text("\(live)")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(HeadroomPalette.green)
-                    .help("Current visitors")
-            }
             Button {
-                open(site)
+                selection = .plausible(site.domain)
             } label: {
-                Image(systemName: "arrow.up.right")
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill((site.realtime ?? 0) > 0
+                              ? HeadroomPalette.green
+                              : Color.secondary.opacity(0.35))
+                        .frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(site.domain)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        Text(detail(site))
+                            .font(.caption)
+                            .foregroundStyle(
+                                site.error == nil
+                                    ? AnyShapeStyle(.secondary)
+                                    : AnyShapeStyle(HeadroomPalette.orange)
+                            )
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    if let live = site.realtime, live > 0 {
+                        Text("\(live)")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(HeadroomPalette.green)
+                            .help("Current visitors")
+                    }
+                    ServiceDetailChevron()
+                }
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .help("Open in Plausible")
-            .accessibilityLabel("Open")
+            .buttonStyle(.plain)
+            .help("Show site detail")
+            PermalinkButton(url: Permalink.url(from: site.dashboardURL))
         }
     }
 
@@ -106,11 +111,5 @@ struct PlausibleSection: View {
             bits.append(String(format: "%.0f%% bounce", bounce))
         }
         return bits.isEmpty ? "No stats yet" : bits.joined(separator: " · ")
-    }
-
-    private func open(_ site: PlausibleSite) {
-        guard let raw = site.dashboardURL,
-              let url = URL(string: raw) else { return }
-        NSWorkspace.shared.open(url)
     }
 }

@@ -37,8 +37,8 @@ does not sync across Macs.
 
 | Knob | Surface |
 |------|---------|
-| Codex attention gateway on/off + binary | Mac Settings → Coding agents |
-| Claude hooks install / test | Mac Settings → Coding agents |
+| Codex attention gateway on/off + binary | Mac Settings → Agents |
+| Claude hooks install / test | Mac Settings → Agents |
 | Answer coding agents | Mac Settings → iPhone (`agents` permission, default off) |
 | Attention notifications | iOS Settings → iPhone (`@AppStorage`) |
 | Disable a source | Sources — stops that source's stale/derived reasons |
@@ -52,7 +52,7 @@ severity thresholds. Ack fingerprint and the event ledger stay off
 If a specific kind becomes chronic noise in real use (stuck amber forever), add
 **mute-by-kind**: a local boolean map in `config.json`, same locality as
 `agent_gateway_enabled`, gated inside the scorer. Place the toggle next to the
-source that feeds it (Coding agents or Integrations) — still not a scoring UI.
+source that feeds it (Agents or Integrations) — still not a scoring UI.
 
 Do not invent threshold pickers, weight sliders, or a synced attention-prefs
 blob. Revisit only when mute-by-kind is clearly needed.

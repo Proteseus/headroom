@@ -91,6 +91,8 @@ struct QuotaOverviewCard: View {
 struct ProviderQuotaCard: View {
     let meter: ProviderMeter
     let subscriptionPricing: SubscriptionPricing?
+    /// Headline-meter points burned today for this provider (`by_day`).
+    var todayBurn: Double? = nil
     var tint: Color? = nil
 
     private var brand: Color {
@@ -106,9 +108,17 @@ struct ProviderQuotaCard: View {
                 Text(meter.title)
                     .font(.headline)
                 Spacer()
-                Text(meter.plan ?? "—")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(meter.plan ?? "—")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if let todayBurn {
+                        Text(HeadroomFormat.todayBurn(todayBurn))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
             }
             ForEach(
                 Array(meter.displayableWindows.enumerated()), id: \.offset
@@ -169,7 +179,7 @@ struct ProviderQuotaCard: View {
                 .font(.caption)
                 .foregroundStyle(
                     meter.statusAlarming
-                        ? HeadroomPalette.amber : Color.secondary)
+                        ? HeadroomPalette.orange : Color.secondary)
             }
             // Not gated on `ok`. The host holds `ok` true while it replays the
             // last good bars, so gating here hid the message on exactly the
@@ -181,7 +191,7 @@ struct ProviderQuotaCard: View {
                     .font(.caption)
                     .foregroundStyle(
                         meter.statusAlarming
-                            ? HeadroomPalette.amber : Color.secondary)
+                            ? HeadroomPalette.orange : Color.secondary)
                     .lineLimit(2)
             }
         }
@@ -373,7 +383,7 @@ struct ProviderQuotaRing: View {
             Text(windowCaption)
                 .font(.caption2)
                 .foregroundStyle(
-                    provider.statusAlarming ? HeadroomPalette.amber : .secondary)
+                    provider.statusAlarming ? HeadroomPalette.orange : .secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)

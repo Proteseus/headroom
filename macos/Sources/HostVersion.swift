@@ -184,7 +184,7 @@ struct HostSkewBanner: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
                 Text(skew.title)
                     .font(.subheadline.weight(.semibold))
                 Spacer()

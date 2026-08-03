@@ -243,6 +243,26 @@ struct HeadroomClient: Sendable {
         return (object?["order"] as? [String]) ?? order
     }
 
+    /// Pin the Integrations catalog order (Settings list + Activity blocks).
+    @discardableResult
+    func setIntegrationsOrder(_ order: [String]) async throws -> [String] {
+        let url = try base().appendingPathComponent("sources")
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(withJSONObject: [
+                "integrations_order": order,
+            ]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["integrations_order"] as? [String]) ?? order
+    }
+
+    /// Legacy alias — Activity-only pin merged into the full catalog.
+    @discardableResult
+    func setServicesOrder(_ order: [String]) async throws -> [String] {
+        try await setIntegrationsOrder(order)
+    }
+
     /// Extra logins per provider, and which providers can hold them.
     func fetchAccounts() async throws -> ProviderAccounts {
         let url = try base().appendingPathComponent("accounts")
@@ -600,7 +620,6 @@ struct HeadroomClient: Sendable {
         return try JSONDecoder().decode(PostHogConfiguration.self, from: data)
     }
 
-
     func fetchSentryConfiguration() async throws -> SentryConfiguration {
         let url = try base()
             .appendingPathComponent("config")
@@ -839,7 +858,6 @@ struct PostHogProjectOption: Decodable, Sendable, Identifiable, Hashable {
     var id: String
     var name: String
 }
-
 
 struct SentryConfiguration: Decodable, Sendable {
     var ok: Bool?
