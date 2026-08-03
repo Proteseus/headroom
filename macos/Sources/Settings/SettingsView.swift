@@ -17,9 +17,6 @@ struct SettingsView: View {
     var confirmServerStops = true
     @AppStorage(ResetNotifications.defaultsKey)
     var notifyOnQuotaReset = false
-    @State var communityStats: HeadroomCommunityStats?
-    @State var communityStatsLoading = false
-    @State var communityStatsMessage: String?
 
     @State var sources: [SyncSource] = []
     @State var sourcesMessage: String?
@@ -257,8 +254,6 @@ struct SettingsView: View {
         )) { _ in
             // Login Items approval happens in System Settings; re-read on return.
             refreshOpenAtLogin()
-        }
-
         }
         .onChange(of: endpoint) { _, _ in
             Task { await reloadHostHealth() }
