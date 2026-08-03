@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.6.6 — 2026-08-03
+
+### Added
+
+- **Sentry, Datadog, and Axiom as Attention sources.** Integrations leaves
+  that surface fresh unresolved Sentry issues, Datadog Alert/Warn monitors,
+  and open Axiom monitor alerts into Activity and the Attention pip — break
+  signals only, not dashboards. Keys stay in Keychain; org/site/host in
+  config.
+
 ## 1.6.5 — 2026-08-02
 
 ### Changed
