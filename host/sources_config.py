@@ -38,7 +38,6 @@ from typing import Callable, NamedTuple, Optional
 import accounts
 import claude_status
 import codex_usage
-import copilot_usage
 import cursor_usage
 import detect_sources
 import gemini_usage
@@ -49,6 +48,7 @@ import grok_usage
 import jetbrains_usage
 import local_servers
 import oauth_usage
+import opencode_usage
 import openrouter_usage
 import plausible_usage
 import posthog_usage
@@ -615,6 +615,11 @@ _ZED_POOLS = (
     PoolSpec("predictions", "predictions", "Predictions",
              zed_usage.MONTH_WINDOW_S),
 )
+_OPENCODE_POOLS = (
+    MeterSpec("5h", "5h", "5h"),
+    MeterSpec("weekly", "weekly", "Weekly"),
+    MeterSpec("monthly", "monthly", "Monthly"),
+)
 _OPENROUTER_POOLS = (
     # Prepaid credits. No window, so no ring — the mark is a depletion bar.
     MeterSpec("balance", "balance", "Balance",
@@ -731,12 +736,6 @@ BASE_SOURCES = (
            account_hint="another profile's state.vscdb",
            subscription_prices=_CURSOR_SUBSCRIPTION_PRICES,
            subscription_pricing_url="https://cursor.com/pricing"),
-    Source("copilot", "Copilot", "GitHub token / `gh auth`", 60,
-           copilot_usage.fetch_quota,
-           kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
-           headline=("premium", "chat"), accent="#A371F7",
-           subscription_prices=_COPILOT_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://github.com/features/copilot/plans"),
     Source("gemini", "Gemini", "~/.gemini OAuth (Gemini CLI)", 60,
            gemini_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
@@ -768,6 +767,11 @@ BASE_SOURCES = (
            grok_usage.fetch_quota, detail_fn=_detail_grok,
            kind="quota", group=GROUP_AI, pools=_GROK_POOLS,
            accent="#8E8E93"),
+    Source("opencode", "OpenCode Go", "opencode-quota helper",
+           opencode_usage.CACHE_TTL_S,
+           opencode_usage.fetch_quota,
+           kind="quota", group=GROUP_AI, pools=_OPENCODE_POOLS,
+           headline=("5h", "weekly", "monthly"), accent="#6F6FD0"),
     Source("openrouter", "OpenRouter", "Management API key in Keychain",
            openrouter_usage.CACHE_TTL_S,
            openrouter_usage.fetch_quota,
