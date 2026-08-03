@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Mac Settings: sidebar of intent panes + detail Forms, nested Integrations
-/// and Sync. Same taxonomy as iOS (`SettingsDestination`); accessory
+/// and Other Macs. Same taxonomy as iOS (`SettingsDestination`); accessory
 /// apps keep the system `Settings` scene so SettingsLink / ⌘, keep working.
 struct SettingsView: View {
     @AppStorage("usageEndpoint")
@@ -17,14 +17,6 @@ struct SettingsView: View {
     var confirmServerStops = true
     @AppStorage(ResetNotifications.defaultsKey)
     var notifyOnQuotaReset = false
-    @AppStorage(HeadroomTelemetry.enabledKey)
-    var telemetryEnabled = true
-    @State var telemetryPreview: HeadroomTelemetryBatch?
-    @State var telemetryPreviewLoading = false
-    @State var telemetryCopyMessage: String?
-    @State var communityStats: HeadroomCommunityStats?
-    @State var communityStatsLoading = false
-    @State var communityStatsMessage: String?
 
     @State var sources: [SyncSource] = []
     @State var sourcesMessage: String?
@@ -34,11 +26,6 @@ struct SettingsView: View {
     @State var dropTargetID: String?
     /// Live usage by account id — feeds the Active card's bars.
     @State var usageProviders: [String: QuotaProviderInfo] = [:]
-    /// Activity panel pin order from the host (legacy).
-    @State var servicesOrder: [String] = IntegrationWatch.activityBlocks(from: nil)
-        .map(\.rawValue)
-    /// Full Integrations catalog pin order.
-    @State var integrationsOrder: [String] = IntegrationWatch.allCases.map(\.rawValue)
     /// Multi-account capability + current logins, from `/accounts`. Empty on
     /// hosts predating the endpoint, which simply hides "Add account…".
     @State var accountProviders: [AccountProvider] = []
@@ -132,9 +119,6 @@ struct SettingsView: View {
 
     @State var hostToken = ""
     @State var hostTokenStored = false
-    @State var hostHealth: HealthReport?
-    @State var hostHealthMessage: String?
-    @State var hostHealthLoading = false
     @State var mobileTokenMessage: String?
     @State var mobilePermissions = MobilePermissions.allEnabled
     @State var changingMobilePermission: MobilePermission?
@@ -156,7 +140,7 @@ struct SettingsView: View {
     @State var openAtLoginNeedsApproval = LaunchAtLogin.needsApproval
     @State var openAtLoginMessage: String?
     @State var selection: SettingsDestination? = .general
-    /// The pushed leaf under the selected root (one
+    /// The pushed leaf under the selected root (Other Macs under General, one
     /// integration under Integrations/Coding agents). A `NavigationStack`
     /// nested inside `NavigationSplitView`'s detail can't dock its automatic
     /// Back control into the window's real toolbar here, so it fell back to
@@ -185,6 +169,16 @@ struct SettingsView: View {
                     ForEach(SettingsDestination.macRoots, id: \.self) { dest in
                         Label(dest.title, systemImage: dest.symbol)
                             .tag(dest)
+                            // `onChange(of: selection)` below only fires when
+                            // the value changes, so re-clicking the root you're
+                            // already on left a pushed leaf (e.g. an
+                            // integration opened from Integrations) stranded —
+                            // Back had nothing further to pop to, but nothing
+                            // told you that's what happened. A simultaneous
+                            // gesture sees every click, changed value or not.
+                            .simultaneousGesture(TapGesture().onEnded {
+                                leaf = nil
+                            })
                     }
                 }
             }
@@ -213,10 +207,6 @@ struct SettingsView: View {
                         .navigationTitle(dest.title)
                 }
             }
-            // Identity the detail on the root so a sidebar click always
-            // rebuilds the pane — without this, SwiftUI can keep showing the
-            // previous root's body when selection updates race a leftover leaf.
-            .id(leaf.map { "leaf-\($0.title)" } ?? "root-\((selection ?? .general).title)")
         }
         .frame(width: 820, height: 600)
         .formStyle(.grouped)
@@ -224,10 +214,6 @@ struct SettingsView: View {
         .onChange(of: selection) { _, _ in
             // Sidebar swapped the root; drop any pushed leaf so Back isn't
             // left pointing at a pane that is no longer under it.
-            //
-            // Do not attach a TapGesture to sidebar rows: on macOS it races
-            // List(selection:) and often swallows the click, so the highlight
-            // moves (or doesn't) while the detail stays put.
             leaf = nil
         }
         .task {
@@ -255,24 +241,12 @@ struct SettingsView: View {
             await reloadSupabaseConfiguration()
             await reloadPlausibleConfiguration()
             await reloadPostHogConfiguration()
-            await reloadHostHealth()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification
         )) { _ in
             // Login Items approval happens in System Settings; re-read on return.
             refreshOpenAtLogin()
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .headroomTelemetryChanged
-        )) { _ in
-            Task {
-                await reloadTelemetryPreview()
-                await reloadCommunityStats()
-            }
-        }
-        .onChange(of: endpoint) { _, _ in
-            Task { await reloadHostHealth() }
         }
     }
 
@@ -289,10 +263,6 @@ struct SettingsView: View {
             codingAgentsPane
         case .iPhone:
             iPhonePane
-        case .sync:
-            syncPane
-        case .telemetry:
-            telemetryPane
         case .integrations:
             integrationsHub
         case .integration(let kind):
