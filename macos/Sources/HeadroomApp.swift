@@ -4,6 +4,10 @@ import SwiftUI
 
 @main
 struct HeadroomApp: App {
+    init() {
+        TelemetryCoordinator.shared.start()
+    }
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

@@ -3,7 +3,7 @@ import Foundation
 /// Settings navigation graph shared by macOS and iOS.
 ///
 /// Root order mirrors user intent (General → providers → watches → agents →
-/// sync → About). Nested leaves sit under Integrations and
+/// sync → telemetry → About). Nested leaves sit under Integrations and
 /// Integrations (every watchable thing, see `SettingsIntegration`).
 ///
 /// Integrations is one catalog of what you watch on Activity (and connect).
@@ -19,6 +19,7 @@ enum SettingsDestination: Hashable, Sendable {
     case codingAgents
     case iPhone
     case sync
+    case telemetry
     case integrations
     case about
 
@@ -34,7 +35,7 @@ enum SettingsDestination: Hashable, Sendable {
 
     /// Mac sidebar roots — short, fixed, progressive disclosure below.
     static let macRoots: [SettingsDestination] = [
-        .general, .sources, .integrations, .codingAgents, .sync,
+        .general, .sources, .integrations, .codingAgents, .sync, .telemetry,
         .about,
     ]
 
@@ -54,6 +55,7 @@ enum SettingsDestination: Hashable, Sendable {
         case .codingAgents: return HeadroomCopy.codingAgents
         case .iPhone: return HeadroomCopy.settingsiPhone
         case .sync: return HeadroomCopy.settingsSync
+        case .telemetry: return HeadroomCopy.settingsTelemetry
         case .integrations: return HeadroomCopy.settingsIntegrations
         case .about: return HeadroomCopy.about
         case .otherMacs: return HeadroomCopy.otherMacs
@@ -70,6 +72,7 @@ enum SettingsDestination: Hashable, Sendable {
         case .codingAgents: return "cpu"
         case .iPhone: return "iphone"
         case .sync: return "arrow.triangle.2.circlepath"
+        case .telemetry: return "chart.xyaxis.line"
         case .integrations: return "link"
         case .about: return "info.circle"
         case .otherMacs: return "laptopcomputer.and.iphone"
@@ -87,7 +90,7 @@ enum SettingsDestination: Hashable, Sendable {
     /// typing a key, and keys are never entered on the phone.
     var isMacOnly: Bool {
         switch self {
-        case .general, .codingAgents, .sync, .otherMacs, .integration:
+        case .general, .codingAgents, .sync, .telemetry, .otherMacs, .integration:
             return true
         case .integrations, .sources, .iPhone, .about, .connection,
              .permissions:

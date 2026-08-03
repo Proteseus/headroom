@@ -43,6 +43,14 @@ change — because an approval you cannot read is not an approval.
 - The permission is off until you turn it on in Mac Settings, and you can
   revoke it there at any time.
 
+## Mac anonymous diagnostics
+
+The **Mac app** can send one aggregate diagnostics batch per week when
+**Share anonymous product diagnostics** is left on (Settings → Telemetry).
+That batch is described in [`docs/telemetry.md`](telemetry.md): no prompts,
+paths, tokens, or install ids. The iOS app does not send this. Turning the
+setting off deletes any pending local batch.
+
 ## Data we do not collect
 
 Headroom (the product) does not run analytics SDKs, advertising SDKs, or

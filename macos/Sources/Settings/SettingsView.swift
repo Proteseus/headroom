@@ -17,6 +17,14 @@ struct SettingsView: View {
     var confirmServerStops = true
     @AppStorage(ResetNotifications.defaultsKey)
     var notifyOnQuotaReset = false
+    @AppStorage(HeadroomTelemetry.enabledKey)
+    var telemetryEnabled = true
+    @State var telemetryPreview: HeadroomTelemetryBatch?
+    @State var telemetryPreviewLoading = false
+    @State var telemetryCopyMessage: String?
+    @State var communityStats: HeadroomCommunityStats?
+    @State var communityStatsLoading = false
+    @State var communityStatsMessage: String?
 
     @State var sources: [SyncSource] = []
     @State var sourcesMessage: String?
@@ -275,6 +283,8 @@ struct SettingsView: View {
             iPhonePane
         case .sync:
             syncPane
+        case .telemetry:
+            telemetryPane
         case .integrations:
             integrationsHub
         case .integration(let kind):

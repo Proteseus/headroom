@@ -25,7 +25,12 @@ there:
   spend — prefer the narrowest key the provider offers
 - `git log`, `gh`, the Vercel CLI, and `lsof` for listening ports
 
-It sends none of it anywhere. There is no Headroom account and no server.
+It sends none of it anywhere unless you leave **Share anonymous product
+diagnostics** on in Settings → Telemetry. That path is opt-out by default,
+sends at most one aggregate batch per week, and never includes prompts,
+paths, tokens, or an install id — see [`docs/telemetry.md`](docs/telemetry.md).
+There is no Headroom account beyond that first-party intake.
+
 
 ## What is exposed, and to whom
 

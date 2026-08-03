@@ -17,6 +17,16 @@ tag a version that has no entry.
   signals only, not dashboards. Keys stay in Keychain; org/site/host in
   config.
 
+## 1.7.0 — 2026-08-03
+
+### Added
+
+- **Anonymous product diagnostics on the Mac.** Settings → Telemetry shares
+  one aggregate batch per week (app/host versions, normalized provider ids,
+  model-family shares, three coarse feature flags) when left on. No prompts,
+  paths, tokens, or install id. First-party Worker under `telemetry/`; see
+  [`docs/telemetry.md`](docs/telemetry.md).
+
 ## 1.6.7 — 2026-08-03
 
 ### Changed
