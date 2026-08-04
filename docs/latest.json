@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.3",
-  "published": "2026-08-04T12:15:04Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.3/Headroom-macOS.zip",
-  "sha256": "939c51658cb14641547ddd63592f15d2a98991f0d5624a87277916645ad77d7c",
-  "size": 5517854,
+  "version": "1.7.4",
+  "published": "2026-08-04T12:35:23Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.4/Headroom-macOS.zip",
+  "sha256": "ccc1277dd4caca1f5d03d45cad69d28d7e60c0dcd951c7d8751b549b537b367d",
+  "size": 5523580,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Recent resets is a calendar heatmap.** Granted resets under a burndown\n  card are a day grid (on/off; provider tint = global grant, amber = credit\n  you spent; weekly auto-resets stay off) instead of a six-row list, sized\n  from the oldest grant on hand. Codex week merges the public\n  [codex-resets.com](https://codex-resets.com) announcement feed with locally\n  observed sample grants — so the grid reaches back through every verified\n  global reset and keeps filling forward as new ones are announced or\n  detected. Still live data, never a fixture.\n- **Activity and Attention rows share one layout on Mac and iPhone.** Feed\n  rows and the Attention list live in `Shared/` so both surfaces draw the\n  same chrome."
+  "notes_md": "### Changed\n\n- **Host-down popover is a wait, not an error stack.** Header says **Host\n  not answering** (same fact as the menu-bar tooltip) with a soft amber pip\n  instead of Foundation’s “Could not connect…”. Sources and Done stay\n  hidden until `/health` answers; orange is reserved for a failed Start."
 }
