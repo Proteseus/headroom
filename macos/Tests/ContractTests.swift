@@ -184,7 +184,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(pricing.currency, "USD")
         XCTAssertEqual(pricing.checked, "2026-08-01")
         XCTAssertEqual(pricing.url, "https://www.anthropic.com/pricing")
-        let pro = try XCTUnwrap(pricing.plans.first { $0.id == "pro" })
+        let pro = try XCTUnwrap(pricing.plans?.first { $0.id == "pro" })
         XCTAssertEqual(pro.monthlyUSD, 20)
         XCTAssertEqual(pro.annualUSD, 200)
         XCTAssertEqual(pro.compactPrice, "$20 / user / mo · $200 / user / yr")
@@ -198,6 +198,54 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             codex.subscriptionPricing?.currentPrice(for: codex.plan)?.compactPrice,
             "$25 / user / mo · $240 / user / yr")
+    }
+
+    /// A malformed plan row costs that row, never the provider carrying it.
+    /// Before plans went lossy, one bad row threw out of subscription_pricing
+    /// and the row-lossy providers[] decode silently dropped the whole
+    /// provider — ring, meter, burndown and Activity leaf all gone over one
+    /// registry typo.
+    func testBadSubscriptionPlanRowKeepsTheProvider() throws {
+        let json = """
+        {
+          "providers": [
+            {
+              "id": "claude",
+              "title": "Claude",
+              "plan": "Pro",
+              "subscription_pricing": {
+                "currency": "USD",
+                "plans": [
+                  {"id": 42, "title": ["not", "a", "string"]},
+                  {"title": "Untitled tier", "monthly_usd": 5},
+                  {"id": "pro", "title": "Pro", "monthly_usd": 20}
+                ]
+              }
+            },
+            {
+              "id": "codex",
+              "subscription_pricing": {"currency": "USD"}
+            }
+          ]
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+
+        let claude = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "claude" })
+        let pricing = try XCTUnwrap(claude.subscriptionPricing)
+        // The unparseable row is dropped; the id-less one survives.
+        XCTAssertEqual(pricing.plans?.count, 2)
+        XCTAssertEqual(
+            pricing.currentPrice(for: "Pro")?.monthlyUSD, 20)
+        XCTAssertNil(pricing.currentPrice(for: "Enterprise"))
+
+        // A catalog with no plans key at all keeps its provider too.
+        let codex = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "codex" })
+        XCTAssertNil(codex.subscriptionPricing?.plans)
+        XCTAssertNil(codex.subscriptionPricing?.currentPrice(for: "Plus"))
     }
 
     func testFocusPicksTheProvidersTheHostChose() throws {

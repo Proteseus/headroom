@@ -1091,8 +1091,11 @@ struct DailyBurnDay: Decodable, Sendable, Identifiable {
 /// Prices are informational list prices, not what Headroom estimates from
 /// local token logs and not a user's tax, regional, or employer-adjusted bill.
 struct SubscriptionPlanPrice: Decodable, Identifiable, Sendable {
-    var id: String
-    var title: String
+    /// Optional on purpose: a registry row missing its id or title must cost
+    /// that row a name, not the provider that carries the catalog. Matching
+    /// in `currentPrice(for:)` already skips rows with neither.
+    var id: String?
+    var title: String?
     var monthlyUSD: Double?
     var annualUSD: Double?
     var unit: String?
@@ -1125,7 +1128,7 @@ struct SubscriptionPricing: Decodable, Sendable {
     var currency: String?
     var checked: String?
     var url: String?
-    var plans: [SubscriptionPlanPrice]
+    var plans: [SubscriptionPlanPrice]?
 
     /// Resolve the one published price for the plan the provider reported.
     /// Exact matching is deliberate: "Team" must not silently choose between
@@ -1133,9 +1136,9 @@ struct SubscriptionPricing: Decodable, Sendable {
     func currentPrice(for plan: String?) -> SubscriptionPlanPrice? {
         guard let plan else { return nil }
         let normalizedPlan = Self.normalized(plan)
-        return plans.first {
-            Self.normalized($0.id) == normalizedPlan
-                || Self.normalized($0.title) == normalizedPlan
+        return plans?.first {
+            $0.id.map(Self.normalized) == normalizedPlan
+                || $0.title.map(Self.normalized) == normalizedPlan
         }
     }
 
@@ -1145,6 +1148,15 @@ struct SubscriptionPricing: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case currency, checked, url, plans
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        currency = try container.decodeIfPresent(String.self, forKey: .currency)
+        checked = try container.decodeIfPresent(String.self, forKey: .checked)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        plans = try container.decodeLossyArrayIfPresent(
+            SubscriptionPlanPrice.self, forKey: .plans)
     }
 }
 

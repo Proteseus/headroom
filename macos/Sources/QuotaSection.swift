@@ -224,7 +224,9 @@ private struct SubscriptionPricingView: View {
             }
             if let price = pricing.currentPrice(for: currentPlan) {
                 HStack(spacing: 8) {
-                    Text(currentPlan ?? price.title)
+                    // A matched price always has the id or title it matched
+                    // on; the trailing fallback only satisfies the compiler.
+                    Text(currentPlan ?? price.title ?? price.id ?? "")
                         .lineLimit(1)
                     Spacer()
                     Text(price.compactPrice)
