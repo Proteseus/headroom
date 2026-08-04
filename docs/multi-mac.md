@@ -334,6 +334,10 @@ found* for an item that is plainly in Keychain Access. This is the whole trap:
   being off both refuse `kSecAttrSynchronizable`; without the fallback,
   Settings → Supabase/GitHub/Plausible/PostHog Connect hard-fails with
   "Could not save … token" even though a this-Mac-only item would work.
+  Each half is update-or-add on its own; the other half is dropped only
+  after the write that should win has succeeded. Deleting both first was
+  how a refused sync write used to erase a working local copy before the
+  fallback could run.
 - The accessible class cannot be a `…ThisDeviceOnly` variant; those are refused
   outright for a synchronizable item.
 
