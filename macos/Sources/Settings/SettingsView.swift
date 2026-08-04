@@ -13,6 +13,12 @@ struct SettingsView: View {
     var activityRowLimit = 8
     @AppStorage("serverRowLimit")
     var serverRowLimit = 5
+
+    /// Mac dashboard display caps — not host fetch limits. Kept in one place
+    /// so the hub stepper, leaf steppers, and Activity/Servers sections clamp
+    /// the same way.
+    static let activityRowLimitRange = 3...24
+    static let serverRowLimitRange = 1...8
     @AppStorage("confirmServerStops")
     var confirmServerStops = true
     @AppStorage(ResetNotifications.defaultsKey)

@@ -17,7 +17,7 @@ struct ActivitySection: View {
         let rows = Array(
             items
                 .filter { !ActivityStatusStyle.resolve($0.status).needsAttention }
-                .prefix(max(3, min(activityRowLimit, 14)))
+                .prefix(max(3, min(activityRowLimit, 24)))
         )
         if !rows.isEmpty {
             DataSection(title: HeadroomCopy.recentActivity) {

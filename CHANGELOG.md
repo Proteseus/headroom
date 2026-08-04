@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.5 — 2026-08-04
+
+### Changed
+
+- **Activity row limit sits on every Activity source leaf.** Git, Actions,
+  Vercel, Supabase, Sentry, Datadog, and Axiom each show the same
+  Recent-rows stepper (3–24) that the Integrations hub already had — Local
+  keeps its own servers stepper.
+
 ## 1.7.4 — 2026-08-04
 
 ### Changed

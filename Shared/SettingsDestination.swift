@@ -207,4 +207,17 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
             return false
         }
     }
+
+    /// Leaves that share the Mac Activity feed row-count stepper. Same
+    /// `@AppStorage` as the Integrations hub — open any of these and the
+    /// limit is still there. Balances and agents have no Activity rows.
+    var sharesActivityRowLimit: Bool {
+        switch self {
+        case .git, .github, .vercel, .supabase, .sentry, .datadog, .axiom:
+            return true
+        case .claudeCode, .codex, .openrouter, .aiGateway, .plausible,
+             .posthog, .local:
+            return false
+        }
+    }
 }

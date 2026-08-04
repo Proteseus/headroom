@@ -8,15 +8,7 @@ extension SettingsView {
     /// are under Coding agents, not here.
     var integrationsHub: some View {
         Form {
-            Section {
-                Stepper(
-                    "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
-                    value: $activityRowLimit,
-                    in: 3...14
-                )
-            } footer: {
-                Text("How many Recent rows the Activity feed draws on this Mac.")
-            }
+            activityRowLimitSection
 
             Section {
                 ForEach(integrationsOrder, id: \.self) { id in
@@ -267,6 +259,9 @@ extension SettingsView {
     func integrationPane(_ kind: SettingsIntegration) -> some View {
         Form {
             visibilitySection(kind)
+            if kind.sharesActivityRowLimit {
+                activityRowLimitSection
+            }
             switch kind {
             case .claudeCode: claudeCodeSections
             case .codex: codexSections
@@ -285,6 +280,21 @@ extension SettingsView {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Shared by the Integrations hub and every leaf that feeds Recent.
+    /// One `@AppStorage` — changing it on Vercel changes it on Git too.
+    @ViewBuilder
+    var activityRowLimitSection: some View {
+        Section {
+            Stepper(
+                "\(HeadroomCopy.activity) rows: \(activityRowLimit)",
+                value: $activityRowLimit,
+                in: Self.activityRowLimitRange
+            )
+        } footer: {
+            Text(HeadroomCopy.activityRowsHint)
+        }
     }
 
     private var localWatchSections: some View {
@@ -306,7 +316,7 @@ extension SettingsView {
             Stepper(
                 "\(HeadroomCopy.localServers): \(serverRowLimit)",
                 value: $serverRowLimit,
-                in: 1...8
+                in: Self.serverRowLimitRange
             )
             Toggle("Confirm before stopping servers", isOn: $confirmServerStops)
         } footer: {
