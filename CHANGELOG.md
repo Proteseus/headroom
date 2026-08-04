@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.1 — 2026-08-04
+
+### Changed
+
+- **OpenRouter and AI Gateway show account use history, not depletion.**
+  Overview is a daily-spend sparkline; the provider leaf leads with the full
+  trailing-window day chart, then totals / models / keys. Remaining credits
+  stay a figure, not a bar.
+
 ## 1.8.0 — 2026-08-04
 
 ### Changed

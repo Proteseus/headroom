@@ -125,15 +125,20 @@ struct ProviderQuotaCard: View {
             ) { _, window in
                 QuotaRow(window: window, tint: brand)
             }
-            if let balance = meter.balanceLabel {
+            // Balance providers: account use history is the leaf. Remaining
+            // credits are a figure under it — not a depletion bar.
+            if let spend = meter.spend, spend.hasFigures || spend.reportError != nil {
+                BalanceSpendCard(
+                    spend: spend,
+                    remainingLabel: meter.balanceLabel,
+                    tint: brand
+                )
+            } else if let balance = meter.balanceLabel {
                 BalanceRow(
                     label: balance,
                     level: meter.balanceLevel,
                     tint: brand
                 )
-            }
-            if let spend = meter.spend, spend.hasFigures || spend.reportError != nil {
-                BalanceSpendCard(spend: spend, tint: brand)
             }
             if let pace = meter.paceLabel {
                 HStack {
@@ -352,8 +357,16 @@ struct ProviderQuotaRing: View {
     /// the fetch is failing, the age of the data replaces it.
     private var windowCaption: String {
         if let note = provider.statusNote { return note }
-        if let balance = provider.primaryBalance?.balanceRemainingLabel {
-            return balance
+        if provider.isBalanceOnly {
+            if let period = meter.spend?.periodUSD,
+               let days = meter.spend?.periodDays {
+                return "\(period.dollarLabel) / \(days)d"
+            }
+            if let today = meter.spend?.todayUSD {
+                return "\(today.dollarLabel) today"
+            }
+            return provider.primaryBalance?.balanceRemainingLabel
+                ?? HeadroomCopy.noSpendYet
         }
         if let reset = headline.reset, !reset.isEmpty {
             return "\(headline.title) · \(reset)"
@@ -364,7 +377,7 @@ struct ProviderQuotaRing: View {
     var body: some View {
         VStack(spacing: 7) {
             if provider.isBalanceOnly {
-                balanceMark
+                spendMark
             } else {
                 HeadroomRings(layers: ringLayers, tint: tint)
                     .frame(width: diameter, height: diameter)
@@ -390,32 +403,26 @@ struct ProviderQuotaRing: View {
     }
 
     private var accessibilityReading: String {
-        if let balance = provider.primaryBalance?.balanceRemainingLabel {
-            return balance
+        if provider.isBalanceOnly {
+            return windowCaption
         }
         return headline.percent.map { "\(Int($0.rounded())) percent used" } ?? "unknown"
     }
 
-    /// Depletion capsule for prepaid balances — not a ring (docs/metering.md).
-    private var balanceMark: some View {
-        let level = provider.primaryBalance?.level ?? 0
-        return VStack {
-            Spacer(minLength: 0)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.primary.opacity(0.08))
-                    Capsule()
-                        .fill(tint)
-                        .frame(
-                            width: geo.size.width * CGFloat(max(0, min(level, 1)))
-                        )
-                }
+    /// Daily account-use sparkline for prepaid providers — not a remaining-
+    /// credits depletion bar.
+    private var spendMark: some View {
+        let days = meter.spend?.byDay ?? []
+        return Group {
+            if days.contains(where: { ($0.usd ?? 0) > 0 }) {
+                BalanceSpendSparkline(days: days, tint: tint, diameter: diameter)
+                    .opacity(provider.readingSuspect ? 0.4 : 1)
+            } else {
+                Text("—")
+                    .font(.title2)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: diameter, height: diameter)
             }
-            .frame(height: 10)
-            .opacity(provider.readingSuspect ? 0.4 : 1)
-            Spacer(minLength: 0)
         }
-        .frame(width: diameter, height: diameter)
     }
 }

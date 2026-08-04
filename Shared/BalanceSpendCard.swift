@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// Prepaid balance spend leaf — OpenRouter / AI Gateway.
+/// Prepaid account spend leaf — OpenRouter / AI Gateway.
 ///
-/// No ring, no alarm colour: spend is information, not a fault. Observed
-/// dollars from the provider's own credits/analytics APIs (not estimated).
+/// History first: daily account use over the trailing window, then totals and
+/// breakdowns. No ring, no depletion bar, no alarm colour — observed dollars
+/// from the provider's own credits/analytics APIs.
 struct BalanceSpendCard: View {
     let spend: BalanceSpend
+    var remainingLabel: String? = nil
     var tint: Color = HeadroomPalette.dim
 
     var body: some View {
@@ -23,10 +25,10 @@ struct BalanceSpendCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
             } else {
-                figures
-                if let days = spend.byDay, days.contains(where: { ($0.usd ?? 0) > 0 }) {
-                    dayBars(days)
+                if let days = spend.byDay, !days.isEmpty {
+                    dayChart(days)
                 }
+                figures
                 if let models = spend.byModel, !models.isEmpty {
                     Divider().opacity(0.5)
                     modelBreakdown(models)
@@ -46,7 +48,7 @@ struct BalanceSpendCard: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(HeadroomCopy.spend)
+            Text(HeadroomCopy.accountUse)
                 .font(.headline)
             Spacer()
             Text(HeadroomCopy.spendObserved)
@@ -61,23 +63,16 @@ struct BalanceSpendCard: View {
                 figure(today.dollarLabel, HeadroomCopy.spendToday)
             }
             if let period = spend.periodUSD, let days = spend.periodDays {
-                figure(period.dollarLabel, "\(days)d")
+                figure(period.dollarLabel, HeadroomCopy.spendLastDays(days))
             }
             if let avg = spend.avgDailyUSD {
                 figure(avg.dollarLabel, HeadroomCopy.spendPerDay)
             }
-            if let runway = spend.runwayDays {
-                figure(runwayLabel(runway), HeadroomCopy.spendRunway)
+            if let remainingLabel {
+                figure(remainingLabel, HeadroomCopy.balanceLeft)
             }
             Spacer(minLength: 0)
         }
-    }
-
-    private func runwayLabel(_ days: Double) -> String {
-        if days >= 10 {
-            return "\(Int(days.rounded()))d"
-        }
-        return String(format: "%.1fd", days)
     }
 
     private func figure(_ value: String, _ caption: String) -> some View {
@@ -91,26 +86,47 @@ struct BalanceSpendCard: View {
         }
     }
 
-    private func dayBars(_ days: [BalanceSpendDay]) -> some View {
-        let recent = Array(days.suffix(14))
-        let peak = max(recent.compactMap(\.usd).max() ?? 0, 0.01)
+    /// Full trailing window as a day chart — the reading this leaf exists for.
+    private func dayChart(_ days: [BalanceSpendDay]) -> some View {
+        let peak = max(days.compactMap(\.usd).max() ?? 0, 0.01)
+        let period = spend.periodDays ?? days.count
         return VStack(alignment: .leading, spacing: 6) {
-            Text(HeadroomCopy.spendRecentDays)
+            Text(HeadroomCopy.spendLastDays(period))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(recent) { day in
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(days) { day in
                     let height = CGFloat((day.usd ?? 0) / peak)
                     Capsule()
-                        .fill(tint.opacity((day.usd ?? 0) > 0 ? 0.85 : 0.15))
+                        .fill(tint.opacity((day.usd ?? 0) > 0 ? 0.9 : 0.12))
                         .frame(maxWidth: .infinity)
-                        .frame(height: max(3, 36 * height))
+                        .frame(height: max(2, 72 * height))
                         .accessibilityLabel(day.day ?? "day")
                         .accessibilityValue((day.usd ?? 0).dollarLabel)
                 }
             }
-            .frame(height: 36)
+            .frame(height: 72)
+            if let first = days.first?.day, let last = days.last?.day {
+                HStack {
+                    Text(shortDay(first))
+                    Spacer()
+                    Text(shortDay(last))
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+            }
         }
+    }
+
+    private func shortDay(_ iso: String) -> String {
+        // YYYY-MM-DD → M/D
+        let parts = iso.split(separator: "-")
+        guard parts.count == 3,
+              let month = Int(parts[1]),
+              let day = Int(parts[2])
+        else { return iso }
+        return "\(month)/\(day)"
     }
 
     private func modelBreakdown(_ models: [BalanceSpendModel]) -> some View {
@@ -172,5 +188,29 @@ struct BalanceSpendCard: View {
                 .font(.caption)
             }
         }
+    }
+}
+
+/// Compact day sparkline for the Usage overview grid — account use, not a
+/// remaining-credits depletion mark.
+struct BalanceSpendSparkline: View {
+    let days: [BalanceSpendDay]
+    var tint: Color = HeadroomPalette.dim
+    var diameter: CGFloat = 72
+
+    var body: some View {
+        let recent = Array(days.suffix(14))
+        let peak = max(recent.compactMap(\.usd).max() ?? 0, 0.01)
+        return HStack(alignment: .bottom, spacing: 1.5) {
+            ForEach(recent) { day in
+                let height = CGFloat((day.usd ?? 0) / peak)
+                Capsule()
+                    .fill(tint.opacity((day.usd ?? 0) > 0 ? 0.9 : 0.15))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: max(2, (diameter * 0.55) * height))
+            }
+        }
+        .frame(width: diameter * 0.85, height: diameter * 0.55)
+        .frame(width: diameter, height: diameter)
     }
 }

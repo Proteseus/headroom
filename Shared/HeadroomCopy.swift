@@ -156,6 +156,7 @@ enum HeadroomCopy {
     /// statement, and everybody audits a dollar. See docs/metering.md.
     static let spendEstimated = "Estimated"
     static let spendObserved = "Observed"
+    static let accountUse = "Account use"
     static let spendToday = "today"
     static let spendPerActiveDay = "per active day"
     static let spendPerDay = "per day"
@@ -163,6 +164,7 @@ enum HeadroomCopy {
     static let spendRecentDays = "Recent days"
     static let spendByModel = "By model"
     static let spendByKey = "By key"
+    static func spendLastDays(_ days: Int) -> String { "\(days)d" }
     /// Shown only when a model burned tokens that `pricing.py` has no rates
     /// for, so part of the figure came from the fallback rate. The names are
     /// the fix, so the names are what it shows.
