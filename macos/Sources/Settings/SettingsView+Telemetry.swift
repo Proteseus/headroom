@@ -234,12 +234,10 @@ extension SettingsView {
                             .font(.caption)
                             .frame(width: 80, alignment: .leading)
                             .lineLimit(1)
-                        ProgressView(
+                        telemetryBar(
                             value: Double(item.count),
                             total: Double(max(total ?? item.count, 1))
                         )
-                        .progressViewStyle(.linear)
-                        .tint(Color.primary.opacity(0.55))
                         Text("\(item.count)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -278,12 +276,11 @@ extension SettingsView {
                                         .font(.caption)
                                         .frame(width: 80, alignment: .leading)
                                         .lineLimit(1)
-                                    ProgressView(
+                                    telemetryBar(
                                         value: Double(item.count),
-                                        total: Double(max(total ?? item.count, 1))
+                                        total: Double(max(total ?? item.count, 1)),
+                                        fillOpacity: 0.4
                                     )
-                                    .progressViewStyle(.linear)
-                                    .tint(Color.primary.opacity(0.45))
                                     Text("\(item.count)")
                                         .font(.caption.monospacedDigit())
                                         .foregroundStyle(.secondary)
@@ -315,9 +312,7 @@ extension SettingsView {
                             .font(.caption)
                             .frame(width: 110, alignment: .leading)
                             .lineLimit(1)
-                        ProgressView(value: Double(item.share), total: 100)
-                            .progressViewStyle(.linear)
-                            .tint(Color.primary.opacity(0.55))
+                        telemetryBar(value: Double(item.share), total: 100)
                         Text("\(item.share)%")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -342,9 +337,7 @@ extension SettingsView {
                             .font(.caption)
                             .frame(width: 110, alignment: .leading)
                             .lineLimit(1)
-                        ProgressView(value: Double(item.adoption), total: 100)
-                            .progressViewStyle(.linear)
-                            .tint(Color.primary.opacity(0.55))
+                        telemetryBar(value: Double(item.adoption), total: 100)
                         Text("\(item.adoption)%")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -353,6 +346,27 @@ extension SettingsView {
                 }
             }
         }
+    }
+
+    /// Flat grey meter. Avoids `ProgressView` + `.tint`, which on macOS often
+    /// falls back to the system accent (coral/orange) and undoes the neutral
+    /// Community Pulse palette.
+    func telemetryBar(
+        value: Double,
+        total: Double,
+        fillOpacity: Double = 0.5
+    ) -> some View {
+        let fraction = total > 0 ? min(1, max(0, value / total)) : 0
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.1))
+                Capsule()
+                    .fill(Color.primary.opacity(fillOpacity))
+                    .frame(width: max(0, geo.size.width * fraction))
+            }
+        }
+        .frame(height: 6)
     }
 
     func communityWeekDelta(
@@ -584,9 +598,7 @@ extension SettingsView {
                             Text(family.capitalized)
                                 .font(.caption)
                                 .frame(width: 58, alignment: .leading)
-                            ProgressView(value: Double(share), total: 100)
-                                .progressViewStyle(.linear)
-                                .tint(Color.primary.opacity(0.55))
+                            telemetryBar(value: Double(share), total: 100)
                             Text("\(share)%")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)

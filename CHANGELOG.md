@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.8 — 2026-08-04
+
+### Fixed
+
+- **Community Pulse meters stay neutral grey.** Custom capsule bars replace
+  `ProgressView` + `.tint`, which on macOS often fell back to the system
+  accent and painted the mix rows coral.
+
 ## 1.7.7 — 2026-08-04
 
 ### Changed
