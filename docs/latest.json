@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.4",
-  "published": "2026-08-04T12:35:23Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.4/Headroom-macOS.zip",
-  "sha256": "ccc1277dd4caca1f5d03d45cad69d28d7e60c0dcd951c7d8751b549b537b367d",
-  "size": 5523580,
+  "version": "1.7.5",
+  "published": "2026-08-04T12:39:42Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.5/Headroom-macOS.zip",
+  "sha256": "2c1288ba71a396ebd109f9faaa5f544367513011fd13f8e14129df398ed1aa3a",
+  "size": 5524799,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Host-down popover is a wait, not an error stack.** Header says **Host\n  not answering** (same fact as the menu-bar tooltip) with a soft amber pip\n  instead of Foundation’s “Could not connect…”. Sources and Done stay\n  hidden until `/health` answers; orange is reserved for a failed Start."
+  "notes_md": "### Changed\n\n- **Activity row limit sits on every Activity source leaf.** Git, Actions,\n  Vercel, Supabase, Sentry, Datadog, and Axiom each show the same\n  Recent-rows stepper (3–24) that the Integrations hub already had — Local\n  keeps its own servers stepper."
 }
