@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.4 — 2026-08-04
+
+### Changed
+
+- **Host-down popover is a wait, not an error stack.** Header says **Host
+  not answering** (same fact as the menu-bar tooltip) with a soft amber pip
+  instead of Foundation’s “Could not connect…”. Sources and Done stay
+  hidden until `/health` answers; orange is reserved for a failed Start.
+
 ## 1.7.3 — 2026-08-04
 
 ### Changed

@@ -26,6 +26,8 @@ enum HeadroomCopy {
     static let xcodeBuilds = "Xcode builds"
     static let local = "Local"
     static let integrationsOrderHint = "Drag to reorder · toggles what Activity watches"
+    static let activityRowsHint =
+        "How many Recent rows the Activity feed draws on this Mac. Same control on Git, Actions, Vercel, Supabase, Sentry, Datadog, and Axiom."
     static let otherMacs = "Other Macs"
     static let computers = "Computers"
     static let addComputer = "Add computer"
@@ -102,6 +104,15 @@ enum HeadroomCopy {
     static let createdBy = "Created by Michell Zappa"
     /// App Store / signing entity — secondary to the personal credit.
     static let publisher = "Centaur Labs"
+    static let aboutSourceOnGitHub = "Source on GitHub"
+    static let aboutGitHubStarsLabel = "GitHub stars"
+    static let aboutCommunityPulse = "Community Pulse"
+    static let aboutOpenSourceFooter =
+        "Headroom is open source. Star counts come from GitHub."
+
+    static func aboutGitHubStars(_ count: Int) -> String {
+        "\(count.formatted()) \(aboutGitHubStarsLabel)"
+    }
 
     // MARK: Charts
 
@@ -298,6 +309,21 @@ enum HeadroomCopy {
     static let reconnecting = "Reconnecting…"
     /// In-flight poll / sync while the link is already healthy.
     static let refreshing = "Refreshing…"
+    /// Popover header / setup body while `/health` is quiet — same fact as the
+    /// menu-bar tooltip ("host not answering"), not a Foundation URLError.
+    static let hostNotAnswering = "Host not answering"
+    /// Auto-start / Start host in flight on the setup card.
+    static let startingHost = "Starting the host…"
+    static let hostIsRunning = "Host is running"
+    static let hostStartHint =
+        "Starts at login. Needs the local process on :8737."
+    static let hostNothingOnPort = "Nothing is answering on :8737 yet."
+    static let startHost = "Start host"
+    static let restartHost = "Restart host"
+    static let retryCheck = "Retry check"
+    static let whatToTrack = "What to track"
+    static let whatToTrackHint =
+        "From local sign-in. Change either list later in Settings."
     static let clearAttention = "Clear"
     static let dismiss = "Dismiss"
     /// Bulk clear on either Attention section: passive agent notices, or the
@@ -636,16 +662,24 @@ enum HeadroomCopy {
     static let telemetryCommunityGrowing = "The community is still growing."
     static let telemetryCommunityThreshold = "Counts appear after at least five Macs contribute."
     static let telemetryWeeklyActive = "Weekly active Macs"
+    static let telemetryWeekOverWeek = "Week over week"
     static let telemetryLatestBuild = "Most common build"
+    static let telemetryTopArchitecture = "Most common CPU"
     static let telemetryServicesInUse = "Services in use"
     static let telemetryModelMix = "Model family mix"
     static let telemetryBuildSpread = "Build spread"
+    static let telemetryArchitectureMix = "Architecture"
+    static let telemetryMacOSMix = "macOS major"
     static let telemetryServiceMix = "Service mix"
+    static let telemetryServicesEnabled = "Enabled"
+    static let telemetryServicesUsed = "Used"
+    static let telemetryServicesHealthy = "Healthy"
     static let telemetryFeatureAdoption = "Feature adoption"
     static let telemetryNoPublishedData = "Not enough community data to publish this yet."
     static let telemetryRefreshCommunity = "Refresh community"
     static let telemetryLatestWeek = "latest week"
     static let telemetryMacs = "Macs"
+    static let telemetryNeedPriorWeek = "Need two published weeks"
     static let telemetryCommunityFooter =
         "A public aggregate of other opted-in Macs. Small groups stay hidden; weekly counts are reports, not user identities. This Mac’s payload is shown above."
     static let telemetryFooter =

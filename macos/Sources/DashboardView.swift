@@ -446,6 +446,10 @@ struct DashboardView: View {
     }
 
     private var headerDotColor: Color {
+        // Host-down is a wait, not an alarm — soft amber matches "Not updating"
+        // / in-flight. Orange is for actionable Attention and real fetch fails
+        // once a host is there to fail against.
+        if needsSetup { return HeadroomPalette.amber }
         if store.errorMessage != nil { return HeadroomPalette.orange }
         if store.snapshot.attention?.isWarning == true {
             if store.snapshot.attention?.isCritical == true {
@@ -558,6 +562,12 @@ struct DashboardView: View {
             return store.errorMessage == nil && store.lastRefresh != nil
                 ? HeadroomCopy.refreshing
                 : HeadroomCopy.reconnecting
+        }
+        // Setup owns the host-down story. Don't also paint Foundation's
+        // "Could not connect to the server" under the title — same fact twice,
+        // once as an error.
+        if needsSetup {
+            return HeadroomCopy.hostNotAnswering
         }
         if let error = store.errorMessage {
             return error

@@ -130,13 +130,15 @@ surface-specific (see the end of this file), but the shape does not.
 | **iPhone** | Pairing + grants on Mac; notifications on iOS | Sync on macOS, iOS Settings, Welcome |
 | **Open the TestFlight invite** | Install link on Welcome’s phone step and Settings → iPhone | macOS Welcome, macOS Settings |
 | **On your phone** | Welcome rail title for the iPhone step | macOS Welcome |
-| **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
+| **About** | Product credit in Settings: icon, version, creator, GitHub source link, live star count, Community Pulse | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
 | **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
+| **Source on GitHub** | Link to the public repository from About | macOS, iOS |
+| **GitHub stars** | Live star count under the source link on About | macOS, iOS |
 | **Attention** | Warning / status card on the Mac, and the iOS tab it became (scoring policy: `docs/attention.md`) | macOS, iOS |
 | **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
 | **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
-| **Agents** | Starting a task, and links to the two agent Integrations. Connection settings live under Integrations | macOS |
+| **Agents** | Claude Code hooks and the Codex attention gateway — install, test, and connection status. Not part of the Integrations catalog | macOS Settings |
 | **Your agents, wherever you are** | Headroom's companion promise: see and safely answer agent requests from iPhone while the computer keeps its full context | macOS, iOS |
 | **Claude questions** | Whether Claude questions appear on both Mac and iPhone, can wait for an iPhone answer, or stay Mac-only | macOS |
 | **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
@@ -154,7 +156,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Reply to the agent…** | Free-text answer to a request | iOS |
 | **Answer in the terminal** | This question is showing in both places; answer it where it was asked | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under Sync) | macOS Settings |
-| **Telemetry** | Local payload preview plus thresholded aggregate Community Pulse, shown only while anonymous diagnostics is enabled | macOS Settings |
+| **Telemetry** | Local payload preview plus thresholded Community Pulse (weekly growth, builds, CPU, macOS, services, models, features), shown only while anonymous diagnostics is enabled | macOS Settings |
 | **Computers** | Macs paired to this iPhone; each token stays in the iPhone Keychain | iOS Settings |
 | **Add computer** | Pair another Mac without replacing the saved pairing | iOS Settings |
 
@@ -282,6 +284,8 @@ blank axis.
 | **Not connected** | Integrations hub / detail when nothing is pasted yet |
 | **Keychain** | Integration detail Credential row: a token is stored on this Mac. Status beside it says whether the last poll accepted it. The empty SecureField shows `••••••••••••` as a prompt — paste replaces |
 | **Mac unavailable** | iOS cannot reach the host |
+| **Host not answering** | Mac popover header and setup body while the local host is down — same fact as the menu-bar tooltip. Not a Foundation URLError |
+| **Starting the host…** | Setup card while Start host / auto-start is in flight |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |
 | **All clear** | Healthy summary — host default, Attention card, and the Activity feed with nothing failing |
@@ -392,8 +396,9 @@ undifferentiated pile of toggles:
 | `axiom` | Axiom | `devtools` |
 | `local` | Local | `devtools` |
 
-**Extra accounts** is the user-facing name (macOS Settings section header);
-"logins" and "identities" are not used. An extra account (`claude:work`) keeps
+**Extra accounts** is the concept; the chrome is **Add account** under
+Settings → Providers → Library (not a separate Settings root). "Logins" and
+"identities" are not used. An extra account (`claude:work`) keeps
 a full `title` of `Claude · Work` for
 text-only surfaces (Settings, menu bar, the board). The host also ships
 `label` (`Work`). Anywhere a brand mark or accent already names the tool —
