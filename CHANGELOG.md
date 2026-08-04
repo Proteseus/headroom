@@ -24,7 +24,7 @@ tag a version that has no entry.
   copies cannot inflate weekly active Macs — without a stable install id on
   the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`.
 - **Community Pulse shows version distribution and latest release.** Histogram
-  against the update feed; country mix from the Worker edge (no IPs stored).
+  against the update feed; country mix from the Worker edge (no IPs stored). Existing D1 also needs `telemetry/migrations/003_country.sql`.
 
 ## 1.8.1 — 2026-08-04
 
