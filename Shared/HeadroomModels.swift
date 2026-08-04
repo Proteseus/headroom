@@ -269,6 +269,10 @@ struct UsageSnapshot: Decodable, Sendable {
     /// CodexBar-style: Settings → Sources is the subset. Prefer `providers[]`
     /// intersected with enabled quota `sources[]`. Empty when the host has not
     /// advertised any — never invent Claude/Codex/Cursor.
+    ///
+    /// Prepaid balances (OpenRouter, AI Gateway) stay in `providers[]` for
+    /// their Activity leaf but are not coding quotas — see
+    /// `codingQuotaProviders` / `balanceProviders`.
     var visibleQuotaProviders: [QuotaProviderInfo] {
         let sourcesList = sources ?? []
         let hasKind = sourcesList.contains { $0.kind != nil }
@@ -312,6 +316,17 @@ struct UsageSnapshot: Decodable, Sendable {
         }
     }
 
+    /// Window / grant meters that belong on Usage rings and the menu-bar tanks.
+    /// Excludes prepaid balances — those paint under Activity.
+    var codingQuotaProviders: [QuotaProviderInfo] {
+        visibleQuotaProviders.filter { !$0.isBalanceOnly }
+    }
+
+    /// OpenRouter / AI Gateway — account-use panels on Activity, not Usage.
+    var balanceProviders: [QuotaProviderInfo] {
+        visibleQuotaProviders.filter(\.isBalanceOnly)
+    }
+
     /// The providers a compact surface shows: menu-bar tanks and the iOS
     /// widget.
     ///
@@ -319,8 +334,9 @@ struct UsageSnapshot: Decodable, Sendable {
     /// `focus`, so every surface shows the same providers even when one of
     /// them is a poll behind. Falls back to the first `limit` visible
     /// providers when talking to a host that predates the field.
+    /// Balance-only ids in `focus` are skipped — they are not tanks.
     func focusProviders(limit: Int = 3) -> [QuotaProviderInfo] {
-        let visible = visibleQuotaProviders
+        let visible = codingQuotaProviders
         guard let focus, !focus.isEmpty else {
             return Array(visible.prefix(limit))
         }
@@ -332,13 +348,13 @@ struct UsageSnapshot: Decodable, Sendable {
                               : Array(picked.prefix(limit))
     }
 
-    /// Known-enum view of `visibleQuotaProviders` for Mac chrome still typed
+    /// Known-enum view of `codingQuotaProviders` for Mac chrome still typed
     /// on `UsageProvider`. Unknown registry ids are skipped until those
-    /// surfaces take string ids.
+    /// surfaces take string ids. Balance-only providers never appear here.
     var activeQuotaProviders: [UsageProvider] {
         var seen = Set<String>()
         var out: [UsageProvider] = []
-        for row in visibleQuotaProviders {
+        for row in codingQuotaProviders {
             guard let provider = UsageProvider(rawValue: row.id),
                   seen.insert(row.id).inserted
             else { continue }
@@ -1433,7 +1449,7 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     var primaryBalance: QuotaPoolInfo? { balancePools.first?.pool }
 
     /// True when this provider has only prepaid balance meters — no window
-    /// rings to draw. Overview and detail use a depletion bar instead.
+    /// rings to draw. Usage hides these; Activity paints account use instead.
     var isBalanceOnly: Bool {
         !balancePools.isEmpty && visiblePools.isEmpty
     }

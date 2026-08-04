@@ -87,6 +87,12 @@ final class ContractTests: XCTestCase {
         XCTAssertTrue(
             Set(["claude", "codex", "cursor", "openrouter", "ai-gateway"])
                 .isSubset(of: Set(snapshot.visibleQuotaProviders.map(\.id))))
+        XCTAssertEqual(
+            Set(snapshot.codingQuotaProviders.map(\.id)),
+            Set(["claude", "codex", "cursor"]))
+        XCTAssertEqual(
+            Set(snapshot.balanceProviders.map(\.id)),
+            Set(["openrouter", "ai-gateway"]))
         let openrouter = try XCTUnwrap(
             snapshot.providers?.first { $0.id == "openrouter" })
         XCTAssertEqual(openrouter.primaryBalance?.meterKind, "balance")
@@ -388,6 +394,12 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             snapshot.visibleQuotaProviders.map(\.id),
             ["claude", "codex", "openrouter", "ai-gateway"])
+        XCTAssertEqual(
+            snapshot.codingQuotaProviders.map(\.id),
+            ["claude", "codex"])
+        XCTAssertEqual(
+            snapshot.balanceProviders.map(\.id),
+            ["openrouter", "ai-gateway"])
     }
 
     func testEmptyQuotaSourcesYieldNoActiveProviders() throws {
@@ -432,12 +444,13 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             snapshot.activeQuotaProviders.map(\.rawValue),
             ["claude"])
-        // Mac surfaces use visibleQuotaProviders — unknown ids still meter.
+        // Mac Usage tabs / rings use codingQuotaProviders — unknown ids still
+        // meter when they are window quotas.
         let gemini = snapshot.meter(forProviderID: "gemini")
         XCTAssertEqual(gemini.title, "Gemini")
         XCTAssertEqual(gemini.primary.percent, 20)
         XCTAssertEqual(
-            DashboardSelection.tabs(for: snapshot.visibleQuotaProviders),
+            DashboardSelection.tabs(for: snapshot.codingQuotaProviders),
             ["overview", "claude", "gemini"])
     }
 

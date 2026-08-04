@@ -37,7 +37,8 @@ Seeded from local detection on first run, then written by Settings. Three keys:
 - `order` — pinned provider ids; the first three enabled become `focus`
 - `integrations_order` — pinned Integrations catalog ids (code and deploys,
   balances, services, local servers/builds). Activity lays out the subset that
-  paints blocks in this order. Claude Code / Codex live under Settings →
+  paints blocks in this order, including OpenRouter / AI Gateway account-use
+  panels. Claude Code / Codex live under Settings →
   Agents, not this list. Legacy `services_order` is still read once as a
   migrate seed.
 - `accents` — `{id: "#RRGGBB"}` for rows you recolored; delete an entry to

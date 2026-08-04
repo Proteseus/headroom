@@ -110,9 +110,9 @@ surface-specific (see the end of this file), but the shape does not.
 | **General** | Host endpoint and runtime details, Open at Login, welcome, App updates | macOS Settings |
 | **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
-| **Providers** | AI meters — providers and extra accounts Headroom reads a ring/quota for. Order and focus live here. OpenRouter and AI Gateway also appear under Integrations for API keys; Claude Code / Codex connection settings live under Agents | macOS Settings, iOS Settings, Welcome |
+| **Providers** | AI coding-quota meters Headroom draws rings for. Order and focus live here. Claude Code / Codex connection settings live under Agents. OpenRouter and AI Gateway are prepaid balances under Integrations → Activity, not here | macOS Settings, iOS Settings, Welcome |
 | **What to watch** | Welcome rail title for the Providers step | macOS Welcome |
-| **Integrations** | Catalog of what you watch on Activity (and connect): Git, GitHub Actions, Vercel, OpenRouter, AI Gateway, Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers, Xcode builds. One reorderable list — enable, status, open leaf. Activity follows the same order for rows that paint a block. Activity row count lives here; Local servers density on the Local leaf; projects and sites on each other Integration page. Claude Code and Codex live under **Agents**, not here | macOS Settings, iOS Settings |
+| **Integrations** | Catalog of what you watch on Activity (and connect): Git, GitHub Actions, Vercel, OpenRouter, AI Gateway, Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers, Xcode builds. One reorderable list — enable, status, open leaf. Activity follows the same order for rows that paint a block (including OpenRouter / AI Gateway account use). Activity row count lives here; Local servers density on the Local leaf; projects and sites on each other Integration page. Claude Code and Codex live under **Agents**, not here | macOS Settings, iOS Settings |
 | **Show in Headroom** | The dev-tool on/off on its Integrations leaf. Off stops polling and hides the rows; the key stays in the Keychain, which is what **Disconnect** clears | macOS Settings |
 | **Code and deploys** | Integrations leaves: **Git** (local commits on this Mac), **GitHub Actions** (CI via PAT), **Vercel** (CLI login) — three leaves because they use three different credentials | macOS Settings |
 | **Status** | Integration detail caption: connected, Keychain, hooks state, signed-in | macOS Settings |
@@ -421,7 +421,7 @@ served as `sources[].group`). Section titles are chrome and live in
 |---|---|---|
 | **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left; OpenRouter and AI Gateway are prepaid balances with a pasted key; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
 | **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers / builds | Integrations catalog on both platforms |
-| **API balances** | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac | Integrations catalog |
+| **API balances** | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac; account use paints on Activity | Integrations catalog · Activity |
 
 Don't call the first group **Sources** on its own in the UI; call it
 **Providers**. Activity is the ordered stack of Integration watches that paint

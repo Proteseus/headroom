@@ -83,7 +83,7 @@ struct OverviewBurndownCard: View {
     /// One pool per provider — `UsageSnapshot.overviewBurndown` makes that
     /// pick, so the phone and the widget draw the same line.
     private var series: [Series] {
-        snapshot.visibleQuotaProviders.compactMap { provider in
+        snapshot.codingQuotaProviders.compactMap { provider in
             let pool = snapshot.overviewBurndown(forProviderID: provider.id)
             guard let pool, !(pool.actual ?? []).isEmpty else { return nil }
             return Series(

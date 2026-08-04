@@ -95,7 +95,7 @@ final class StatusItemController: NSObject {
             statusItem.button?.toolTip =
                 "\(HeadroomCopy.product) — \(attention.summary ?? HeadroomCopy.needsAttention)"
         } else {
-            let parts = snapshot.visibleQuotaProviders.map { provider in
+            let parts = snapshot.codingQuotaProviders.map { provider in
                 let meter = snapshot.meter(for: provider)
                 guard let used = meter.menuBarWindow.percent else {
                     return "\(provider.displayTitle) —"
@@ -225,7 +225,7 @@ enum MeterIconRenderer {
         }
         // Template icons can't show the colored warning pip.
         image.isTemplate = !warning
-        let active = snapshot.visibleQuotaProviders
+        let active = snapshot.codingQuotaProviders
         if active.isEmpty {
             image.accessibilityDescription = "Headroom — no coding providers enabled"
         } else {

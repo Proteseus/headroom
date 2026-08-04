@@ -999,13 +999,15 @@ INTEGRATION_CATALOG_IDS = (
     "builds",
 )
 
-# Catalog ids that paint an Activity block. Prepaid balances stay in the
-# Settings list but are skipped when laying out Activity. Claude Code / Codex
-# are Coding agents, not Integrations catalog rows.
+# Catalog ids that paint an Activity block. Prepaid balances (OpenRouter,
+# AI Gateway) paint account-use panels here — not Usage rings. Claude Code /
+# Codex are Coding agents, not Integrations catalog rows.
 ACTIVITY_BLOCK_IDS = (
     "git",
     "github",
     "vercel",
+    "openrouter",
+    "ai-gateway",
     "supabase",
     "plausible",
     "posthog",

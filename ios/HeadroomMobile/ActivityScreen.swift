@@ -82,7 +82,11 @@ struct ActivityScreen: View {
             case .builds:
                 if !(snap.local?.builds ?? []).isEmpty { return true }
             case .openrouter, .aiGateway:
-                continue
+                if snap.balanceProviders.contains(where: {
+                    $0.id == watch.rawValue
+                }) {
+                    return true
+                }
             }
         }
         return false

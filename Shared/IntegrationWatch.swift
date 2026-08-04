@@ -3,9 +3,9 @@ import Foundation
 /// One row in the Integrations catalog — watched stuff on this Mac.
 ///
 /// Host `integrations_order` pins these. Activity lays out only ids where
-/// `paintsActivity` is true; prepaid balances stay in Settings for
-/// enable / open / status. Claude Code and Codex live under Coding agents,
-/// not this list.
+/// `paintsActivity` is true. Prepaid balances (OpenRouter, AI Gateway) paint
+/// an account-use block there — not Usage rings. Claude Code and Codex live
+/// under Coding agents, not this list.
 enum IntegrationWatch: String, CaseIterable, Identifiable, Sendable {
     case git
     case github
@@ -32,12 +32,7 @@ enum IntegrationWatch: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Whether Activity draws a block for this watch.
-    var paintsActivity: Bool {
-        switch self {
-        case .openrouter, .aiGateway: return false
-        default: return true
-        }
-    }
+    var paintsActivity: Bool { true }
 
     /// Activity feed `kind` for git / Actions / Vercel / alert rows; nil for panels.
     /// The Activity tab paints those kinds as one chronological list, once,

@@ -7,6 +7,34 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.2 — 2026-08-04
+
+### Changed
+
+- **OpenRouter and AI Gateway live on Activity, not Usage.** Account-use
+  panels sit in the Integrations Activity stack; Usage rings and tabs are
+  coding quotas only.
+- **Five macOS/iOS drift points move into Shared.** Drained quota tint,
+  `/health` models, subscription pricing chrome, poll backoff, and clearer
+  iPhone HTTP error prose — one implementation each instead of diverging
+  copies.
+
+### Fixed
+
+- **A bad subscription plan row no longer deletes its provider.** Malformed
+  `subscription_pricing.plans` entries are skipped lossily so one typo cannot
+  blank the ring, meter, and Activity leaf.
+- **Ten provider fetchers stamp and disk-cache successes through
+  `cache_util.store`.** Age and last-good replay work for OpenRouter, AI
+  Gateway, and the other alert/balance sources the way Claude/Codex already
+  did.
+
+### Added
+
+- **Contract tests require every Swift-required `/usage` field in the demo
+  fixture**, and mirrored-constant / firmware label checks cover four more
+  pairs plus positive LABEL_* values.
+
 ## 1.8.1 — 2026-08-04
 
 ### Changed

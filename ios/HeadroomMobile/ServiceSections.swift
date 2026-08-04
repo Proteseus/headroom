@@ -47,7 +47,51 @@ struct ServiceSections: View {
         case .builds:
             xcodeBuildsSection
         case .openrouter, .aiGateway:
-            EmptyView()
+            balanceSection(for: watch)
+        }
+    }
+
+    @ViewBuilder
+    private func balanceSection(for watch: IntegrationWatch) -> some View {
+        if let provider = store.snapshot.balanceProviders
+            .first(where: { $0.id == watch.rawValue })
+        {
+            let meter = store.snapshot.meter(forProviderID: watch.rawValue)
+            Section {
+                if let spend = meter.spend,
+                   spend.hasFigures || spend.reportError != nil {
+                    BalanceSpendCard(
+                        spend: spend,
+                        remainingLabel: meter.balanceLabel,
+                        tint: provider.tint
+                    )
+                } else if let balance = meter.balanceLabel {
+                    Text(balance)
+                        .font(.subheadline.monospacedDigit())
+                } else if let error = meter.displayError {
+                    Text(error)
+                        .foregroundStyle(HeadroomPalette.orange)
+                } else if let status = meter.statusNote {
+                    Label(
+                        status,
+                        systemImage: meter.needsSignIn
+                            ? "person.badge.key"
+                            : "exclamationmark.arrow.circlepath"
+                    )
+                    .foregroundStyle(
+                        meter.statusAlarming
+                            ? HeadroomPalette.orange : Color.secondary)
+                } else {
+                    Text(HeadroomCopy.noSpendYet)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Label {
+                    Text(provider.displayTitle)
+                } icon: {
+                    ProviderMark(providerID: provider.id, size: 12)
+                }
+            }
         }
     }
 

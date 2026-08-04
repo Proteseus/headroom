@@ -33,8 +33,8 @@ class IntegrationsOrderTests(unittest.TestCase):
         # Missing catalog ids are appended; Activity is a stable filter of
         # the full pin, not a truncated pin.
         self.assertEqual(
-            sources_config.services_order_ids()[:3],
-            ["builds", "git", "supabase"],
+            sources_config.services_order_ids()[:4],
+            ["openrouter", "builds", "git", "supabase"],
         )
         self.assertEqual(
             set(sources_config.services_order_ids()),

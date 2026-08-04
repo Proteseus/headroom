@@ -22,7 +22,7 @@ struct QuotaOverviewCard: View {
     /// row wraps instead of shrinking further.
     private static let minimumRingCell: CGFloat = 54
 
-    private var providers: [QuotaProviderInfo] { snapshot.visibleQuotaProviders }
+    private var providers: [QuotaProviderInfo] { snapshot.codingQuotaProviders }
 
     /// Columns that fit the measured width, balanced across however many rows
     /// that takes — six providers read as 3+3, not 5+1.

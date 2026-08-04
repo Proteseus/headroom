@@ -49,7 +49,7 @@ final class MobileUsageStore: ObservableObject {
     var isConfigured: Bool { MobileConnection.isConfigured }
 
     var visibleProviders: [QuotaProviderInfo] {
-        snapshot.visibleQuotaProviders
+        snapshot.codingQuotaProviders
     }
 
     /// Feed rows that failed, minus anything already swiped away here.

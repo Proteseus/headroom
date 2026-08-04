@@ -25,7 +25,7 @@ struct DashboardView: View {
     private var confirmServerStops = true
 
     private var visibleProviders: [QuotaProviderInfo] {
-        store.snapshot.visibleQuotaProviders
+        store.snapshot.codingQuotaProviders
     }
 
     private var selectedMode: DashboardMode {
@@ -105,7 +105,7 @@ struct DashboardView: View {
                                     let meter = store.snapshot.meter(
                                         forProviderID: providerID)
                                     let provider = store.snapshot
-                                        .visibleQuotaProviders
+                                        .codingQuotaProviders
                                         .first { $0.id == providerID }
                                     ProviderQuotaCard(
                                         meter: meter,
@@ -118,8 +118,8 @@ struct DashboardView: View {
                                             forProviderID: providerID)
                                     )
                                     // Window burndown only — balance providers
-                                    // have no reset clock to chart.
-                                    if provider?.isBalanceOnly != true {
+                                    // live on Activity, not Usage tabs.
+                                    if provider != nil {
                                         BurndownCard(
                                             providerID: providerID,
                                             rings: store.snapshot.burndownRings(
@@ -376,7 +376,12 @@ struct DashboardView: View {
         case .builds:
             BuildsSection(store: store, selection: $serviceDetail)
         case .openrouter, .aiGateway:
-            EmptyView()
+            let provider = store.snapshot.balanceProviders
+                .first { $0.id == watch.rawValue }
+            BalanceSpendSection(
+                provider: provider,
+                meter: store.snapshot.meter(forProviderID: watch.rawValue)
+            )
         }
     }
 

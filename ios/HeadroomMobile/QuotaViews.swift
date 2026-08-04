@@ -5,7 +5,7 @@ struct QuotaOverviewCard: View {
     let snapshot: UsageSnapshot
 
     private var providers: [QuotaProviderInfo] {
-        snapshot.visibleQuotaProviders
+        snapshot.codingQuotaProviders
     }
 
     var body: some View {
