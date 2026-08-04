@@ -65,9 +65,16 @@ function sanitize(payload) {
   const schema = payload.schema;
   const batchID = boundedString(payload.batch_id, 80);
   const period = boundedString(payload.period, 12);
+  const dedupeKey = typeof payload.dedupe_key === "string"
+      && /^[0-9a-f]{64}$/.test(payload.dedupe_key)
+    ? payload.dedupe_key
+    : null;
   const app = payload.app;
   const providers = payload.providers;
-  if (schema !== 1 || !batchID || !period || !/^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(period)) {
+  // Schema 2 requires a week-scoped HMAC dedupe key so one install cannot
+  // inflate the week by minting fresh batch ids.
+  if (schema !== 2 || !batchID || !period || !dedupeKey
+      || !/^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(period)) {
     return null;
   }
   if (!app || typeof app !== "object" || !providers || typeof providers !== "object") {
@@ -88,8 +95,9 @@ function sanitize(payload) {
     }
   }
   const safe = {
-    schema: 1,
+    schema: 2,
     batch_id: batchID,
+    dedupe_key: dedupeKey,
     period,
     app: {
       version,
@@ -175,19 +183,47 @@ function paddedWeeklyActive(observed, windowDays = COMMUNITY_WINDOW_DAYS) {
 }
 
 async function batchColumnCounts(env, period, column) {
-  if (column !== "architecture" && column !== "macos_major") {
+  if (column !== "architecture" && column !== "macos_major" && column !== "country") {
     return [];
   }
   const result = await env.DB.prepare(
     `SELECT CAST(${column} AS TEXT) AS item, COUNT(*) AS sample_count
      FROM telemetry_batches
      WHERE period = ?
+       AND ${column} IS NOT NULL
+       AND ${column} != ''
      GROUP BY ${column}`
   ).bind(period).all();
   return countedItems((result.results ?? []).map((row) => ({
     name: String(row.item),
     count: Number(row.sample_count),
   })));
+}
+
+/** ISO-3166 alpha-2 from Cloudflare's edge geo. Never stores the IP. */
+function requestCountry(request) {
+  const raw = request.cf && typeof request.cf.country === "string"
+    ? request.cf.country.toUpperCase()
+    : null;
+  if (!raw || raw === "XX" || raw === "T1") return null;
+  return /^[A-Z]{2}$/.test(raw) ? raw : null;
+}
+
+async function latestRelease() {
+  try {
+    const response = await fetch("https://updates.centaur-labs.io/latest.json", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const doc = await response.json();
+    if (!doc || typeof doc.version !== "string" || !doc.version) return null;
+    return {
+      version: doc.version.slice(0, 32),
+      published: typeof doc.published === "string" ? doc.published.slice(0, 40) : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function communityStats(env) {
@@ -202,6 +238,7 @@ async function communityStats(env) {
     count: Number(row.batch_count),
   }));
   const weeklyActiveMacs = paddedWeeklyActive(periods);
+  const release = await latestRelease();
   const latest = periods[0];
   if (!latest) {
     return {
@@ -209,6 +246,7 @@ async function communityStats(env) {
       generated_on: new Date().toISOString().slice(0, 10),
       privacy: { minimum_group_size: COMMUNITY_MINIMUM_GROUP_SIZE },
       weekly_active_macs: weeklyActiveMacs,
+      latest_release: release,
       latest: null,
     };
   }
@@ -229,9 +267,10 @@ async function communityStats(env) {
   // Prefer live batch columns for platform mix so weeks that predate the
   // macos_major dimension rollup still publish, and architecture stays aligned
   // with the same source.
-  const [architectures, macosMajors] = await Promise.all([
+  const [architectures, macosMajors, countries] = await Promise.all([
     batchColumnCounts(env, latest.period, "architecture"),
     batchColumnCounts(env, latest.period, "macos_major"),
+    batchColumnCounts(env, latest.period, "country"),
   ]);
   const modelShares = dimensionRows(rows, "model_share", latest.period)
     .filter((row) => row.count >= COMMUNITY_MINIMUM_GROUP_SIZE)
@@ -258,12 +297,14 @@ async function communityStats(env) {
     generated_on: new Date().toISOString().slice(0, 10),
     privacy: { minimum_group_size: COMMUNITY_MINIMUM_GROUP_SIZE },
     weekly_active_macs: weeklyActiveMacs,
+    latest_release: release,
     latest: {
       period: latest.period,
       reporting_macs: publicCount(latest.count),
       versions,
       architectures,
       macos_majors: macosMajors,
+      countries,
       services: {
         enabled,
         used,
@@ -292,7 +333,7 @@ function upsertDimension(env, period, dimension, item, valueTotal = 0) {
   ).bind(period, dimension, item, valueTotal);
 }
 
-async function recordRollups(env, safe, receivedAt) {
+async function recordRollups(env, safe, receivedAt, country) {
   const statements = [
     env.DB.prepare(
       `INSERT INTO telemetry_periods (period, batch_count, last_received_at)
@@ -306,6 +347,9 @@ async function recordRollups(env, safe, receivedAt) {
     upsertDimension(
       env, safe.period, "macos_major", String(safe.app.macos_major)),
   ];
+  if (country) {
+    statements.push(upsertDimension(env, safe.period, "country", country));
+  }
   for (const provider of safe.providers.enabled) {
     statements.push(upsertDimension(
       env, safe.period, "provider_enabled", provider));
@@ -362,22 +406,25 @@ export default {
     const safe = sanitize(payload);
     if (!safe) return json({ error: "invalid_payload" }, 400);
     const receivedAt = new Date().toISOString();
+    const country = requestCountry(request);
     const result = await env.DB.prepare(
       `INSERT OR IGNORE INTO telemetry_batches
-       (batch_id, received_at, period, app_version, host_version, macos_major, architecture, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (batch_id, received_at, period, dedupe_key, app_version, host_version, macos_major, architecture, country, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       safe.batch_id,
       receivedAt,
       safe.period,
+      safe.dedupe_key,
       safe.app.version,
       safe.app.host_version,
       safe.app.macos_major,
       safe.app.architecture,
+      country,
       JSON.stringify(safe),
     ).run();
     const inserted = (result.meta?.changes ?? result.changes ?? 0) > 0;
-    if (inserted) await recordRollups(env, safe, receivedAt);
+    if (inserted) await recordRollups(env, safe, receivedAt, country);
     return json({ ok: true });
   },
 

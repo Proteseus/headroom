@@ -2,12 +2,17 @@ CREATE TABLE IF NOT EXISTS telemetry_batches (
   batch_id TEXT PRIMARY KEY,
   received_at TEXT NOT NULL,
   period TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL,
   app_version TEXT NOT NULL,
   host_version TEXT,
   macos_major INTEGER NOT NULL,
   architecture TEXT NOT NULL,
+  country TEXT,
   payload TEXT NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS telemetry_batches_period_dedupe
+  ON telemetry_batches (period, dedupe_key);
 
 CREATE INDEX IF NOT EXISTS telemetry_batches_period
   ON telemetry_batches (period);

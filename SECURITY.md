@@ -28,7 +28,11 @@ there:
 It sends none of it anywhere unless you leave **Share anonymous product
 diagnostics** on in Settings → Telemetry. That path is opt-out by default,
 sends at most one aggregate batch per week, and never includes prompts,
-paths, tokens, or an install id — see [`docs/telemetry.md`](docs/telemetry.md).
+paths, tokens, or a stable install id — see [`docs/telemetry.md`](docs/telemetry.md).
+A week-scoped HMAC dedupe key stops the same Mac from counting twice in one
+week without creating a long-lived identity on the server. Country of the
+request is stored as an ISO-3166 code from Cloudflare’s edge geo; the IP is
+not persisted.
 There is no Headroom account beyond that first-party intake.
 
 

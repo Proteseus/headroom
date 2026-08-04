@@ -7,6 +7,17 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.2 — 2026-08-04
+
+### Changed
+
+- **Telemetry schema 2 week-scopes a dedupe key.** Each Mac keeps a local
+  install secret and sends `HMAC-SHA256(secret, ISO week)` so Debug/Release
+  copies cannot inflate weekly active Macs — without a stable install id on
+  the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`.
+- **Community Pulse shows version distribution and latest release.** Histogram
+  against the update feed; country mix from the Worker edge (no IPs stored).
+
 ## 1.8.1 — 2026-08-04
 
 ### Changed

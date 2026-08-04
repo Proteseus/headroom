@@ -48,7 +48,10 @@ change — because an approval you cannot read is not an approval.
 The **Mac app** can send one aggregate diagnostics batch per week when
 **Share anonymous product diagnostics** is left on (Settings → Telemetry).
 That batch is described in [`docs/telemetry.md`](telemetry.md): no prompts,
-paths, tokens, or install ids. The iOS app does not send this. Turning the
+paths, tokens, or stable install ids. A week-scoped HMAC dedupe key prevents
+the same Mac from inflating a week’s count; the secret that produces it never
+leaves the Mac. Country is derived at the edge from Cloudflare geo (ISO code
+only); the IP is not stored. The iOS app does not send this. Turning the
 setting off deletes any pending local batch.
 
 ## Data we do not collect

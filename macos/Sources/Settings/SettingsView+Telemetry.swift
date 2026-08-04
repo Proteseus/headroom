@@ -120,12 +120,11 @@ extension SettingsView {
                     detail: communityWeekDeltaDetail(stats.weeklyActiveMacs)
                 )
                 telemetryMetric(
-                    HeadroomCopy.telemetryLatestBuild,
-                    value: latest.versions.first?.name ?? "—",
-                    detail: latest.versions.first.map {
-                        "\($0.count) \(HeadroomCopy.telemetryMacs)"
-                    }
-                        ?? HeadroomCopy.telemetryCommunityThreshold
+                    HeadroomCopy.telemetryLatestRelease,
+                    value: stats.latestRelease?.version ?? "—",
+                    detail: stats.latestRelease?.published.map {
+                        String($0.prefix(10))
+                    } ?? HeadroomCopy.telemetryLatestWeek
                 )
                 telemetryMetric(
                     HeadroomCopy.telemetryTopArchitecture,
@@ -138,10 +137,15 @@ extension SettingsView {
             }
 
             communityWeeklyChart(stats.weeklyActiveMacs)
+            communityVersionHistogram(
+                latest.versions,
+                release: stats.latestRelease?.version
+            )
 
             if latest.versions.isEmpty,
                latest.architectures.isEmpty,
                latest.macosMajors.isEmpty,
+               latest.countries.isEmpty,
                latest.services.enabled.isEmpty,
                latest.services.used.isEmpty,
                latest.services.healthy.isEmpty,
@@ -152,11 +156,6 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             } else {
                 communityCountRows(
-                    HeadroomCopy.telemetryBuildSpread,
-                    items: latest.versions,
-                    total: latest.reportingMacs
-                )
-                communityCountRows(
                     HeadroomCopy.telemetryArchitectureMix,
                     items: latest.architectures,
                     total: latest.reportingMacs
@@ -166,6 +165,16 @@ extension SettingsView {
                     items: latest.macosMajors.map {
                         HeadroomCommunityStats.CountedItem(
                             name: "macOS \($0.name)",
+                            count: $0.count
+                        )
+                    },
+                    total: latest.reportingMacs
+                )
+                communityCountRows(
+                    HeadroomCopy.telemetryCountryMix,
+                    items: latest.countries.map {
+                        HeadroomCommunityStats.CountedItem(
+                            name: telemetryCountryName($0.name),
                             count: $0.count
                         )
                     },
@@ -216,6 +225,110 @@ extension SettingsView {
             }
             .frame(height: 118, alignment: .bottom)
         }
+    }
+
+    @ViewBuilder
+    func communityVersionHistogram(
+        _ versions: [HeadroomCommunityStats.CountedItem],
+        release: String?
+    ) -> some View {
+        if versions.isEmpty {
+            EmptyView()
+        } else {
+            let sorted = versions.sorted {
+                communityVersionCompare($0.name, $1.name) == .orderedAscending
+            }
+            let maximum = max(1, sorted.map(\.count).max() ?? 1)
+            let covered = sorted.reduce(0) { $0 + $1.count }
+            let onLatest = release.flatMap { target in
+                sorted.first { $0.name == target }
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text(HeadroomCopy.telemetryVersionDistribution)
+                    .font(.callout.weight(.medium))
+                HStack(alignment: .bottom, spacing: 5) {
+                    ForEach(sorted) { item in
+                        let isCurrent = item.name == release
+                        VStack(spacing: 4) {
+                            Text("\(item.count)")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(
+                                    Color.primary.opacity(isCurrent ? 0.85 : 0.45)
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    minHeight: 3,
+                                    maxHeight: 88 * CGFloat(
+                                        Double(item.count) / Double(maximum)
+                                    )
+                                )
+                            Text(item.name)
+                                .font(
+                                    .caption2.monospacedDigit().weight(
+                                        isCurrent ? .semibold : .regular
+                                    )
+                                )
+                                .foregroundStyle(
+                                    isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+                                )
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                    }
+                }
+                .frame(height: 118, alignment: .bottom)
+                if let release {
+                    let share = onLatest.map {
+                        covered > 0 ? Int((Double($0.count) / Double(covered) * 100).rounded()) : 0
+                    }
+                    Text(
+                        share.map {
+                            "\(HeadroomCopy.telemetryLatestRelease) \(release) · \($0)% \(HeadroomCopy.telemetryOnLatest)"
+                        } ?? "\(HeadroomCopy.telemetryLatestRelease) \(release)"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    func communityVersionCompare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let left = communityVersionParts(lhs)
+        let right = communityVersionParts(rhs)
+        let count = max(left.count, right.count)
+        for index in 0..<count {
+            let a = index < left.count ? left[index] : .number(0)
+            let b = index < right.count ? right[index] : .number(0)
+            switch (a, b) {
+            case (.number(let x), .number(let y)) where x != y:
+                return x < y ? .orderedAscending : .orderedDescending
+            case (.text(let x), .text(let y)) where x != y:
+                return x.localizedStandardCompare(y)
+            case (.number, .text):
+                return .orderedAscending
+            case (.text, .number):
+                return .orderedDescending
+            default:
+                continue
+            }
+        }
+        return .orderedSame
+    }
+
+    enum CommunityVersionPart {
+        case number(Int)
+        case text(String)
+    }
+
+    func communityVersionParts(_ value: String) -> [CommunityVersionPart] {
+        value.split(whereSeparator: { $0 == "." || $0 == "-" || $0 == "+" })
+            .map { piece in
+                if let number = Int(piece) { return .number(number) }
+                return .text(String(piece))
+            }
     }
 
     @ViewBuilder
@@ -699,5 +812,9 @@ extension SettingsView {
         id.split { $0 == "-" || $0 == "_" }
             .map { $0.capitalized }
             .joined(separator: " ")
+    }
+
+    func telemetryCountryName(_ code: String) -> String {
+        Locale.current.localizedString(forRegionCode: code) ?? code
     }
 }

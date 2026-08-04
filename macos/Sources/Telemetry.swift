@@ -1,4 +1,6 @@
+import CryptoKit
 import Foundation
+import Security
 
 /// The small, inspectable contract sent by the Mac when diagnostics are on.
 ///
@@ -29,6 +31,10 @@ struct HeadroomTelemetryBatch: Codable, Equatable, Sendable {
 
     let schema: Int
     let batchID: String
+    /// HMAC-SHA256(install secret, period) as 64 lowercase hex chars. Changes
+    /// every ISO week so the server can ignore duplicate installs without
+    /// receiving a stable install id.
+    let dedupeKey: String
     let period: String
     let app: App
     let providers: Providers
@@ -39,6 +45,7 @@ struct HeadroomTelemetryBatch: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case schema
         case batchID = "batch_id"
+        case dedupeKey = "dedupe_key"
         case period, app, providers, models, features
     }
 }
@@ -100,6 +107,7 @@ struct HeadroomCommunityStats: Decodable, Sendable {
         let versions: [CountedItem]
         let architectures: [CountedItem]
         let macosMajors: [CountedItem]
+        let countries: [CountedItem]
         let services: Services
         let modelShares: [ModelShare]
         let features: [Feature]
@@ -110,6 +118,7 @@ struct HeadroomCommunityStats: Decodable, Sendable {
             case versions
             case architectures
             case macosMajors = "macos_majors"
+            case countries
             case services
             case modelShares = "model_shares"
             case features
@@ -122,6 +131,7 @@ struct HeadroomCommunityStats: Decodable, Sendable {
             versions = try container.decodeIfPresent([CountedItem].self, forKey: .versions) ?? []
             architectures = try container.decodeIfPresent([CountedItem].self, forKey: .architectures) ?? []
             macosMajors = try container.decodeIfPresent([CountedItem].self, forKey: .macosMajors) ?? []
+            countries = try container.decodeIfPresent([CountedItem].self, forKey: .countries) ?? []
             services = try container.decode(Services.self, forKey: .services)
             modelShares = try container.decodeIfPresent([ModelShare].self, forKey: .modelShares) ?? []
             features = try container.decodeIfPresent([Feature].self, forKey: .features) ?? []
@@ -132,6 +142,7 @@ struct HeadroomCommunityStats: Decodable, Sendable {
     let generatedOn: String
     let privacy: Privacy
     let weeklyActiveMacs: [WeeklyActive]
+    let latestRelease: LatestRelease?
     let latest: Latest?
 
     enum CodingKeys: String, CodingKey {
@@ -139,7 +150,13 @@ struct HeadroomCommunityStats: Decodable, Sendable {
         case generatedOn = "generated_on"
         case privacy
         case weeklyActiveMacs = "weekly_active_macs"
+        case latestRelease = "latest_release"
         case latest
+    }
+
+    struct LatestRelease: Decodable, Sendable {
+        let version: String
+        let published: String?
     }
 }
 
@@ -147,6 +164,7 @@ enum HeadroomTelemetry {
     static let enabledKey = "telemetryEnabled"
     static let lastSubmittedPeriodKey = "telemetryLastSubmittedPeriod"
     static let endpointKey = "telemetryEndpoint"
+    static let schemaVersion = 2
     static let defaultEndpoint = "https://headroom-telemetry.mz-508.workers.dev/v1/batches"
     static let sourceURL = URL(
         string: "https://github.com/michellzappa/headroom/tree/main/macos/Sources/Telemetry.swift"
@@ -158,6 +176,10 @@ enum HeadroomTelemetry {
         string: "https://headroom-telemetry.mz-508.workers.dev/v1/community"
     )!
 
+    private static let installSecretService = "com.centaur-labs.headroom.telemetry"
+    private static let installSecretAccount = "install-secret"
+    private static let installSecretFileName = "install_secret"
+
     /// New installs and existing installs that predate this setting both start
     /// with the same visible choice: on. A user can turn it off at any time.
     static var enabled: Bool {
@@ -168,6 +190,8 @@ enum HeadroomTelemetry {
         UserDefaults.standard.set(enabled, forKey: enabledKey)
         if !enabled {
             deletePendingBatch()
+            // Keep the install secret. Deleting it would mint a new week key
+            // and let someone re-count by toggling diagnostics off and on.
         }
         NotificationCenter.default.post(name: .headroomTelemetryChanged, object: nil)
     }
@@ -181,9 +205,17 @@ enum HeadroomTelemetry {
         return url
     }
 
-    static var pendingURL: URL {
+    static var telemetryDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".headroom/telemetry/pending.json")
+            .appendingPathComponent(".headroom/telemetry")
+    }
+
+    static var pendingURL: URL {
+        telemetryDirectory.appendingPathComponent("pending.json")
+    }
+
+    static var installSecretURL: URL {
+        telemetryDirectory.appendingPathComponent(installSecretFileName)
     }
 
     static func loadPendingBatch() -> HeadroomTelemetryBatch? {
@@ -229,6 +261,119 @@ enum HeadroomTelemetry {
         let year = calendar.component(.yearForWeekOfYear, from: date)
         let week = calendar.component(.weekOfYear, from: date)
         return String(format: "%04d-W%02d", year, week)
+    }
+
+    /// Opaque week key for server-side uniqueness. Not an install id: it
+    /// rotates every ISO week and the underlying secret never leaves the Mac.
+    static func weekDedupeKey(period: String) -> String {
+        let secret = installSecret()
+        let mac = HMAC<SHA256>.authenticationCode(
+            for: Data(period.utf8),
+            using: SymmetricKey(data: secret)
+        )
+        return mac.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 32-byte secret, mirrored in local Keychain and `~/.headroom/telemetry`
+    /// so Debug and Release builds on the same Mac share one week key. Not
+    /// iCloud-synced: each Mac stays its own weekly reporter.
+    static func installSecret() -> Data {
+        if let keychain = readInstallSecretFromKeychain(),
+           keychain.count == 32 {
+            writeInstallSecretToFile(keychain)
+            return keychain
+        }
+        if let file = readInstallSecretFromFile(), file.count == 32 {
+            writeInstallSecretToKeychain(file)
+            return file
+        }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let secret = status == errSecSuccess
+            ? Data(bytes)
+            : Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+        writeInstallSecretToKeychain(secret)
+        writeInstallSecretToFile(secret)
+        return secret
+    }
+
+    private static func readInstallSecretFromKeychain() -> Data? {
+        guard let hex = KeychainPassword.read(
+            service: installSecretService,
+            account: installSecretAccount,
+            scope: .local
+        ) else { return nil }
+        return dataFromHex(hex)
+    }
+
+    private static func writeInstallSecretToKeychain(_ secret: Data) {
+        let hex = secret.map { String(format: "%02x", $0) }.joined()
+        try? KeychainPassword.replace(
+            hex,
+            service: installSecretService,
+            account: installSecretAccount,
+            scope: .local,
+            failure: "Could not save telemetry install secret."
+        )
+    }
+
+    private static func readInstallSecretFromFile() -> Data? {
+        guard let hex = try? String(
+            contentsOf: installSecretURL, encoding: .utf8
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        else { return nil }
+        return dataFromHex(hex)
+    }
+
+    private static func writeInstallSecretToFile(_ secret: Data) {
+        let directory = telemetryDirectory
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            let hex = secret.map { String(format: "%02x", $0) }.joined()
+            let temporary = directory.appendingPathComponent(
+                ".secret-\(UUID().uuidString).tmp")
+            try Data(hex.utf8).write(to: temporary, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: temporary.path
+            )
+            if FileManager.default.fileExists(atPath: installSecretURL.path) {
+                _ = try FileManager.default.replaceItemAt(
+                    installSecretURL, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(
+                    at: temporary, to: installSecretURL)
+            }
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: installSecretURL.path
+            )
+        } catch {
+            // Best effort — Keychain copy is enough for a signed build.
+        }
+    }
+
+    private static func dataFromHex(_ hex: String) -> Data? {
+        let cleaned = hex.lowercased()
+        guard cleaned.count == 64, cleaned.allSatisfy(\.isHexDigit) else {
+            return nil
+        }
+        var data = Data()
+        data.reserveCapacity(32)
+        var index = cleaned.startIndex
+        while index < cleaned.endIndex {
+            let next = cleaned.index(index, offsetBy: 2)
+            guard let byte = UInt8(cleaned[index..<next], radix: 16) else {
+                return nil
+            }
+            data.append(byte)
+            index = next
+        }
+        return data
     }
 
     static func normalizedSourceID(_ id: String) -> String? {
@@ -383,8 +528,9 @@ final class TelemetryCoordinator {
         #endif
 
         return HeadroomTelemetryBatch(
-            schema: 1,
+            schema: HeadroomTelemetry.schemaVersion,
             batchID: UUID().uuidString.lowercased(),
+            dedupeKey: HeadroomTelemetry.weekDedupeKey(period: period),
             period: period,
             app: .init(
                 version: appVersion,
@@ -416,7 +562,10 @@ final class TelemetryCoordinator {
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("1", forHTTPHeaderField: "X-Headroom-Telemetry-Schema")
+        request.setValue(
+            String(HeadroomTelemetry.schemaVersion),
+            forHTTPHeaderField: "X-Headroom-Telemetry-Schema"
+        )
         guard let body = try? JSONEncoder().encode(batch) else { return false }
         request.httpBody = body
         do {

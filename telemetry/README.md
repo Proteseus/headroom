@@ -15,6 +15,20 @@ npx wrangler d1 execute headroom-telemetry --remote --file=schema.sql
 npx wrangler deploy
 ```
 
+Existing databases need the dedupe migration before schema-2 clients can
+store batches:
+
+```bash
+npx wrangler d1 execute headroom-telemetry --remote \
+  --file=migrations/002_dedupe_key.sql
+npx wrangler deploy
+```
+
+Schema 2 requires a week-scoped `dedupe_key` (`HMAC-SHA256` of a local install
+secret and the ISO week). The Worker stores at most one row per
+`(period, dedupe_key)`, so Debug/Release copies of the same Mac cannot inflate
+weekly active Macs. See [`docs/telemetry.md`](../docs/telemetry.md).
+
 The current deployed URL is
 `https://headroom-telemetry.mz-508.workers.dev/v1/batches`, which matches
 `HeadroomTelemetry.defaultEndpoint` in `macos/Sources/Telemetry.swift`. A

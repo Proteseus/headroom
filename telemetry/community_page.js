@@ -151,12 +151,22 @@ const COMMUNITY_PAGE = `<!doctype html>
       background: var(--fill);
     }
     .bar-empty { background: var(--empty); }
+    .bar-current {
+      background: var(--ink);
+    }
     .bar-label {
       color: var(--faint);
       font-size: 10px;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
+    .bar-label-current { color: var(--ink); font-weight: 650; }
+    .version-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .version-note strong { color: var(--ink); font-weight: 650; }
     .rows { display: grid; gap: 10px; }
     .row {
       display: grid;
@@ -249,6 +259,12 @@ const COMMUNITY_PAGE = `<!doctype html>
     const number = (value) => value == null ? '—' : value.toLocaleString();
     const empty = (message) => '<div class="empty">' + esc(message) + '</div>';
     const pct = (count, total) => total ? Math.round(count / total * 100) : 0;
+    const regionNames = (typeof Intl !== 'undefined' && Intl.DisplayNames)
+      ? new Intl.DisplayNames(['en'], { type: 'region' })
+      : null;
+    const countryName = (code) => {
+      try { return regionNames?.of(code) || code; } catch { return code; }
+    };
 
     function countRows(items, total, soft) {
       if (!items.length) return empty('Below privacy floor');
@@ -310,6 +326,59 @@ const COMMUNITY_PAGE = `<!doctype html>
       }).join('') + '</div>';
     }
 
+    function versionParts(value) {
+      return String(value).split(/[.+-]/).map((part) => {
+        const number = Number.parseInt(part, 10);
+        return Number.isFinite(number) ? number : part;
+      });
+    }
+
+    function compareVersions(left, right) {
+      const a = versionParts(left);
+      const b = versionParts(right);
+      const length = Math.max(a.length, b.length);
+      for (let index = 0; index < length; index += 1) {
+        const x = a[index] ?? 0;
+        const y = b[index] ?? 0;
+        if (x === y) continue;
+        if (typeof x === 'number' && typeof y === 'number') return x - y;
+        return String(x).localeCompare(String(y));
+      }
+      return 0;
+    }
+
+    function versionHistogram(versions, total, release) {
+      if (!versions.length) return empty('Below privacy floor');
+      const sorted = versions.slice().sort((lhs, rhs) => compareVersions(lhs.name, rhs.name));
+      const max = Math.max(1, ...sorted.map((item) => item.count));
+      const releaseVersion = release?.version || null;
+      const onLatest = releaseVersion
+        ? sorted.find((item) => item.name === releaseVersion)
+        : null;
+      const covered = sorted.reduce((sum, item) => sum + item.count, 0);
+      const onLatestShare = onLatest && covered
+        ? Math.round(onLatest.count / covered * 100)
+        : null;
+      const bars = '<div class="bars">' + sorted.map((item) => {
+        const height = Math.max(3, (item.count / max) * 128);
+        const isCurrent = releaseVersion != null && item.name === releaseVersion;
+        return '<div class="bar-wrap" title="' + esc(item.name) + ': ' + esc(item.count) + ' Macs' + (isCurrent ? ' · latest release' : '') + '">' +
+          '<div class="bar-value">' + esc(item.count) + '</div>' +
+          '<div class="bar' + (isCurrent ? ' bar-current' : '') + '" style="height:' + height + 'px"></div>' +
+          '<div class="bar-label' + (isCurrent ? ' bar-label-current' : '') + '">' + esc(item.name) + '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+      let note = '';
+      if (releaseVersion) {
+        note = '<div class="version-note">Latest release <strong>' + esc(releaseVersion) + '</strong>' +
+          (onLatestShare == null
+            ? ' · no published bucket on that version yet'
+            : ' · <strong>' + esc(onLatestShare) + '%</strong> of published Macs on it') +
+          '</div>';
+      }
+      return bars + note;
+    }
+
     function panel(titleText, subtitle, body, span) {
       return '<div class="panel' + (span ? ' span-' + span : '') + '"><h2 class="section-title">' + esc(titleText) + '<small>' + esc(subtitle) + '</small></h2>' + body + '</div>';
     }
@@ -317,6 +386,7 @@ const COMMUNITY_PAGE = `<!doctype html>
     function render(data) {
       const latest = data.latest;
       const floor = data.privacy.minimum_group_size;
+      const release = data.latest_release;
       document.querySelector('#meta').textContent = latest
         ? 'Snapshot ' + latest.period + ' · published ' + data.generated_on + ' · groups smaller than ' + floor + ' withheld'
         : 'Waiting for at least ' + floor + ' reporting Macs in a week.';
@@ -334,18 +404,20 @@ const COMMUNITY_PAGE = `<!doctype html>
       const deltaLabel = delta == null ? 'Need two published weeks' : (delta > 0 ? '+' + delta : String(delta)) + ' vs prior week';
       const topBuild = latest.versions?.[0];
       const topArch = latest.architectures?.[0];
+      const releaseLabel = release?.version || '—';
 
       document.querySelector('#stats').innerHTML =
         '<div class="panel stat"><div class="label">Weekly active Macs</div><div class="value">' + esc(number(total)) + '</div><div class="sub">' + esc(latest.period) + '</div></div>' +
         '<div class="panel stat"><div class="label">Week-over-week</div><div class="value">' + esc(delta == null ? '—' : (delta > 0 ? '+' + delta : String(delta))) + '</div><div class="sub">' + esc(deltaLabel) + '</div></div>' +
-        '<div class="panel stat"><div class="label">Top build</div><div class="value">' + esc(topBuild?.name || '—') + '</div><div class="sub">' + esc(topBuild ? topBuild.count + ' Macs' : 'Below privacy floor') + '</div></div>' +
+        '<div class="panel stat"><div class="label">Latest release</div><div class="value">' + esc(releaseLabel) + '</div><div class="sub">' + esc(release?.published ? release.published.slice(0, 10) : 'update feed') + '</div></div>' +
         '<div class="panel stat"><div class="label">Top architecture</div><div class="value">' + esc(topArch?.name || '—') + '</div><div class="sub">' + esc(topArch ? topArch.count + ' Macs' : 'Below privacy floor') + '</div></div>';
 
       document.querySelector('#body').innerHTML =
         panel('Weekly active Macs', 'ISO weeks · empty or withheld weeks stay on the axis', weeklyChart(data.weekly_active_macs || []), 3) +
-        panel('Build spread', 'app version', countRows(latest.versions || [], total), 1) +
+        panel('Version distribution', release?.version ? ('histogram · latest ' + release.version + ' marked') : 'histogram · app version', versionHistogram(latest.versions || [], total, release), 3) +
         panel('Architecture', 'CPU family', countRows(latest.architectures || [], total), 1) +
         panel('macOS major', 'major version', countRows((latest.macos_majors || []).map((item) => ({ name: 'macOS ' + item.name, count: item.count })), total), 1) +
+        panel('Countries', 'Cloudflare edge geo · ISO code only, never an IP', countRows((latest.countries || []).map((item) => ({ name: countryName(item.name), count: item.count })), total), 1) +
         panel('Services', 'enabled · used · healthy', servicePanel(latest.services || {}, total), 2) +
         panel('Model family mix', 'average share among reporting Macs', shareRows(latest.model_shares || []), 1) +
         panel('Feature adoption', 'share of reporting Macs with flag on', featureRows(latest.features || []), 3);
