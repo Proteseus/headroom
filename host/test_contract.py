@@ -553,6 +553,190 @@ class SwiftModelContractTests(unittest.TestCase):
             self.assertIn(key, names)
 
 
+def _swift_struct_specs():
+    """Parse HeadroomModels.swift into per-struct decode facts.
+
+    Returns {struct_name: spec} where spec carries the declaration list
+    (`props`), the CodingKeys mapping when one exists (`coding`, None means
+    synthesized keys), whether the struct writes its own `init(from:)`
+    (`hand_init`), the struct's own body text (`body`, innermost struct only,
+    so a nested type's decode calls cannot leak into its parent), and the
+    protocol clause (`inherits`).
+
+    A line scanner with brace counting, not a Swift parser. The vacuity test
+    below is what keeps that honest: if the file's style drifts far enough
+    that this stops matching, the floor assertions fail loudly.
+    """
+    with open(MODELS_PATH) as handle:
+        source = handle.read()
+
+    prop_re = re.compile(r"^\s*(?:let|var)\s+(\w+)\s*:\s*([^={]+?)\s*$")
+    struct_re = re.compile(r"^\s*(?:public\s+)?struct\s+(\w+)\s*(?::\s*([^{]+))?\{")
+    other_re = re.compile(r"^\s*(?:public\s+)?(?:enum|extension|class|protocol)\s+\w+")
+
+    structs = {}
+    stack = []  # (kind, name, depth_at_open)
+    depth = 0
+    keys_owner = None
+    for line in source.splitlines():
+        m = struct_re.match(line)
+        if m:
+            full = ".".join(
+                [s[1] for s in stack if s[0] == "struct"] + [m.group(1)])
+            structs[full] = {
+                "inherits": m.group(2) or "",
+                "props": [], "coding": None, "hand_init": False, "body": [],
+            }
+            stack.append(("struct", m.group(1), depth))
+        elif re.match(r"^\s*enum\s+CodingKeys\b", line):
+            keys_owner = ".".join(s[1] for s in stack if s[0] == "struct")
+            if keys_owner in structs:
+                structs[keys_owner]["coding"] = {}
+            stack.append(("codingkeys", "CodingKeys", depth))
+        elif other_re.match(line) and "{" in line:
+            stack.append(("other", "?", depth))
+
+        owners = [s[1] for s in stack if s[0] == "struct"]
+        if owners and stack[-1][0] == "struct":
+            name = ".".join(owners)
+            if name in structs:
+                structs[name]["body"].append(line)
+                if re.search(r"\binit\s*\(\s*from\b", line):
+                    structs[name]["hand_init"] = True
+                pm = prop_re.match(line)
+                if pm and depth == stack[-1][2] + 1:
+                    structs[name]["props"].append(
+                        (pm.group(1), pm.group(2).strip()))
+
+        if keys_owner is not None and stack and stack[-1][0] == "codingkeys":
+            cm = re.match(r"^\s*case\s+(.*)$", line)
+            if cm and keys_owner in structs:
+                for part in cm.group(1).split(","):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if "=" in part:
+                        raw = re.search(r'"([^"]+)"', part)
+                        if raw:
+                            structs[keys_owner]["coding"][
+                                part.split("=")[0].strip()] = raw.group(1)
+                    else:
+                        structs[keys_owner]["coding"][part] = part
+
+        depth += line.count("{") - line.count("}")
+        while stack and depth <= stack[-1][2]:
+            if stack.pop()[0] == "codingkeys":
+                keys_owner = None
+    return structs
+
+
+def _swift_required_by_struct():
+    """{struct: wire keys its decoder cannot survive without}, /usage only.
+
+    Requiredness is read two ways, matching how the file decodes. A struct
+    with a hand-written `init(from:)` requires exactly what it passes to
+    plain `container.decode(...)` — `decodeIfPresent` and the lossy-array
+    helpers are survivable. A synthesized struct requires every stored
+    property whose type is non-optional, because the compiler's decoder
+    throws on a missing key even when the property has a default.
+
+    Scope is the type graph reachable from UsageSnapshot; the agent-event
+    and mobile-control families decode other endpoints and answer to their
+    own tests.
+    """
+    structs = _swift_struct_specs()
+    decode_re = re.compile(
+        r"\.decode\(\s*[\w\[\]<>.?]+\.self\s*,\s*forKey:\s*\.(\w+)")
+
+    simple = {}
+    for full in structs:
+        simple.setdefault(full.split(".")[-1], set()).add(full)
+    reachable, todo = set(), ["UsageSnapshot"]
+    while todo:
+        cur = todo.pop()
+        if cur in reachable or cur not in structs:
+            continue
+        reachable.add(cur)
+        for _, typ in structs[cur]["props"]:
+            for ref in re.findall(r"[A-Z]\w*", typ):
+                todo.extend(simple.get(ref, ()))
+                todo.append(cur + "." + ref)
+
+    out = {}
+    for name in reachable:
+        spec = structs[name]
+        if not re.search(r"\b(Decodable|Codable)\b", spec["inherits"]):
+            continue
+        if spec["hand_init"]:
+            props = set(decode_re.findall("\n".join(spec["body"])))
+        else:
+            props = {p for p, typ in spec["props"]
+                     if not typ.split("//")[0].strip().endswith("?")}
+        coding = spec["coding"]
+        keys = {coding[p] for p in props if p in coding} if coding is not None \
+            else props
+        if keys:
+            out[name] = keys
+    return out
+
+
+class SwiftRequiredFieldTests(unittest.TestCase):
+    """The other half of additive-only: a key Swift *requires* must be served.
+
+    SwiftModelContractTests proves every emitted key is decodable. Nothing
+    proved the reverse — that every key some Swift struct refuses to decode
+    without is still being emitted. That gap is how a host-side removal or
+    rename of a required field ships: Swift drops the row (or the section)
+    on the floor with no error, and the first symptom is a blank card on a
+    phone that updates on Apple's schedule.
+
+    Checked against docs/demo_usage.json alone, because the fixture is the
+    floor every machine shares — a live document on a configured Mac proves
+    nothing about CI (see AGENTS.md). If this fails after a fixture edit,
+    either restore the key or make the Swift field optional first; the
+    contract permits loosening, never tightening.
+    """
+
+    def test_every_required_swift_field_is_in_the_demo_fixture(self):
+        emitted = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    emitted.add(key)
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(_demo_doc())
+        missing = {
+            name: sorted(keys - emitted)
+            for name, keys in _swift_required_by_struct().items()
+            if keys - emitted
+        }
+        self.assertEqual(
+            missing, {},
+            "Swift requires these keys and docs/demo_usage.json no longer "
+            f"carries them: {missing}. A shipped client cannot decode a "
+            "document without them — restore the key, or make the Swift "
+            "field optional before the host stops emitting it.",
+        )
+
+    def test_the_struct_parser_is_not_vacuous(self):
+        """A scraper that quietly matches nothing would pass forever."""
+        required = _swift_required_by_struct()
+        flat = set().union(*required.values())
+        self.assertGreaterEqual(len(required), 10)
+        self.assertIn("QuotaProviderInfo", required)
+        for key in ("date", "domain", "ref"):
+            self.assertIn(key, flat)
+        # Agent events decode /agent endpoints, not /usage; if one of these
+        # ever becomes reachable from UsageSnapshot the scope of the fixture
+        # check just changed, and that should be a decision, not an accident.
+        self.assertNotIn("AgentAttentionEvent", required)
+
+
 class AttentionContractTests(unittest.TestCase):
     def test_attention_never_leaks_internal_weights(self):
         doc = headroom_server.publish()
