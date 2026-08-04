@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.2",
-  "published": "2026-08-04T12:07:34Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.2/Headroom-macOS.zip",
-  "sha256": "5c30bb681bb95c37a2e31877754becfe8ebd3d5ab0640b4f9f2c3a6213caa775",
-  "size": 5406105,
+  "version": "1.7.3",
+  "published": "2026-08-04T12:15:04Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.3/Headroom-macOS.zip",
+  "sha256": "939c51658cb14641547ddd63592f15d2a98991f0d5624a87277916645ad77d7c",
+  "size": 5517854,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Integration Settings name the scopes each key needs.** PostHog asks for\n  `project:read` and `query:read`; Plausible, GitHub, Supabase, Datadog,\n  OpenRouter, and AI Gateway footers spell out their matching permissions too\n  (Sentry and Axiom already did). PostHog's cloud region is a US / EU\n  dropdown; Custom still takes a self-hosted URL. Saved keys show\n  `••••••••••••` in the empty SecureField so the row does not look unused."
+  "notes_md": "### Changed\n\n- **Recent resets is a calendar heatmap.** Granted resets under a burndown\n  card are a day grid (on/off; provider tint = global grant, amber = credit\n  you spent; weekly auto-resets stay off) instead of a six-row list, sized\n  from the oldest grant on hand. Codex week merges the public\n  [codex-resets.com](https://codex-resets.com) announcement feed with locally\n  observed sample grants — so the grid reaches back through every verified\n  global reset and keeps filling forward as new ones are announced or\n  detected. Still live data, never a fixture.\n- **Activity and Attention rows share one layout on Mac and iPhone.** Feed\n  rows and the Attention list live in `Shared/` so both surfaces draw the\n  same chrome."
 }
