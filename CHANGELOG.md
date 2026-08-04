@@ -7,34 +7,6 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
-## 1.8.3 — 2026-08-04
-
-### Changed
-
-- **Supabase Attention lint badge is a compact count + shield.** Plain
-  HStack instead of a Label so the row chrome matches neighbouring service
-  rows.
-
-## 1.8.2 — 2026-08-04
-
-### Changed
-
-- **Telemetry schema 2 week-scopes a dedupe key.** Each Mac keeps a local
-  install secret and sends `HMAC-SHA256(secret, ISO week)` so Debug/Release
-  copies cannot inflate weekly active Macs — without a stable install id on
-  the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`.
-- **Community Pulse shows version distribution and latest release.** Histogram
-  against the update feed; country mix from the Worker edge (no IPs stored). Existing D1 also needs `telemetry/migrations/003_country.sql`.
-
-## 1.8.1 — 2026-08-04
-
-### Changed
-
-- **OpenRouter and AI Gateway provider leaves show observed spend.** Daily
-  bars, runway, top models, and (OpenRouter) per-key usage — no ring, no
-  Attention rows. Spend is billed credits from each provider's own API;
-  AI Gateway Hobby notes when the report endpoint needs Pro.
-
 ## 1.8.0 — 2026-08-04
 
 ### Changed
@@ -43,6 +15,21 @@ tag a version that has no entry.
   names the wrong key type and points at
   [management-keys](https://openrouter.ai/settings/management-keys) so a quiet
   wrong pot cannot replace the account balance.
+- **OpenRouter and AI Gateway provider leaves show observed spend.** Daily
+  bars, runway, top models, and (OpenRouter) per-key usage — no ring, no
+  Attention rows. Spend is billed credits from each provider's own API;
+  AI Gateway Hobby notes when the report endpoint needs Pro.
+- **Telemetry schema 2 week-scopes a dedupe key.** Each Mac keeps a local
+  install secret and sends `HMAC-SHA256(secret, ISO week)` so Debug/Release
+  copies cannot inflate weekly active Macs — without a stable install id on
+  the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`
+  and `003_country.sql`.
+- **Community Pulse shows version distribution and latest release.** Histogram
+  against the update feed; country mix from the Worker edge (no IPs stored).
+- **Supabase Attention lint badge is a compact count + shield.** Plain
+  HStack instead of a Label so the row chrome matches neighbouring service
+  rows.
+
 
 ## 1.7.9 — 2026-08-04
 
