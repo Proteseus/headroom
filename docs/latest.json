@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.0",
-  "published": "2026-08-03T18:45:17Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.0/Headroom-macOS.zip",
-  "sha256": "0c3f348d9c8cb73e779f5897b46904600d0b624671dc754b43fa6808c0572847",
-  "size": 5395629,
+  "version": "1.7.1",
+  "published": "2026-08-04T08:03:09Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.1/Headroom-macOS.zip",
+  "sha256": "3c6f91d252a02e97f446d3fa56deac497bfe0cce996448e02730510bcf342621",
+  "size": 5395841,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Anonymous product diagnostics on the Mac.** Settings → Telemetry shares\n  one aggregate batch per week (app/host versions, normalized provider ids,\n  model-family shares, three coarse feature flags) when left on. No prompts,\n  paths, tokens, or install id. First-party Worker under `telemetry/`; see\n  [`docs/telemetry.md`](docs/telemetry.md)."
+  "notes_md": "### Fixed\n\n- **Connect no longer fails to save a GitHub token when iCloud Keychain\n  refuses the write.** Synced PAT saves wiped both keyspaces before the local\n  fallback ran, so a refused synchronizable write could show \"Could not save\n  GitHub token\" and drop a working local copy. Each half is update-or-add on\n  its own now; the other half is dropped only after the write that should win\n  has succeeded. Thanks to [@pm](https://x.com/pm/status/2084287614115328004)\n  for reporting it."
 }
