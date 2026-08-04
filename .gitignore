@@ -10,6 +10,9 @@ __pycache__/
 .pytest_cache/
 .venv-shots/
 
+# Reproducible Node helper dependencies. Keep package.json and the lockfile.
+tools/node_modules/
+
 # macOS / Xcode. project.yml is the source of truth: XcodeGen writes the
 # .xcodeproj on every build, so tracking it only produces UUID churn.
 macos/Headroom.xcodeproj/

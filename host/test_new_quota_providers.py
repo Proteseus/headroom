@@ -28,8 +28,8 @@ class RegistryHasNewProviders(unittest.TestCase):
         ids = [s.id for s in sources_config.QUOTA_SOURCES]
         self.assertEqual(
             ids,
-            ["claude", "codex", "cursor", "copilot", "gemini",
-             "windsurf", "jetbrains", "zed", "grok", "openrouter",
+            ["claude", "codex", "cursor", "gemini", "windsurf",
+             "jetbrains", "zed", "grok", "opencode", "openrouter",
              "ai-gateway"],
         )
         self.assertTrue(all(s.group == sources_config.GROUP_AI for s in

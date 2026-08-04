@@ -9,7 +9,7 @@ SmartPanel {
   property var snapshot: ({})
   property bool healthy: false
   preferredWidth: Math.round(360 * Style.uiScaleRatio)
-  preferredHeight: Math.round(420 * Style.uiScaleRatio)
+  preferredHeight: Math.round(((snapshot.byDay || []).length > 0 ? 320 : 220) * Style.uiScaleRatio)
   panelContent: Component {
     HeadroomPanelContent {
       snapshot: root.snapshot

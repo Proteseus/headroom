@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@slkiser/opencode-quota": "^4.4.1"
+  }
+}
