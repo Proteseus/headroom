@@ -262,6 +262,8 @@ struct MobileSettingsScreen: View {
         Form {
             Section {
                 AboutHeadroomView()
+            } footer: {
+                Text(HeadroomCopy.aboutOpenSourceFooter)
             }
         }
     }

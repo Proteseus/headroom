@@ -350,6 +350,8 @@ extension SettingsView {
         Form {
             Section {
                 AboutHeadroomView()
+            } footer: {
+                Text(HeadroomCopy.aboutOpenSourceFooter)
             }
         }
         .formStyle(.grouped)

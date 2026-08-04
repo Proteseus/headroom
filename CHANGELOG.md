@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.7 — 2026-08-04
+
+### Changed
+
+- **About links the public repo and Community Pulse.** Settings → About on
+  Mac and iPhone show Source on GitHub with a live star count, plus a link
+  to the public community page. Open-source footer under the About block.
+
 ## 1.7.6 — 2026-08-04
 
 ### Changed
