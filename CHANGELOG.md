@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.3 — 2026-08-04
+
+### Changed
+
+- **Supabase Attention lint badge is a compact count + shield.** Plain
+  HStack instead of a Label so the row chrome matches neighbouring service
+  rows.
+
 ## 1.8.2 — 2026-08-04
 
 ### Changed

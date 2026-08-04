@@ -99,11 +99,13 @@ struct SupabaseSection: View {
                     }
                     Spacer(minLength: 0)
                     if let badge = lintBadge(project) {
-                        Label("\(badge.count)", systemImage: "shield.lefthalf.filled")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(badge.tint)
-                            .labelStyle(.titleAndIcon)
-                            .help(badge.help)
+                        HStack(spacing: 3) {
+                            Text("\(badge.count)")
+                            Image(systemName: "shield.lefthalf.filled")
+                        }
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(badge.tint)
+                        .help(badge.help)
                     }
                     ServiceDetailChevron()
                 }
