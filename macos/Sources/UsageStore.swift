@@ -28,14 +28,9 @@ final class UsageStore: ObservableObject {
     /// to this and opening the popover refreshes immediately.
     private static let idleInterval: TimeInterval = 300
     private static let idleAfter: TimeInterval = 120
-    /// Ceiling for the fast retry after a failed poll. Long enough that a Mac
-    /// with no host installed isn't spinning, short enough that a host which
-    /// comes back is on screen before anyone reaches for the menu bar.
-    private static let retryCeiling: TimeInterval = 30
-
     private var refreshLoop: Task<Void, Never>?
     private var lastInteraction = Date()
-    private var consecutiveFailures = 0
+    private var cadence = RefreshCadence()
 
     /// Who answered /health last. launchd hands the same port to whatever host
     /// it just started, so "still 200 on :8737" proves nothing — the build
@@ -146,9 +141,8 @@ final class UsageStore: ObservableObject {
         // Nothing answered last time — the host is mid-restart, or launchd is
         // between agents. Sitting out a full minute (or five, when idle) leaves
         // dead meters long after it is back, so retry fast and back off.
-        if consecutiveFailures > 0 {
-            return min(Self.retryCeiling,
-                       pow(2, Double(min(consecutiveFailures, 5))))
+        if let retry = cadence.retryInterval {
+            return retry
         }
         let configured = UserDefaults.standard.integer(forKey: "refreshInterval")
         let active = TimeInterval(max(15, configured > 0 ? configured : 60))
@@ -193,13 +187,13 @@ final class UsageStore: ObservableObject {
             }
 
             lastRefresh = Date()
-            consecutiveFailures = 0
+            cadence.noteSuccess()
             // Written once per successful pass, after any forced re-sync, so
             // the widget never picks up the pre-sync document. The Mac is the
             // source here — this cache is current, unlike the phone's.
             HeadroomWidgetCache.save(snapshot)
         } catch {
-            consecutiveFailures += 1
+            cadence.noteFailure()
             errorMessage = error.localizedDescription
             onSnapshotChange?(snapshot, false)
         }

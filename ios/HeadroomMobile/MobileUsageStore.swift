@@ -28,15 +28,13 @@ final class MobileUsageStore: ObservableObject {
     /// pre-restart document until someone pulls to refresh.
     private var liveLoop: Task<Void, Never>?
     private var agentLiveLoop: Task<Void, Never>?
-    private var consecutiveFailures = 0
+    private var cadence = RefreshCadence()
 
     private static let liveInterval: TimeInterval = 60
     /// Agent questions are time-sensitive; keep this separate from the full
     /// usage poll so answering from the phone does not make every quota source
     /// run once per few seconds.
     private static let agentLiveInterval: TimeInterval = 5
-    /// Ceiling for the fast retry after a failed poll — see `nextInterval`.
-    private static let retryCeiling: TimeInterval = 30
 
     init() {
         if let events = MobileAgentAttentionArchive.load() {
@@ -159,11 +157,7 @@ final class MobileUsageStore: ObservableObject {
         // Lost the Mac: most often it is restarting its host, which takes
         // seconds. Come back on that scale rather than a minute, then back off
         // so a phone left open on a sleeping Mac isn't retrying all evening.
-        if consecutiveFailures > 0 {
-            return min(Self.retryCeiling,
-                       pow(2, Double(min(consecutiveFailures, 5))))
-        }
-        return Self.liveInterval
+        cadence.retryInterval ?? Self.liveInterval
     }
 
     func refresh(forceServerSync: Bool = false) async {
@@ -206,7 +200,7 @@ final class MobileUsageStore: ObservableObject {
             errorMessage = nil
             capturedAt = Date()
             isShowingArchive = false
-            consecutiveFailures = 0
+            cadence.noteSuccess()
             // Same bytes to both caches: the phone's widget group, and — over
             // WatchConnectivity — the watch's, which no other surface can fill.
             WatchBridge.shared.push(HeadroomWidgetCache.save(snapshot))
@@ -215,7 +209,7 @@ final class MobileUsageStore: ObservableObject {
         } catch {
             // Keep whatever is on screen. Losing a week of burndown because the
             // Mac went to sleep is worse than showing it with its age attached.
-            consecutiveFailures += 1
+            cadence.noteFailure()
             errorMessage = error.localizedDescription
         }
     }

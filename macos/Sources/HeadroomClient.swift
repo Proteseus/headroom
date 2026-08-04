@@ -977,34 +977,8 @@ struct ClaudeHookConfiguration: Decodable, Sendable {
     }
 }
 
-struct HealthReport: Decodable, Sendable {
-    var ok: Bool?
-    var uptimeS: Int?
-    var updated: String?
-    var sources: [String: SourceHealth]
-    /// Absent on hosts older than the version handshake — see HostVersion.
-    var version: String?
-    var build: String?
-
-    enum CodingKeys: String, CodingKey {
-        case ok, updated, sources, version, build
-        case uptimeS = "uptime_s"
-    }
-}
-
-struct SourceHealth: Decodable, Sendable {
-    var ok: Bool?
-    var stale: Bool?
-    var enabled: Bool?
-    var ageS: Int?
-    var error: String?
-    var detail: String?
-
-    enum CodingKeys: String, CodingKey {
-        case ok, stale, enabled, error, detail
-        case ageS = "age_s"
-    }
-}
+// HealthReport / SourceHealth moved to Shared/HealthModels.swift so the
+// iPhone decodes /health through the same types.
 
 private struct StopServerRequest: Encodable {
     let pid: Int

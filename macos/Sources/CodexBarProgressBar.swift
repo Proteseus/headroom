@@ -1,34 +1,8 @@
 import AppKit
 import SwiftUI
 
-extension Color {
-    /// Desaturated brand color for exhausted quota — never alarm red.
-    func drained(
-        saturationScale: CGFloat = 0.38,
-        brightnessScale: CGFloat = 0.78
-    ) -> Color {
-        let ns = NSColor(self)
-        guard let rgb = ns.usingColorSpace(.deviceRGB) else {
-            return opacity(0.45)
-        }
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
-        rgb.getHue(
-            &hue,
-            saturation: &saturation,
-            brightness: &brightness,
-            alpha: &alpha
-        )
-        return Color(
-            hue: hue,
-            saturation: saturation * saturationScale,
-            brightness: min(1, brightness * brightnessScale + 0.12),
-            opacity: alpha
-        )
-    }
-}
+// `Color.drained()` lives in Shared/DrainedColor.swift — both apps drain
+// exhausted quota the same way.
 
 /// Adapted from the MIT-licensed `UsageProgressBar` in steipete/CodexBar.
 /// Geometry matches its 6pt capsule; the pace mark is Headroom's ring-style

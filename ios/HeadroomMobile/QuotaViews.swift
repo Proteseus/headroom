@@ -323,6 +323,7 @@ private struct ProviderQuotaDetail: View {
                     SubscriptionPricingView(
                         pricing: subscriptionPricing,
                         currentPlan: meter.plan)
+                    .headroomCard()
                 }
 
                 ForEach(burndown) { pool in
@@ -398,56 +399,7 @@ private struct MobileBalanceRow: View {
     }
 }
 
-private struct SubscriptionPricingView: View {
-    let pricing: SubscriptionPricing
-    let currentPlan: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Subscription price")
-                    .font(.headline)
-                Spacer()
-                if let url = pricing.url.flatMap(URL.init(string:)) {
-                    Link("Source", destination: url)
-                        .font(.caption)
-                }
-            }
-            if let price = pricing.currentPrice(for: currentPlan) {
-                HStack(spacing: 8) {
-                    // A matched price always has the id or title it matched
-                    // on; the trailing fallback only satisfies the compiler.
-                    Text(currentPlan ?? price.title ?? price.id ?? "")
-                        .lineLimit(1)
-                    Spacer()
-                    Text(price.compactPrice)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .font(.subheadline)
-            } else if let currentPlan {
-                HStack(spacing: 8) {
-                    Text(currentPlan)
-                        .lineLimit(1)
-                    Spacer()
-                    Text("See provider")
-                        .foregroundStyle(.secondary)
-                }
-                .font(.subheadline)
-            } else {
-                Text(HeadroomCopy.planUnknown)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let checked = pricing.checked {
-                Text("List prices · checked \(checked)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .headroomCard()
-    }
-}
+// SubscriptionPricingView lives in Shared/ — one block, two type scales.
 
 private struct BurndownPoint: Identifiable {
     let id: String

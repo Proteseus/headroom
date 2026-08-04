@@ -169,6 +169,7 @@ struct MobileHeadroomClient: Sendable {
         case invalidEndpoint
         case unauthorized
         case response(Int)
+        case backend(String)
 
         var errorDescription: String? {
             switch self {
@@ -178,6 +179,8 @@ struct MobileHeadroomClient: Sendable {
                 "The Mac rejected the mobile token."
             case let .response(code):
                 "The Headroom server returned HTTP \(code)."
+            case let .backend(message):
+                message
             }
         }
     }
@@ -197,8 +200,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func requestRefresh() async throws {
-        let base = try usageURL.deletingLastPathComponent()
-        let url = base.appending(path: "sync/refresh")
+        let url = try base().appending(path: "sync/refresh")
         _ = try await send(
             url: url,
             method: "POST",
@@ -212,19 +214,19 @@ struct MobileHeadroomClient: Sendable {
         timeout: TimeInterval = 6,
         freshWithin: Int = 3
     ) async {
-        let base = try? usageURL.deletingLastPathComponent()
-        guard let healthURL = base?.appending(path: "health") else { return }
+        guard let healthURL = try? base().appending(path: "health") else {
+            return
+        }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             try? await Task.sleep(for: .milliseconds(400))
             guard let data = try? await send(url: healthURL),
-                  let object = try? JSONSerialization.jsonObject(with: data)
-                    as? [String: Any],
-                  let sources = object["sources"] as? [String: [String: Any]]
+                  let report = try? JSONDecoder().decode(
+                      HealthReport.self, from: data)
             else { continue }
-            let settled = sources.values.allSatisfy { row in
-                if row["enabled"] as? Bool == false { return true }
-                guard let age = row["age_s"] as? Int else { return false }
+            let settled = report.sources.values.allSatisfy { row in
+                if row.enabled == false { return true }
+                guard let age = row.ageS else { return false }
                 return age <= freshWithin
             }
             if settled { return }
@@ -232,7 +234,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func acknowledgeAttention(_ fingerprint: String) async throws {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "attention")
             .appending(path: "ack")
         let body = try JSONEncoder().encode(
@@ -242,7 +244,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func fetchMobilePermissions() async throws -> MobilePermissions {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "mobile")
             .appending(path: "permissions")
         let data = try await send(url: url)
@@ -252,7 +254,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func fetchAgentAttentionEvents() async throws -> [AgentAttentionEvent] {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "attention")
             .appending(path: "events")
         let data = try await send(url: url)
@@ -267,7 +269,7 @@ struct MobileHeadroomClient: Sendable {
         idempotencyKey: String,
         text: String? = nil
     ) async throws -> AgentAttentionEvent {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "attention")
             .appending(path: "events")
             .appending(path: event.id)
@@ -285,7 +287,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func taskSurface() async throws -> AgentTaskSurface {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "agents")
             .appending(path: "tasks")
         return try JSONDecoder().decode(
@@ -296,7 +298,7 @@ struct MobileHeadroomClient: Sendable {
     func startTask(
         provider: String, cwd: String, prompt: String
     ) async throws -> AgentStartTaskResponse {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "agents")
             .appending(path: "tasks")
         let body = try JSONEncoder().encode(AgentStartTaskRequest(
@@ -307,7 +309,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func setSources(_ enabled: [String: Bool]) async throws -> [String: Bool] {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "sources")
         let body = try JSONEncoder().encode(SourceControlRequest(enabled: enabled))
         let data = try await send(url: url, method: "POST", body: body)
@@ -316,7 +318,7 @@ struct MobileHeadroomClient: Sendable {
 
     @discardableResult
     func setServicesOrder(_ order: [String]) async throws -> [String] {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "sources")
         let body = try JSONEncoder().encode(
             ServicesOrderRequest(servicesOrder: order))
@@ -326,7 +328,7 @@ struct MobileHeadroomClient: Sendable {
     }
 
     func stopServer(pid: Int, port: Int) async throws {
-        let url = try usageURL.deletingLastPathComponent()
+        let url = try base()
             .appending(path: "local")
             .appending(path: "stop")
         let body = try JSONEncoder().encode(
@@ -342,6 +344,17 @@ struct MobileHeadroomClient: Sendable {
             }
             return url
         }
+    }
+
+    /// Everything but /usage hangs off the same parent path. Mirrors the
+    /// macOS client: strip the last component only when it is the `usage`
+    /// leaf, so a nonstandard saved endpoint doesn't point every sibling
+    /// route at the wrong path.
+    private func base() throws -> URL {
+        let url = try usageURL
+        return url.lastPathComponent == "usage"
+            ? url.deletingLastPathComponent()
+            : url
     }
 
     private func send(
@@ -365,6 +378,13 @@ struct MobileHeadroomClient: Sendable {
         }
         if http.statusCode == 401 { throw ClientError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {
+            // The host explains rejections in the body ("'acme' is not
+            // owner/name"); an HTTP number alone sends people to the logs.
+            if let object = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any],
+               let message = object["error"] as? String, !message.isEmpty {
+                throw ClientError.backend(message)
+            }
             throw ClientError.response(http.statusCode)
         }
         return data

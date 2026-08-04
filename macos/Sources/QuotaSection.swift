@@ -173,7 +173,9 @@ struct ProviderQuotaCard: View {
             if let subscriptionPricing {
                 SubscriptionPricingView(
                     pricing: subscriptionPricing,
-                    currentPlan: meter.plan)
+                    currentPlan: meter.plan,
+                    scale: .compact)
+                .padding(.top, 2)
             }
             // Above the error, and shown even though `ok` is true: every bar
             // on this card is a number the Mac stopped being able to refresh.
@@ -207,56 +209,7 @@ struct ProviderQuotaCard: View {
     }
 }
 
-private struct SubscriptionPricingView: View {
-    let pricing: SubscriptionPricing
-    let currentPlan: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("Subscription price")
-                    .font(.caption.weight(.medium))
-                Spacer()
-                if let url = pricing.url.flatMap(URL.init(string:)) {
-                    Link("Source", destination: url)
-                        .font(.caption2)
-                }
-            }
-            if let price = pricing.currentPrice(for: currentPlan) {
-                HStack(spacing: 8) {
-                    // A matched price always has the id or title it matched
-                    // on; the trailing fallback only satisfies the compiler.
-                    Text(currentPlan ?? price.title ?? price.id ?? "")
-                        .lineLimit(1)
-                    Spacer()
-                    Text(price.compactPrice)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .font(.caption2)
-            } else if let currentPlan {
-                HStack(spacing: 8) {
-                    Text(currentPlan)
-                        .lineLimit(1)
-                    Spacer()
-                    Text("See provider")
-                        .foregroundStyle(.secondary)
-                }
-                .font(.caption2)
-            } else {
-                Text(HeadroomCopy.planUnknown)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if let checked = pricing.checked {
-                Text("List prices · checked \(checked)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.top, 2)
-    }
-}
+// SubscriptionPricingView lives in Shared/ — one block, two type scales.
 
 struct QuotaRow: View {
     let window: MeterWindow
