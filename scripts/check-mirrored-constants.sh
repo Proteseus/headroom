@@ -86,6 +86,20 @@ compare "MAX_POOLS" \
   "$(cpp_const MAX_POOLS)" "$(py_const MAX_POOLS "$DEVICE_VIEW")" \
   "$FIRMWARE" "$DEVICE_VIEW"
 
+# Sources-page rows and the two glance histories. The firmware sizes fixed
+# arrays from these; the host trims each list to match.
+for name in MAX_SOURCES MAX_ACTIVITY_DAYS MAX_DAILY_BURN_DAYS; do
+  compare "$name" \
+    "$(cpp_const "$name")" "$(py_const "$name" "$DEVICE_VIEW")" \
+    "$FIRMWARE" "$DEVICE_VIEW"
+done
+
+# Points per burndown curve in the device view.
+compare "MAX_BURNDOWN_POINTS/MAX_BURN_PTS" \
+  "$(cpp_const MAX_BURN_PTS)" \
+  "$(py_const MAX_BURNDOWN_POINTS "$DEVICE_VIEW")" \
+  "$FIRMWARE" "$DEVICE_VIEW"
+
 # The spent-window curve behind a burndown, and the grant rules drawn on it.
 # The firmware sizes fixed arrays from these; the host decides how many points
 # to send. Host larger than firmware is a silently truncated curve.

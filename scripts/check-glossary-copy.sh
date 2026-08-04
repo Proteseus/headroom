@@ -10,6 +10,7 @@ fail=0
 
 search() {
   local pattern="$1"
+  shift
   if command -v rg >/dev/null 2>&1; then
     rg -n --glob '!docs/glossary.md' --glob '!scripts/check-glossary-copy.sh' \
       --glob '!**/HeadroomCopy.swift' --glob '!**/test_*.py' \
@@ -29,7 +30,11 @@ check_absent() {
   # and `verdict` are prose the clients cannot retitle, and `verdict` is the
   # only string the ESP32 draws. Leaving Python out of the search path meant
   # the most-read sentence in the product was the one nothing checked.
-  hits="$(search "$pattern" macos/Sources ios/HeadroomMobile widget watch Shared firmware/src host)"
+  # The two ESP32 renderers are in here because they hold a third copy of the
+  # firmware's chrome strings (docs/esp32.md) — a banned phrase revived there
+  # ships in every preview and screenshot.
+  hits="$(search "$pattern" macos/Sources ios/HeadroomMobile widget watch Shared firmware/src host \
+    scripts/render_esp32_preview.py scripts/render_esp32_boot.py)"
   if [[ -n "$hits" ]]; then
     echo "Banned phrase found ($hint):"
     echo "$hits"
@@ -107,6 +112,31 @@ check_absent_in '(Color\.red|Color\.orange|: \.red\b|: \.orange\b|\(\.red\)|\(\.
   macos/Sources/BurndownCard.swift \
   macos/Sources/QuotaSection.swift \
   macos/Sources/DailyBurnCard.swift
+
+# The banned-phrase checks above cannot notice one side of a mirror renaming —
+# they only see reintroductions. The firmware LABEL_* constants that have a
+# HeadroomCopy counterpart are compared by value, so `LABEL_BURNDOWN = "Burn
+# down"` fails here instead of shipping a board that disagrees with the apps.
+fw_label() {
+  sed -n "s/^static const char \*$1 = \"\(.*\)\";.*/\1/p" firmware/src/main.cpp | head -1
+}
+copy_const() {
+  sed -n "s/^ *static let $1 = \"\(.*\)\"\$/\1/p" Shared/HeadroomCopy.swift | head -1
+}
+check_label() {
+  local label="$1" swift_name="$2" fw sw
+  fw="$(fw_label "$label")"
+  sw="$(copy_const "$swift_name")"
+  if [[ -z "$fw" || -z "$sw" || "$fw" != "$sw" ]]; then
+    echo "Label drift: firmware $label='${fw:-missing}' vs HeadroomCopy.$swift_name='${sw:-missing}'"
+    fail=1
+  fi
+}
+
+check_label LABEL_BURNDOWN burndown
+check_label LABEL_DAILY_BURN dailyBurn
+check_label LABEL_SPEND spend
+check_label LABEL_COLLECTING_HISTORY collectingHistory
 
 if [[ "$fail" -ne 0 ]]; then
   echo
