@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.3 — 2026-08-04
+
+### Changed
+
+- **Recent resets heatmap uses a denser, shorter window.** Cap drops from
+  ~400 days to ~200 so Mac popover cells stay readable; cell size roughly
+  doubles and the grid height follows the computed cell size.
+
 ## 1.8.2 — 2026-08-04
 
 ### Changed

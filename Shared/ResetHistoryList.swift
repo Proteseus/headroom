@@ -20,14 +20,20 @@ struct ResetHistoryList: View {
     /// Where the provider explains its own resets. Nil → plain header, no link.
     var noteURL: URL? = nil
 
-    /// Matches the host grant journal / public Codex feed (~a year). The drawn
-    /// window shrinks to the span of resets we actually have so a fresh install
-    /// does not pad empty months; it grows toward this cap as history fills.
-    private static let maxWindowDays = 400
+    /// Half the host grant journal / public Codex feed (~400 days). Showing
+    /// the full year packed the Mac popover into sub-pixel cells; half the
+    /// columns lets the grid grow taller at the same width. The drawn window
+    /// still shrinks to the span of resets on hand so a fresh install does
+    /// not pad empty months.
+    private static let maxWindowDays = 200
     /// Floor so a single week of grants still reads as a grid, not one column.
     private static let minWindowDays = 28
 
     @State private var selectedDay: DayBucket?
+    /// Laid-out grid height from the computed cell size, so cutting the
+    /// window in half actually grows the heatmap instead of leaving empty
+    /// space under a maxCell-sized frame.
+    @State private var gridHeight: CGFloat = 0
     @Environment(\.accessibilityDifferentiateWithoutColor)
     private var differentiateWithoutColor
 
@@ -39,13 +45,17 @@ struct ResetHistoryList: View {
     private let gap: CGFloat = 2
     private var yoursTint: Color { HeadroomPalette.amber }
 
+    /// Roughly 2× the old 9/14 caps — proportional to cutting the window in
+    /// half — so fewer week-columns fill the width with taller cells.
     private var maxCell: CGFloat {
 #if os(iOS)
-        return horizontalSizeClass == .regular ? 14 : 9
+        return horizontalSizeClass == .regular ? 28 : 18
 #else
-        return 9
+        return 18
 #endif
     }
+
+    private var fallbackGridHeight: CGFloat { maxCell * 7 + gap * 6 }
 
     private var ordered: [BurndownReset] {
         resets
@@ -65,6 +75,17 @@ struct ResetHistoryList: View {
         guard let earliest = earliestResetDay else { return Self.minWindowDays }
         let span = max(1, (cal.dateComponents([.day], from: earliest, to: end).day ?? 0) + 1)
         return min(Self.maxWindowDays, max(Self.minWindowDays, span))
+    }
+
+    /// First day the grid covers — the oldest grant when history is short,
+    /// otherwise the clipped window start so "since" matches what is drawn.
+    private var visibleSinceDate: Date? {
+        guard let earliest = earliestResetDay else { return nil }
+        let cal = Calendar.current
+        let end = cal.startOfDay(for: Date())
+        let windowStart = cal.date(
+            byAdding: .day, value: -(visibleWindowDays - 1), to: end) ?? end
+        return max(earliest, windowStart)
     }
 
     private var byDay: [String: DayBucket] {
@@ -108,6 +129,7 @@ struct ResetHistoryList: View {
                         min(maxCell, (geo.size.width - gap * CGFloat(columnCount - 1))
                             / CGFloat(columnCount))
                     )
+                    let height = cell * 7 + gap * 6
                     HStack(alignment: .top, spacing: gap) {
                         ForEach(weeks.indices, id: \.self) { index in
                             VStack(spacing: gap) {
@@ -124,15 +146,17 @@ struct ResetHistoryList: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                    .preference(key: GridHeightKey.self, value: height)
                 }
-                .frame(height: maxCell * 7 + gap * 6)
+                .frame(height: gridHeight > 0 ? gridHeight : fallbackGridHeight)
+                .onPreferenceChange(GridHeightKey.self) { gridHeight = $0 }
 
                 HStack(spacing: 6) {
                     legendSwatch(tint, HeadroomCopy.resetHistoryGlobal)
                     legendSwatch(yoursTint, HeadroomCopy.resetHistoryYours)
                     Spacer(minLength: 8)
-                    if let earliest = earliestResetDay {
-                        Text(HeadroomCopy.resetHistorySince(earliest))
+                    if let since = visibleSinceDate {
+                        Text(HeadroomCopy.resetHistorySince(since))
                     }
                     Text(HeadroomCopy.resetHistoryCount(ordered.count))
                         .monospacedDigit()
@@ -321,6 +345,13 @@ struct ResetHistoryList: View {
             day.kind == .yours ? "observed" : "announced")
         let points = HeadroomCopy.resetPointsBack(day.forgivenPts)
         return "\(day.iso): \(n) \(resetWord), \(kind), \(points)"
+    }
+
+    private struct GridHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat { 0 }
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
     }
 
     /// How a day paints. Global wins when both kinds land the same day — the
