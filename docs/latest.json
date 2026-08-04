@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.7",
-  "published": "2026-08-04T12:50:59Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.7/Headroom-macOS.zip",
-  "sha256": "712a0ba2b852c4e6c93e26b6926b5a309d08bbdfaaf180fde7744250f086854f",
-  "size": 5585500,
+  "version": "1.7.8",
+  "published": "2026-08-04T12:54:36Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.8/Headroom-macOS.zip",
+  "sha256": "24615af39d3572e79795399da6280507e02bb653cf614662314c51b4ece91b7e",
+  "size": 5582664,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **About links the public repo and Community Pulse.** Settings → About on\n  Mac and iPhone show Source on GitHub with a live star count, plus a link\n  to the public community page. Open-source footer under the About block."
+  "notes_md": "### Fixed\n\n- **Community Pulse meters stay neutral grey.** Custom capsule bars replace\n  `ProgressView` + `.tint`, which on macOS often fell back to the system\n  accent and painted the mix rows coral."
 }
