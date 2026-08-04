@@ -220,6 +220,90 @@ class RollTests(unittest.TestCase):
             quota_samples.rolls(rows, since=NOW + 2 * 3600), [])
 
 
+class RollJournalTests(unittest.TestCase):
+    """Durable grant journal — heatmap history past sample retention."""
+
+    def setUp(self):
+        quota_samples.reset_for_tests()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.rolls_path = str(Path(self.tmp.name) / "quota_resets.jsonl")
+        self.patcher = patch.object(
+            quota_samples, "ROLLS_PATH", self.rolls_path)
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.tmp.cleanup()
+        quota_samples.reset_for_tests()
+
+    def _log(self, *rows):
+        out = []
+        for t, pct, resets_in_s, window_s in rows:
+            out.append(row_at(t, pct, resets_in_s, window_s=window_s,
+                              previous=out[-1] if out else None))
+        return out
+
+    def test_rolls_for_remembers_across_calls(self):
+        rows = self._log(
+            (NOW, 42.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        first = quota_samples.rolls_for(
+            "codex", "week", rows, now=NOW + 3600)
+        self.assertEqual(first, [
+            {"t": int(NOW + 3600), "kind": "granted", "forgiven_pct": 42.0,
+             "source": "observed"},
+        ])
+        # Sample window gone — journal still answers.
+        again = quota_samples.rolls_for(
+            "codex", "week", [], now=NOW + 3600)
+        self.assertEqual(again, first)
+
+    def test_rolls_for_does_not_duplicate_the_same_instant(self):
+        rows = self._log(
+            (NOW, 42.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        quota_samples.rolls_for("codex", "week", rows, now=NOW + 3600)
+        quota_samples.rolls_for("codex", "week", rows, now=NOW + 3600)
+        with open(self.rolls_path) as handle:
+            lines = [line for line in handle if line.strip()]
+        self.assertEqual(len(lines), 1)
+
+    def test_journal_outlives_sample_retention(self):
+        rows = self._log(
+            (NOW, 55.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        quota_samples.rolls_for("codex", "week", rows, now=NOW + 3600)
+        later = NOW + quota_samples.RETENTION_S + 7 * 24 * 3600
+        kept = quota_samples.rolls_for(
+            "codex", "week", [], now=later)
+        self.assertEqual(kept, [
+            {"t": int(NOW + 3600), "kind": "granted", "forgiven_pct": 55.0,
+             "source": "observed"},
+        ])
+
+    def test_journal_drops_rows_past_roll_retention(self):
+        rows = self._log(
+            (NOW, 40.0, 6 * 24 * 3600, WEEK_S),
+            (NOW + 3600, 0.0, WEEK_S, WEEK_S),
+        )
+        quota_samples.rolls_for("codex", "week", rows, now=NOW + 3600)
+        # One second past retention from the grant instant, not from `now` at
+        # write time — equality on the cutoff still keeps the row.
+        far = (NOW + 3600) + quota_samples.ROLL_RETENTION_S + 1
+        self.assertEqual(
+            quota_samples.rolls_for("codex", "week", [], now=far), [])
+        # Compaction only rewrites when something ages out; force it.
+        quota_samples._maybe_compact_rolls(now=far)
+        self.assertEqual(
+            quota_samples.remembered_rolls(
+                "codex", "week", since=0, limit=None, now=far),
+            [],
+        )
+
+
 class RecordTests(unittest.TestCase):
     def setUp(self):
         quota_samples.reset_for_tests()

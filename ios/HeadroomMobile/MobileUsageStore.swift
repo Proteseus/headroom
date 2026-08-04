@@ -64,8 +64,7 @@ final class MobileUsageStore: ObservableObject {
     /// are the list, and the summary is intentionally omitted rather than
     /// reporting one broken build twice.
     var attentionReasons: [AttentionReason] {
-        guard AttentionScreen.failures(in: snapshot).isEmpty else { return [] }
-        return (snapshot.attention?.reasons ?? [])
+        AttentionList.leftoverReasons(in: snapshot)
             .filter { !dismissedAttentionIDs.contains($0.id) }
     }
 

@@ -88,7 +88,8 @@ actually spent your quota.
 
 | Store | Retention | Where |
 |---|---|---|
-| Quota samples | **14 days** | `~/.headroom/quota_samples.jsonl` |
+| Quota samples | **90 days** | `~/.headroom/quota_samples.jsonl` |
+| Quota resets | **400 days** | `~/.headroom/quota_resets.jsonl` (Codex also merges [codex-resets.com](https://codex-resets.com)) |
 | Daily burn | **30 days** | `~/.headroom/daily_burn.json` |
 | Claude history | **400 days** | `~/.headroom/claude_history.json` |
 | Agent ledger | **30 days from settlement** | `~/.headroom/attention.sqlite3` |

@@ -36,8 +36,11 @@ struct ActivityStatusStyle {
     var needsAttention: Bool { weight == .attention }
 
     static func resolve(_ status: String?) -> ActivityStatusStyle {
-        switch status {
-        case "error", "failure":
+        // Host status strings are lowercased today; tolerate drift so a raw
+        // Vercel `ERROR` / `BLOCKED` still lands on Attention rather than
+        // looking like an unexplained quiet row.
+        switch status?.lowercased() {
+        case "error", "failure", "blocked":
             ActivityStatusStyle(
                 label: HeadroomCopy.activityFailed,
                 symbol: "exclamationmark.triangle.fill",

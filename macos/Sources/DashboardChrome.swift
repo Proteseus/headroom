@@ -166,13 +166,3 @@ struct DataSection<Content: View>: View {
 func attentionTint(_ level: String?) -> Color {
     HeadroomPalette.attention(level)
 }
-
-/// Affordance that a menubar Activity row drills into a detail page.
-struct ServiceDetailChevron: View {
-    var body: some View {
-        Image(systemName: "chevron.right")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.tertiary)
-            .accessibilityHidden(true)
-    }
-}

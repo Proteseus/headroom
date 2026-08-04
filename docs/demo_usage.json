@@ -1288,7 +1288,16 @@
         "allowance_pct": 14.3,
         "samples": 64,
         "headline": "14% behind pace",
-        "verdict": "behind"
+        "verdict": "behind",
+        "resets": [
+          {"t": 1782472320, "kind": "granted", "forgiven_pct": 38.0},
+          {"t": 1782904320, "kind": "granted", "forgiven_pct": 72.0},
+          {"t": 1783336320, "kind": "granted", "forgiven_pct": 55.0},
+          {"t": 1783768320, "kind": "granted", "forgiven_pct": 41.0},
+          {"t": 1784200320, "kind": "granted", "forgiven_pct": 88.0},
+          {"t": 1784545920, "kind": "granted", "forgiven_pct": 63.0},
+          {"t": 1784805120, "kind": "granted", "forgiven_pct": 47.0}
+        ]
       }
     },
     "cursor": {

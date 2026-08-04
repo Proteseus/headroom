@@ -198,14 +198,17 @@ struct DashboardView: View {
         }
     }
 
+    private func activityItem(id: String) -> ActivityItem? {
+        (store.snapshot.activity ?? []).first { $0.id == id }
+            ?? AttentionList.failures(in: store.snapshot).first { $0.id == id }
+    }
+
     private func serviceDetailPermalink(
         _ selection: ServiceDetailSelection
     ) -> URL? {
         switch selection {
         case .activity(let id):
-            return (store.snapshot.activity ?? [])
-                .first { $0.id == id }
-                .flatMap(Permalink.activity)
+            return activityItem(id: id).flatMap(Permalink.activity)
         case .plausible(let domain):
             return store.snapshot.plausible?.sites?
                 .first { $0.domain == domain }
@@ -230,9 +233,7 @@ struct DashboardView: View {
     private func serviceDetailTitle(_ selection: ServiceDetailSelection) -> String {
         switch selection {
         case .activity(let id):
-            return (store.snapshot.activity ?? [])
-                .first { $0.id == id }?.subject
-                ?? "Event"
+            return activityItem(id: id)?.subject ?? "Event"
         case .plausible(let domain):
             return domain
         case .posthog(let id):
@@ -260,7 +261,7 @@ struct DashboardView: View {
     ) -> some View {
         switch selection {
         case .activity(let id):
-            if let item = (store.snapshot.activity ?? []).first(where: { $0.id == id }) {
+            if let item = activityItem(id: id) {
                 ActivityItemDetail(item: item)
             } else {
                 serviceDetailMissing("This event is no longer in the feed.")

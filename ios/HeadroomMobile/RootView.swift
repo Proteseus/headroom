@@ -159,7 +159,7 @@ private struct OverviewScreen: View {
                     }
                 }
             }
-            .padding()
+            .padding(MobileHomeChrome.pageInset)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(HeadroomCopy.summary)

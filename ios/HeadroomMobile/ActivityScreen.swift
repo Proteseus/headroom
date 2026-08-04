@@ -101,61 +101,6 @@ struct ActivityScreen: View {
     }
 }
 
-/// One feed row, drawn the same on Activity and Attention. Status vocabulary
-/// comes from `Shared/ActivityStatus.swift` so the phone and the Mac card
-/// can't drift into different ideas of green.
-struct ActivityRow: View {
-    let item: ActivityItem
-
-    var body: some View {
-        let style = ActivityStatusStyle.resolve(item.status)
-        HStack(spacing: 8) {
-            NavigationLink {
-                ActivityItemDetail(item: item)
-            } label: {
-                HStack(alignment: .top, spacing: 10) {
-                    // Brand marks stay monochrome — only AI providers own a
-                    // colour. Status tint paints the fallback glyph alone.
-                    let hasBrand = ProviderIcon.sourceID(forKind: item.kind) != nil
-                    ProviderMark.forKind(
-                        item.kind,
-                        size: 16,
-                        fallbackSystemImage: style.symbol
-                    )
-                    .foregroundStyle(
-                        hasBrand
-                            ? AnyShapeStyle(.primary)
-                            : AnyShapeStyle(style.tint)
-                    )
-                    .frame(width: 16)
-                    .padding(.top, 2)
-                    .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.subject ?? "Event")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        // Caption stays secondary — the word ("Failed", "Review")
-                        // carries the state. Tinting it painted service rows in
-                        // status colour, and services don't own a colour.
-                        Text(item.caption(label: style.label))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                        if style.needsAttention, let error = item.errorMessage {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                        }
-                    }
-                    Spacer(minLength: 6)
-                    Text(item.ago ?? "")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.vertical, 4)
-            }
-            PermalinkButton(url: Permalink.activity(item))
-        }
-    }
-}
+/// Compatibility alias — row chrome lives in `Shared/ActivityFeedRow.swift`
+/// so the phone and the Mac cannot drift.
+typealias ActivityRow = ActivityFeedRow

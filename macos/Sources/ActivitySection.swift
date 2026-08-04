@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// The macOS half of the same split used by iOS: Activity is what happened,
@@ -23,7 +22,9 @@ struct ActivitySection: View {
         if !rows.isEmpty {
             DataSection(title: HeadroomCopy.recentActivity) {
                 ForEach(rows) { item in
-                    MacActivityRow(item: item, selection: $selection)
+                    ActivityFeedRow(item: item) {
+                        selection = .activity(item.id)
+                    }
                 }
             }
         }
@@ -31,16 +32,16 @@ struct ActivitySection: View {
 }
 
 /// Attention keeps the concrete failed rows reachable on the Mac, just as it
-/// does on iOS. When the host has only a rollup, show its reasons instead.
+/// does on iOS. Rollup summaries expand into feed / source rows with the same
+/// permalink + chevron chrome; leftover reasons (stale, sign-in) use the
+/// shared reason row when there is still something to open.
 struct AttentionSection: View {
     @ObservedObject var store: UsageStore
     @Binding var selection: ServiceDetailSelection?
 
     var body: some View {
-        let failures = (store.snapshot.activity ?? []).filter {
-            ActivityStatusStyle.resolve($0.status).needsAttention
-        }
-        let reasons = store.snapshot.attention?.reasons ?? []
+        let failures = AttentionList.failures(in: store.snapshot)
+        let reasons = AttentionList.leftoverReasons(in: store.snapshot)
         let warning = store.snapshot.attention?.isWarning == true
         let hasAttention = !failures.isEmpty || !reasons.isEmpty || warning
         let summary: String = {
@@ -82,110 +83,22 @@ struct AttentionSection: View {
             .padding(.horizontal, Metrics.rowInset)
             .accessibilityElement(children: .combine)
 
-            if failures.isEmpty {
-                ForEach(reasons) { reason in
-                    let hasBrand = ProviderIcon.sourceID(forKind: reason.kind) != nil
-                    HStack(alignment: .top, spacing: 8) {
-                        ProviderMark.forKind(
-                            reason.kind,
-                            size: 12,
-                            fallbackSystemImage: "exclamationmark.triangle.fill"
-                        )
-                        // Services have no brand colour — keep the mark
-                        // monochrome; only the fallback triangle takes level tint.
-                        .foregroundStyle(
-                            hasBrand
-                                ? AnyShapeStyle(.primary)
-                                : AnyShapeStyle(attentionTint(reason.level))
-                        )
-                        .frame(width: 12)
-                        .padding(.top, 2)
-                        Text(reason.summary ?? HeadroomCopy.needsAttention)
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.horizontal, Metrics.rowInset)
+            ForEach(failures.prefix(8)) { failure in
+                ActivityFeedRow(item: failure) {
+                    selection = .activity(failure.id)
                 }
-            } else {
-                ForEach(failures.prefix(8)) { failure in
-                    MacActivityRow(item: failure, selection: $selection)
-                }
+            }
+            ForEach(reasons) { reason in
+                AttentionReasonRow(
+                    reason: reason,
+                    permalink: AttentionList.permalink(
+                        for: reason, in: store.snapshot)
+                )
             }
         }
     }
 
     private enum Metrics {
         static let rowInset: CGFloat = 7
-    }
-}
-
-/// Compact menubar rendering for one activity row. The status vocabulary and
-/// caption order match iOS; row tap drills into the shared detail page, and
-/// the link glyph opens the event's permalink when the host sent one.
-struct MacActivityRow: View {
-    let item: ActivityItem
-    @Binding var selection: ServiceDetailSelection?
-
-    var body: some View {
-        let style = ActivityStatusStyle.resolve(item.status)
-        HStack(spacing: 8) {
-            Button {
-                selection = .activity(item.id)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .top, spacing: 8) {
-                        let hasBrand = ProviderIcon.sourceID(forKind: item.kind) != nil
-                        ProviderMark.forKind(
-                            item.kind,
-                            size: 12,
-                            fallbackSystemImage: style.symbol
-                        )
-                        .foregroundStyle(
-                            hasBrand
-                                ? AnyShapeStyle(.primary)
-                                : AnyShapeStyle(style.tint)
-                        )
-                        .frame(width: 12)
-                        .padding(.top, 2)
-                        .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.subject ?? "Event")
-                                .font(.subheadline.weight(
-                                    style.needsAttention ? .semibold : .regular))
-                                .lineLimit(1)
-                            // Secondary only — status is the word in the caption,
-                            // not a tint. Services have no colour to paint with.
-                            Text(caption(style))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 6)
-                        Text(item.ago ?? "—")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        ServiceDetailChevron()
-                    }
-                    if style.needsAttention, let error = item.errorMessage {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .padding(.leading, 20)
-                    }
-                }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 7)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Show event detail")
-            PermalinkButton(url: Permalink.activity(item))
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private func caption(_ style: ActivityStatusStyle) -> String {
-        item.caption(label: style.label)
     }
 }

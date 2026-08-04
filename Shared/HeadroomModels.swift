@@ -804,22 +804,34 @@ enum BurndownStatus: String, Sendable {
 /// Without this the grant is invisible: the burn curve simply restarts, which
 /// reads as the chart having forgotten the week rather than the week having
 /// been forgiven.
-struct BurndownReset: Decodable, Sendable, Identifiable {
+struct BurndownReset: Decodable, Sendable, Identifiable, Equatable {
     /// When the pool came back, epoch seconds.
     var t: Double?
     /// "granted" today. Present so scheduled rolls could join later without
     /// changing the shape.
     var kind: String?
-    /// Percentage points the grant handed back.
+    /// Percentage points the grant handed back. Nil for announcement-only
+    /// rows that this Mac never observed in the sample log.
     var forgivenPct: Double?
+    /// `observed` (local sample), `announced` (codex-resets.com), or `both`.
+    var source: String?
+    /// Permalink on the announcement, when the grant matched a public reset.
+    var tweetURL: String?
+    var tweetID: String?
 
     var id: Double { t ?? 0 }
 
     var date: Date? { t.map { Date(timeIntervalSince1970: $0) } }
 
+    var announcementURL: URL? {
+        tweetURL.flatMap(URL.init(string:))
+    }
+
     enum CodingKeys: String, CodingKey {
-        case t, kind
+        case t, kind, source
         case forgivenPct = "forgiven_pct"
+        case tweetURL = "tweet_url"
+        case tweetID = "tweet_id"
     }
 }
 

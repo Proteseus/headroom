@@ -7,6 +7,22 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.3 — 2026-08-04
+
+### Changed
+
+- **Recent resets is a calendar heatmap.** Granted resets under a burndown
+  card are a day grid (on/off; provider tint = global grant, amber = credit
+  you spent; weekly auto-resets stay off) instead of a six-row list, sized
+  from the oldest grant on hand. Codex week merges the public
+  [codex-resets.com](https://codex-resets.com) announcement feed with locally
+  observed sample grants — so the grid reaches back through every verified
+  global reset and keeps filling forward as new ones are announced or
+  detected. Still live data, never a fixture.
+- **Activity and Attention rows share one layout on Mac and iPhone.** Feed
+  rows and the Attention list live in `Shared/` so both surfaces draw the
+  same chrome.
+
 ## 1.7.2 — 2026-08-04
 
 ### Changed

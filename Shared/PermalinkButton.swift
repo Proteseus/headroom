@@ -14,10 +14,15 @@ struct PermalinkButton: View {
         if let url {
             Link(destination: url) {
                 Image(systemName: "link")
+                    // Match the disclosure chevron's weight so the two trailing
+                    // affordances read as a pair; accent tint marks this one as
+                    // "open outside" (system Link blue on iPhone already).
+                    .font(.body.weight(.medium))
             }
             #if os(macOS)
             .buttonStyle(.borderless)
             #endif
+            .foregroundStyle(.tint)
             .help(help)
             .accessibilityLabel(help)
         }
