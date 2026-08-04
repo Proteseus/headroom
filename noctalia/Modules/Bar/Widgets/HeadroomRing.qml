@@ -6,14 +6,15 @@ import qs.Commons
 // HeadroomRing.qml — the canonical Headroom quota glyph, ported from
 // Shared/HeadroomRings.swift.
 //
-// Concentric bands, outside-in: the longer window first (week), then the
-// shorter (session). Each band draws:
+// Concentric bands, outside-in: longer windows first. Most providers use two
+// bands; OpenCode Go uses three (month, week, 5h). Each band draws:
 //   - a track at `tint` with 20% opacity (HeadroomRingStyle.trackOpacity)
 //   - a usage arc with round caps, sweep = pct * 3.6 degrees (min 2 deg)
 //   - a pace dot riding the band at pacePct, in `indicatorColor` — the gap
 //     between arc and dot is the signal (burning ahead / behind schedule).
 //
-// Geometry mirrors the Swift constants:
+// Two-band geometry mirrors the Swift constants. Three-band glyphs tighten
+// the strokes and gutters so every circle remains legible at bar size:
 //   lineWidth = max(3, side * 7/72)
 //   spacing   = max(2, side * 4/72)
 //   radius    = side/2 - lineWidth/2 - 1, then inward by lineWidth+spacing
@@ -53,11 +54,14 @@ Item {
       const ctx = getContext("2d");
       ctx.reset();
       const side = root.diameter;
-      const lineWidth = Math.max(3, side * 7 / 72);
-      const spacing = Math.max(2, side * 4 / 72);
+      const layers = root.unavailable ? [] : root.layers;
+      const dense = layers.length >= 3;
+      const lineWidth = dense ? Math.max(1.5, side * 5 / 72)
+                              : Math.max(3, side * 7 / 72);
+      const spacing = dense ? Math.max(1, side * 2 / 72)
+                            : Math.max(2, side * 4 / 72);
       const center = side / 2;
       let radius = side / 2 - lineWidth / 2 - 1;
-      const layers = root.unavailable ? [] : root.layers;
 
       if (layers.length === 0) {
         // The one empty band a glyph draws when it has nothing to show.

@@ -66,12 +66,19 @@ Item {
     const pools = provider.pools || {};
     const ids = Object.keys(pools);
     ids.sort(function (a, b) {
+      if (provider.id === "opencode") {
+        const order = { "monthly": 0, "weekly": 1, "5h": 2 };
+        const oa = order[a] !== undefined ? order[a] : 999;
+        const ob = order[b] !== undefined ? order[b] : 999;
+        if (oa !== ob) return oa - ob;
+      }
       const ra = pools[a].rank !== undefined ? pools[a].rank : 999;
       const rb = pools[b].rank !== undefined ? pools[b].rank : 999;
       return ra - rb || (a < b ? -1 : 1);
     });
+    const layerLimit = provider.id === "opencode" ? 3 : 2;
     const layers = [];
-    for (let i = 0; i < ids.length && layers.length < 2; ++i) {
+    for (let i = 0; i < ids.length && layers.length < layerLimit; ++i) {
       const pool = pools[ids[i]];
       if (pool.ring === false || pool.pct === null || pool.pct === undefined) continue;
       layers.push({
@@ -85,9 +92,14 @@ Item {
   }
 
   function providerSubtext(provider) {
-    const layers = ringLayersFor(provider);
-    if (layers.length === 0) return "No reading";
-    const left = Math.max(0, 100 - Math.round(layers[0].percent));
+    const headline = provider.headline;
+    const headlinePool = headline ? (provider.pools || {})[headline] : null;
+    const percent = headlinePool && headlinePool.pct !== null
+                    && headlinePool.pct !== undefined
+                    ? headlinePool.pct
+                    : (ringLayersFor(provider)[0] || {}).percent;
+    if (percent === null || percent === undefined) return "No reading";
+    const left = Math.max(0, 100 - Math.round(percent));
     return left + "% left";
   }
 

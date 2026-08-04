@@ -96,14 +96,21 @@ Rectangle {
   function ringLayersFor(provider) {
     const pools = provider.pools || {};
     const ids = Object.keys(pools).sort((a, b) => {
+      if (provider.id === "opencode") {
+        const order = { "monthly": 0, "weekly": 1, "5h": 2 };
+        const oa = order[a] !== undefined ? order[a] : 999;
+        const ob = order[b] !== undefined ? order[b] : 999;
+        if (oa !== ob) return oa - ob;
+      }
       const ra = pools[a].rank !== undefined ? pools[a].rank : 999;
       const rb = pools[b].rank !== undefined ? pools[b].rank : 999;
       return ra - rb || (a < b ? -1 : 1);
     });
+    const layerLimit = provider.id === "opencode" ? 3 : 2;
     return ids.filter(id => pools[id].ring !== false
                        && pools[id].pct !== null
                        && pools[id].pct !== undefined)
-              .slice(0, 2)
+              .slice(0, layerLimit)
               .map(id => ({
                 "id": id,
                 "name": pools[id].title || id,
@@ -126,6 +133,11 @@ Rectangle {
   }
 
   function primaryPercent(provider) {
+    const headline = provider.headline;
+    const headlinePool = headline ? (provider.pools || {})[headline] : null;
+    if (headlinePool && headlinePool.pct !== null && headlinePool.pct !== undefined) {
+      return headlinePool.pct;
+    }
     const layers = ringLayersFor(provider);
     return layers.length > 0 ? layers[0].percent : null;
   }
