@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.8.0",
-  "published": "2026-08-04T14:07:34Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.0/Headroom-macOS.zip",
-  "sha256": "05211f1644677078c03343a80fd5bf47264944a0d4114b711887c579825e4208",
-  "size": 5728305,
+  "version": "1.8.1",
+  "published": "2026-08-04T17:28:25Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.1/Headroom-macOS.zip",
+  "sha256": "9f7ad39d1e613b6d53ff5fa1c6f3ddf3a5b90067b7a3a515a47a2df4682905f2",
+  "size": 5739415,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **OpenRouter refuses inference keys even when `/credits` answers.** Status\n  names the wrong key type and points at\n  [management-keys](https://openrouter.ai/settings/management-keys) so a quiet\n  wrong pot cannot replace the account balance.\n- **OpenRouter and AI Gateway provider leaves show observed spend.** Daily\n  bars, runway, top models, and (OpenRouter) per-key usage — no ring, no\n  Attention rows. Spend is billed credits from each provider's own API;\n  AI Gateway Hobby notes when the report endpoint needs Pro.\n- **Telemetry schema 2 week-scopes a dedupe key.** Each Mac keeps a local\n  install secret and sends `HMAC-SHA256(secret, ISO week)` so Debug/Release\n  copies cannot inflate weekly active Macs — without a stable install id on\n  the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`\n  and `003_country.sql`.\n- **Community Pulse shows version distribution and latest release.** Histogram\n  against the update feed; country mix from the Worker edge (no IPs stored).\n- **Supabase Attention lint badge is a compact count + shield.** Plain\n  HStack instead of a Label so the row chrome matches neighbouring service\n  rows."
+  "notes_md": "### Changed\n\n- **OpenRouter and AI Gateway show account use history, not depletion.**\n  Overview is a daily-spend sparkline; the provider leaf leads with the full\n  trailing-window day chart, then totals / models / keys. Remaining credits\n  stay a figure, not a bar."
 }
