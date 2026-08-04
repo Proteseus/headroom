@@ -7,10 +7,29 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.9 — 2026-08-04
+
+### Changed
+
+- **README and setup match Usage · Attention · Activity.** Surface table,
+  Settings paths (Providers / Add account / Agents), iPhone and App Store
+  feature lists, and the docs index (Telemetry, Updater) follow the current
+  chrome rather than the old Services peer tab. Screenshots refreshed to
+  match.
+
+### Added
+
+- **`docs/orgs.md`** — standing design for an optional org / multiplayer
+  window layer (spec only; not shipped in the product yet).
+
 ## 1.7.8 — 2026-08-04
 
 ### Fixed
 
+- **OpenRouter Create-token opens Management keys.** The link was
+  `/settings/keys` (inference keys); it now goes to
+  `/settings/management-keys`. An inference key in Keychain is rejected with
+  a Status error instead of quietly reading `/credits`.
 - **Community Pulse meters stay neutral grey.** Custom capsule bars replace
   `ProgressView` + `.tint`, which on macOS often fell back to the system
   accent and painted the mix rows coral.

@@ -35,18 +35,19 @@ Seeded from local detection on first run, then written by Settings. Three keys:
 
 - `enabled` — `{id: bool}`
 - `order` — pinned provider ids; the first three enabled become `focus`
-- `integrations_order` — pinned Integrations catalog ids (agents, code,
+- `integrations_order` — pinned Integrations catalog ids (code and deploys,
   balances, services, local servers/builds). Activity lays out the subset that
-  paints blocks in this order. Legacy `services_order` is still read once as a
+  paints blocks in this order. Claude Code / Codex live under Settings →
+  Agents, not this list. Legacy `services_order` is still read once as a
   migrate seed.
 - `accents` — `{id: "#RRGGBB"}` for rows you recolored; delete an entry to
   restore the shipped colour
 
 ## Extra accounts (`~/.headroom/accounts.json`)
 
-Written by **Settings → Extra accounts**; editable by hand and picked up on the
-next host start. Each entry is a label plus a credential location — never a
-token.
+Written by **Settings → Providers → Add account**; editable by hand and picked
+up on the next host start. Each entry is a label plus a credential location —
+never a token.
 
 ```json
 {

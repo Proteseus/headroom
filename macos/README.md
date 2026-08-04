@@ -4,12 +4,13 @@ Native macOS 14+ companion. The Release `.app` **bundles the Python host** —
 first launch’s Welcome sheet starts it automatically and installs a login item.
 
 - Status item: thin remaining-quota meters for **enabled** providers + attention pip
-- Usage: quota rings, daily burn, attention + spend
+- Popover modes: **Usage** (rings, burn, spend), **Attention**, **Activity**
 - Notification Center widget: the same extension the iPhone runs, rings on the
   small size and the combined burndown on the medium one
 - Welcome / setup sheet when the host is down or on first open, asking about
-  **AI coding tools** and **Integrations** separately
-- Settings: endpoint, the two source lists, host/mobile tokens, integration keys
+  **Providers** and **Integrations** separately
+- Settings: General, Providers, Integrations, Agents, Sync, Telemetry; host /
+  mobile tokens and integration keys on their leaves
 
 Product install overview: [../README.md](../README.md). First-run sources and
 tokens: [../docs/setup.md](../docs/setup.md).

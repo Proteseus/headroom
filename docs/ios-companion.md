@@ -34,15 +34,15 @@ Mac on its own — the phone forwards what it fetched. See
   iPhone pairing. A `.local` hostname, LAN IP, or Tailscale MagicDNS name
   remains available as a fallback.
 - Token stored in the iOS Keychain.
-- Usage, provider detail, pace/reset data, burndown, and daily burn.
-- Activity feed (deploys, commits, GitHub Actions) with deep links.
-- Services: Supabase project health, Plausible / PostHog traffic, and local servers.
-- Source toggles, split into **AI coding tools** and **Integrations** (Mac
-  Settings' Integrations group — Vercel, Git, Actions, Supabase, Plausible,
-  PostHog,
-  local servers), plus Face ID-protected local server stops. Credentials
-  remain in the Mac Keychain.
-- Attention summary and local notifications.
+- Three tabs: **Usage** (quotas, burndown, daily burn), **Attention** (queue
+  and agent answers), **Activity** (Recent feed plus service panels).
+- Activity: deploys, commits, Actions, resets; Supabase / Plausible / PostHog
+  panels; local servers and Xcode builds — deep links where the source has one.
+- Source toggles in Settings: **Providers** and **Integrations** (same catalog
+  as Mac — Vercel, Git, Actions, Supabase, Plausible, PostHog, Sentry, Datadog,
+  Axiom, local servers, builds). Face ID before stopping a local server.
+  Credentials stay in the Mac Keychain.
+- Attention summary, agent approvals when granted, and local notifications.
 - Home Screen widgets backed by an App Group cache: rings on the small size,
   the combined burndown on the medium one. The Mac runs the same extension in
   Notification Center — one source file, `widget/HeadroomWidget.swift`, built

@@ -21,15 +21,18 @@ curl -s localhost:8737/setup  | python3 -m json.tool
 
 Onboarding and Settings keep them apart — different questions, different setup:
 
-- **AI coding tools** — Claude, Codex, Cursor, Copilot, Gemini, Windsurf,
-  JetBrains AI, Zed. How much plan is left. Read from the sign-in already on
-  the Mac; nothing to paste.
+- **Providers** (AI coding tools) — Claude, Codex, Cursor, Copilot, Gemini,
+  Windsurf, JetBrains AI, Zed. How much plan is left. Read from the sign-in
+  already on the Mac; nothing to paste. Order and focus live here; extra
+  accounts via **Add account** under Library.
 - **Integrations** — Vercel, Git, GitHub Actions, Supabase, Plausible, PostHog,
-  local servers. What your projects are doing. Some want a key, pasted once in
-  **Mac Settings** (Keychain — never sent to the phone or written into
-  `/usage`). **Git** and **GitHub Actions** are separate on purpose: Git reads
-  local commits on disk (no token, including unpushed); Actions needs a GitHub
-  PAT and only sees what GitHub knows.
+  Sentry, Datadog, Axiom, OpenRouter, AI Gateway, local servers, Xcode builds.
+  What your projects are doing. Some want a key, pasted once in **Mac
+  Settings** (Keychain — never sent to the phone or written into `/usage`).
+  **Git** and **GitHub Actions** are separate on purpose: Git reads local
+  commits on disk (no token, including unpushed); Actions needs a GitHub PAT
+  and only sees what GitHub knows. Claude Code / Codex connection settings
+  live under **Agents**, not here.
 
 | Integration | Where |
 |---|---|
@@ -55,8 +58,9 @@ rings, iPhone, and the optional desk board.
 ## Extra accounts
 
 Personal Claude and work Claude, two ChatGPT logins, a second Cursor profile —
-each is a separate plan. Add them in **Settings → Extra accounts**: pick the
-provider, name it, point it at the credential location that login already uses.
+each is a separate plan. Add them under **Settings → Providers**: multi-account
+providers get an **Add account** chip in Library. Pick the provider, name it,
+point it at the credential location that login already uses.
 
 | Provider | What to point it at |
 |---|---|
@@ -78,14 +82,14 @@ the host briefly so the sample schema and meters rebuild together. Shape:
 ## Colours
 
 Each provider ships with its brand colour. Click the dot on a provider row in
-Settings for a grid of 24 colours plus **Default**. Overrides land in
+Settings → Providers for a grid of 24 colours plus **Default**. Overrides land in
 `~/.headroom/sources.json` as `accent`, so the menu bar, popover, burndown,
 iPhone, widget, and board (recent firmware) all match. Integration rows have
 no brand colour — their dot is the health light.
 
 ## Focus order (top 3)
 
-Drag the AI rows in Settings to reorder. Compact surfaces — menu-bar tanks,
+Drag the AI rows in Settings → Providers to reorder. Compact surfaces — menu-bar tanks,
 widgets, board rings — show the first three *enabled* providers. The host
 picks them and ships the ids as `focus` in `/usage`, so Mac, phone, widget and
 desk never disagree about which three. A provider added in a later release

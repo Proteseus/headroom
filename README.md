@@ -14,9 +14,9 @@ a single JSON feed. No Headroom cloud account — tokens stay on the machine.
 | Surface | What you see |
 |---|---|
 | **Menu bar** | Thin remaining-quota tanks for the first three enabled providers + amber/red attention pip |
-| **Popover** | Overview rings, daily burn, spend, Activity / Services |
+| **Popover** | **Usage** (rings, daily burn, spend), **Attention**, **Activity** (Recent feed + service panels) |
 | **Notification Center** | Same widget as the iPhone: rings small, combined burndown medium |
-| **iPhone / iPad** | Quotas, burndown, activity, services, controls, notifications, widgets |
+| **iPhone / iPad** | Same three tabs — Usage, Attention, Activity — plus Settings, notifications, widgets |
 | **Apple Watch** | Two complications: rings, or the week's burndown |
 | **ESP32 desk board** *(optional)* | Same three rings + burndown on a Waveshare AMOLED — [docs/esp32.md](docs/esp32.md) |
 
@@ -25,14 +25,14 @@ a single JSON feed. No Headroom cloud account — tokens stay on the machine.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/ios-overview.png" alt="iPhone Summary — coding quotas" width="220" />
-  <img src="docs/screenshots/ios-attention.png" alt="iPhone Attention — CI failure" width="220" />
-  <img src="docs/screenshots/ios-activity.png" alt="iPhone Activity — services and commits" width="220" />
+  <img src="docs/screenshots/ios-overview.png" alt="iPhone Usage — coding quotas" width="220" />
+  <img src="docs/screenshots/ios-attention.png" alt="iPhone Attention — needs you" width="220" />
+  <img src="docs/screenshots/ios-activity.png" alt="iPhone Activity — feed and services" width="220" />
 </p>
 
 ```
   ~/.claude / ~/.codex / Cursor / …     Mac (Python, stdlib)           Clients
-  Vercel · git · gh · SB · Plaus.   ──▶│ headroom_server.py :8737 │◀── menu bar
+  Vercel · git · gh · SB · …        ──▶│ headroom_server.py :8737 │◀── menu bar
   ~/.headroom/{config,sources}         │ + usb_bridge             │◀── iPhone
                                        └──────────────────────────┘◀── ESP32 (opt.)
 ```
@@ -41,8 +41,10 @@ a single JSON feed. No Headroom cloud account — tokens stay on the machine.
 
 - **Quota anxiety** — session / weekly windows, pace, and spend on one ring
   (and a menu-bar tick per provider in focus).
-- **Ship status ambient** — failed Actions, Vercel, Supabase, local servers as
-  an attention pip, not another tab.
+- **Ship status ambient** — failed Actions, deploys, and monitors as an
+  Attention pip and queue, not another tab.
+- **Agents away from the desk** — approve, deny, or reply to Claude / Codex
+  requests from Attention on iPhone (Headroom answers; it does not start work).
 - **Local-first** — credentials and CLIs you already have; optional board can
   fall back to USB when hotel Wi‑Fi blocks mDNS.
 
@@ -85,7 +87,7 @@ Waveshare **ESP32-S3-Touch-AMOLED-1.8** only. Flash, config, brightness:
 
 | Topic | Doc |
 |---|---|
-| Sources, extra accounts, colours, focus order, tokens | [docs/setup.md](docs/setup.md) |
+| Providers, accounts, Integrations, colours, focus, tokens | [docs/setup.md](docs/setup.md) |
 | `~/.headroom` keys + HTTP endpoints | [docs/host.md](docs/host.md) |
 | Something’s broken | [docs/troubleshooting.md](docs/troubleshooting.md) |
 
@@ -98,7 +100,7 @@ curl -s localhost:8737/health | python3 -m json.tool
 | Doc | For |
 |---|---|
 | [macos/README.md](macos/README.md) | Menu bar — build, Xcode, signing |
-| [docs/setup.md](docs/setup.md) | First run, sources, accounts, tokens |
+| [docs/setup.md](docs/setup.md) | First run, Providers, Integrations, tokens |
 | [docs/host.md](docs/host.md) | Config files + API surface |
 | [docs/ios-companion.md](docs/ios-companion.md) | iPhone pairing + widgets |
 | [docs/watch.md](docs/watch.md) | Apple Watch complications |
@@ -113,6 +115,8 @@ curl -s localhost:8737/health | python3 -m json.tool
 | [docs/attention.md](docs/attention.md) | Attention rollup policy |
 | [docs/agent-attention.md](docs/agent-attention.md) | Coding-agent gateway |
 | [docs/multi-mac.md](docs/multi-mac.md) | CloudKit settings sync |
+| [docs/telemetry.md](docs/telemetry.md) | Anonymous product diagnostics |
+| [docs/updater.md](docs/updater.md) | In-app update feed |
 | [docs/releasing.md](docs/releasing.md) | Notarize, TestFlight, cut-release |
 | [docs/appstore.md](docs/appstore.md) | App Store listing + screenshots |
 | [docs/privacy.md](docs/privacy.md) | Privacy policy |
@@ -134,5 +138,6 @@ MIT — see [LICENSE](LICENSE).
 
 Headroom reads local state that other tools leave on your Mac. It is not
 affiliated with, endorsed by, or supported by Anthropic, OpenAI, Anysphere,
-GitHub, Google, JetBrains, Zed, Codeium, Vercel, Supabase, Plausible, or
-PostHog. Those names appear here to say what is being measured.
+GitHub, Google, JetBrains, Zed, Codeium, Vercel, Supabase, Plausible, PostHog,
+Sentry, Datadog, or Axiom. Those names appear here to say what is being
+measured.

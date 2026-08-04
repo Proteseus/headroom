@@ -78,8 +78,9 @@ consider whether *our* number is wrong — not to add a slider. A slider moves
 the decision to the user and makes every future change to that number a
 compatibility problem.
 
-`SettingsView.swift` is 1,405 lines. That is the cost of the rows in the top
-half of the table, and it is why the bottom half stays out.
+The Settings module is thousands of lines across the sidebar panes. That is
+the cost of the rows in the top half of the table, and it is why the bottom
+half stays out.
 
 ## History is a user asset
 
