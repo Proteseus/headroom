@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.6",
-  "published": "2026-08-04T12:46:49Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.6/Headroom-macOS.zip",
-  "sha256": "546af23a4502334e673ef26bcfdd99509fcb6239699edde9858b78b410fd8414",
-  "size": 5560143,
+  "version": "1.7.7",
+  "published": "2026-08-04T12:50:59Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.7/Headroom-macOS.zip",
+  "sha256": "712a0ba2b852c4e6c93e26b6926b5a309d08bbdfaaf180fde7744250f086854f",
+  "size": 5585500,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Community Pulse shows architecture, macOS major, and week-over-week.**\n  The Worker pads empty weeks on the growth chart, publishes CPU and macOS\n  mix from batch columns, and splits service mix into enabled / used /\n  healthy. Settings → Telemetry and the public community page both draw the\n  richer aggregate."
+  "notes_md": "### Changed\n\n- **About links the public repo and Community Pulse.** Settings → About on\n  Mac and iPhone show Source on GitHub with a live star count, plus a link\n  to the public community page. Open-source footer under the About block."
 }
