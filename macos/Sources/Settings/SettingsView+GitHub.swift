@@ -16,7 +16,11 @@ extension SettingsView {
             if githubTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("ghp_… (repo)", text: $githubToken)
+            SecureField(
+                "ghp_… (repo)",
+                text: $githubToken,
+                prompt: keyFieldPrompt(stored: githubTokenStored)
+            )
                 .onSubmit {
                     if !githubTokenDraft.isEmpty { saveGitHubToken() }
                 }
@@ -104,7 +108,7 @@ extension SettingsView {
                 }
             }
         } footer: {
-            Text("CI on GitHub — failed and running Actions, plus review / assignment / @mention inbox on watched repos. Not local commits (that is Git). Tick repos under \(githubDevRoot) to always watch them; owners and the discover cap still filter anything not ticked.")
+            Text("Classic PAT needs repo. Fine-grained needs Actions, Issues, and Pull requests Read on watched repos. CI failures and the review / assignment / @mention inbox use that token — not local commits (that is Git). Tick repos under \(githubDevRoot) to always watch them; owners and the discover cap still filter anything not ticked.")
         }
     }
 

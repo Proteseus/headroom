@@ -19,6 +19,34 @@ tag a version that has no entry.
   has succeeded. Thanks to [@pm](https://x.com/pm/status/2084287614115328004)
   for reporting it.
 
+## 1.7.2 — 2026-08-04
+
+### Changed
+
+- **Integration Settings name the scopes each key needs.** PostHog asks for
+  `project:read` and `query:read`; Plausible, GitHub, Supabase, Datadog,
+  OpenRouter, and AI Gateway footers spell out their matching permissions too
+  (Sentry and Axiom already did). PostHog's cloud region is a US / EU
+  dropdown; Custom still takes a self-hosted URL. Saved keys show
+  `••••••••••••` in the empty SecureField so the row does not look unused.
+
+## 1.7.3 — 2026-08-04
+
+### Changed
+
+- **Recent resets is a calendar heatmap.** Granted resets under a burndown
+  card are a day grid (on/off; provider tint = global grant, amber = credit
+  you spent; weekly auto-resets stay off) instead of a six-row list, sized
+  from the oldest grant on hand. Codex week merges the public
+  [codex-resets.com](https://codex-resets.com) announcement feed with locally
+  observed sample grants — so the grid reaches back through every verified
+  global reset and keeps filling forward as new ones are announced or
+  detected. Still live data, never a fixture.
+- **Activity and Attention rows share one layout on Mac and iPhone.** Feed
+  and Attention lists use the same mark / caption / age / chevron /
+  permalink row, and Attention expands rollup reasons into tappable events
+  when the feed is quiet.
+
 ## 1.6.6 — 2026-08-03
 
 ### Added

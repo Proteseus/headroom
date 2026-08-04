@@ -208,23 +208,56 @@ enum HeadroomCopy {
         "Reset credit expires \(label)"
     }
 
-    /// Header over the list of past grants on a pool's detail card. "Recent"
-    /// rather than "All": the list only reaches as far back as the sample log
-    /// was kept, and promising a complete record would be a lie the first time
-    /// retention drops something off the end.
+    /// Header over the grant calendar on a pool's detail card. "Recent"
+    /// rather than "All": the host journal only reaches ~six months, and
+    /// promising a complete record would be a lie the first time retention
+    /// drops something off the end.
     static let resetHistory = "Recent resets"
+
+    /// Caption beside the heatmap legend — how many grants the journal still
+    /// holds for this pool, not how many cells are lit.
+    static func resetHistoryCount(_ count: Int) -> String {
+        count == 1 ? "1 reset" : "\(count) resets"
+    }
+
+    /// Shown under the legend when the grid is sized from real data rather
+    /// than the full six-month journal window.
+    static func resetHistorySince(_ date: Date) -> String {
+        let formatted = date.formatted(.dateTime.month(.abbreviated).day())
+        return "since \(formatted)"
+    }
+
+    /// Legend swatch for a public / matched global grant.
+    static let resetHistoryGlobal = "Global"
+
+    /// Legend swatch for a banked credit the reader spent themselves.
+    static let resetHistoryYours = "Your credit"
+
+    /// One-line footnote under the reset heatmap. Scheduled weekly rolls are
+    /// deliberately absent — the chart axis already ends on those.
+    static let resetHistoryFootnote =
+        "Global grants and credits you spent. Weekly auto-resets stay off the grid."
+
+    /// Day-detail kind label for one grant row.
+    static func resetHistoryKind(_ source: String?) -> String {
+        switch source {
+        case "observed": return resetHistoryYours
+        case "announced", "both": return resetHistoryGlobal
+        default: return resetGranted
+        }
+    }
 
     /// The amount half of a reset history row — the date carries the rest.
     /// Falls back to the bare noun when a grant handed back too little to
     /// round to a point, which happens when a window rolls near empty.
     static func resetPointsBack(_ forgivenPct: Double?) -> String {
         guard let forgivenPct, forgivenPct >= 1 else { return "reset" }
-        return "\(Int(forgivenPct.rounded())) pts back"
+        return "\(Int(forgivenPct.rounded()))% back"
     }
 
-    /// Shown in place of the list before any grant has been seen. Codex resets
-    /// are something you spend a credit on, so an empty list is the normal
-    /// state, not a missing-data state.
+    /// Shown in place of the heatmap before any grant has been seen. Codex
+    /// resets are something you spend a credit on, so an empty grid is the
+    /// normal state, not a missing-data state.
     static let noResetsYet = "No resets yet"
 
     /// Settings toggle, both platforms.
@@ -240,8 +273,11 @@ enum HeadroomCopy {
     static let connected = "Connected"
     /// Integrations hub / detail when nothing is pasted yet.
     static let notConnected = "Not connected"
-    /// Detail Status row: the credential is in this Mac's Keychain.
+    /// Detail Status / Credential row: the credential is in this Mac's Keychain.
     static let inKeychain = "Keychain"
+    /// Empty SecureField prompt when a token is already stored — shows a key
+    /// is present without revealing it. Paste replaces.
+    static let settingsKeySavedPrompt = "••••••••••••"
     static let signedIn = "Signed in"
     static let notSignedIn = "Not signed in"
     static let hooksInstalled = "Hooks installed"

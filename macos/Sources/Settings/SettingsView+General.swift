@@ -131,7 +131,11 @@ extension SettingsView {
                 Text(HeadroomCopy.settingsRefresh)
             }
             if endpointIsRemote {
-                SecureField("Host token", text: $hostToken)
+                SecureField(
+                    "Host token",
+                    text: $hostToken,
+                    prompt: keyFieldPrompt(stored: hostTokenStored)
+                )
                 HStack {
                     Button(hostTokenStored ? "Replace token" : "Save token") {
                         saveHostToken()

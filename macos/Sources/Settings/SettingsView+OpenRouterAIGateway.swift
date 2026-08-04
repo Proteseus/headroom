@@ -22,7 +22,11 @@ extension SettingsView {
             if openrouterTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("Management API key", text: $openrouterToken)
+            SecureField(
+                "Management API key",
+                text: $openrouterToken,
+                prompt: keyFieldPrompt(stored: openrouterTokenStored)
+            )
                 .onSubmit {
                     if !openrouterTokenDraft.isEmpty { saveOpenRouterToken() }
                 }
@@ -74,7 +78,11 @@ extension SettingsView {
             if aiGatewayTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("AI Gateway API key", text: $aiGatewayToken)
+            SecureField(
+                "AI Gateway API key",
+                text: $aiGatewayToken,
+                prompt: keyFieldPrompt(stored: aiGatewayTokenStored)
+            )
                 .onSubmit {
                     if !aiGatewayTokenDraft.isEmpty { saveAIGatewayToken() }
                 }
@@ -111,7 +119,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Separate from Vercel deploys — this watches AI Gateway credits. Key stays in Keychain.")
+            Text("Separate from Vercel deploys — this watches AI Gateway credits via a Gateway API key (not the CLI deploy login). Key stays in Keychain.")
         }
     }
 

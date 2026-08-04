@@ -214,7 +214,7 @@ def fetch_monitors(force=False):
         return result
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
-            message = "Datadog keys rejected"
+            message = "Datadog keys rejected (needs monitors_read on the app key)"
         else:
             message = f"Datadog HTTP {err.code}"
         return cache_util.keep_stale(_cache, now, message, {

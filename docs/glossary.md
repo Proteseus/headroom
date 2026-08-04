@@ -117,7 +117,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Code and deploys** | Integrations leaves: **Git** (local commits on this Mac), **GitHub Actions** (CI via PAT), **Vercel** (CLI login) — three leaves because they use three different credentials | macOS Settings |
 | **Status** | Integration detail caption: connected, Keychain, hooks state, signed-in | macOS Settings |
 | **Connect** / **Replace** / **Disconnect** | Paste, overwrite, or clear a Keychain credential | macOS Settings |
-| **Keychain** | Detail Status when a token is stored on this Mac | macOS Settings |
+| **Keychain** | Detail Status when a token is stored on this Mac. The SecureField shows `••••••••••••` so the row does not look empty | macOS Settings |
 | **Not connected** | Hub / detail when nothing is pasted yet | macOS Settings |
 | **Hooks installed** / **Hooks off** | Agents caption for Claude Code hooks | macOS Settings |
 | **Gateway on** / **Gateway off** | Agents caption for Codex | macOS Settings |
@@ -254,7 +254,16 @@ N% back**. Percent even here: Codex genuinely grants credits, but the number
 in this caption is a share of the window the chart draws, not a credit count.
 Scheduled rolls get no mark; the axis already ends on those. The
 host detects them in the sample log (`burndown[].resets`), so the mark and the
-history agree by construction.
+history agree by construction. **Recent resets** under the chart is a calendar
+heatmap of those grants — a day is lit or not (resets are binary; `% back`
+lives in the day detail). Provider tint = **global** grant (codex-resets.com,
+optionally matched to what this Mac saw); amber = a **banked credit you
+spent**. Weekly auto-resets stay off the grid — the chart axis already ends
+on those. For Codex week the host also merges the public feed at
+[codex-resets.com](https://codex-resets.com) (every verified @thsottiaux
+announcement), matched to local detections within a few hours when both exist,
+so the grid reaches backward past what this Mac observed and keeps filling as
+new announcements land.
 
 A banked Codex reset credit has its own deadline, shown on the Codex quota card
 as **N reset credits** with expiry labels — not as a renewal mark on Usage.
@@ -271,7 +280,7 @@ blank axis.
 |---|---|
 | **Connected** | iOS link health when the Mac host is reachable. Token-backed Integrations hub rows prefer the live poll caption (**3 projects**, **Supabase token rejected**) over Connected-from-Keychain alone |
 | **Not connected** | Integrations hub / detail when nothing is pasted yet |
-| **Keychain** | Integration detail Credential row: a token is stored on this Mac. Status beside it says whether the last poll accepted it |
+| **Keychain** | Integration detail Credential row: a token is stored on this Mac. Status beside it says whether the last poll accepted it. The empty SecureField shows `••••••••••••` as a prompt — paste replaces |
 | **Mac unavailable** | iOS cannot reach the host |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |

@@ -28,7 +28,11 @@ extension SettingsView {
             if sentryTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("Auth token", text: $sentryToken)
+            SecureField(
+                "Auth token",
+                text: $sentryToken,
+                prompt: keyFieldPrompt(stored: sentryTokenStored)
+            )
                 .onSubmit {
                     if !sentryTokenDraft.isEmpty { saveSentryToken() }
                 }
@@ -81,8 +85,16 @@ extension SettingsView {
             if datadogKeysStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("API key", text: $datadogAPIKey)
-            SecureField("Application key", text: $datadogAppKey)
+            SecureField(
+                "API key",
+                text: $datadogAPIKey,
+                prompt: keyFieldPrompt(stored: datadogKeysStored)
+            )
+            SecureField(
+                "Application key",
+                text: $datadogAppKey,
+                prompt: keyFieldPrompt(stored: datadogKeysStored)
+            )
                 .onSubmit {
                     if !datadogAPIDraft.isEmpty, !datadogAppDraft.isEmpty {
                         saveDatadogKeys()
@@ -124,7 +136,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Both keys stay in Keychain. Site is datadoghq.com, datadoghq.eu, us3.datadoghq.com, …. Only Alert / Warn monitors surface — not APM or host maps.")
+            Text("Both keys stay in Keychain. App key needs monitors_read. Site is datadoghq.com, datadoghq.eu, us3.datadoghq.com, …. Only Alert / Warn monitors surface — not APM or host maps.")
         }
     }
 
@@ -139,7 +151,11 @@ extension SettingsView {
             if axiomTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("API token", text: $axiomToken)
+            SecureField(
+                "API token",
+                text: $axiomToken,
+                prompt: keyFieldPrompt(stored: axiomTokenStored)
+            )
                 .onSubmit {
                     if !axiomTokenDraft.isEmpty { saveAxiomToken() }
                 }

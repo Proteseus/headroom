@@ -16,6 +16,12 @@ extension SettingsView {
         NSWorkspace.shared.open(url)
     }
 
+    /// Placeholder for a Keychain-backed SecureField: bullets when a token is
+    /// already stored (so the row does not look empty), nothing otherwise.
+    func keyFieldPrompt(stored: Bool) -> Text {
+        Text(stored ? HeadroomCopy.settingsKeySavedPrompt : "")
+    }
+
     /// Pasting a key means tracking the source. Enable (and un-dismiss) before
     /// refresh — otherwise `/sync/refresh` skips a Library/paused row and the
     /// phone keeps reading the blank "not connected" payload while Integrations

@@ -34,11 +34,16 @@ Onboarding and Settings keep them apart — different questions, different setup
 | Integration | Where |
 |---|---|
 | **Git** | Settings → Integrations → Git (`dev_root` + authors). Activity → Git commits |
-| **GitHub Actions** | Settings → Integrations → GitHub Actions (token / `gh` / env). CI + inbox |
-| **Supabase** | Settings → Integrations → Supabase PAT |
-| **Plausible** | Settings → Integrations → Plausible Stats API key |
-| **PostHog** | Settings → Integrations → PostHog personal API key |
+| **GitHub Actions** | Settings → Integrations → GitHub Actions (classic `repo`, or fine-grained Actions + Issues + Pull requests Read) |
+| **Supabase** | Settings → Integrations → Supabase account PAT (no narrower scopes) |
+| **Plausible** | Settings → Integrations → Stats API key (`stats:read`; `sites:read` to list sites) |
+| **PostHog** | Settings → Integrations → personal API key (`project:read`, `query:read`) |
 | **Vercel** | Already signed into the Vercel CLI |
+| **Sentry** | Settings → Integrations → auth token (`event:read`) |
+| **Datadog** | Settings → Integrations → API + App key (`monitors_read` on the app key) |
+| **Axiom** | Settings → Integrations → API token (`monitors\|read`) |
+| **OpenRouter** | Settings → Integrations → Management API key (not an inference key) |
+| **AI Gateway** | Settings → Integrations → Gateway API key (not the Vercel CLI login) |
 | **Local servers** | Discovered via `lsof` (no key) |
 
 Which repos Actions watches is editable under **GitHub Actions**: owner
@@ -126,10 +131,13 @@ Route classes and who may call what: [trust.md](trust.md).
 |---|---|
 | Vercel | CLI auth → recent team deployments |
 | Git | Local commits under `dev_root` matching `git_authors` (no GitHub token; includes unpushed) |
-| GitHub Actions | Failed / running runs + inbox via Settings token / Keychain / `gh` |
-| Supabase | Project health + security advisor lints via Settings PAT |
-| Plausible | Site visitors / realtime via Settings Stats API key |
-| PostHog | Project events / users / live via Settings personal API key |
+| GitHub Actions | Failed / running runs + inbox via Settings token (`repo` / fine-grained Actions+Issues+PRs Read) |
+| Supabase | Project health + security advisor lints via Settings account PAT |
+| PostHog | Project events / users / live via Settings personal API key (`project:read`, `query:read`) |
+| Plausible | Site visitors / realtime via Settings Stats API key (`stats:read`) |
+| Sentry | Unresolved issues via Settings auth token (`event:read`) |
+| Datadog | Alert / Warn monitors via Settings API + App key (`monitors_read`) |
+| Axiom | Open monitors via Settings API token (`monitors\|read`) |
 | Local servers | `lsof` TCP LISTEN → labeled ports (stop from the menu bar) |
 
 Failures keep the last-good snapshot (`cache_util.keep_stale`). Each row is one

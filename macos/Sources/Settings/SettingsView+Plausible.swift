@@ -16,7 +16,11 @@ extension SettingsView {
             if plausibleTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("Stats API key", text: $plausibleToken)
+            SecureField(
+                "Stats API key",
+                text: $plausibleToken,
+                prompt: keyFieldPrompt(stored: plausibleTokenStored)
+            )
                 .onSubmit {
                     if !plausibleTokenDraft.isEmpty { savePlausibleToken() }
                 }
@@ -66,7 +70,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("API key stays in Keychain.")
+            Text("API key stays in Keychain (stats:read). A Stats API key is enough for counts; listing sites below also needs sites:read.")
         }
 
         Section {
