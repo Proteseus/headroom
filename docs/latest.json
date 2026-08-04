@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.1",
-  "published": "2026-08-04T08:03:09Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.1/Headroom-macOS.zip",
-  "sha256": "3c6f91d252a02e97f446d3fa56deac497bfe0cce996448e02730510bcf342621",
-  "size": 5395841,
+  "version": "1.7.2",
+  "published": "2026-08-04T12:07:34Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.2/Headroom-macOS.zip",
+  "sha256": "5c30bb681bb95c37a2e31877754becfe8ebd3d5ab0640b4f9f2c3a6213caa775",
+  "size": 5406105,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Connect no longer fails to save a GitHub token when iCloud Keychain\n  refuses the write.** Synced PAT saves wiped both keyspaces before the local\n  fallback ran, so a refused synchronizable write could show \"Could not save\n  GitHub token\" and drop a working local copy. Each half is update-or-add on\n  its own now; the other half is dropped only after the write that should win\n  has succeeded. Thanks to [@pm](https://x.com/pm/status/2084287614115328004)\n  for reporting it."
+  "notes_md": "### Changed\n\n- **Integration Settings name the scopes each key needs.** PostHog asks for\n  `project:read` and `query:read`; Plausible, GitHub, Supabase, Datadog,\n  OpenRouter, and AI Gateway footers spell out their matching permissions too\n  (Sentry and Axiom already did). PostHog's cloud region is a US / EU\n  dropdown; Custom still takes a self-hosted URL. Saved keys show\n  `••••••••••••` in the empty SecureField so the row does not look unused."
 }
