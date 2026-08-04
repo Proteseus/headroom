@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.1 — 2026-08-04
+
+### Fixed
+
+- **Connect no longer fails to save a GitHub token when iCloud Keychain
+  refuses the write.** Synced PAT saves wiped both keyspaces before the local
+  fallback ran, so a refused synchronizable write could show "Could not save
+  GitHub token" and drop a working local copy. Each half is update-or-add on
+  its own now; the other half is dropped only after the write that should win
+  has succeeded. Thanks to [@pm](https://x.com/pm/status/2084287614115328004)
+  for reporting it.
+
 ## 1.6.6 — 2026-08-03
 
 ### Added
