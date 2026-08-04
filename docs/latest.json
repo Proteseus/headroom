@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.8.2",
-  "published": "2026-08-04T19:23:55Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.2/Headroom-macOS.zip",
-  "sha256": "ee417dd2c0a13acf56bc378ad0b5a4de1346bd67bc11ade5792907b0d246a055",
-  "size": 5766102,
+  "version": "1.8.3",
+  "published": "2026-08-04T19:26:46Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.3/Headroom-macOS.zip",
+  "sha256": "95a6b80822921810f9529da6ce61452c78902a3e3bbcaee52a9303327ac3a3a3",
+  "size": 5774745,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **OpenRouter and AI Gateway live on Activity, not Usage.** Account-use\n  panels sit in the Integrations Activity stack; Usage rings and tabs are\n  coding quotas only.\n- **Five macOS/iOS drift points move into Shared.** Drained quota tint,\n  `/health` models, subscription pricing chrome, poll backoff, and clearer\n  iPhone HTTP error prose — one implementation each instead of diverging\n  copies.\n\n### Fixed\n\n- **A bad subscription plan row no longer deletes its provider.** Malformed\n  `subscription_pricing.plans` entries are skipped lossily so one typo cannot\n  blank the ring, meter, and Activity leaf.\n- **Ten provider fetchers stamp and disk-cache successes through\n  `cache_util.store`.** Age and last-good replay work for OpenRouter, AI\n  Gateway, and the other alert/balance sources the way Claude/Codex already\n  did.\n\n### Added\n\n- **Contract tests require every Swift-required `/usage` field in the demo\n  fixture**, and mirrored-constant / firmware label checks cover four more\n  pairs plus positive LABEL_* values."
+  "notes_md": "### Changed\n\n- **Recent resets heatmap uses a denser, shorter window.** Cap drops from\n  ~400 days to ~200 so Mac popover cells stay readable; cell size roughly\n  doubles and the grid height follows the computed cell size."
 }
