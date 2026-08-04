@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "version": "1.8.1",
-  "published": "2026-08-04T17:28:25Z",
+  "published": "2026-08-04T17:29:23Z",
   "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.1/Headroom-macOS.zip",
-  "sha256": "9f7ad39d1e613b6d53ff5fa1c6f3ddf3a5b90067b7a3a515a47a2df4682905f2",
-  "size": 5739415,
+  "sha256": "609d204f15e8af059479792b3db029523a2cba06b12c28c33424871af0ae33e7",
+  "size": 5739413,
   "min_macos": "14.0",
   "notes_md": "### Changed\n\n- **OpenRouter and AI Gateway show account use history, not depletion.**\n  Overview is a daily-spend sparkline; the provider leaf leads with the full\n  trailing-window day chart, then totals / models / keys. Remaining credits\n  stay a figure, not a bar."
 }
