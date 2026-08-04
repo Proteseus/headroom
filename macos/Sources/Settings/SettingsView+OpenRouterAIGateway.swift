@@ -53,7 +53,7 @@ extension SettingsView {
                 }
                 Spacer()
                 Button(HeadroomCopy.settingsCreateToken) {
-                    openURL("https://openrouter.ai/settings/keys")
+                    openURL("https://openrouter.ai/settings/management-keys")
                 }
                 .buttonStyle(.link)
             }
@@ -63,7 +63,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Needs a Management API key — a regular inference key cannot read the account balance. Stored in Keychain, never in /usage.")
+            Text("Needs a Management API key from openrouter.ai/settings/management-keys — not a regular inference key from /settings/keys. Stored in Keychain, never in /usage.")
         }
     }
 

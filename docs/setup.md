@@ -45,7 +45,7 @@ Onboarding and Settings keep them apart — different questions, different setup
 | **Sentry** | Settings → Integrations → auth token (`event:read`) |
 | **Datadog** | Settings → Integrations → API + App key (`monitors_read` on the app key) |
 | **Axiom** | Settings → Integrations → API token (`monitors\|read`) |
-| **OpenRouter** | Settings → Integrations → Management API key (not an inference key) |
+| **OpenRouter** | Settings → Integrations → Management API key from [openrouter.ai/settings/management-keys](https://openrouter.ai/settings/management-keys) (not an inference key from `/settings/keys`) |
 | **AI Gateway** | Settings → Integrations → Gateway API key (not the Vercel CLI login) |
 | **Local servers** | Discovered via `lsof` (no key) |
 

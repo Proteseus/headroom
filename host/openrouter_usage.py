@@ -5,8 +5,11 @@ HEADROOM_OPENROUTER_TOKEN, or the Headroom macOS Keychain item. Account
 balance is `GET /api/v1/credits` (management key required): remaining is
 total_credits − total_usage.
 
-A regular inference key cannot read the account pot — only a per-key cap via
-`GET /api/v1/key` — so Settings asks for a management key on purpose.
+A regular inference key can sometimes read `/credits` too, but Headroom
+refuses it on purpose — Settings asks for a management key so the meter is
+the account pot, and so a wrong paste is visible instead of a quiet wrong
+number. Create one at openrouter.ai/settings/management-keys (not
+/settings/keys).
 
 Tokens are never returned in payloads or logs. Stdlib only.
 """
@@ -27,6 +30,16 @@ FAIL_TTL_S = 45
 KEYCHAIN_SERVICE = "com.centaur-labs.headroom.openrouter"
 KEYCHAIN_ACCOUNT = "access-token"
 
+MANAGEMENT_KEYS_URL = "openrouter.ai/settings/management-keys"
+WRONG_KEY_TYPE = (
+    "Inference key — paste a Management API key from "
+    + MANAGEMENT_KEYS_URL
+)
+REJECTED_KEY = (
+    "OpenRouter rejected the key — use a Management API key "
+    f"({MANAGEMENT_KEYS_URL})"
+)
+
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
     "ok": False,
@@ -35,6 +48,10 @@ _EMPTY = {
     "plan": None,
     "balance": None,
 }
+
+
+class WrongKeyType(ValueError):
+    """Stored credential is an inference key, not a Management API key."""
 
 
 def _keychain_token():
@@ -64,6 +81,14 @@ def _request(path, token, timeout=15):
         auth=f"Bearer {token}",
         timeout=timeout,
     )
+
+
+def _require_management_key(token):
+    """Refuse inference keys even when `/credits` would answer them."""
+    info = _request("/api/v1/key", token)
+    data = (info or {}).get("data") or {}
+    if data.get("is_management_key") is False:
+        raise WrongKeyType(WRONG_KEY_TYPE)
 
 
 def _balance_bucket(total_credits, total_usage):
@@ -102,6 +127,7 @@ def fetch_quota(force=False):
         return _cache["data"]
 
     try:
+        _require_management_key(token)
         body = _request("/api/v1/credits", token)
         data = (body or {}).get("data") or {}
         if "total_credits" not in data or "total_usage" not in data:
@@ -118,12 +144,16 @@ def fetch_quota(force=False):
         }
         _cache.update(t=now, data=result)
         return result
+    except WrongKeyType as err:
+        message = str(err) or WRONG_KEY_TYPE
+        return cache_util.keep_stale(_cache, now, message, {
+            **_EMPTY,
+            "configured": True,
+            "error": message,
+        })
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
-            message = (
-                "OpenRouter rejected the key — use a Management API key "
-                "(openrouter.ai/settings/keys)"
-            )
+            message = REJECTED_KEY
         else:
             message = f"OpenRouter HTTP {err.code}"
         return cache_util.keep_stale(_cache, now, message, {

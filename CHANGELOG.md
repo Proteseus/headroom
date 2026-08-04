@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.0 — 2026-08-04
+
+### Changed
+
+- **OpenRouter refuses inference keys even when `/credits` answers.** Status
+  names the wrong key type and points at
+  [management-keys](https://openrouter.ai/settings/management-keys) so a quiet
+  wrong pot cannot replace the account balance.
+
 ## 1.7.9 — 2026-08-04
 
 ### Changed

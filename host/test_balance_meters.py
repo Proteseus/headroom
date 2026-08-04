@@ -107,25 +107,50 @@ class OpenRouterFetcherTests(unittest.TestCase):
     @mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-or-mgmt"}, clear=False)
     @mock.patch("openrouter_usage._request")
     def test_fetch_maps_credits_to_balance(self, request):
-        request.return_value = {
-            "data": {"total_credits": 100.0, "total_usage": 37.5},
-        }
+        def _side_effect(path, token, timeout=15):
+            if path == "/api/v1/key":
+                return {"data": {"is_management_key": True}}
+            if path == "/api/v1/credits":
+                return {"data": {"total_credits": 100.0, "total_usage": 37.5}}
+            raise AssertionError(f"unexpected path {path}")
+        request.side_effect = _side_effect
         payload = openrouter_usage.fetch_quota(force=True)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["balance"]["remaining_usd"], 62.5)
         self.assertEqual(payload["balance"]["used_usd"], 37.5)
         self.assertEqual(payload["balance"]["topped_up_usd"], 100.0)
 
+    @mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-or-infer"}, clear=False)
+    @mock.patch("openrouter_usage._request")
+    def test_fetch_rejects_inference_key_even_when_credits_work(self, request):
+        # OpenRouter may answer /credits for an inference key; Headroom still
+        # refuses so Status shows the wrong key type instead of a quiet pot.
+        def _side_effect(path, token, timeout=15):
+            if path == "/api/v1/key":
+                return {"data": {"is_management_key": False}}
+            if path == "/api/v1/credits":
+                return {"data": {"total_credits": 10.0, "total_usage": 1.0}}
+            raise AssertionError(f"unexpected path {path}")
+        request.side_effect = _side_effect
+        payload = openrouter_usage.fetch_quota(force=True)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["configured"])
+        self.assertIsNone(payload["balance"])
+        self.assertIn("Inference key", payload["error"])
+        self.assertIn("management-keys", payload["error"])
+        request.assert_called_once()
+
     @mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-or-bad"}, clear=False)
     @mock.patch("openrouter_usage._request")
     def test_fetch_rejects_non_management_key(self, request):
         request.side_effect = HTTPError(
-            "https://openrouter.ai/api/v1/credits", 403, "Forbidden",
+            "https://openrouter.ai/api/v1/key", 403, "Forbidden",
             hdrs=None, fp=BytesIO(b"{}"))
         payload = openrouter_usage.fetch_quota(force=True)
         self.assertFalse(payload["ok"])
         self.assertTrue(payload["configured"])
         self.assertIn("Management", payload["error"])
+        self.assertIn("management-keys", payload["error"])
 
 
 class AIGatewayFetcherTests(unittest.TestCase):
