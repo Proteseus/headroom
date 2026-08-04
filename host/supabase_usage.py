@@ -43,6 +43,7 @@ ADVISOR_FAIL_TTL_S = 5 * 60
 # document every client downloads. Counts stay exact either way.
 LINT_LIMIT = 40
 LEVEL_RANK = {"ERROR": 0, "WARN": 1, "INFO": 2}
+DISK = "supabase_projects"
 
 _cache = {"t": 0.0, "data": None}
 # ref -> {"t": float, "lints": [...], "error": str | None}
@@ -458,8 +459,7 @@ def fetch_projects(force=False):
             "lint_total": sum(row["lint_total"] for row in rows),
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result, err=None)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as error:
         message = "Supabase token rejected" if error.code in (401, 403) else (
             f"Supabase HTTP {error.code}")
@@ -477,8 +477,8 @@ def fetch_projects(force=False):
             return result
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)
     except Exception as error:
         return cache_util.keep_stale(_cache, now, str(error), {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)

@@ -1,6 +1,8 @@
+import tempfile
 import unittest
 from unittest.mock import patch
 
+import cache_util
 import supabase_usage
 
 
@@ -21,6 +23,13 @@ class SupabaseUsageTests(unittest.TestCase):
     def setUp(self):
         supabase_usage._cache.update(t=0.0, data=None)
         supabase_usage._advisor_cache.clear()
+        # The fetcher writes a last-good disk snapshot on success; a private
+        # cache dir keeps one test's snapshot out of another's failure path.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = patch.object(cache_util, "CACHE_DIR", tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch("supabase_usage._token", return_value=None)
     def test_missing_token_is_safe_and_actionable(self, _token):

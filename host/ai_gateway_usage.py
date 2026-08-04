@@ -26,6 +26,7 @@ CACHE_TTL_S = 2 * 60
 FAIL_TTL_S = 45
 KEYCHAIN_SERVICE = "com.centaur-labs.headroom.ai-gateway"
 KEYCHAIN_ACCOUNT = "access-token"
+DISK = "ai_gateway_quota"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -200,8 +201,7 @@ def fetch_quota(force=False):
             "stale": False,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
             message = (
@@ -214,10 +214,10 @@ def fetch_quota(force=False):
             **_EMPTY,
             "configured": True,
             "error": message,
-        })
+        }, disk_name=DISK)
     except (OSError, ValueError, TypeError) as err:
         return cache_util.keep_stale(_cache, now, str(err) or "AI Gateway error", {
             **_EMPTY,
             "configured": True,
             "error": str(err) or "AI Gateway error",
-        })
+        }, disk_name=DISK)

@@ -31,6 +31,7 @@ CACHE_TTL_S = 2 * 60
 FAIL_TTL_S = 45
 KEYCHAIN_SERVICE = "com.centaur-labs.headroom.openrouter"
 KEYCHAIN_ACCOUNT = "access-token"
+DISK = "openrouter_quota"
 
 MANAGEMENT_KEYS_URL = "openrouter.ai/settings/management-keys"
 WRONG_KEY_TYPE = (
@@ -266,15 +267,14 @@ def fetch_quota(force=False):
             "stale": False,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except WrongKeyType as err:
         message = str(err) or WRONG_KEY_TYPE
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY,
             "configured": True,
             "error": message,
-        })
+        }, disk_name=DISK)
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
             message = REJECTED_KEY
@@ -284,10 +284,10 @@ def fetch_quota(force=False):
             **_EMPTY,
             "configured": True,
             "error": message,
-        })
+        }, disk_name=DISK)
     except (OSError, ValueError, TypeError, KeyError) as err:
         return cache_util.keep_stale(_cache, now, str(err) or "OpenRouter error", {
             **_EMPTY,
             "configured": True,
             "error": str(err) or "OpenRouter error",
-        })
+        }, disk_name=DISK)

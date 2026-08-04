@@ -31,6 +31,7 @@ KEYCHAIN_ACCOUNT = "access-token"
 LIST_PAGE_LIMIT = 100
 LIST_MAX_PAGES = 20
 LIVE_WINDOW_SQL = "timestamp >= now() - INTERVAL 5 MINUTE"
+DISK = "posthog_stats"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -453,8 +454,7 @@ def fetch_stats(force=False):
             "projects_source": source,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result, err=None)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as error:
         message = (
             "PostHog token rejected (needs query:read)"
@@ -473,8 +473,8 @@ def fetch_stats(force=False):
             return result
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)
     except Exception as error:
         return cache_util.keep_stale(_cache, now, str(error), {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)

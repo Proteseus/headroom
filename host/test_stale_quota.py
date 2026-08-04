@@ -10,6 +10,7 @@ against a percentage that had stopped moving, so a dead window ticked to zero
 in front of you. Percentages that hold at last-known are the design. A
 countdown that keeps running is the lie.
 """
+import contextlib
 import json
 import os
 import tempfile
@@ -19,12 +20,21 @@ import urllib.error
 from unittest.mock import patch
 
 import accounts
+import ai_gateway_usage
+import axiom_monitors
 import burndown
 import cache_util
+import datadog_monitors
+import github_actions
 import headroom_server
 import keychain
 import oauth_usage
+import openrouter_usage
+import plausible_usage
+import posthog_usage
 import quota_samples
+import sentry_alerts
+import supabase_usage
 
 NOW = 1_800_000_000.0
 WEEK_S = 7 * 24 * 3600
@@ -562,3 +572,193 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertIsInstance(row["retry_in_s"], int)
         self.assertGreater(row["retry_in_s"], 0)
         self.assertLessEqual(row["retry_in_s"], 300)
+
+
+class SourceStampTests(unittest.TestCase):
+    """Every fetcher's success path must run through `cache_util.store`.
+
+    Ten sources hand-wrote `_cache.update(t=now, data=result)` instead, which
+    skipped the `fetched_at` stamp — so `trusted()` took a week-old replayed
+    balance at face value — and skipped the disk snapshot, so none of them
+    survived a host restart the way the quota providers do.
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = patch.object(cache_util, "CACHE_DIR", tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _fetch_ok(self, module, fetch, disk, patches):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch.object(module, "_cache", {"t": 0.0, "data": None}))
+            for patcher in patches:
+                stack.enter_context(patcher)
+            out = fetch(force=True)
+        self.assertIsNotNone(out, "fetch returned None instead of a payload")
+        self.assertTrue(out.get("ok"), out.get("error"))
+        self.assertFalse(out["stale"])
+        self.assertIsInstance(out.get("fetched_at"), float)
+        snapshot = cache_util.load_disk(disk)
+        self.assertIsNotNone(snapshot, f"no last-good {disk}.json on disk")
+        self.assertEqual(snapshot["fetched_at"], out["fetched_at"])
+        return out
+
+    def _openrouter_patches(self):
+        return [
+            patch.object(openrouter_usage, "_token", return_value="sk-mgmt"),
+            patch.object(openrouter_usage, "_require_management_key"),
+            patch.object(openrouter_usage, "_request", return_value={
+                "data": {"total_credits": 10.0, "total_usage": 2.0}}),
+            patch.object(openrouter_usage, "_fetch_spend", return_value=None),
+        ]
+
+    def test_ai_gateway_stamps_and_snapshots(self):
+        self._fetch_ok(
+            ai_gateway_usage, ai_gateway_usage.fetch_quota,
+            ai_gateway_usage.DISK, [
+                patch.object(ai_gateway_usage, "_token", return_value="tok"),
+                patch.object(
+                    ai_gateway_usage.http_util, "request_json",
+                    return_value={"balance": 5.0, "total_used": 1.0}),
+                patch.object(
+                    ai_gateway_usage, "_fetch_spend", return_value=None),
+            ])
+
+    def test_openrouter_stamps_and_snapshots(self):
+        self._fetch_ok(
+            openrouter_usage, openrouter_usage.fetch_quota,
+            openrouter_usage.DISK, self._openrouter_patches())
+
+    def test_supabase_stamps_and_snapshots(self):
+        self._fetch_ok(
+            supabase_usage, supabase_usage.fetch_projects,
+            supabase_usage.DISK, [
+                patch.object(supabase_usage, "_token", return_value="sbp"),
+                patch.object(
+                    supabase_usage, "_list_projects", return_value=[]),
+                patch.object(supabase_usage.app_config,
+                             "supabase_project_refs", return_value=[]),
+            ])
+
+    def test_posthog_stamps_and_snapshots(self):
+        row = {"id": 1, "name": "p", "realtime": 0,
+               "events_today": 1, "users_today": 1}
+        self._fetch_ok(
+            posthog_usage, posthog_usage.fetch_stats,
+            posthog_usage.DISK, [
+                patch.object(posthog_usage, "_token", return_value="phx"),
+                patch.object(posthog_usage, "_resolve_projects",
+                             return_value=([{"id": 1, "name": "p"}], "cfg")),
+                patch.object(posthog_usage, "_fetch_project",
+                             return_value=row),
+            ])
+
+    def test_plausible_stamps_and_snapshots(self):
+        row = {"domain": "example.com", "realtime": 0, "visitors_today": 1}
+        self._fetch_ok(
+            plausible_usage, plausible_usage.fetch_stats,
+            plausible_usage.DISK, [
+                patch.object(plausible_usage, "_token", return_value="pl"),
+                patch.object(plausible_usage, "_resolve_sites",
+                             return_value=(["example.com"], "cfg")),
+                patch.object(plausible_usage, "_fetch_site",
+                             return_value=row),
+            ])
+
+    def test_sentry_stamps_and_snapshots(self):
+        self._fetch_ok(
+            sentry_alerts, sentry_alerts.fetch_issues,
+            sentry_alerts.DISK, [
+                patch.object(sentry_alerts, "_token", return_value="sn"),
+                patch.object(sentry_alerts, "_resolve_org",
+                             return_value=("acme", None)),
+                patch.object(sentry_alerts, "_get", return_value=[]),
+            ])
+
+    def test_datadog_stamps_and_snapshots(self):
+        self._fetch_ok(
+            datadog_monitors, datadog_monitors.fetch_monitors,
+            datadog_monitors.DISK, [
+                patch.object(datadog_monitors, "_api_key",
+                             return_value="k"),
+                patch.object(datadog_monitors, "_app_key",
+                             return_value="a"),
+                patch.object(
+                    datadog_monitors, "_api_host",
+                    return_value=("https://api.datadoghq.com",
+                                  "datadoghq.com")),
+                patch.object(datadog_monitors.http_util, "request_json",
+                             return_value=[]),
+            ])
+
+    def test_axiom_stamps_and_snapshots(self):
+        self._fetch_ok(
+            axiom_monitors, axiom_monitors.fetch_alerts,
+            axiom_monitors.DISK, [
+                patch.object(axiom_monitors, "_token", return_value="ax"),
+                patch.object(axiom_monitors, "_org_id", return_value="org"),
+                patch.object(axiom_monitors, "_api_host",
+                             return_value="https://api.axiom.co"),
+                patch.object(axiom_monitors, "_get", return_value=[]),
+            ])
+
+    def test_github_actions_stamps_and_snapshots(self):
+        self._fetch_ok(
+            github_actions, github_actions.fetch_actions,
+            github_actions.DISK, [
+                patch.object(github_actions, "_token", return_value="gh"),
+                patch.object(github_actions, "_repos", return_value=[]),
+                patch.object(github_actions, "fetch_inbox",
+                             return_value=[]),
+            ])
+
+    def test_openrouter_snapshot_survives_a_restart(self):
+        # A fresh process (empty memory) whose first fetch fails must replay
+        # the last-good disk snapshot, aged from the original stamp, instead
+        # of blanking the card — the behavior claude/codex/cursor already had.
+        first = self._fetch_ok(
+            openrouter_usage, openrouter_usage.fetch_quota,
+            openrouter_usage.DISK, self._openrouter_patches())
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(
+                openrouter_usage, "_cache", {"t": 0.0, "data": None}))
+            stack.enter_context(patch.object(
+                openrouter_usage, "_token", return_value="sk-mgmt"))
+            stack.enter_context(patch.object(
+                openrouter_usage, "_require_management_key"))
+            stack.enter_context(patch.object(
+                openrouter_usage, "_request",
+                side_effect=OSError("gateway down")))
+            out = openrouter_usage.fetch_quota(force=True)
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["stale"])
+        self.assertEqual(out["fetched_at"], first["fetched_at"])
+
+    def test_alert_sources_fetch_once_then_serve_from_cache(self):
+        # Regression for the inverted freshness gate these three shipped
+        # with: an empty cache returned None forever instead of fetching,
+        # and a populated one refetched on every poll. First call must hit
+        # the API; the second, inside the TTL, must not.
+        calls = []
+
+        def fake_get(*args, **kwargs):
+            calls.append(args)
+            return []
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(
+                sentry_alerts, "_cache", {"t": 0.0, "data": None}))
+            stack.enter_context(patch.object(
+                sentry_alerts, "_token", return_value="sn"))
+            stack.enter_context(patch.object(
+                sentry_alerts, "_resolve_org", return_value=("acme", None)))
+            stack.enter_context(patch.object(
+                sentry_alerts, "_get", side_effect=fake_get))
+            first = sentry_alerts.fetch_issues()
+            second = sentry_alerts.fetch_issues()
+        self.assertTrue(first["ok"])
+        self.assertEqual(len(calls), 1)
+        self.assertIs(second, first)

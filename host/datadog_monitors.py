@@ -29,6 +29,7 @@ KEYCHAIN_API = "api-key"
 KEYCHAIN_APP = "app-key"
 KEEP_MONITORS = 8
 UA = "Headroom/1"
+DISK = "datadog_monitors"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -164,7 +165,7 @@ def fetch_monitors(force=False):
         _cache.update(t=now, data=result)
         return result
 
-    if not cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     try:
@@ -210,8 +211,7 @@ def fetch_monitors(force=False):
             "warn_count": warn_count,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
             message = "Datadog keys rejected (needs monitors_read on the app key)"
@@ -219,9 +219,10 @@ def fetch_monitors(force=False):
             message = f"Datadog HTTP {err.code}"
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY, "configured": True, "site": site,
-        })
+        }, disk_name=DISK)
     except (urllib.error.URLError, OSError, ValueError, TypeError) as err:
         return cache_util.keep_stale(
             _cache, now, str(err) or "Datadog failed",
             {**_EMPTY, "configured": True, "site": site},
+            disk_name=DISK,
         )

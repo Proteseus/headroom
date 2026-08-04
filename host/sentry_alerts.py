@@ -31,6 +31,7 @@ KEYCHAIN_ACCOUNT = "access-token"
 KEEP_ISSUES = 8
 ATTENTION_MAX_AGE_S = 24 * 3600
 UA = "Headroom/1"
+DISK = "sentry_alerts"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -193,7 +194,7 @@ def fetch_issues(force=False):
         _cache.update(t=now, data=result)
         return result
 
-    if not cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
+    if cache_util.fresh(_cache, now, CACHE_TTL_S, FAIL_TTL_S, force):
         return _cache["data"]
 
     try:
@@ -240,8 +241,7 @@ def fetch_issues(force=False):
             "alert_count": alert_count,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
             message = "Sentry token rejected (needs event:read)"
@@ -249,8 +249,8 @@ def fetch_issues(force=False):
             message = f"Sentry HTTP {err.code}"
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)
     except (urllib.error.URLError, OSError, ValueError, TypeError) as err:
         return cache_util.keep_stale(_cache, now, str(err) or "Sentry failed", {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)

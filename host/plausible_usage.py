@@ -29,6 +29,7 @@ KEYCHAIN_SERVICE = "com.centaur-labs.headroom.plausible"
 KEYCHAIN_ACCOUNT = "access-token"
 LIST_PAGE_LIMIT = 100
 LIST_MAX_PAGES = 20
+DISK = "plausible_stats"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -422,8 +423,7 @@ def fetch_stats(force=False):
             "sites_source": source,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result, err=None)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as error:
         message = "Plausible token rejected" if error.code in (401, 403) else (
             f"Plausible HTTP {error.code}")
@@ -439,8 +439,8 @@ def fetch_stats(force=False):
             return result
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)
     except Exception as error:
         return cache_util.keep_stale(_cache, now, str(error), {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)

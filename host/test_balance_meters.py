@@ -12,6 +12,7 @@ from urllib.error import HTTPError
 
 import ai_gateway_usage
 import balance_spend
+import cache_util
 import headroom_server
 import meters
 import openrouter_usage
@@ -138,6 +139,13 @@ class OpenRouterFetcherTests(unittest.TestCase):
     def setUp(self):
         openrouter_usage.invalidate()
         openrouter_usage._cache.update(t=0.0, data=None)
+        # The fetcher writes a last-good disk snapshot on success; a private
+        # cache dir keeps one test's snapshot out of another's failure path.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.object(cache_util, "CACHE_DIR", tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         openrouter_usage.invalidate()
@@ -212,6 +220,11 @@ class AIGatewayFetcherTests(unittest.TestCase):
     def setUp(self):
         ai_gateway_usage.invalidate()
         ai_gateway_usage._cache.update(t=0.0, data=None)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.object(cache_util, "CACHE_DIR", tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         ai_gateway_usage.invalidate()

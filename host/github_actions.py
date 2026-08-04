@@ -47,6 +47,7 @@ NOISE_WORKFLOW_NAMES = {
     "codex review",
     "dependency review",
 }
+DISK = "github_actions"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -611,8 +612,7 @@ def fetch_actions(force=False):
             "repos": repos,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result, err=None)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as error:
         message = (
             "GitHub token rejected"
@@ -631,7 +631,9 @@ def fetch_actions(force=False):
             _cache.update(t=now, data=result, err=message)
             return result
         return cache_util.keep_stale(
-            _cache, now, message, {**_EMPTY, "configured": True})
+            _cache, now, message, {**_EMPTY, "configured": True},
+            disk_name=DISK)
     except Exception as exc:
         return cache_util.keep_stale(
-            _cache, now, str(exc), {**_EMPTY, "configured": True})
+            _cache, now, str(exc), {**_EMPTY, "configured": True},
+            disk_name=DISK)
