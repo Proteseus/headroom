@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.7.8",
-  "published": "2026-08-04T12:54:36Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.8/Headroom-macOS.zip",
-  "sha256": "24615af39d3572e79795399da6280507e02bb653cf614662314c51b4ece91b7e",
-  "size": 5582664,
+  "version": "1.7.9",
+  "published": "2026-08-04T12:58:50Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.7.9/Headroom-macOS.zip",
+  "sha256": "e5bc298142b7e0a1095e3af7e589a424dcbbc3efc9b10d6cc8b56dbc71c0d326",
+  "size": 5582648,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Community Pulse meters stay neutral grey.** Custom capsule bars replace\n  `ProgressView` + `.tint`, which on macOS often fell back to the system\n  accent and painted the mix rows coral."
+  "notes_md": "### Changed\n\n- **README and setup match Usage · Attention · Activity.** Surface table,\n  Settings paths (Providers / Add account / Agents), iPhone and App Store\n  feature lists, and the docs index (Telemetry, Updater) follow the current\n  chrome rather than the old Services peer tab. Screenshots refreshed to\n  match.\n\n### Added\n\n- **`docs/orgs.md`** — standing design for an optional org / multiplayer\n  window layer (spec only; not shipped in the product yet)."
 }
