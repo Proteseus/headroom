@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "version": "1.8.0",
-  "published": "2026-08-04T14:06:15Z",
+  "published": "2026-08-04T14:07:34Z",
   "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.0/Headroom-macOS.zip",
-  "sha256": "fe253878c3119b342609f9bf3f48459d78734aa9ea4fb6ea2bf32bba9ec67e5b",
-  "size": 5728301,
+  "sha256": "05211f1644677078c03343a80fd5bf47264944a0d4114b711887c579825e4208",
+  "size": 5728305,
   "min_macos": "14.0",
   "notes_md": "### Changed\n\n- **OpenRouter refuses inference keys even when `/credits` answers.** Status\n  names the wrong key type and points at\n  [management-keys](https://openrouter.ai/settings/management-keys) so a quiet\n  wrong pot cannot replace the account balance.\n- **OpenRouter and AI Gateway provider leaves show observed spend.** Daily\n  bars, runway, top models, and (OpenRouter) per-key usage — no ring, no\n  Attention rows. Spend is billed credits from each provider's own API;\n  AI Gateway Hobby notes when the report endpoint needs Pro.\n- **Telemetry schema 2 week-scopes a dedupe key.** Each Mac keeps a local\n  install secret and sends `HMAC-SHA256(secret, ISO week)` so Debug/Release\n  copies cannot inflate weekly active Macs — without a stable install id on\n  the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`\n  and `003_country.sql`.\n- **Community Pulse shows version distribution and latest release.** Histogram\n  against the update feed; country mix from the Worker edge (no IPs stored).\n- **Supabase Attention lint badge is a compact count + shield.** Plain\n  HStack instead of a Label so the row chrome matches neighbouring service\n  rows."
 }
