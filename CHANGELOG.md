@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.7.6 — 2026-08-04
+
+### Changed
+
+- **Community Pulse shows architecture, macOS major, and week-over-week.**
+  The Worker pads empty weeks on the growth chart, publishes CPU and macOS
+  mix from batch columns, and splits service mix into enabled / used /
+  healthy. Settings → Telemetry and the public community page both draw the
+  richer aggregate.
+
 ## 1.7.5 — 2026-08-04
 
 ### Changed

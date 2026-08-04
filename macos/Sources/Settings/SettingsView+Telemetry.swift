@@ -115,6 +115,11 @@ extension SettingsView {
                     detail: latest.period
                 )
                 telemetryMetric(
+                    HeadroomCopy.telemetryWeekOverWeek,
+                    value: communityWeekDeltaLabel(stats.weeklyActiveMacs),
+                    detail: communityWeekDeltaDetail(stats.weeklyActiveMacs)
+                )
+                telemetryMetric(
                     HeadroomCopy.telemetryLatestBuild,
                     value: latest.versions.first?.name ?? "—",
                     detail: latest.versions.first.map {
@@ -123,15 +128,25 @@ extension SettingsView {
                         ?? HeadroomCopy.telemetryCommunityThreshold
                 )
                 telemetryMetric(
-                    HeadroomCopy.telemetryServicesInUse,
-                    value: String(latest.services.used.count),
-                    detail: HeadroomCopy.telemetryLatestWeek
+                    HeadroomCopy.telemetryTopArchitecture,
+                    value: latest.architectures.first?.name ?? "—",
+                    detail: latest.architectures.first.map {
+                        "\($0.count) \(HeadroomCopy.telemetryMacs)"
+                    }
+                        ?? HeadroomCopy.telemetryCommunityThreshold
                 )
             }
 
             communityWeeklyChart(stats.weeklyActiveMacs)
 
-            if latest.versions.isEmpty {
+            if latest.versions.isEmpty,
+               latest.architectures.isEmpty,
+               latest.macosMajors.isEmpty,
+               latest.services.enabled.isEmpty,
+               latest.services.used.isEmpty,
+               latest.services.healthy.isEmpty,
+               latest.modelShares.isEmpty,
+               latest.features.isEmpty {
                 Text(HeadroomCopy.telemetryCommunityThreshold)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -142,12 +157,23 @@ extension SettingsView {
                     total: latest.reportingMacs
                 )
                 communityCountRows(
-                    HeadroomCopy.telemetryServiceMix,
-                    items: latest.services.used,
+                    HeadroomCopy.telemetryArchitectureMix,
+                    items: latest.architectures,
                     total: latest.reportingMacs
                 )
+                communityCountRows(
+                    HeadroomCopy.telemetryMacOSMix,
+                    items: latest.macosMajors.map {
+                        HeadroomCommunityStats.CountedItem(
+                            name: "macOS \($0.name)",
+                            count: $0.count
+                        )
+                    },
+                    total: latest.reportingMacs
+                )
+                communityServiceSections(latest.services, total: latest.reportingMacs)
                 communityModelRows(latest.modelShares)
-                communityFeatureChips(latest.features)
+                communityFeatureRows(latest.features)
             }
         }
     }
@@ -160,18 +186,24 @@ extension SettingsView {
             Text(HeadroomCopy.telemetryWeeklyActive)
                 .font(.callout.weight(.medium))
             let maximum = max(1, weeks.compactMap(\.count).max() ?? 1)
-            HStack(alignment: .bottom, spacing: 7) {
+            HStack(alignment: .bottom, spacing: 5) {
                 ForEach(weeks) { week in
-                    VStack(spacing: 5) {
-                        RoundedRectangle(cornerRadius: 4)
+                    VStack(spacing: 4) {
+                        Text(
+                            week.count.map(String.init)
+                                ?? "·"
+                        )
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        RoundedRectangle(cornerRadius: 2)
                             .fill(
                                 week.count == nil
-                                    ? AnyShapeStyle(.quaternary)
-                                    : AnyShapeStyle(HeadroomPalette.claude)
+                                    ? Color.primary.opacity(0.12)
+                                    : Color.primary.opacity(0.55)
                             )
                             .frame(
                                 maxWidth: .infinity,
-                                minHeight: 4,
+                                minHeight: 3,
                                 maxHeight: 88 * CGFloat(
                                     Double(week.count ?? 0) / Double(maximum)
                                 )
@@ -182,7 +214,7 @@ extension SettingsView {
                     }
                 }
             }
-            .frame(height: 108, alignment: .bottom)
+            .frame(height: 118, alignment: .bottom)
         }
     }
 
@@ -192,24 +224,74 @@ extension SettingsView {
         items: [HeadroomCommunityStats.CountedItem],
         total: Int?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.callout.weight(.medium))
-            ForEach(items) { item in
-                HStack(spacing: 8) {
-                    Text(telemetryDisplayName(item.name))
-                        .font(.caption)
-                        .frame(width: 80, alignment: .leading)
-                        .lineLimit(1)
-                    ProgressView(
-                        value: Double(item.count),
-                        total: Double(max(total ?? item.count, 1))
-                    )
-                    .tint(HeadroomPalette.providerTint(id: item.name))
-                    Text("\(item.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, alignment: .trailing)
+        if items.isEmpty { EmptyView() } else {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title)
+                    .font(.callout.weight(.medium))
+                ForEach(items) { item in
+                    HStack(spacing: 8) {
+                        Text(telemetryDisplayName(item.name))
+                            .font(.caption)
+                            .frame(width: 80, alignment: .leading)
+                            .lineLimit(1)
+                        ProgressView(
+                            value: Double(item.count),
+                            total: Double(max(total ?? item.count, 1))
+                        )
+                        .progressViewStyle(.linear)
+                        .tint(Color.primary.opacity(0.55))
+                        Text("\(item.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, alignment: .trailing)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    func communityServiceSections(
+        _ services: HeadroomCommunityStats.Services,
+        total: Int?
+    ) -> some View {
+        let sections: [(String, [HeadroomCommunityStats.CountedItem])] = [
+            (HeadroomCopy.telemetryServicesEnabled, services.enabled),
+            (HeadroomCopy.telemetryServicesUsed, services.used),
+            (HeadroomCopy.telemetryServicesHealthy, services.healthy),
+        ]
+        if sections.allSatisfy(\.1.isEmpty) {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(HeadroomCopy.telemetryServiceMix)
+                    .font(.callout.weight(.medium))
+                ForEach(sections, id: \.0) { label, items in
+                    if !items.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(label.uppercased())
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                            ForEach(items) { item in
+                                HStack(spacing: 8) {
+                                    Text(telemetryDisplayName(item.name))
+                                        .font(.caption)
+                                        .frame(width: 80, alignment: .leading)
+                                        .lineLimit(1)
+                                    ProgressView(
+                                        value: Double(item.count),
+                                        total: Double(max(total ?? item.count, 1))
+                                    )
+                                    .progressViewStyle(.linear)
+                                    .tint(Color.primary.opacity(0.45))
+                                    Text("\(item.count)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 32, alignment: .trailing)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -219,42 +301,81 @@ extension SettingsView {
     func communityModelRows(
         _ items: [HeadroomCommunityStats.ModelShare]
     ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(HeadroomCopy.telemetryModelMix)
-                .font(.callout.weight(.medium))
-            ForEach(items) { item in
-                HStack(spacing: 8) {
-                    Text(telemetryDisplayName(item.name.split(separator: ":").last.map(String.init) ?? item.name))
-                        .font(.caption)
-                        .frame(width: 80, alignment: .leading)
-                    ProgressView(value: Double(item.share), total: 100)
-                        .tint(HeadroomPalette.claude)
-                    Text("\(item.share)%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 40, alignment: .trailing)
+        if items.isEmpty { EmptyView() } else {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(HeadroomCopy.telemetryModelMix)
+                    .font(.callout.weight(.medium))
+                ForEach(items) { item in
+                    let parts = item.name.split(separator: ":").map(String.init)
+                    let label = parts.count > 1
+                        ? "\(telemetryDisplayName(parts[0])) · \(telemetryDisplayName(parts[1]))"
+                        : telemetryDisplayName(item.name)
+                    HStack(spacing: 8) {
+                        Text(label)
+                            .font(.caption)
+                            .frame(width: 110, alignment: .leading)
+                            .lineLimit(1)
+                        ProgressView(value: Double(item.share), total: 100)
+                            .progressViewStyle(.linear)
+                            .tint(Color.primary.opacity(0.55))
+                        Text("\(item.share)%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    func communityFeatureChips(
+    func communityFeatureRows(
         _ items: [HeadroomCommunityStats.Feature]
     ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(HeadroomCopy.telemetryFeatureAdoption)
-                .font(.callout.weight(.medium))
-            HStack(spacing: 6) {
+        if items.isEmpty { EmptyView() } else {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(HeadroomCopy.telemetryFeatureAdoption)
+                    .font(.callout.weight(.medium))
                 ForEach(items) { item in
-                    Text("\(telemetryDisplayName(item.name)) \(item.adoption)%")
-                        .font(.caption2)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(.quaternary.opacity(0.45), in: Capsule())
+                    HStack(spacing: 8) {
+                        Text(telemetryDisplayName(item.name))
+                            .font(.caption)
+                            .frame(width: 110, alignment: .leading)
+                            .lineLimit(1)
+                        ProgressView(value: Double(item.adoption), total: 100)
+                            .progressViewStyle(.linear)
+                            .tint(Color.primary.opacity(0.55))
+                        Text("\(item.adoption)%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
                 }
             }
         }
+    }
+
+    func communityWeekDelta(
+        _ weeks: [HeadroomCommunityStats.WeeklyActive]
+    ) -> Int? {
+        let published = weeks.compactMap(\.count)
+        guard published.count >= 2 else { return nil }
+        return published[published.count - 1] - published[published.count - 2]
+    }
+
+    func communityWeekDeltaLabel(
+        _ weeks: [HeadroomCommunityStats.WeeklyActive]
+    ) -> String {
+        guard let delta = communityWeekDelta(weeks) else { return "—" }
+        return delta > 0 ? "+\(delta)" : "\(delta)"
+    }
+
+    func communityWeekDeltaDetail(
+        _ weeks: [HeadroomCommunityStats.WeeklyActive]
+    ) -> String {
+        communityWeekDelta(weeks) == nil
+            ? HeadroomCopy.telemetryNeedPriorWeek
+            : HeadroomCopy.telemetryLatestWeek
     }
 
     @ViewBuilder
@@ -394,7 +515,7 @@ extension SettingsView {
                 ForEach(ids, id: \.self) { id in
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(HeadroomPalette.providerTint(id: id))
+                            .fill(Color.primary.opacity(0.45))
                             .frame(width: 8, height: 8)
                         Text(telemetryDisplayName(id))
                             .font(.caption)
@@ -424,7 +545,7 @@ extension SettingsView {
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(
                     on
-                        ? AnyShapeStyle(HeadroomPalette.green)
+                        ? AnyShapeStyle(.primary.opacity(0.7))
                         : AnyShapeStyle(.tertiary)
                 )
             Text(label)
@@ -464,7 +585,8 @@ extension SettingsView {
                                 .font(.caption)
                                 .frame(width: 58, alignment: .leading)
                             ProgressView(value: Double(share), total: 100)
-                                .tint(HeadroomPalette.providerTint(id: provider))
+                                .progressViewStyle(.linear)
+                                .tint(Color.primary.opacity(0.55))
                             Text("\(share)%")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)

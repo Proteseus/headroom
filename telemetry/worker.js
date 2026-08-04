@@ -132,6 +132,64 @@ function sortByCount(rows) {
     });
 }
 
+function countedItems(rows) {
+  return sortByCount(rows).map((row) => ({ name: row.name, count: row.count }));
+}
+
+/** ISO week label for a UTC date, matching the Mac client's period format. */
+function isoWeekPeriod(date) {
+  const utc = new Date(Date.UTC(
+    date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  // Thursday in current week decides the year.
+  utc.setUTCDate(utc.getUTCDate() + 4 - (utc.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
+  return `${utc.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * Every ISO week that overlaps the retention window, oldest first. Weeks with
+ * no batches, or batches below the privacy floor, publish as count: null so
+ * the growth chart keeps a continuous axis.
+ */
+function paddedWeeklyActive(observed, windowDays = COMMUNITY_WINDOW_DAYS) {
+  const byPeriod = new Map(observed.map((row) => [row.period, row.count]));
+  const end = new Date();
+  const start = new Date(end.getTime() - windowDays * 86400000);
+  const periods = [];
+  const cursor = new Date(Date.UTC(
+    start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const last = new Date(Date.UTC(
+    end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  while (cursor <= last) {
+    const period = isoWeekPeriod(cursor);
+    if (periods.length === 0 || periods[periods.length - 1] !== period) {
+      periods.push(period);
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return periods.map((period) => ({
+    period,
+    count: byPeriod.has(period) ? publicCount(byPeriod.get(period)) : null,
+  }));
+}
+
+async function batchColumnCounts(env, period, column) {
+  if (column !== "architecture" && column !== "macos_major") {
+    return [];
+  }
+  const result = await env.DB.prepare(
+    `SELECT CAST(${column} AS TEXT) AS item, COUNT(*) AS sample_count
+     FROM telemetry_batches
+     WHERE period = ?
+     GROUP BY ${column}`
+  ).bind(period).all();
+  return countedItems((result.results ?? []).map((row) => ({
+    name: String(row.item),
+    count: Number(row.sample_count),
+  })));
+}
+
 async function communityStats(env) {
   const periodsResult = await env.DB.prepare(
     `SELECT period, batch_count
@@ -143,13 +201,14 @@ async function communityStats(env) {
     period: row.period,
     count: Number(row.batch_count),
   }));
+  const weeklyActiveMacs = paddedWeeklyActive(periods);
   const latest = periods[0];
   if (!latest) {
     return {
       schema: 1,
       generated_on: new Date().toISOString().slice(0, 10),
       privacy: { minimum_group_size: COMMUNITY_MINIMUM_GROUP_SIZE },
-      weekly_active_macs: [],
+      weekly_active_macs: weeklyActiveMacs,
       latest: null,
     };
   }
@@ -160,13 +219,20 @@ async function communityStats(env) {
      WHERE period IN (${periods.map(() => "?").join(",")})`
   ).bind(...periods.map((row) => row.period)).all();
   const rows = dimensionsResult.results ?? [];
-  const versions = sortByCount(dimensionRows(rows, "version", latest.period));
-  const enabled = sortByCount(
+  const versions = countedItems(dimensionRows(rows, "version", latest.period));
+  const enabled = countedItems(
     dimensionRows(rows, "provider_enabled", latest.period));
-  const used = sortByCount(
+  const used = countedItems(
     dimensionRows(rows, "provider_used", latest.period));
-  const healthy = sortByCount(
+  const healthy = countedItems(
     dimensionRows(rows, "provider_healthy", latest.period));
+  // Prefer live batch columns for platform mix so weeks that predate the
+  // macos_major dimension rollup still publish, and architecture stays aligned
+  // with the same source.
+  const [architectures, macosMajors] = await Promise.all([
+    batchColumnCounts(env, latest.period, "architecture"),
+    batchColumnCounts(env, latest.period, "macos_major"),
+  ]);
   const modelShares = dimensionRows(rows, "model_share", latest.period)
     .filter((row) => row.count >= COMMUNITY_MINIMUM_GROUP_SIZE)
     .map((row) => ({
@@ -191,18 +257,17 @@ async function communityStats(env) {
     schema: 1,
     generated_on: new Date().toISOString().slice(0, 10),
     privacy: { minimum_group_size: COMMUNITY_MINIMUM_GROUP_SIZE },
-    weekly_active_macs: periods.reverse().map((row) => ({
-      period: row.period,
-      count: publicCount(row.count),
-    })),
+    weekly_active_macs: weeklyActiveMacs,
     latest: {
       period: latest.period,
       reporting_macs: publicCount(latest.count),
-      versions: versions.map((row) => ({ name: row.name, count: row.count })),
+      versions,
+      architectures,
+      macos_majors: macosMajors,
       services: {
-        enabled: enabled.map((row) => ({ name: row.name, count: row.count })),
-        used: used.map((row) => ({ name: row.name, count: row.count })),
-        healthy: healthy.map((row) => ({ name: row.name, count: row.count })),
+        enabled,
+        used,
+        healthy,
       },
       model_shares: modelShares.map((row) => ({
         name: row.name,
@@ -238,6 +303,8 @@ async function recordRollups(env, safe, receivedAt) {
     ).bind(safe.period, receivedAt),
     upsertDimension(env, safe.period, "version", safe.app.version),
     upsertDimension(env, safe.period, "architecture", safe.app.architecture),
+    upsertDimension(
+      env, safe.period, "macos_major", String(safe.app.macos_major)),
   ];
   for (const provider of safe.providers.enabled) {
     statements.push(upsertDimension(

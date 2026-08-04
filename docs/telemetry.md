@@ -45,10 +45,16 @@ and retains raw aggregate batches for only a short operational window.
 ## Community Pulse
 
 The public Community Pulse is a read-only aggregate view at the Worker’s
-`/community` route. It publishes weekly active Macs, current build spread,
-service adoption, model-family shares, and coarse feature adoption. It never
-publishes raw rows. Any group smaller than five contributing Macs is withheld,
-so the dashboard says “growing” while the community is still small.
+`/community` route. It publishes:
+
+- weekly active Macs across the retention window (empty and sub-threshold
+  weeks stay on the axis as withheld);
+- build spread, CPU architecture, and macOS major version;
+- service adoption in three lanes — enabled, used, and healthy;
+- model-family shares and coarse feature adoption.
+
+It never publishes raw rows. Any group smaller than five contributing Macs is
+withheld, so the dashboard says “growing” while the community is still small.
 
 The metric is deliberately called **weekly active Macs**, not users: the
 client sends one batch per week and has no stable install identifier. The page,

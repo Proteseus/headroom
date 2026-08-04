@@ -67,6 +67,11 @@ struct HeadroomCommunityStats: Decodable, Sendable {
         let count: Int
 
         var id: String { name }
+
+        init(name: String, count: Int) {
+            self.name = name
+            self.count = count
+        }
     }
 
     struct ModelShare: Decodable, Identifiable, Sendable {
@@ -93,6 +98,8 @@ struct HeadroomCommunityStats: Decodable, Sendable {
         let period: String
         let reportingMacs: Int?
         let versions: [CountedItem]
+        let architectures: [CountedItem]
+        let macosMajors: [CountedItem]
         let services: Services
         let modelShares: [ModelShare]
         let features: [Feature]
@@ -100,9 +107,24 @@ struct HeadroomCommunityStats: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case period
             case reportingMacs = "reporting_macs"
-            case versions, services
+            case versions
+            case architectures
+            case macosMajors = "macos_majors"
+            case services
             case modelShares = "model_shares"
             case features
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            period = try container.decode(String.self, forKey: .period)
+            reportingMacs = try container.decodeIfPresent(Int.self, forKey: .reportingMacs)
+            versions = try container.decodeIfPresent([CountedItem].self, forKey: .versions) ?? []
+            architectures = try container.decodeIfPresent([CountedItem].self, forKey: .architectures) ?? []
+            macosMajors = try container.decodeIfPresent([CountedItem].self, forKey: .macosMajors) ?? []
+            services = try container.decode(Services.self, forKey: .services)
+            modelShares = try container.decodeIfPresent([ModelShare].self, forKey: .modelShares) ?? []
+            features = try container.decodeIfPresent([Feature].self, forKey: .features) ?? []
         }
     }
 
