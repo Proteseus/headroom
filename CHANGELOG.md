@@ -7,6 +7,15 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.1 — 2026-08-04
+
+### Changed
+
+- **OpenRouter and AI Gateway provider leaves show observed spend.** Daily
+  bars, runway, top models, and (OpenRouter) per-key usage — no ring, no
+  Attention rows. Spend is billed credits from each provider's own API;
+  AI Gateway Hobby notes when the report endpoint needs Pro.
+
 ## 1.8.0 — 2026-08-04
 
 ### Changed

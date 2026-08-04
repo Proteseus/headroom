@@ -1,8 +1,9 @@
-"""Vercel AI Gateway prepaid credit balance for Headroom.
+"""Vercel AI Gateway prepaid credit balance + spend leaf for Headroom.
 
 Separate from the existing `vercel` deployments source: that one reads the
 Vercel CLI login and lists deploys. This one watches AI Gateway credits via
-`GET https://ai-gateway.vercel.sh/v1/credits`.
+`GET https://ai-gateway.vercel.sh/v1/credits`, and (on Pro/Enterprise) the
+spend report via `GET /v1/report`.
 
 Uses a Gateway API key from, in order: AI_GATEWAY_API_KEY /
 HEADROOM_AI_GATEWAY_TOKEN / VERCEL_OIDC_TOKEN, or the Headroom macOS Keychain
@@ -15,6 +16,7 @@ import os
 import time
 import urllib.error
 
+import balance_spend
 import cache_util
 import http_util
 import keychain
@@ -32,6 +34,7 @@ _EMPTY = {
     "error": None,
     "plan": None,
     "balance": None,
+    "spend": None,
 }
 
 
@@ -84,6 +87,77 @@ def _balance_bucket(balance, total_used):
     }
 
 
+def _report(token, *, start, end, group_by):
+    return http_util.request_json(
+        API_HOST + "/v1/report",
+        auth=f"Bearer {token}",
+        query={
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "group_by": group_by,
+        },
+        timeout=20,
+    ) or {}
+
+
+def _fetch_spend(token, remaining_usd):
+    """Best-effort /v1/report. Hobby plans get a note, not a hard failure."""
+    start, end = balance_spend.period_bounds()
+    report_error = None
+    day_rows = []
+    model_rows = []
+
+    try:
+        body = _report(token, start=start, end=end, group_by="day")
+        results = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(results, list):
+            results = body.get("data") if isinstance(body, dict) else None
+        for row in results or []:
+            if not isinstance(row, dict):
+                continue
+            day_rows.append({
+                "day": row.get("day") or row.get("date"),
+                "usd": row.get("total_cost") if "total_cost" in row
+                    else row.get("totalCost"),
+            })
+    except urllib.error.HTTPError as err:
+        if err.code in (401, 403, 402):
+            report_error = (
+                "Spend report needs a Pro or Enterprise AI Gateway plan"
+            )
+        else:
+            report_error = f"report HTTP {err.code}"
+    except (OSError, ValueError, TypeError, KeyError) as err:
+        report_error = str(err) or "report unavailable"
+
+    try:
+        body = _report(token, start=start, end=end, group_by="model")
+        results = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(results, list):
+            results = body.get("data") if isinstance(body, dict) else None
+        for row in results or []:
+            if not isinstance(row, dict):
+                continue
+            model = row.get("model")
+            model_rows.append({
+                "id": model,
+                "title": model,
+                "usd": row.get("total_cost") if "total_cost" in row
+                    else row.get("totalCost"),
+                "requests": row.get("request_count") if "request_count" in row
+                    else row.get("requestCount"),
+            })
+    except (OSError, ValueError, TypeError, KeyError, urllib.error.HTTPError):
+        pass
+
+    return balance_spend.build_spend(
+        remaining_usd=remaining_usd,
+        by_day=day_rows,
+        by_model=model_rows,
+        report_error=report_error,
+    )
+
+
 def fetch_quota(force=False):
     now = time.time()
 
@@ -114,12 +188,15 @@ def fetch_quota(force=False):
         if balance is None:
             raise ValueError("credits response missing balance")
         total_used = _as_float(body.get("total_used"))
+        bucket = _balance_bucket(balance, total_used)
+        spend = _fetch_spend(token, bucket.get("remaining_usd"))
         result = {
             "ok": True,
             "configured": True,
             "error": None,
             "plan": None,
-            "balance": _balance_bucket(balance, total_used),
+            "balance": bucket,
+            "spend": spend,
             "stale": False,
             "updated_at": int(now),
         }

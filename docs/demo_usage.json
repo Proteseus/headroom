@@ -29,9 +29,18 @@
     "avg_active_minutes": 96,
     "cache_hit_pct": 91.4,
     "top_models": [
-      { "model": "claude-opus-5", "tokens": 241000000 },
-      { "model": "claude-sonnet-5", "tokens": 118000000 },
-      { "model": "claude-haiku-4-5", "tokens": 53000000 }
+      {
+        "model": "claude-opus-5",
+        "tokens": 241000000
+      },
+      {
+        "model": "claude-sonnet-5",
+        "tokens": 118000000
+      },
+      {
+        "model": "claude-haiku-4-5",
+        "tokens": 53000000
+      }
     ],
     "unpriced_models": []
   },
@@ -41,24 +50,166 @@
     "start": "2026-07-12",
     "end": "2026-07-25",
     "start_weekday": 6,
-    "levels": [0, 1, 2, 0, 3, 2, 1, 0, 2, 4, 3, 1, 2, 3],
+    "levels": [
+      0,
+      1,
+      2,
+      0,
+      3,
+      2,
+      1,
+      0,
+      2,
+      4,
+      3,
+      1,
+      2,
+      3
+    ],
     "days": [
-      {"date": "2026-07-13", "level": 1, "sources": ["codex"], "burns": {"codex": 1.2}},
-      {"date": "2026-07-14", "level": 2, "sources": ["claude", "cursor"], "active_minutes": 24, "sessions": 2, "tokens": 120000, "burns": {"cursor": 0.8}},
-      {"date": "2026-07-16", "level": 3, "sources": ["claude"], "active_minutes": 74, "sessions": 3, "tokens": 420000},
-      {"date": "2026-07-17", "level": 2, "sources": ["claude", "codex"], "active_minutes": 18, "sessions": 1, "tokens": 90000, "burns": {"codex": 2.1}},
-      {"date": "2026-07-18", "level": 1, "sources": ["cursor"], "burns": {"cursor": 0.4}},
-      {"date": "2026-07-20", "level": 2, "sources": ["claude"], "active_minutes": 31, "sessions": 2, "tokens": 160000},
-      {"date": "2026-07-21", "level": 4, "sources": ["claude", "codex", "cursor"], "active_minutes": 212, "sessions": 5, "tokens": 1400000, "cost_usd": 1.8, "burns": {"claude": 6.0, "codex": 5.5, "cursor": 0.8}},
-      {"date": "2026-07-22", "level": 3, "sources": ["claude", "codex"], "active_minutes": 66, "sessions": 3, "tokens": 380000, "burns": {"codex": 3.2}},
-      {"date": "2026-07-23", "level": 1, "sources": ["codex"], "burns": {"codex": 1.1}},
-      {"date": "2026-07-24", "level": 2, "sources": ["claude"], "active_minutes": 26, "sessions": 1, "tokens": 150000},
-      {"date": "2026-07-25", "level": 3, "sources": ["claude", "cursor"], "active_minutes": 81, "sessions": 3, "tokens": 510000, "burns": {"cursor": 2.4}}
+      {
+        "date": "2026-07-13",
+        "level": 1,
+        "sources": [
+          "codex"
+        ],
+        "burns": {
+          "codex": 1.2
+        }
+      },
+      {
+        "date": "2026-07-14",
+        "level": 2,
+        "sources": [
+          "claude",
+          "cursor"
+        ],
+        "active_minutes": 24,
+        "sessions": 2,
+        "tokens": 120000,
+        "burns": {
+          "cursor": 0.8
+        }
+      },
+      {
+        "date": "2026-07-16",
+        "level": 3,
+        "sources": [
+          "claude"
+        ],
+        "active_minutes": 74,
+        "sessions": 3,
+        "tokens": 420000
+      },
+      {
+        "date": "2026-07-17",
+        "level": 2,
+        "sources": [
+          "claude",
+          "codex"
+        ],
+        "active_minutes": 18,
+        "sessions": 1,
+        "tokens": 90000,
+        "burns": {
+          "codex": 2.1
+        }
+      },
+      {
+        "date": "2026-07-18",
+        "level": 1,
+        "sources": [
+          "cursor"
+        ],
+        "burns": {
+          "cursor": 0.4
+        }
+      },
+      {
+        "date": "2026-07-20",
+        "level": 2,
+        "sources": [
+          "claude"
+        ],
+        "active_minutes": 31,
+        "sessions": 2,
+        "tokens": 160000
+      },
+      {
+        "date": "2026-07-21",
+        "level": 4,
+        "sources": [
+          "claude",
+          "codex",
+          "cursor"
+        ],
+        "active_minutes": 212,
+        "sessions": 5,
+        "tokens": 1400000,
+        "cost_usd": 1.8,
+        "burns": {
+          "claude": 6.0,
+          "codex": 5.5,
+          "cursor": 0.8
+        }
+      },
+      {
+        "date": "2026-07-22",
+        "level": 3,
+        "sources": [
+          "claude",
+          "codex"
+        ],
+        "active_minutes": 66,
+        "sessions": 3,
+        "tokens": 380000,
+        "burns": {
+          "codex": 3.2
+        }
+      },
+      {
+        "date": "2026-07-23",
+        "level": 1,
+        "sources": [
+          "codex"
+        ],
+        "burns": {
+          "codex": 1.1
+        }
+      },
+      {
+        "date": "2026-07-24",
+        "level": 2,
+        "sources": [
+          "claude"
+        ],
+        "active_minutes": 26,
+        "sessions": 1,
+        "tokens": 150000
+      },
+      {
+        "date": "2026-07-25",
+        "level": 3,
+        "sources": [
+          "claude",
+          "cursor"
+        ],
+        "active_minutes": 81,
+        "sessions": 3,
+        "tokens": 510000,
+        "burns": {
+          "cursor": 2.4
+        }
+      }
     ],
     "active_days": 11,
     "current_streak": 6,
     "best_day": "2026-07-21",
-    "available_sources": ["claude", "codex", "cursor"]
+    "available_sources": [
+      "claude",
+      "codex",
+      "cursor"
+    ]
   },
   "by_day": [
     {
@@ -149,9 +300,28 @@
         "checked": "2026-08-01",
         "url": "https://www.anthropic.com/pricing",
         "plans": [
-          {"id": "free", "title": "Free", "monthly_usd": 0, "annual_usd": 0, "unit": "user", "note": "No subscription"},
-          {"id": "pro", "title": "Pro", "monthly_usd": 20, "annual_usd": 200, "unit": "user"},
-          {"id": "max-5x", "title": "Max 5x", "monthly_usd": 100, "annual_usd": 1200, "unit": "user"}
+          {
+            "id": "free",
+            "title": "Free",
+            "monthly_usd": 0,
+            "annual_usd": 0,
+            "unit": "user",
+            "note": "No subscription"
+          },
+          {
+            "id": "pro",
+            "title": "Pro",
+            "monthly_usd": 20,
+            "annual_usd": 200,
+            "unit": "user"
+          },
+          {
+            "id": "max-5x",
+            "title": "Max 5x",
+            "monthly_usd": 100,
+            "annual_usd": 1200,
+            "unit": "user"
+          }
         ]
       },
       "headline": "week",
@@ -188,10 +358,34 @@
         "checked": "2026-08-01",
         "url": "https://chatgpt.com/pricing",
         "plans": [
-          {"id": "free", "title": "Free", "monthly_usd": 0, "annual_usd": 0, "unit": "user", "note": "No subscription"},
-          {"id": "plus", "title": "Plus", "monthly_usd": 20, "annual_usd": 240, "unit": "user"},
-          {"id": "pro-20x", "title": "Pro 20x", "monthly_usd": 200, "unit": "user"},
-          {"id": "team", "title": "Team", "monthly_usd": 25, "annual_usd": 240, "unit": "user"}
+          {
+            "id": "free",
+            "title": "Free",
+            "monthly_usd": 0,
+            "annual_usd": 0,
+            "unit": "user",
+            "note": "No subscription"
+          },
+          {
+            "id": "plus",
+            "title": "Plus",
+            "monthly_usd": 20,
+            "annual_usd": 240,
+            "unit": "user"
+          },
+          {
+            "id": "pro-20x",
+            "title": "Pro 20x",
+            "monthly_usd": 200,
+            "unit": "user"
+          },
+          {
+            "id": "team",
+            "title": "Team",
+            "monthly_usd": 25,
+            "annual_usd": 240,
+            "unit": "user"
+          }
         ]
       },
       "headline": "week",
@@ -226,9 +420,26 @@
         "checked": "2026-08-01",
         "url": "https://cursor.com/pricing",
         "plans": [
-          {"id": "hobby", "title": "Hobby", "monthly_usd": 0, "annual_usd": 0, "unit": "user", "note": "No subscription"},
-          {"id": "pro", "title": "Pro", "monthly_usd": 20, "unit": "user"},
-          {"id": "teams", "title": "Teams", "monthly_usd": 40, "unit": "user"}
+          {
+            "id": "hobby",
+            "title": "Hobby",
+            "monthly_usd": 0,
+            "annual_usd": 0,
+            "unit": "user",
+            "note": "No subscription"
+          },
+          {
+            "id": "pro",
+            "title": "Pro",
+            "monthly_usd": 20,
+            "unit": "user"
+          },
+          {
+            "id": "teams",
+            "title": "Teams",
+            "monthly_usd": 40,
+            "unit": "user"
+          }
         ]
       },
       "headline": "total",
@@ -273,7 +484,10 @@
           "kind": "balance",
           "basis": "observed",
           "level": 0.625,
-          "headroom": {"value": 62.5, "unit": "usd"},
+          "headroom": {
+            "value": 62.5,
+            "unit": "usd"
+          },
           "pct": null,
           "window_s": null,
           "resets_in_s": null,
@@ -281,6 +495,53 @@
           "pace_pct": null,
           "ring": false
         }
+      },
+      "spend": {
+        "today_usd": 2.4,
+        "period_days": 30,
+        "period_usd": 37.5,
+        "avg_daily_usd": 1.25,
+        "runway_days": 50.0,
+        "by_day": [
+          {
+            "day": "2026-08-01",
+            "usd": 1.1
+          },
+          {
+            "day": "2026-08-02",
+            "usd": 0.8
+          },
+          {
+            "day": "2026-08-03",
+            "usd": 1.6
+          },
+          {
+            "day": "2026-08-04",
+            "usd": 2.4
+          }
+        ],
+        "by_model": [
+          {
+            "id": "anthropic/claude-sonnet-4",
+            "title": "anthropic/claude-sonnet-4",
+            "usd": 18.2,
+            "requests": 42
+          },
+          {
+            "id": "openai/gpt-5",
+            "title": "openai/gpt-5",
+            "usd": 12.0,
+            "requests": 19
+          }
+        ],
+        "by_key": [
+          {
+            "name": "headroom-dev",
+            "usd_daily": 2.4,
+            "usd_weekly": 11.0,
+            "usd_monthly": 37.5
+          }
+        ]
       }
     },
     {
@@ -299,7 +560,10 @@
           "kind": "balance",
           "basis": "observed",
           "level": 0.955,
-          "headroom": {"value": 95.5, "unit": "usd"},
+          "headroom": {
+            "value": 95.5,
+            "unit": "usd"
+          },
           "pct": null,
           "window_s": null,
           "resets_in_s": null,
@@ -307,6 +571,35 @@
           "pace_pct": null,
           "ring": false
         }
+      },
+      "spend": {
+        "today_usd": 0.45,
+        "period_days": 30,
+        "period_usd": 4.5,
+        "avg_daily_usd": 0.15,
+        "runway_days": 636.7,
+        "by_day": [
+          {
+            "day": "2026-08-02",
+            "usd": 0.2
+          },
+          {
+            "day": "2026-08-03",
+            "usd": 0.3
+          },
+          {
+            "day": "2026-08-04",
+            "usd": 0.45
+          }
+        ],
+        "by_model": [
+          {
+            "id": "anthropic/claude-sonnet-4.5",
+            "title": "anthropic/claude-sonnet-4.5",
+            "usd": 3.1,
+            "requests": 12
+          }
+        ]
       }
     }
   ],
@@ -509,11 +802,31 @@
           "release_channel": "ga"
         },
         "services": [
-          {"name": "auth", "status": "ACTIVE_HEALTHY", "healthy": true},
-          {"name": "db", "status": "ACTIVE_HEALTHY", "healthy": true},
-          {"name": "rest", "status": "ACTIVE_HEALTHY", "healthy": true},
-          {"name": "realtime", "status": "ACTIVE_HEALTHY", "healthy": true},
-          {"name": "storage", "status": "ACTIVE_HEALTHY", "healthy": true}
+          {
+            "name": "auth",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          },
+          {
+            "name": "db",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          },
+          {
+            "name": "rest",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          },
+          {
+            "name": "realtime",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          },
+          {
+            "name": "storage",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          }
         ],
         "unhealthy_services": [],
         "dashboard_url": "https://supabase.com/dashboard/project/abcd1234",
@@ -565,9 +878,21 @@
           "release_channel": "ga"
         },
         "services": [
-          {"name": "auth", "status": "ACTIVE_HEALTHY", "healthy": true},
-          {"name": "db", "status": "ACTIVE_HEALTHY", "healthy": true},
-          {"name": "rest", "status": "ACTIVE_HEALTHY", "healthy": true}
+          {
+            "name": "auth",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          },
+          {
+            "name": "db",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          },
+          {
+            "name": "rest",
+            "status": "ACTIVE_HEALTHY",
+            "healthy": true
+          }
         ],
         "unhealthy_services": [],
         "dashboard_url": "https://supabase.com/dashboard/project/efgh5678",
@@ -885,7 +1210,7 @@
       "ok": true,
       "configured": true,
       "stale": false,
-      "detail": "$62.50 left"
+      "detail": "$62.50 left \u00b7 ~50d runway"
     },
     {
       "id": "ai-gateway",
@@ -897,7 +1222,7 @@
       "ok": true,
       "configured": true,
       "stale": false,
-      "detail": "$95.50 left"
+      "detail": "$95.50 left \u00b7 ~637d runway"
     },
     {
       "id": "claude-status",
@@ -1290,13 +1615,41 @@
         "headline": "14% behind pace",
         "verdict": "behind",
         "resets": [
-          {"t": 1782472320, "kind": "granted", "forgiven_pct": 38.0},
-          {"t": 1782904320, "kind": "granted", "forgiven_pct": 72.0},
-          {"t": 1783336320, "kind": "granted", "forgiven_pct": 55.0},
-          {"t": 1783768320, "kind": "granted", "forgiven_pct": 41.0},
-          {"t": 1784200320, "kind": "granted", "forgiven_pct": 88.0},
-          {"t": 1784545920, "kind": "granted", "forgiven_pct": 63.0},
-          {"t": 1784805120, "kind": "granted", "forgiven_pct": 47.0}
+          {
+            "t": 1782472320,
+            "kind": "granted",
+            "forgiven_pct": 38.0
+          },
+          {
+            "t": 1782904320,
+            "kind": "granted",
+            "forgiven_pct": 72.0
+          },
+          {
+            "t": 1783336320,
+            "kind": "granted",
+            "forgiven_pct": 55.0
+          },
+          {
+            "t": 1783768320,
+            "kind": "granted",
+            "forgiven_pct": 41.0
+          },
+          {
+            "t": 1784200320,
+            "kind": "granted",
+            "forgiven_pct": 88.0
+          },
+          {
+            "t": 1784545920,
+            "kind": "granted",
+            "forgiven_pct": 63.0
+          },
+          {
+            "t": 1784805120,
+            "kind": "granted",
+            "forgiven_pct": 47.0
+          }
         ]
       }
     },

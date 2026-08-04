@@ -495,6 +495,7 @@ struct UsageSnapshot: Decodable, Sendable {
             costLabel: costLabel,
             balanceLabel: balanceLabel,
             balanceLevel: balanceLevel,
+            spend: info.spend,
             headlinePoolID: info.headline,
             statusNote: info.statusNote,
             needsSignIn: info.needsSignIn,
@@ -869,6 +870,8 @@ struct ProviderMeter: Sendable {
     var balanceLabel: String?
     /// Fraction of the pot still there, 0…1. Nil when there is no denominator.
     var balanceLevel: Double?
+    /// Observed spend leaf for prepaid balance providers (OpenRouter / AI Gateway).
+    var spend: BalanceSpend?
     /// Host registry headline pool id (`week`, `total`, …) for menu-bar tanks.
     var headlinePoolID: String?
     /// Set when the host cannot refresh this meter — a dead login or frozen
@@ -902,6 +905,7 @@ struct ProviderMeter: Sendable {
         costLabel: String? = nil,
         balanceLabel: String? = nil,
         balanceLevel: Double? = nil,
+        spend: BalanceSpend? = nil,
         headlinePoolID: String? = nil,
         statusNote: String? = nil,
         needsSignIn: Bool = false,
@@ -923,6 +927,7 @@ struct ProviderMeter: Sendable {
         self.costLabel = costLabel
         self.balanceLabel = balanceLabel
         self.balanceLevel = balanceLevel
+        self.spend = spend
         self.headlinePoolID = headlinePoolID
         self.statusNote = statusNote
         self.needsSignIn = needsSignIn
@@ -1204,6 +1209,9 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// on hosts that predate the registry's price metadata.
     var subscriptionPricing: SubscriptionPricing?
     var pools: [String: QuotaPoolInfo]?
+    /// Observed prepaid spend leaf — OpenRouter / AI Gateway. Absent on
+    /// window providers and on hosts that only ship the balance pot.
+    var spend: BalanceSpend?
 
     init(
         id: String,
@@ -1226,7 +1234,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         headline: String? = nil,
         resetNoteURL: String? = nil,
         subscriptionPricing: SubscriptionPricing? = nil,
-        pools: [String: QuotaPoolInfo]? = nil
+        pools: [String: QuotaPoolInfo]? = nil,
+        spend: BalanceSpend? = nil
     ) {
         self.id = id
         self.title = title
@@ -1249,11 +1258,12 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.resetNoteURL = resetNoteURL
         self.subscriptionPricing = subscriptionPricing
         self.pools = pools
+        self.spend = spend
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, label, email, kind, rank, enabled, ok, plan, error, accent, stale
-        case headline, pools
+        case headline, pools, spend
         case staleForS = "stale_for_s"
         case authRequired = "auth_required"
         case staleCause = "stale_cause"
@@ -1410,6 +1420,12 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
 
     var primaryBalance: QuotaPoolInfo? { balancePools.first?.pool }
 
+    /// True when this provider has only prepaid balance meters — no window
+    /// rings to draw. Overview and detail use a depletion bar instead.
+    var isBalanceOnly: Bool {
+        !balancePools.isEmpty && visiblePools.isEmpty
+    }
+
     /// This provider's burndown pools in exactly the selection and order of
     /// `displayablePools`, so a provider's charts line up one-for-one with the
     /// progress bars above them. Pools the host hid from the rings get no
@@ -1460,6 +1476,76 @@ struct UsageHistory: Decodable, Sendable {
         case cacheHitPct = "cache_hit_pct"
         case topModels = "top_models"
         case unpricedModels = "unpriced_models"
+    }
+}
+
+/// Observed prepaid spend for a balance provider (OpenRouter, AI Gateway).
+///
+/// Dollars here are **billed** by the provider's own credits API — not a local
+/// estimate. Additive on `providers[]`; absent when the account only has a
+/// pot reading or the report endpoint is unavailable (Hobby AI Gateway).
+struct BalanceSpend: Decodable, Sendable, Equatable {
+    var todayUSD: Double?
+    var periodDays: Int?
+    var periodUSD: Double?
+    var avgDailyUSD: Double?
+    var runwayDays: Double?
+    var byDay: [BalanceSpendDay]?
+    var byModel: [BalanceSpendModel]?
+    var byKey: [BalanceSpendKey]?
+    /// Soft failure for the spend series (e.g. report needs Pro). Balance
+    /// itself can still be healthy.
+    var reportError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case todayUSD = "today_usd"
+        case periodDays = "period_days"
+        case periodUSD = "period_usd"
+        case avgDailyUSD = "avg_daily_usd"
+        case runwayDays = "runway_days"
+        case byDay = "by_day"
+        case byModel = "by_model"
+        case byKey = "by_key"
+        case reportError = "report_error"
+    }
+
+    var hasFigures: Bool {
+        (todayUSD ?? 0) > 0
+            || (periodUSD ?? 0) > 0
+            || !(byModel ?? []).isEmpty
+            || !(byKey ?? []).isEmpty
+            || reportError != nil
+    }
+}
+
+struct BalanceSpendDay: Decodable, Sendable, Equatable, Identifiable {
+    var day: String?
+    var usd: Double?
+    var id: String { day ?? "\(usd ?? 0)" }
+}
+
+struct BalanceSpendModel: Decodable, Sendable, Equatable, Identifiable {
+    var id: String?
+    var title: String?
+    var usd: Double?
+    var requests: Int?
+
+    var displayName: String { title ?? id ?? "—" }
+}
+
+struct BalanceSpendKey: Decodable, Sendable, Equatable, Identifiable {
+    var name: String?
+    var usdDaily: Double?
+    var usdWeekly: Double?
+    var usdMonthly: Double?
+
+    var id: String { name ?? "key" }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case usdDaily = "usd_daily"
+        case usdWeekly = "usd_weekly"
+        case usdMonthly = "usd_monthly"
     }
 }
 

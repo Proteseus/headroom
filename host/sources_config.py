@@ -414,7 +414,17 @@ def _detail_balance(payload):
     rem = (payload.get("balance") or {}).get("remaining_usd")
     if rem is None:
         return payload.get("error") or "no balance"
-    return f"${rem:,.2f} left"
+    bits = [f"${rem:,.2f} left"]
+    spend = payload.get("spend") or {}
+    runway = spend.get("runway_days")
+    if isinstance(runway, (int, float)) and runway > 0:
+        if runway >= 10:
+            bits.append(f"~{runway:.0f}d runway")
+        else:
+            bits.append(f"~{runway:.1f}d runway")
+    elif spend.get("today_usd") is not None:
+        bits.append(f"${spend['today_usd']:,.2f} today")
+    return " · ".join(bits)
 
 
 def _summary_balance(payload):
@@ -423,6 +433,11 @@ def _summary_balance(payload):
     bits = [f"remaining={rem}"]
     if used is not None:
         bits.append(f"used={used}")
+    spend = payload.get("spend") or {}
+    if spend.get("today_usd") is not None:
+        bits.append(f"today={spend['today_usd']}")
+    if spend.get("runway_days") is not None:
+        bits.append(f"runway_d={spend['runway_days']}")
     return "  ".join(bits)
 
 
@@ -433,6 +448,7 @@ def _blank_balance():
         "error": None,
         "plan": None,
         "balance": None,
+        "spend": None,
     }
 
 

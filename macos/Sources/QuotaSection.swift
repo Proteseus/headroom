@@ -132,6 +132,9 @@ struct ProviderQuotaCard: View {
                     tint: brand
                 )
             }
+            if let spend = meter.spend, spend.hasFigures || spend.reportError != nil {
+                BalanceSpendCard(spend: spend, tint: brand)
+            }
             if let pace = meter.paceLabel {
                 HStack {
                     Text(pace)
@@ -328,19 +331,9 @@ struct ProviderQuotaRing: View {
     private var ringLayers: [HeadroomRingLayer] {
         let layers = provider.ringLayers(burndown: rings)
         guard layers.isEmpty else { return layers }
-        // Balance-only providers have no window bands. Draw spent fraction so
-        // the arc empties as credits go — still not a pace ring, just a glance
-        // mark that matches the depletion bar on the detail card.
-        if let balance = provider.primaryBalance, let level = balance.level {
-            return [
-                HeadroomRingLayer(
-                    id: "balance",
-                    name: "Balance",
-                    percent: (1 - level) * 100,
-                    pacePercent: nil
-                ),
-            ]
-        }
+        // Balance-only providers have no window bands — do not invent a ring
+        // from the pot. The depletion bar on the detail card is the mark.
+        if provider.isBalanceOnly { return [] }
         // A host predating the pool registry ships no pools, which leaves the
         // headline window as the only thing there is to draw.
         return [
@@ -370,11 +363,13 @@ struct ProviderQuotaRing: View {
 
     var body: some View {
         VStack(spacing: 7) {
-            HeadroomRings(layers: ringLayers, tint: tint)
-            .frame(width: diameter, height: diameter)
-            // Drained of colour, because the gap between arc and pace dot is
-            // the reading, and on frozen numbers that reading is fiction.
-            .opacity(provider.readingSuspect ? 0.4 : 1)
+            if provider.isBalanceOnly {
+                balanceMark
+            } else {
+                HeadroomRings(layers: ringLayers, tint: tint)
+                    .frame(width: diameter, height: diameter)
+                    .opacity(provider.readingSuspect ? 0.4 : 1)
+            }
             Text(meter.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
@@ -391,8 +386,36 @@ struct ProviderQuotaRing: View {
         .accessibilityElement(children: .combine)
         // The rings no longer carry a printed percentage, so state it here
         // rather than leaving VoiceOver with just a provider name.
-        .accessibilityValue(
-            headline.percent.map { "\(Int($0.rounded())) percent used" } ?? "unknown"
-        )
+        .accessibilityValue(accessibilityReading)
+    }
+
+    private var accessibilityReading: String {
+        if let balance = provider.primaryBalance?.balanceRemainingLabel {
+            return balance
+        }
+        return headline.percent.map { "\(Int($0.rounded())) percent used" } ?? "unknown"
+    }
+
+    /// Depletion capsule for prepaid balances — not a ring (docs/metering.md).
+    private var balanceMark: some View {
+        let level = provider.primaryBalance?.level ?? 0
+        return VStack {
+            Spacer(minLength: 0)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                    Capsule()
+                        .fill(tint)
+                        .frame(
+                            width: geo.size.width * CGFloat(max(0, min(level, 1)))
+                        )
+                }
+            }
+            .frame(height: 10)
+            .opacity(provider.readingSuspect ? 0.4 : 1)
+            Spacer(minLength: 0)
+        }
+        .frame(width: diameter, height: diameter)
     }
 }

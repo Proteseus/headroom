@@ -104,11 +104,12 @@ struct DashboardView: View {
                                     let providerID = selectedDashboardRaw
                                     let meter = store.snapshot.meter(
                                         forProviderID: providerID)
+                                    let provider = store.snapshot
+                                        .visibleQuotaProviders
+                                        .first { $0.id == providerID }
                                     ProviderQuotaCard(
                                         meter: meter,
-                                        subscriptionPricing: store.snapshot
-                                            .visibleQuotaProviders
-                                            .first { $0.id == providerID }?
+                                        subscriptionPricing: provider?
                                             .subscriptionPricing,
                                         todayBurn: store.snapshot.byDay?
                                             .last?
@@ -116,18 +117,20 @@ struct DashboardView: View {
                                         tint: store.snapshot.tint(
                                             forProviderID: providerID)
                                     )
-                                    BurndownCard(
-                                        providerID: providerID,
-                                        rings: store.snapshot.burndownRings(
-                                            forProviderID: providerID),
-                                        tint: store.snapshot.tint(
-                                            forProviderID: providerID),
-                                        resetNoteURL: store.snapshot
-                                            .visibleQuotaProviders
-                                            .first { $0.id == providerID }?
-                                            .resetNoteURL
-                                            .flatMap(URL.init(string:))
-                                    )
+                                    // Window burndown only — balance providers
+                                    // have no reset clock to chart.
+                                    if provider?.isBalanceOnly != true {
+                                        BurndownCard(
+                                            providerID: providerID,
+                                            rings: store.snapshot.burndownRings(
+                                                forProviderID: providerID),
+                                            tint: store.snapshot.tint(
+                                                forProviderID: providerID),
+                                            resetNoteURL: provider?
+                                                .resetNoteURL
+                                                .flatMap(URL.init(string:))
+                                        )
+                                    }
                                 }
                             }
                         }

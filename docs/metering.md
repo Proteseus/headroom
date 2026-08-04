@@ -419,7 +419,7 @@ fetcher, the same as a new provider is today.
 | 3 | Codex credits become a `grant`; `level` + `headroom` land | ✅ **landed.** First non-window meter, and the first moment `level`/`headroom` could be designed against something that is not a percentage |
 | 4 | Cursor on-demand and Codex spend control become `overage` | ✅ **landed.** Second kind, first in dollars — and it needed **no new wire keys**, which is the abstraction paying for itself |
 | 5 | The Spend card draws the cost history, and `pricing` gains a tell | ✅ **landed.** 400 days of per-model cost that reached one string. See *attribution is not a meter* below — this step corrected its own plan |
-| 6 | `balance` — OpenRouter + Vercel AI Gateway, Keychain key, one account per key | ✅ **landed.** First prepaid meters. Anthropic/OpenAI wait on an official remaining-$ API |
+| 6 | `balance` — OpenRouter + Vercel AI Gateway, Keychain key, one account per key | ✅ **landed.** First prepaid meters. Anthropic/OpenAI wait on an official remaining-$ API. Provider leaf now ships observed spend (daily bars, runway, top models) from each provider's own analytics/report API — still no ring, still no Attention |
 | 7 | `calendar` — same source's month-to-date against a budget | Nearly free once 6 lands: the arithmetic is already shared with `overage`. The two together are how an API account actually reads |
 | 8 | A second *calendar* or Anthropic/OpenAI when balance APIs exist | The only real test of whether the abstraction held past the first two |
 | 9 | `seat` — manual entry, no gauge | Cheap, and it is what makes a monthly total true rather than partial |

@@ -155,8 +155,14 @@ enum HeadroomCopy {
     /// rather than in a tooltip: nobody audits a percentage against a card
     /// statement, and everybody audits a dollar. See docs/metering.md.
     static let spendEstimated = "Estimated"
+    static let spendObserved = "Observed"
     static let spendToday = "today"
     static let spendPerActiveDay = "per active day"
+    static let spendPerDay = "per day"
+    static let spendRunway = "runway"
+    static let spendRecentDays = "Recent days"
+    static let spendByModel = "By model"
+    static let spendByKey = "By key"
     /// Shown only when a model burned tokens that `pricing.py` has no rates
     /// for, so part of the figure came from the fallback rate. The names are
     /// the fix, so the names are what it shows.
@@ -651,9 +657,9 @@ enum HeadroomCopy {
     static let telemetryToggle = "Share anonymous product diagnostics"
     static let telemetryWhatIsShared = "What Headroom shares"
     static let telemetrySharedDetail =
-        "Once a week: the app and host versions, macOS version, processor family, enabled and healthy service names, normalized model-family shares, and a few feature flags."
+        "Once a week: the app and host versions, macOS version, processor family, enabled and healthy service names, normalized model-family shares, a few feature flags, and a week-scoped dedupe key so this Mac cannot be counted twice in the same week."
     static let telemetryNeverSharedDetail =
-        "Never: prompts, commands, files, repositories, branches, account names, email addresses, tokens, exact spend, raw model names, or per-request activity."
+        "Never: prompts, commands, files, repositories, branches, account names, email addresses, tokens, exact spend, raw model names, a stable install id, or per-request activity."
     static let telemetryViewSource = "Read the telemetry code on GitHub"
     static let telemetryCommunityPulse = "See the public Community Pulse"
     static let telemetryCommunityHeader = "Community Pulse"
@@ -668,8 +674,12 @@ enum HeadroomCopy {
     static let telemetryServicesInUse = "Services in use"
     static let telemetryModelMix = "Model family mix"
     static let telemetryBuildSpread = "Build spread"
+    static let telemetryVersionDistribution = "Version distribution"
+    static let telemetryLatestRelease = "Latest release"
+    static let telemetryOnLatest = "on latest"
     static let telemetryArchitectureMix = "Architecture"
     static let telemetryMacOSMix = "macOS major"
+    static let telemetryCountryMix = "Countries"
     static let telemetryServiceMix = "Service mix"
     static let telemetryServicesEnabled = "Enabled"
     static let telemetryServicesUsed = "Used"

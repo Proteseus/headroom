@@ -1553,6 +1553,11 @@ def _providers_payload(state, burndowns=None):
             "subscription_pricing": source.subscription_pricing_payload(),
             "pools": pools,
         }
+        # Prepaid balance leaf: observed daily spend / runway / models.
+        # Additive and absent on window providers — see docs/metering.md.
+        spend = payload.get("spend")
+        if isinstance(spend, dict) and spend:
+            row["spend"] = spend
         # See `_sources_payload`: brand mark + user label, not "Brand · Label".
         if source.account is not None:
             row["label"] = source.account.label

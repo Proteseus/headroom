@@ -66,12 +66,16 @@ private struct ProviderSummaryRow: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            HeadroomRings(
-                layers: provider.ringLayers(burndown: burndown),
-                tint: provider.tint
-            )
-            .frame(width: 82, height: 82)
-            .opacity(provider.readingSuspect ? 0.4 : 1)
+            if provider.isBalanceOnly {
+                balanceSummaryMark
+            } else {
+                HeadroomRings(
+                    layers: provider.ringLayers(burndown: burndown),
+                    tint: provider.tint
+                )
+                .frame(width: 82, height: 82)
+                .opacity(provider.readingSuspect ? 0.4 : 1)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -107,6 +111,13 @@ private struct ProviderSummaryRow: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                if let runway = meter.spend?.runwayDays {
+                    Text(runway >= 10
+                           ? "~\(Int(runway.rounded()))d runway"
+                           : String(format: "~%.1fd runway", runway))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 // Ahead of the headline, because a headline written from
                 // frozen percentages is confidently wrong.
                 if let status = meter.statusNote {
@@ -136,6 +147,28 @@ private struct ProviderSummaryRow: View {
                 }
             }
         }
+    }
+
+    private var balanceSummaryMark: some View {
+        let level = provider.primaryBalance?.level ?? 0
+        return VStack {
+            Spacer(minLength: 0)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                    Capsule()
+                        .fill(provider.tint)
+                        .frame(
+                            width: geo.size.width * CGFloat(max(0, min(level, 1)))
+                        )
+                }
+            }
+            .frame(height: 10)
+            .opacity(provider.readingSuspect ? 0.4 : 1)
+            Spacer(minLength: 0)
+        }
+        .frame(width: 82, height: 82)
     }
 }
 
@@ -171,18 +204,44 @@ private struct ProviderQuotaDetail: View {
             LazyVStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        HeadroomRings(
-                            layers: provider.ringLayers(burndown: burndown),
-                            tint: provider.tint
-                        )
-                        .frame(width: 112, height: 112)
-                        .opacity(provider.readingSuspect ? 0.4 : 1)
+                        if provider.isBalanceOnly {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(HeadroomCopy.integrationsBalances)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let balance = meter.balanceLabel {
+                                    Text(balance)
+                                        .font(.title2.weight(.semibold))
+                                        .monospacedDigit()
+                                }
+                                if let runway = meter.spend?.runwayDays {
+                                    Text(runway >= 10
+                                           ? "~\(Int(runway.rounded()))d runway"
+                                           : String(format: "~%.1fd runway", runway))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            HeadroomRings(
+                                layers: provider.ringLayers(burndown: burndown),
+                                tint: provider.tint
+                            )
+                            .frame(width: 112, height: 112)
+                            .opacity(provider.readingSuspect ? 0.4 : 1)
+                        }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(meter.plan ?? HeadroomCopy.planUnknown)
                                 .foregroundStyle(.secondary)
-                            if let todayBurn {
+                            if let todayBurn, !provider.isBalanceOnly {
                                 Text(HeadroomFormat.todayBurn(todayBurn))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            if let today = meter.spend?.todayUSD {
+                                Text(today.dollarLabel + " today")
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }
@@ -206,6 +265,10 @@ private struct ProviderQuotaDetail: View {
                             level: meter.balanceLevel,
                             tint: provider.tint
                         )
+                    }
+
+                    if let spend = meter.spend, spend.hasFigures || spend.reportError != nil {
+                        BalanceSpendCard(spend: spend, tint: provider.tint)
                     }
 
                     if let pace = meter.paceLabel {
