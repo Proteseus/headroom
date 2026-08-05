@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.8.9",
-  "published": "2026-08-05T09:29:28Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.9/Headroom-macOS.zip",
-  "sha256": "cb603cea585c58214591cbfe87c1baf19c70f3e49f79a67479cbae6a02662114",
-  "size": 5851010,
+  "version": "1.9.0",
+  "published": "2026-08-05T14:58:08Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.0/Headroom-macOS.zip",
+  "sha256": "166c0980002014052f2597b1894f58e66a07ccfc36459dd36b71e75c57b9dc4b",
+  "size": 5851364,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **`scripts/ship-inventory.sh`** prints the ship queue: unshipped commits since\n  the last tag, dirty paths, next patch number, and recent Release runs.\n\n### Changed\n\n- **Release workflow queues** instead of running in parallel, so duplicate\n  TestFlight uploads for the same version are less likely."
+  "notes_md": "### Changed\n\n- **Update chrome shows installed > latest** in the popover footer and General\n  settings (for example `1.8.9 > 1.9.0`), with a spoken accessibility label.\n- **Community Pulse publishes smaller groups** (floor drops from five Macs to\n  one) and only marketing `X.Y.Z` builds at or below the update-feed release.\n- **README and marketing screenshots** refresh the Mac/iPhone shots, pair the\n  ESP32 glance next to the menu bar, and shape demo burndown curves for the\n  screenshot pipeline."
 }
