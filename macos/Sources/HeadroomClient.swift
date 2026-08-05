@@ -582,16 +582,45 @@ struct HeadroomClient: Sendable {
 
     @discardableResult
     func setPlausibleConfiguration(
-        sites: [String]
+        sites: [String],
+        host: String? = nil
     ) async throws -> PlausibleConfiguration {
         let url = try base()
             .appendingPathComponent("config")
             .appendingPathComponent("plausible")
-        let body = try JSONSerialization.data(
-            withJSONObject: ["sites": sites])
+        var payload: [String: Any] = ["sites": sites]
+        if let host {
+            payload["host"] = host
+        }
+        let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 10))
         return try JSONDecoder().decode(PlausibleConfiguration.self, from: data)
+    }
+
+    func fetchTimezoneConfiguration() async throws -> TimezoneConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("timezone")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(TimezoneConfiguration.self, from: data)
+    }
+
+    /// Persist the zone every day boundary is drawn in. The host validates
+    /// the name against its tz database and answers 400 for one it cannot
+    /// resolve, so a typo never reaches the request path.
+    @discardableResult
+    func setTimezoneConfiguration(
+        _ identifier: String
+    ) async throws -> TimezoneConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("timezone")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["timezone": identifier])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(TimezoneConfiguration.self, from: data)
     }
 
     func fetchPostHogConfiguration() async throws -> PostHogConfiguration {
@@ -832,9 +861,16 @@ struct PlausibleConfiguration: Decodable, Sendable {
     /// Empty means every site the key can list.
     var sites: [String] = []
     var available: [PlausibleSiteOption] = []
+    /// Cloud or self-hosted, same as `PostHogConfiguration.host`.
+    var host: String?
     var ok: Bool?
     var configured: Bool?
     var error: String?
+}
+
+struct TimezoneConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var timezone: String?
 }
 
 struct PlausibleSiteOption: Decodable, Sendable, Identifiable, Hashable {

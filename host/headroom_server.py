@@ -1669,9 +1669,17 @@ def _plausible_config_payload():
     return {
         "ok": listing.get("error") is None,
         "configured": bool(plausible_usage.has_token()),
+        "host": app_config.plausible_host(),
         "sites": list(app_config.plausible_sites()),
         "available": listing.get("sites") or [],
         "error": listing.get("error"),
+    }
+
+
+def _timezone_config_payload():
+    return {
+        "ok": True,
+        "timezone": app_config.timezone_name(),
     }
 
 
@@ -1857,6 +1865,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/config/git", "/config/vercel", "/config/supabase",
                         "/config/plausible", "/config/posthog",
                         "/config/sentry", "/config/datadog", "/config/axiom",
+                        "/config/timezone",
                         "/agents/capabilities", "/agents/config",
                         "/agents/claude/config", "/agents/codex/task",
                         "/agents/tasks",
@@ -1876,7 +1885,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in ("/config/git", "/config/vercel", "/config/supabase",
                     "/config/plausible", "/config/posthog",
-                    "/config/sentry", "/config/datadog", "/config/axiom"):
+                    "/config/sentry", "/config/datadog", "/config/axiom",
+                    "/config/timezone"):
             # Names folders on this disk and the teams / projects / sites a
             # login can reach — Mac-local, same class as /github/watch.
             if not self._is_loopback():
@@ -1896,6 +1906,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _sentry_config_payload())
             elif path == "/config/datadog":
                 self._send_json(200, _datadog_config_payload())
+            elif path == "/config/timezone":
+                self._send_json(200, _timezone_config_payload())
             else:
                 self._send_json(200, _axiom_config_payload())
             return
@@ -2038,6 +2050,7 @@ class Handler(BaseHTTPRequestHandler):
             "/config/sentry",
             "/config/datadog",
             "/config/axiom",
+            "/config/timezone",
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
@@ -2379,12 +2392,26 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/config/plausible":
             try:
+                if "host" in payload:
+                    app_config.set_plausible_host(payload.get("host"))
                 app_config.set_plausible_sites(sites=payload.get("sites"))
             except ValueError as error:
                 self._send_json(400, {"ok": False, "error": str(error)})
                 return
             plausible_usage.invalidate()
             self._send_json(200, _plausible_config_payload())
+            return
+
+        if path == "/config/timezone":
+            try:
+                app_config.set_timezone(payload.get("timezone"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            # Day boundaries move, so every by-day bucket in the cached
+            # document is answering the old question until it is rebuilt.
+            publish()
+            self._send_json(200, _timezone_config_payload())
             return
 
         if path == "/config/posthog":

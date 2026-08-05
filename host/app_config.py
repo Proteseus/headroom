@@ -11,6 +11,7 @@ import json
 import os
 import re
 import threading
+from zoneinfo import ZoneInfo
 
 STORE_PATH = os.path.expanduser("~/.headroom/config.json")
 
@@ -68,6 +69,11 @@ DEFAULTS = {
 # and two of those absences are load-bearing: `auth_token` is a credential,
 # and `dev_root` / `codex_binary` are paths that describe one machine's disk.
 SHARED_CONFIG_KEYS = (
+    # One person has one notion of "today", and burndown history merges
+    # across Macs (docs/metering.md decision 9) — two machines disagreeing
+    # about where the day boundary falls would thin one curve against
+    # another's buckets. Unlike dev_root, this is not a fact about a disk.
+    "timezone",
     "git_authors",
     "vercel_team_slugs",
     "supabase_project_refs",
@@ -153,6 +159,25 @@ def get(key, default=None):
 def timezone_name():
     value = get("timezone") or DEFAULTS["timezone"]
     return str(value)
+
+
+def set_timezone(value):
+    """Persist the zone every day boundary is drawn in.
+
+    Validated against the system tz database here rather than at read time:
+    `timezone_name()` feeds `ZoneInfo(...)` on the request path, and an
+    unknown name there would raise once per document instead of once at the
+    moment somebody typed it.
+    """
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("timezone must be a zone name, e.g. Europe/Berlin")
+    try:
+        ZoneInfo(name)
+    except Exception as exc:
+        raise ValueError(f"unknown timezone {name!r}") from exc
+    _persist(timezone=name)
+    return name
 
 
 def dev_root():
@@ -367,6 +392,23 @@ def set_plausible_sites(sites=None):
 def plausible_host():
     value = get("plausible_host") or DEFAULTS["plausible_host"]
     return str(value).rstrip("/") or DEFAULTS["plausible_host"]
+
+
+def set_plausible_host(value):
+    """Persist the Plausible API host (cloud or self-hosted).
+
+    Same shape as `set_posthog_host`. The key was in SHARED_CONFIG_KEYS and
+    readable from the start, but had no setter and no payload field, so a
+    self-hosted Plausible could only be reached by hand-editing config.json
+    while the identical PostHog case had a picker.
+    """
+    host = str(value or "").strip().rstrip("/")
+    if not host:
+        raise ValueError("plausible_host must be a URL")
+    if "://" not in host:
+        host = "https://" + host
+    _persist(plausible_host=host)
+    return host
 
 
 PLAUSIBLE_RANGES = ("day", "24h", "7d", "30d")

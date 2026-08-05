@@ -66,6 +66,7 @@ struct SettingsView: View {
     @State var plausibleMessage: String?
     @State var plausibleRange = "24h"
     @State var plausibleConfig = PlausibleConfiguration()
+    @State var plausibleHostDraft = "https://plausible.io"
     @State var plausibleSitesDraft = ""
     @State var savingPlausibleSites = false
     @State var plausibleSitesEditable = true
@@ -141,6 +142,10 @@ struct SettingsView: View {
     @State var hostHealth: HealthReport?
     @State var hostHealthMessage: String?
     @State var hostHealthLoading = false
+    /// The zone the host draws day boundaries in. Blank until /config/timezone
+    /// answers, which is also how a host predating the route stays read-only.
+    @State var timezoneDraft = ""
+    @State var timezoneMessage: String?
     @State var mobileTokenMessage: String?
     @State var mobilePermissions = MobilePermissions.allEnabled
     @State var changingMobilePermission: MobilePermission?

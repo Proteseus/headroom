@@ -5,6 +5,8 @@ extension SettingsView {
         Form {
             hostSection
 
+            timezoneSection
+
             Section {
                 Toggle(HeadroomCopy.openAtLogin, isOn: Binding(
                     get: { openAtLogin },
@@ -66,6 +68,65 @@ extension SettingsView {
             await reloadSources()
         } catch {
             sourcesMessage = error.localizedDescription
+        }
+    }
+
+    /// The zone every day boundary is drawn in.
+    ///
+    /// Loaded here rather than in the window's `.task` so opening Settings
+    /// to flip one switch does not also pay for a pane nobody looked at.
+    var timezoneSection: some View {
+        Section {
+            TextField(
+                "Time zone",
+                text: $timezoneDraft,
+                prompt: Text(TimeZone.current.identifier)
+            )
+            .onSubmit { Task { await saveTimezone() } }
+            HStack {
+                Button(HeadroomCopy.settingsSave) {
+                    Task { await saveTimezone() }
+                }
+                .disabled(timezoneDraft
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Use this Mac’s") {
+                    timezoneDraft = TimeZone.current.identifier
+                }
+                .disabled(timezoneDraft == TimeZone.current.identifier)
+                Spacer()
+            }
+            if let timezoneMessage {
+                Text(timezoneMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Day boundaries")
+        } footer: {
+            // The default is UTC, which is right for nobody in particular —
+            // and until this field existed it could only be changed by hand
+            // editing ~/.headroom/config.json.
+            Text("Where daily burn, resets and history start a new day. Follows you to your other Macs, so one person's charts agree about when today began.")
+        }
+        .task { await reloadTimezone() }
+    }
+
+    func reloadTimezone() async {
+        guard let config = try? await client.fetchTimezoneConfiguration(),
+              let zone = config.timezone, !zone.isEmpty
+        else { return }
+        timezoneDraft = zone
+    }
+
+    func saveTimezone() async {
+        let zone = timezoneDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !zone.isEmpty else { return }
+        do {
+            let config = try await client.setTimezoneConfiguration(zone)
+            timezoneDraft = config.timezone ?? zone
+            timezoneMessage = "Saved."
+        } catch {
+            timezoneMessage = error.localizedDescription
         }
     }
 
