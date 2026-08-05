@@ -52,6 +52,7 @@ struct ServersSection: View {
                         .foregroundStyle(.secondary)
                     ServiceDetailChevron()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

@@ -19,8 +19,25 @@ final class UsageStore: ObservableObject {
     /// keying "show onboarding" off it swapped the whole dashboard for the
     /// setup sheet over things that had nothing to do with the host being down.
     @Published private(set) var hostReachable = true
+    /// Attention rows dismissed in this popover. Matches the iPhone queue:
+    /// clearing the list has to drop every place it is counted, including the
+    /// mode switcher once that grows a badge. Pruned when the host stops
+    /// reporting the row so a returning failure can light Attention again.
+    @Published private(set) var dismissedAttentionIDs: Set<String> = []
 
     var onSnapshotChange: ((UsageSnapshot, Bool) -> Void)?
+
+    /// Failed feed rows still waiting in Attention, minus local dismissals.
+    var attentionFailures: [ActivityItem] {
+        AttentionList.failures(in: snapshot)
+            .filter { !dismissedAttentionIDs.contains($0.id) }
+    }
+
+    /// Rollup reasons with no concrete failure row, minus local dismissals.
+    var attentionReasons: [AttentionReason] {
+        AttentionList.leftoverReasons(in: snapshot)
+            .filter { !dismissedAttentionIDs.contains($0.id) }
+    }
 
     /// The popover is closed most of the time, and a closed popover only feeds
     /// three bars in the menu bar. Polling the active interval around the
@@ -159,6 +176,7 @@ final class UsageStore: ObservableObject {
     /// Apply a decoded snapshot without hitting the network (README exports).
     func applySnapshot(_ value: UsageSnapshot, healthy: Bool = true) {
         snapshot = value
+        pruneDismissedAttention()
         lastRefresh = Date()
         errorMessage = healthy ? nil : "fixture"
         onSnapshotChange?(value, healthy)
@@ -192,6 +210,7 @@ final class UsageStore: ObservableObject {
                 onSnapshotChange?(value, true)
             }
 
+            pruneDismissedAttention()
             lastRefresh = Date()
             cadence.noteSuccess()
             // Written once per successful pass, after any forced re-sync, so
@@ -205,6 +224,17 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// Same bulk action as iPhone **Dismiss all**: hide every Attention row
+    /// here and ack the rollup so the menu-bar pip goes out with the list.
+    func dismissAllAttention() async {
+        var next = dismissedAttentionIDs
+        next.formUnion(AttentionList.failures(in: snapshot).map(\.id))
+        next.formUnion((snapshot.attention?.reasons ?? []).map(\.id))
+        // Reassign so `@Published` fires — in-place Set mutation does not.
+        dismissedAttentionIDs = next
+        await acknowledgeAttention()
+    }
+
     func acknowledgeAttention() async {
         guard let attention = snapshot.attention, attention.isWarning else {
             return
@@ -215,6 +245,14 @@ final class UsageStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Drop dismissals for rows the host no longer reports, so a failure that
+    /// comes back can come back.
+    private func pruneDismissedAttention() {
+        let live = Set(AttentionList.failures(in: snapshot).map(\.id))
+            .union((snapshot.attention?.reasons ?? []).map(\.id))
+        dismissedAttentionIDs = dismissedAttentionIDs.intersection(live)
     }
 
     /// Ask /health which host is actually answering; true when that is a

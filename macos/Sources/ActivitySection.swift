@@ -40,8 +40,9 @@ struct AttentionSection: View {
     @Binding var selection: ServiceDetailSelection?
 
     var body: some View {
-        let failures = AttentionList.failures(in: store.snapshot)
-        let reasons = AttentionList.leftoverReasons(in: store.snapshot)
+        // Same queue filter as iPhone: local dismissals drop rows and counts.
+        let failures = store.attentionFailures
+        let reasons = store.attentionReasons
         let warning = store.snapshot.attention?.isWarning == true
         let hasAttention = !failures.isEmpty || !reasons.isEmpty || warning
         let summary: String = {
@@ -61,17 +62,17 @@ struct AttentionSection: View {
                       : "checkmark.circle")
                 Text(summary)
                 Spacer()
-                if warning {
+                if hasAttention {
                     Button {
-                        Task { await store.acknowledgeAttention() }
+                        Task { await store.dismissAllAttention() }
                     } label: {
-                        Label(HeadroomCopy.clearAttention,
+                        Label(HeadroomCopy.dismissAll,
                               systemImage: "xmark.circle")
                     }
                     .buttonStyle(.borderless)
                     .controlSize(.small)
-                    .help("Clear this warning on every Headroom surface")
-                    .accessibilityLabel(HeadroomCopy.clearAttention)
+                    .help("Dismiss every Attention row and clear the warning on every Headroom surface")
+                    .accessibilityLabel(HeadroomCopy.dismissAll)
                 }
             }
             .font(.caption.weight(.medium))

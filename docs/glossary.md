@@ -139,6 +139,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
 | **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
 | **Agents** | Claude Code hooks and the Codex attention gateway — install, test, and connection status. Not part of the Integrations catalog | macOS Settings |
+| **Agent alerts** | Whether passive agent notices appear; questions, choices, and approvals remain visible when it is off | macOS Settings |
 | **Your agents, wherever you are** | Headroom's companion promise: see and safely answer agent requests from iPhone while the computer keeps its full context | macOS, iOS |
 | **Claude questions** | Whether Claude questions appear on both Mac and iPhone, can wait for an iPhone answer, or stay Mac-only | macOS |
 | **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
@@ -294,9 +295,8 @@ blank axis.
 | **Not updating** | The host is replaying a source's last good numbers; the age travels with it (**Not updating · 2 hours ago**) |
 | **Paused** | The host is deliberately not refreshing — usually a provider rate limit (`stale_cause: rate_limited`). Carries the wait when known (**Paused · retries in 5m**). Secondary, not orange |
 | **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way |
-| **Clear** | Dismiss attention on every surface |
 | **Dismiss** | Swipe one row out of the iPhone Attention queue — a passive coding-agent notice, a rollup reason, or a failed feed row |
-| **Dismiss all** | Bulk version of the same, per section: every passive coding-agent notice (answer-required requests stay), or every warning in **Needs attention** |
+| **Dismiss all** | Hide every row in an Attention section and ack the rollup so the menu-bar pip goes out too. iPhone: per section (passive agent notices, or **Needs attention**). Mac: the one Attention control (no per-row swipe) |
 | **Refresh all** | Force-sync every source |
 | **Active** | Mac Settings → Providers: the services you track, rich reorderable rows with live usage. A switched-off row stays here as **Off** — paused, configured, not polled |
 | **Library** | Mac Settings → Providers: the **AI providers** you don't track, as compact chips |
@@ -347,7 +347,7 @@ Keep these short; don’t explain the pipeline.
 | **No Xcode builds** | Xcode builds empty |
 | **Waiting for Mac sync** | iOS before first payload |
 | **Open Headroom on iPhone** | Watch before first payload — it cannot reach the Mac itself |
-| **Open** | Permalink glyph (`link`) on Activity rows and detail chrome — opens the source URL | macOS, iOS |
+| **Open** | Permalink glyph (`link`) on Activity rows and detail chrome — opens the source URL. Row body drills into the leaf; only this glyph opens the browser | macOS, iOS |
 | **Searching…** | Bonjour discovery in progress |
 
 ## Welcome (macOS first run)

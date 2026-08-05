@@ -60,7 +60,7 @@ check_absent_in() {
 check_absent 'All quota burn' 'use HeadroomCopy.dailyBurn'
 check_absent 'All systems clear' 'use HeadroomCopy.allClear or connected'
 check_absent 'Nothing needs attention' 'use HeadroomCopy.allClear'
-check_absent 'Clear everywhere' 'use HeadroomCopy.clearAttention'
+check_absent 'Clear everywhere' 'use HeadroomCopy.dismissAll'
 check_absent 'History will appear after' 'use HeadroomCopy.noHistoryYet'
 check_absent 'Burn history starts after' 'use HeadroomCopy.noBurnHistoryYet'
 check_absent 'Enable a coding provider' 'use HeadroomCopy.noCodingSources'

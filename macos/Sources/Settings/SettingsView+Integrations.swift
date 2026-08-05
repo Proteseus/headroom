@@ -27,26 +27,33 @@ extension SettingsView {
         let title = watch?.title ?? id
         let sourceID = watch?.sourceID ?? id
         let enabled = sources.first(where: { $0.id == sourceID })?.enabled ?? true
+        let kind = watch?.settingsIntegration
         HStack(spacing: 8) {
             Image(systemName: "line.3.horizontal")
                 .foregroundStyle(.tertiary)
                 .font(.caption)
                 .help("Drag to reorder")
-            if let watch {
-                ProviderMark(
-                    providerID: watch.sourceID == "local" ? "local" : watch.rawValue,
-                    size: 16,
-                    fallbackSystemImage: watch.symbol
-                )
+            // Mark + title + chevron open the leaf; drag handle and toggle
+            // stay their own targets (same split as Coding agents rows).
+            if let kind {
+                Button {
+                    leaf = .integration(kind)
+                } label: {
+                    HStack(spacing: 8) {
+                        catalogIdentity(watch, title: title)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open")
+            } else {
+                catalogIdentity(watch, title: title)
+                Spacer(minLength: 8)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(catalogSubtitle(watch))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
             Toggle(
                 "Enabled",
                 isOn: Binding(
@@ -58,19 +65,7 @@ extension SettingsView {
             )
             .labelsHidden()
             .disabled(togglingSourceID == sourceID)
-            if let kind = watch?.settingsIntegration {
-                Button {
-                    leaf = .integration(kind)
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Open")
-            }
         }
-        .contentShape(Rectangle())
         .padding(.vertical, 2)
         .opacity(enabled ? 1 : 0.55)
         .background(
@@ -94,6 +89,26 @@ extension SettingsView {
         }
         .accessibilityAction(named: "Move down") {
             Task { await nudgeServicePanel(id, by: 1) }
+        }
+    }
+
+    @ViewBuilder
+    private func catalogIdentity(
+        _ watch: IntegrationWatch?, title: String
+    ) -> some View {
+        if let watch {
+            ProviderMark(
+                providerID: watch.sourceID == "local" ? "local" : watch.rawValue,
+                size: 16,
+                fallbackSystemImage: watch.symbol
+            )
+        }
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            Text(catalogSubtitle(watch))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 

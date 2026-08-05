@@ -29,9 +29,11 @@ Policy that already lives next to the code (do not turn these into prefs):
   @mentions (warn). Mentions stay scoped to the watch list — not every
   @you on GitHub — so the pip stays useful for CI and review oversight.
 
-**Clear** dismisses the current fingerprint until reasons change. That is ack
-state (`attention_ack_fingerprint` in local config), not a preference, and it
-does not sync across Macs.
+**Dismiss all** clears the queue on this surface and acks the current
+fingerprint until reasons change. Ack state (`attention_ack_fingerprint` in
+local config) is not a preference, and it does not sync across Macs. Local
+row dismissals (iPhone swipe, Mac **Dismiss all**) are per-surface — the ack
+is what turns the menu-bar pip off everywhere on this host.
 
 ## What is already configurable
 

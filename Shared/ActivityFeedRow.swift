@@ -1,6 +1,3 @@
-#if os(macOS)
-import AppKit
-#endif
 import SwiftUI
 
 /// Affordance that a menubar / phone Activity row drills into a detail page.
@@ -21,7 +18,8 @@ struct ServiceDetailChevron: View {
 ///
 /// Layout matches the service panels: leading mark, title + caption, trailing
 /// age, disclosure chevron on the drill-in target, and a separate permalink
-/// control so opening the source never fights the detail push.
+/// control so opening the source never fights the detail push. Row body opens
+/// the leaf; only the trailing `link` glyph opens the browser.
 struct ActivityFeedRow: View {
     let item: ActivityItem
     /// macOS menubar: set selection. iOS uses `NavigationLink` instead.
@@ -45,6 +43,7 @@ struct ActivityFeedRow: View {
                 rowLabel(style: style)
                     .padding(.vertical, 4)
                     .padding(.horizontal, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -56,6 +55,7 @@ struct ActivityFeedRow: View {
             } label: {
                 rowLabel(style: style)
                     .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             #endif
             PermalinkButton(url: Permalink.activity(item))
@@ -145,12 +145,14 @@ struct ActivityFeedRow: View {
 }
 
 /// Rollup reason as the same list chrome when no concrete feed row exists
-/// (stale quota, sign-in, and similar). Permalink + chevron only when the
-/// host gave something to open; otherwise it stays a plain row.
+/// (stale quota, sign-in, and similar). Chevron + row tap only when the
+/// caller supplies a leaf (`onSelect`); the trailing `link` glyph is the only
+/// path into the browser.
 struct AttentionReasonRow: View {
     let reason: AttentionReason
     var permalink: URL? = nil
-    /// macOS: drill-in or open. iOS: `NavigationLink` / openURL when set.
+    /// Drill into an in-app leaf when set. Never opens a URL — that stays on
+    /// `PermalinkButton`.
     var onSelect: (() -> Void)? = nil
 
     private var markSize: CGFloat {
@@ -161,51 +163,40 @@ struct AttentionReasonRow: View {
         #endif
     }
 
-    private var isTappable: Bool { onSelect != nil || permalink != nil }
-
     var body: some View {
         let hasBrand = ProviderIcon.sourceID(forKind: reason.kind) != nil
         HStack(spacing: 8) {
-            #if os(macOS)
-            Button {
-                if let onSelect {
-                    onSelect()
-                } else if let permalink {
-                    NSWorkspace.shared.open(permalink)
-                }
-            } label: {
-                reasonLabel(hasBrand: hasBrand)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 7)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!isTappable)
-            .help(isTappable ? HeadroomCopy.openPermalink : "")
-            #else
             if let onSelect {
                 Button(action: onSelect) {
-                    reasonLabel(hasBrand: hasBrand)
+                    reasonLabel(hasBrand: hasBrand, showsChevron: true)
+                        #if os(macOS)
                         .padding(.vertical, 4)
+                        .padding(.horizontal, 7)
+                        #else
+                        .padding(.vertical, 4)
+                        #endif
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            } else if let permalink {
-                Link(destination: permalink) {
-                    reasonLabel(hasBrand: hasBrand)
-                        .padding(.vertical, 4)
-                }
+                .help("Show detail")
             } else {
-                reasonLabel(hasBrand: hasBrand)
+                reasonLabel(hasBrand: hasBrand, showsChevron: false)
+                    #if os(macOS)
                     .padding(.vertical, 4)
+                    .padding(.horizontal, 7)
+                    #else
+                    .padding(.vertical, 4)
+                    #endif
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            #endif
             PermalinkButton(url: permalink)
         }
         .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
-    private func reasonLabel(hasBrand: Bool) -> some View {
+    private func reasonLabel(hasBrand: Bool, showsChevron: Bool) -> some View {
         HStack(alignment: .top, spacing: markSize == 12 ? 8 : 10) {
             ProviderMark.forKind(
                 reason.kind,
@@ -230,7 +221,7 @@ struct AttentionReasonRow: View {
                 #endif
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if isTappable {
+            if showsChevron {
                 ServiceDetailChevron()
             }
         }

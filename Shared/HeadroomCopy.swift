@@ -332,14 +332,20 @@ enum HeadroomCopy {
     static let whatToTrack = "What to track"
     static let whatToTrackHint =
         "From local sign-in. Change either list later in Settings."
-    static let clearAttention = "Clear"
     static let dismiss = "Dismiss"
     /// Bulk clear on either Attention section: passive agent notices, or the
-    /// warnings the rollup and the feed put in the queue.
+    /// warnings the rollup and the feed put in the queue. Mac Attention uses
+    /// the same label and action (no per-row swipe there).
     static let dismissAll = "Dismiss all"
+    /// Legacy name for `dismissAll` — Mac Attention used to say Clear and only
+    /// ack the rollup; both surfaces now dismiss the queue and ack together.
+    static let clearAttention = dismissAll
     static let refreshAll = "Refresh all"
     static let answerCodingAgents = "Answer coding agents"
     static let codingAgents = "Agents"
+    static let agentAlerts = "Agent alerts"
+    static let agentAlertsHelp =
+        "Show passive agent notices such as “Ready for your next instruction”. Questions, choices, and approvals always remain visible."
     static let agentCompanionTitle = "Your agents, wherever you are"
     static let agentQuestionMode = "Claude questions"
     static let agentQuestionNotify = "Show on Mac + iPhone"

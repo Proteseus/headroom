@@ -117,7 +117,9 @@ struct ServiceSections: View {
                                               : HeadroomPalette.green)
                                         .frame(width: 8, height: 8)
                                     Text(project.name ?? project.ref ?? "Project")
+                                    Spacer(minLength: 0)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             PermalinkButton(
                                 url: Permalink.url(from: project.dashboardURL))
@@ -151,6 +153,7 @@ struct ServiceSections: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             PermalinkButton(
                                 url: Permalink.url(from: site.dashboardURL))
@@ -184,6 +187,7 @@ struct ServiceSections: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             PermalinkButton(
                                 url: Permalink.url(from: project.dashboardURL))
@@ -239,7 +243,9 @@ struct ServiceSections: View {
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
+                                Spacer(minLength: 0)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         PermalinkButton(url: Permalink.localServer(server))
                         if store.stoppingServerID == server.id {
