@@ -28,6 +28,7 @@ Stdlib only.
 
 from __future__ import annotations
 
+import colorsys
 import functools
 import json
 import os
@@ -1462,15 +1463,67 @@ def accent_overrides():
         return dict(_state_locked().get("accents") or {})
 
 
+def _account_accent(source_id, base_hex):
+    """Return a stable same-hue shade for an extra account.
+
+    The bare provider row keeps the registry/override color. Extra accounts
+    use lightness offsets in their registry order, so the colors remain
+    recognizable as one service while still identifying each account. The
+    result is derived from the base color rather than stored, which means a
+    provider accent override recolors all of its account shades together.
+    """
+    provider, slug = accounts.split_id(source_id)
+    if slug is None or not _normalize_accent(base_hex):
+        return base_hex
+
+    siblings = [
+        source.id for source in SOURCES
+        if accounts.split_id(source.id)[0] == provider
+    ]
+    try:
+        index = siblings.index(source_id)
+    except ValueError:
+        return base_hex
+
+    # The default row is index zero. Alternating lighter/darker stops keeps
+    # the shades legible on both light and dark surfaces without changing the
+    # provider hue. There are at most eight extra accounts today.
+    offsets = (0.0, 0.14, -0.14, 0.24, -0.24, 0.32, -0.32, 0.38, -0.38)
+    offset = offsets[min(index, len(offsets) - 1)]
+    value = int(base_hex.lstrip("#"), 16)
+    red = ((value >> 16) & 0xFF) / 255.0
+    green = ((value >> 8) & 0xFF) / 255.0
+    blue = (value & 0xFF) / 255.0
+    hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
+    lightness = min(0.80, max(0.20, lightness + offset))
+    red, green, blue = colorsys.hls_to_rgb(hue, lightness, saturation)
+    return "#{:02X}{:02X}{:02X}".format(
+        round(red * 255), round(green * 255), round(blue * 255))
+
+
 def accent_for(source_id):
-    """The color every surface should paint this row: override, else registry.
+    """The color every surface should paint this row.
 
     One resolution, on the host, because the menu bar, the popover rings, the
     phone and its widget each read `accent` off the payload — if they each
     merged an override locally they would drift the moment one of them was a
-    poll behind.
+    poll behind. Extra accounts get a derived shade unless they have an
+    explicit per-account override.
     """
-    return accent_overrides().get(source_id) or default_accent(source_id)
+    overrides = accent_overrides()
+    explicit = overrides.get(source_id)
+    is_account = accounts.is_account_id(source_id)
+    provider, _ = accounts.split_id(source_id)
+    base = overrides.get(provider) or default_accent(provider)
+    # Older Settings builds wrote the same service override to every account
+    # row. Treat that legacy duplicate as "no account override" so upgrading
+    # immediately restores distinct shades instead of preserving the bug.
+    if explicit and (not is_account or explicit != base):
+        return explicit
+    default = default_accent(source_id)
+    if not is_account:
+        return default
+    return _account_accent(source_id, base)
 
 
 def set_accents(updates):

@@ -227,6 +227,35 @@ class AccountsTests(unittest.TestCase):
         sources_config.remove_account("claude:work")
         self.assertNotIn("claude:work", sources_config.accent_overrides())
 
+    def test_accounts_get_same_hue_shades_and_follow_provider_override(self):
+        sources_config.add_account("claude", "Work", self._claude_dir("one"))
+        sources_config.add_account("claude", "Work", self._claude_dir("two"))
+        sources_config.reload_registry()
+
+        colors = [
+            sources_config.accent_for(source_id)
+            for source_id in ("claude", "claude:work", "claude:work-2")
+        ]
+        self.assertEqual(len(set(colors)), 3)
+        self.assertTrue(all(color.startswith("#") for color in colors))
+
+        sources_config.set_accents({"claude": "#4F97D4"})
+        self.assertEqual(sources_config.accent_for("claude"), "#4F97D4")
+        self.assertNotEqual(
+            sources_config.accent_for("claude:work"), "#4F97D4")
+        self.assertNotEqual(
+            sources_config.accent_for("claude:work-2"), "#4F97D4")
+
+        # A previous Settings build could have copied the provider override
+        # onto every account. That duplicate is migrated back to a shade.
+        sources_config.set_accents({"claude:work": "#4F97D4"})
+        self.assertNotEqual(
+            sources_config.accent_for("claude:work"), "#4F97D4")
+
+        sources_config.set_accents({"claude:work": "#A371F7"})
+        self.assertEqual(
+            sources_config.accent_for("claude:work"), "#A371F7")
+
     def test_store_survives_a_corrupt_file(self):
         with open(accounts.STORE_PATH, "w") as handle:
             handle.write("{ not json")

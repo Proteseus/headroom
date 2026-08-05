@@ -45,8 +45,8 @@ struct SourceService: Identifiable {
     /// every row off, none dismissed — stays listed, dimmed. On hosts
     /// predating `dismissed` the two collapse to the same answer.
     var isListed: Bool { rows.contains { !$0.isDismissed } }
-    var accent: String? { rows.compactMap(\.accent).first }
-    var accentDefault: String? { rows.compactMap(\.accentDefault).first }
+    var accent: String? { primary.accent }
+    var accentDefault: String? { primary.accentDefault }
 
     /// Group account-level sources into services, preserving the pinned
     /// order of first appearance — the same order `order` persists.
@@ -361,6 +361,15 @@ private struct ActiveServiceRow: View {
         return service.enabledRows.first
     }
 
+    /// Account rows carry their own accent. Fall back through the source row
+    /// for hosts that only sent `/sources`, then to the service tint for old
+    /// hosts that had no account-level color at all.
+    private func tint(for account: SyncSource) -> Color {
+        usage[account.id]?.tint
+            ?? HeadroomPalette.color(hex: account.accent)
+            ?? tint
+    }
+
     private func accountEmail(_ account: SyncSource) -> String? {
         let fromUsage = usage[account.id]?.email?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -404,7 +413,7 @@ private struct ActiveServiceRow: View {
                             name: nil,
                             row: account,
                             usage: usage[account.id],
-                            tint: tint)
+                            tint: tint(for: account))
                     }
                 }
 
@@ -526,7 +535,10 @@ private struct ActiveServiceRow: View {
                 title: service.title,
                 defaultHex: service.accentDefault,
                 currentHex: service.accent,
-                onPick: { onAccent(service.rows.map(\.id), $0) }
+                // The service swatch controls the base row. Extra accounts
+                // derive their shades from that base instead of receiving
+                // the same explicit override and collapsing to one color.
+                onPick: { onAccent([service.primary.id], $0) }
             )
         }
     }
@@ -642,7 +654,7 @@ private struct ActiveServiceRow: View {
                     AccountRow(
                         account: account,
                         usage: usage[account.id],
-                        tint: tint,
+                        tint: tint(for: account),
                         isBusy: isBusy,
                         onToggleRows: onToggleRows,
                         onRemoveAccount: onRemoveAccount)

@@ -113,8 +113,10 @@ extension SettingsView {
         await commitOrder(blocks.flatMap(\.rowIDs), movedID: id)
     }
 
-    /// Repaint a service everywhere — every account of it, one POST each,
-    /// then one reload. `nil` restores the shipped color.
+    /// Store an accent for each requested source row, then reload. The
+    /// Sources pane sends only the base row for a multi-account service;
+    /// account shades are derived host-side, while explicit account colors
+    /// remain independent.
     func setAccents(_ ids: [String], hex: String?) async {
         togglingSourceID = ids.first
         defer { togglingSourceID = nil }
