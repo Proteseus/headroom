@@ -844,6 +844,24 @@ final class WidgetSnapshotSkewTests: XCTestCase {
         XCTAssertEqual(series.windowEnd, 12)
     }
 
+    func testTheNoCacheStateCarriesNoInventedNumbers() {
+        // What a home screen or watch face shows before the app has ever
+        // synced. It must not be the gallery's demo data: a widget added on
+        // day one otherwise states that Claude is at 42% with nothing behind
+        // it, which is worse than showing nothing at all.
+        XCTAssertTrue(HeadroomWidgetSnapshot.awaitingFirstSync.providers.isEmpty)
+        XCTAssertNotNil(
+            HeadroomWidgetSnapshot.awaitingFirstSync.attentionSummary,
+            "the empty state has to explain itself")
+    }
+
+    func testTheGalleryPlaceholderStillHasSomethingToShow() {
+        // The other half: the widget picker is the one place invented
+        // numbers are correct, so this must not be emptied by accident.
+        XCTAssertFalse(HeadroomWidgetSnapshot.placeholder.providers.isEmpty)
+        XCTAssertFalse(HeadroomWidgetSnapshot.placeholder.isStale)
+    }
+
     func testWhatThisBuildWritesIsWhatThisBuildReads() throws {
         // The tolerance above must not have cost the round trip.
         let written = HeadroomWidgetSnapshot(

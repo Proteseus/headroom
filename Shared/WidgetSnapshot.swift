@@ -272,6 +272,21 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
         )
     }
 
+    /// Nothing has been cached yet — no app group, no fetch, or a payload
+    /// this build could not read.
+    ///
+    /// Distinct from `placeholder` on purpose, and the distinction is the
+    /// whole point: `placeholder` carries invented numbers for the widget
+    /// gallery, where showing a real-looking chart is the job. Rendering
+    /// those same numbers on someone's actual home screen states that Claude
+    /// is at 42% when nothing has ever been read. An empty provider list is
+    /// what makes the view say so instead.
+    static let awaitingFirstSync = HeadroomWidgetSnapshot(
+        updatedAt: .distantPast,
+        attentionSummary: HeadroomCopy.openToSync,
+        providers: []
+    )
+
     static let placeholder = HeadroomWidgetSnapshot(
         updatedAt: .now,
         attentionLevel: nil,
