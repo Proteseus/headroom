@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.8.3",
-  "published": "2026-08-04T19:26:46Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.3/Headroom-macOS.zip",
-  "sha256": "95a6b80822921810f9529da6ce61452c78902a3e3bbcaee52a9303327ac3a3a3",
-  "size": 5774745,
+  "version": "1.8.4",
+  "published": "2026-08-05T09:24:17Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.4/Headroom-macOS.zip",
+  "sha256": "36e7c98f480c7885dea97c1efc7c9cf539285308b96eaa3beb17d40e4daa5dce",
+  "size": 5798897,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Recent resets heatmap uses a denser, shorter window.** Cap drops from\n  ~400 days to ~200 so Mac popover cells stay readable; cell size roughly\n  doubles and the grid height follows the computed cell size."
+  "notes_md": "### Fixed\n\n- **Settings edits no longer vanish silently.** Host config POST failures surface\n  in the pane; iPhone settings appear in the Mac app when the companion is\n  paired.\n\n### Changed\n\n- **Timezone is settable** in General settings (host persists `timezone`).\n- **Self-hosted Plausible** accepts a custom API base URL, not just the cloud\n  host.\n- **Poll interval and repo discovery cap** are product constants again — not\n  exposed as tunables that drifted between surfaces."
 }
