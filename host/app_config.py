@@ -394,6 +394,25 @@ def plausible_host():
     return str(value).rstrip("/") or DEFAULTS["plausible_host"]
 
 
+def _api_host(value, key):
+    """An http(s) base URL a provider key will be sent to, or ValueError.
+
+    The scheme is checked rather than merely tested for, because these hosts
+    are the destination of an `Authorization: Bearer` header — a value like
+    `file:///etc/passwd` contains `://` and would otherwise sail through to
+    `urlopen`. Anything without a scheme is assumed https; anything with a
+    scheme we do not speak is refused rather than quietly rewritten.
+    """
+    host = str(value or "").strip().rstrip("/")
+    if not host:
+        raise ValueError(f"{key} must be a URL")
+    if "://" not in host:
+        return "https://" + host
+    if not host.startswith(("http://", "https://")):
+        raise ValueError(f"{key} must be an http or https URL")
+    return host
+
+
 def set_plausible_host(value):
     """Persist the Plausible API host (cloud or self-hosted).
 
@@ -402,11 +421,7 @@ def set_plausible_host(value):
     self-hosted Plausible could only be reached by hand-editing config.json
     while the identical PostHog case had a picker.
     """
-    host = str(value or "").strip().rstrip("/")
-    if not host:
-        raise ValueError("plausible_host must be a URL")
-    if "://" not in host:
-        host = "https://" + host
+    host = _api_host(value, "plausible_host")
     _persist(plausible_host=host)
     return host
 
@@ -469,11 +484,7 @@ def posthog_host():
 
 def set_posthog_host(value):
     """Persist the PostHog API host (US / EU / self-hosted)."""
-    host = str(value or "").strip().rstrip("/")
-    if not host:
-        raise ValueError("posthog_host must be a URL")
-    if "://" not in host:
-        host = "https://" + host
+    host = _api_host(value, "posthog_host")
     _persist(posthog_host=host)
     return host
 
@@ -735,6 +746,17 @@ def set_shared_config(updates):
     clean = {
         k: v for k, v in (updates or {}).items() if k in SHARED_CONFIG_KEYS
     }
+    # Three of these keys are the base URL a provider key gets sent to, so a
+    # peer record that sets one is an exfiltration primitive for the matching
+    # Keychain secret: point `plausible_host` at a host you control and every
+    # Mac in the folder ships its token there on the next poll. The whitelist
+    # was reasoned about as "no credentials"; a *destination* for a
+    # credential is the same problem wearing a different key. The folder
+    # transport is explicitly allowed to be Dropbox or Syncthing
+    # (docs/multi-mac.md), which can have other participants.
+    for key in ("plausible_host", "posthog_host", "axiom_host"):
+        if key in clean:
+            clean[key] = _api_host(clean[key], key)
     if clean:
         _persist(**clean)
     return clean

@@ -1818,9 +1818,52 @@ class Handler(BaseHTTPRequestHandler):
         mapped = getattr(address, "ipv4_mapped", None)
         return mapped or address
 
+    def _header_host(self):
+        """The hostname the client asked for, lowercased, without the port."""
+        raw = (self.headers.get("Host") or "").strip()
+        if not raw:
+            return ""
+        if raw.startswith("["):            # [::1]:8737
+            end = raw.find("]")
+            return raw[1:end].lower() if end > 0 else ""
+        return (raw.rsplit(":", 1)[0] if ":" in raw else raw).lower()
+
     def _is_loopback(self):
+        """Trusted-because-local, checked at both ends of the request.
+
+        The socket check alone is not enough. A page on `evil.tld` whose DNS
+        answer flips to 127.0.0.1 — classic rebinding, and this host is a
+        fixed port advertised over mDNS — reaches us on a loopback socket
+        like any local process, and would inherit the whole Mac-local class:
+        starting an agent task, reading `/config/git`, restarting the host.
+        What it cannot do is change the name in `Host`, because that is the
+        name it had to resolve to get here. So the header has to agree.
+        """
         address = self._client_ip()
-        return bool(address and address.is_loopback)
+        if not (address and address.is_loopback):
+            return False
+        return self._header_host() in ("", "127.0.0.1", "localhost", "::1")
+
+    def _is_browser_cross_origin(self):
+        """A cross-site request from a browser, which no real client makes.
+
+        The Mac app, the phone, the board and curl never send `Origin` or
+        `Sec-Fetch-Site`; browsers always do. Treating their presence as
+        disqualifying costs nothing and closes drive-by CSRF against every
+        route, including the ones loopback waves through without a token.
+        """
+        origin = (self.headers.get("Origin") or "").strip().lower()
+        if origin and origin not in ("null",):
+            host = origin.split("://", 1)[-1]
+            if host.startswith("["):
+                end = host.find("]")
+                host = host[1:end] if end > 0 else host
+            else:
+                host = host.rsplit(":", 1)[0] if ":" in host else host
+            if host not in ("127.0.0.1", "localhost", "::1"):
+                return True
+        return (self.headers.get("Sec-Fetch-Site") or "").strip().lower() \
+            in ("cross-site", "same-site")
 
     def _is_private(self):
         """Loopback, private LAN, or Tailscale CGNAT space."""
@@ -1858,6 +1901,9 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_GET(self):
+        if self._is_browser_cross_origin():
+            self._send_json(403, {"ok": False, "error": "cross-site request"})
+            return
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
@@ -2021,6 +2067,9 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(200, device if view == "device" else usage)
 
     def do_POST(self):
+        if self._is_browser_cross_origin():
+            self._send_json(403, {"ok": False, "error": "cross-site request"})
+            return
         path = urllib.parse.urlsplit(self.path).path.rstrip("/")
         claude_permission = path == "/agents/hooks/claude/permission"
         claude_question = path == "/agents/hooks/claude/question"

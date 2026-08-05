@@ -50,3 +50,7 @@ macos/Version.xcconfig
 # yourself". Per-machine by design, so never committed.
 macos/Local.xcconfig
 telemetry/.wrangler/
+
+# Backups left by `patch` when applying hunks by hand.
+*.orig
+*.rej
