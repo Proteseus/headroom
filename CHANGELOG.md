@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.1 — 2026-08-05
+
+### Fixed
+
+- **Provider account colors now use distinct same-service shades** in Settings
+  and across the usage surfaces, while preserving explicit account overrides.
+  Thanks @leolobato for reporting the bug.
+
 ## 1.9.0 — 2026-08-05
 
 ### Changed
