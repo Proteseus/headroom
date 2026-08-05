@@ -7,6 +7,22 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.7 — 2026-08-05
+
+### Fixed
+
+- **Row tap opens the leaf; only the `link` glyph opens the browser.** Attention
+  leftover reasons no longer treat the whole row as a permalink; Integrations
+  catalog rows open their settings leaf from the title/status, not just the
+  chevron; permalink control keeps a tight hit target so it cannot steal the
+  drill-in.
+
+### Changed
+
+- **Mac Attention Dismiss all matches iPhone.** Hides every queued failure /
+  reason on this surface and acks the rollup, instead of only clearing the
+  menu-bar pip while the rows stayed put. Label is **Dismiss all**, not Clear.
+
 ## 1.8.6 — 2026-08-05
 
 ### Fixed
