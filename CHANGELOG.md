@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.5 — 2026-08-05
+
+### Fixed
+
+- **Widget cache from another build no longer blanks the watch face.** Lossy
+  decode skips bad keys instead of failing the whole snapshot; contract tests
+  cover cross-build widget payloads.
+- **Demo fixture numbers no longer masquerade as yours** on widget and watch
+  when the snapshot is clearly sample data.
+
 ## 1.8.4 — 2026-08-05
 
 ### Fixed
