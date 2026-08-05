@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.0 — 2026-08-05
+
+### Changed
+
+- **Update chrome shows installed > latest** in the popover footer and General
+  settings (for example `1.8.9 > 1.9.0`), with a spoken accessibility label.
+- **Community Pulse publishes smaller groups** (floor drops from five Macs to
+  one) and only marketing `X.Y.Z` builds at or below the update-feed release.
+- **README and marketing screenshots** refresh the Mac/iPhone shots, pair the
+  ESP32 glance next to the menu bar, and shape demo burndown curves for the
+  screenshot pipeline.
+
 ## 1.8.9 — 2026-08-05
 
 ### Added
