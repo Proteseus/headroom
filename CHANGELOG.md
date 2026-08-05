@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.6 — 2026-08-05
+
+### Fixed
+
+- **Host refuses rebound and cross-site control requests.** Origin checks block
+  browser-driven POSTs that are not same-site; synced API host allowlists are
+  validated on write.
+
 ## 1.8.5 — 2026-08-05
 
 ### Fixed
