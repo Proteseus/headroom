@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.8.4",
-  "published": "2026-08-05T09:24:17Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.4/Headroom-macOS.zip",
-  "sha256": "36e7c98f480c7885dea97c1efc7c9cf539285308b96eaa3beb17d40e4daa5dce",
-  "size": 5798897,
+  "version": "1.8.9",
+  "published": "2026-08-05T09:29:28Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.8.9/Headroom-macOS.zip",
+  "sha256": "cb603cea585c58214591cbfe87c1baf19c70f3e49f79a67479cbae6a02662114",
+  "size": 5851010,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Settings edits no longer vanish silently.** Host config POST failures surface\n  in the pane; iPhone settings appear in the Mac app when the companion is\n  paired.\n\n### Changed\n\n- **Timezone is settable** in General settings (host persists `timezone`).\n- **Self-hosted Plausible** accepts a custom API base URL, not just the cloud\n  host.\n- **Poll interval and repo discovery cap** are product constants again — not\n  exposed as tunables that drifted between surfaces."
+  "notes_md": "### Added\n\n- **`scripts/ship-inventory.sh`** prints the ship queue: unshipped commits since\n  the last tag, dirty paths, next patch number, and recent Release runs.\n\n### Changed\n\n- **Release workflow queues** instead of running in parallel, so duplicate\n  TestFlight uploads for the same version are less likely."
 }
