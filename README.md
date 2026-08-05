@@ -20,15 +20,24 @@ a single JSON feed. No Headroom cloud account — tokens stay on the machine.
 | **Apple Watch** | Two complications: rings, or the week's burndown |
 | **ESP32 desk board** *(optional)* | Same three rings + burndown on a Waveshare AMOLED — [docs/esp32.md](docs/esp32.md) |
 
-<p align="center">
-  <img src="docs/screenshots/macos-menubar.png" alt="macOS menu bar + popover" width="360" />
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/ios-overview.png" alt="iPhone Usage — coding quotas" width="220" />
-  <img src="docs/screenshots/ios-attention.png" alt="iPhone Attention — needs you" width="220" />
-  <img src="docs/screenshots/ios-activity.png" alt="iPhone Activity — feed and services" width="220" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/macos-menubar.png" alt="macOS menu bar + popover" width="360" />
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/esp32-glance.png" alt="ESP32 desk board" width="360" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/ios-overview.png" alt="iPhone Usage — coding quotas" width="220" />
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/ios-attention.png" alt="iPhone Attention — needs you" width="220" />
+    </td>
+  </tr>
+</table>
 
 ```
   ~/.claude / ~/.codex / Cursor / …     Mac (Python, stdlib)           Clients

@@ -39,6 +39,9 @@ firmware/.flashed_build
 *.p8
 *.mobileprovision
 
+# Screenshot pipeline scratch (shaped demo fixture).
+docs/screenshots/.demo_usage.shaped.json
+
 # Generated on every build from host/VERSION + the commit count
 # (scripts/version-env.sh --write-xcconfig, run by sync-embedded-host.sh
 # before xcodegen and again as an Xcode build phase). Tracking it meant a

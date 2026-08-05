@@ -14,7 +14,7 @@ const ALLOWED_FEATURES = new Set([
   "phone_paired", "agent_gateway_enabled", "multi_mac_enabled",
 ]);
 
-const COMMUNITY_MINIMUM_GROUP_SIZE = 5;
+const COMMUNITY_MINIMUM_GROUP_SIZE = 1;
 const COMMUNITY_WINDOW_DAYS = 30;
 
 function json(body, status = 200, extraHeaders = {}) {
@@ -119,6 +119,30 @@ function sanitize(payload) {
 
 function publicCount(count) {
   return count >= COMMUNITY_MINIMUM_GROUP_SIZE ? count : null;
+}
+
+/** Marketing versions are always X.Y.Z; drop junk like "1" or "9.9.9". */
+function compareAppVersions(left, right) {
+  const parts = (value) => String(value).split(".").map((part) => {
+    const number = Number.parseInt(part, 10);
+    return Number.isFinite(number) ? number : 0;
+  });
+  const a = parts(left);
+  const b = parts(right);
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (a[index] ?? 0) - (b[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+function publishableAppVersions(versions, maxVersion) {
+  return versions.filter((row) => {
+    if (!/^\d+\.\d+\.\d+$/.test(row.name)) return false;
+    if (maxVersion && compareAppVersions(row.name, maxVersion) > 0) return false;
+    return true;
+  });
 }
 
 function dimensionRows(rows, dimension, period) {
@@ -257,7 +281,10 @@ async function communityStats(env) {
      WHERE period IN (${periods.map(() => "?").join(",")})`
   ).bind(...periods.map((row) => row.period)).all();
   const rows = dimensionsResult.results ?? [];
-  const versions = countedItems(dimensionRows(rows, "version", latest.period));
+  const versions = publishableAppVersions(
+    countedItems(dimensionRows(rows, "version", latest.period)),
+    release?.version ?? null,
+  );
   const enabled = countedItems(
     dimensionRows(rows, "provider_enabled", latest.period));
   const used = countedItems(
@@ -389,7 +416,8 @@ export default {
       return new Response(communityPage(), {
         headers: {
           "content-type": "text/html; charset=utf-8",
-          "cache-control": "public, max-age=300",
+          // Inline page JS ships with the Worker; don't cache across deploys.
+          "cache-control": "no-store",
         },
       });
     }

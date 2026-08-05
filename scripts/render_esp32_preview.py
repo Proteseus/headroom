@@ -162,16 +162,115 @@ def parse_accent(value: str | None):
     return COL_DIM
 
 
-def shape_demo_burndown(device: dict):
-    """Give screenshot fixtures the staged curves used by the Apple previews.
+# Screenshot-only burndown stories. The fixture's weekly projections share one
+# timestamp (fine for contracts, a vertical stroke on a chart). Marketing
+# shots use three distinct curves instead: steady spend, a late cliff, and a
+# gentle plateau. Applied after the real projection so live /usage captures
+# still render literally.
+DEMO_BURN_PROFILES = (
+    # Steady spend, with the small pauses visible in the Mac screenshot.
+    (
+        ((-3.0, 100), (-2.72, 92), (-2.35, 92), (-1.82, 84),
+         (-1.48, 84), (-1.02, 76), (-0.55, 70), (0.0, None)),
+        3.20,
+        -29,
+        3.25,
+        False,
+    ),
+    # Quiet most of the week, then a sharp late burn and early exhaustion.
+    (
+        ((-3.0, 100), (-1.25, 100), (-0.72, 96), (-0.38, 96),
+         (-0.16, 82), (0.0, None)),
+        0.48,
+        -100,
+        3.70,
+        True,
+    ),
+    # A measured drop followed by a long, shallow forecast.
+    (
+        ((-3.0, 100), (-2.20, 100), (-1.78, 85), (-0.62, 85),
+         (0.0, None)),
+        3.20,
+        -6,
+        4.00,
+        False,
+    ),
+)
 
-    The fixture carries real schema but intentionally fake readings. Its weekly
-    projections currently share one timestamp, which is useful for contracts
-    but collapses to a vertical stroke on the board. Marketing screenshots use
-    three distinct stories instead: steady spend, a late cliff, and a gentle
-    plateau. Keep that presentation-only shaping here, after the real device
-    projection, so arbitrary /usage captures still render literally.
-    """
+
+def _apply_demo_burn_profile(pool: dict, profile, now: int, *, device: bool):
+    """Rewrite one pool's curve in either /usage or device_view shape."""
+    day = 86400
+    actual_pts, forecast_days, forecast_delta, reset_days, warn = profile
+    key = "pts" if device else "actual"
+    samples = pool.get(key) or []
+    if not samples:
+        return
+    remaining = float(samples[-1][1])
+    pool[key] = [
+        [int(now + offset * day), remaining if value is None else value]
+        for offset, value in actual_pts
+    ]
+    forecast_remaining = max(0.0, remaining + forecast_delta)
+    proj = [
+        [now, remaining],
+        [int(now + forecast_days * day), forecast_remaining],
+    ]
+    if device:
+        pool["proj"] = proj
+        pool["t1"] = int(now + reset_days * day)
+        pool["warn"] = warn
+    else:
+        pool["projected"] = proj
+        pool["window_end"] = float(now + reset_days * day)
+        if warn:
+            pool["exhausts_before_reset"] = True
+            pool["exhausted"] = forecast_remaining <= 0
+        used = 100.0 - remaining
+        pool["remaining_pct"] = remaining
+        pool["used_pct"] = used
+
+
+def shape_demo_usage_burndown(doc: dict):
+    """Shape full /usage burndown curves for Apple + ESP32 screenshots."""
+    focus = list(doc.get("focus") or [])[:3]
+    if not focus:
+        focus = [
+            row.get("id")
+            for row in (doc.get("providers") or [])
+            if row.get("id")
+        ][:3]
+    burns = doc.get("burndown") or {}
+    targets = []
+    for provider_id in focus:
+        pools = burns.get(provider_id) or {}
+        # Same pick OverviewBurndownCard / overviewBurndown use.
+        pool_key = "total" if provider_id == "cursor" else "week"
+        pool = pools.get(pool_key)
+        if pool is None and pool_key != "week":
+            pool = pools.get("week")
+            pool_key = "week"
+        if not pool or not (pool.get("actual") or []):
+            continue
+        targets.append((provider_id, pool_key, pool))
+    if not targets:
+        return
+
+    now = max(int(pool["actual"][-1][0]) for _, _, pool in targets)
+    for index, (_, _, pool) in enumerate(targets):
+        profile = DEMO_BURN_PROFILES[min(index, len(DEMO_BURN_PROFILES) - 1)]
+        _apply_demo_burn_profile(pool, profile, now, device=False)
+
+    # Keep the primary pointer in step with the first shaped pool.
+    primary_id, primary_key, primary_pool = targets[0]
+    primary = dict(primary_pool)
+    primary["provider"] = primary_id
+    primary["pool"] = primary_key
+    doc["burndown_primary"] = primary
+
+
+def shape_demo_burndown(device: dict):
+    """Shape device_view burndown curves for ESP32 marketing shots."""
     providers = (device.get("providers") or [])[:3]
     burns = device.get("burndown") or {}
     ready = [
@@ -183,56 +282,12 @@ def shape_demo_burndown(device: dict):
         return
 
     now = max(int(burn["pts"][-1][0]) for burn in ready)
-    day = 86400
-    profiles = (
-        # Steady spend, with the small pauses visible in the Mac screenshot.
-        (
-            ((-3.0, 100), (-2.72, 92), (-2.35, 92), (-1.82, 84),
-             (-1.48, 84), (-1.02, 76), (-0.55, 70), (0.0, None)),
-            3.20,
-            -29,
-            3.25,
-            False,
-        ),
-        # Quiet most of the week, then a sharp late burn and early exhaustion.
-        (
-            ((-3.0, 100), (-1.25, 100), (-0.72, 96), (-0.38, 96),
-             (-0.16, 82), (0.0, None)),
-            0.48,
-            -100,
-            3.70,
-            True,
-        ),
-        # A measured drop followed by a long, shallow forecast.
-        (
-            ((-3.0, 100), (-2.20, 100), (-1.78, 85), (-0.62, 85),
-             (0.0, None)),
-            3.20,
-            -6,
-            4.00,
-            False,
-        ),
-    )
-
     for index, provider in enumerate(providers):
         burn = burns.get(provider.get("id"), {})
         if not burn.get("pts"):
             continue
-        remaining = float(burn["pts"][-1][1])
-        actual, forecast_days, forecast_delta, reset_days, warn = profiles[
-            min(index, len(profiles) - 1)
-        ]
-        burn["pts"] = [
-            [int(now + offset * day), remaining if value is None else value]
-            for offset, value in actual
-        ]
-        forecast_remaining = max(0.0, remaining + forecast_delta)
-        burn["proj"] = [
-            [now, remaining],
-            [int(now + forecast_days * day), forecast_remaining],
-        ]
-        burn["t1"] = int(now + reset_days * day)
-        burn["warn"] = warn
+        profile = DEMO_BURN_PROFILES[min(index, len(DEMO_BURN_PROFILES) - 1)]
+        _apply_demo_burn_profile(burn, profile, now, device=True)
 
 
 def timezone_offset_seconds(updated: str) -> int:
@@ -967,7 +1022,7 @@ def frame_device(panel: Image.Image, scale: int = 3) -> Image.Image:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="Path to /usage JSON (glance state)")
-    parser.add_argument("--out", required=True, help="Output PNG path")
+    parser.add_argument("--out", help="Output PNG path")
     parser.add_argument(
         "--state",
         choices=("glance", "no-host"),
@@ -1002,6 +1057,11 @@ def main():
         help="Shape screenshot-only burndown stories like the Apple previews",
     )
     parser.add_argument(
+        "--write-shaped-fixture",
+        metavar="PATH",
+        help="Write /usage JSON with demo burndown curves and exit (no PNG)",
+    )
+    parser.add_argument(
         "--home-mode",
         choices=("daily", "history", "spend", "burndown"),
         default="daily",
@@ -1010,6 +1070,20 @@ def main():
     parser.add_argument("--raw", action="store_true", help="Skip device bezel")
     parser.add_argument("--scale", type=int, default=3)
     args = parser.parse_args()
+
+    if args.write_shaped_fixture:
+        if not args.input:
+            parser.error("--input is required with --write-shaped-fixture")
+        doc = json.loads(Path(args.input).read_text())
+        shape_demo_usage_burndown(doc)
+        out_path = Path(args.write_shaped_fixture)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(doc))
+        print(f"wrote {out_path}")
+        return
+
+    if not args.out:
+        parser.error("--out is required unless --write-shaped-fixture is set")
 
     if args.state == "no-host":
         panel = render_no_host()

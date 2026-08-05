@@ -173,7 +173,12 @@ extension SettingsView {
     }
 
     var updateStatus: String {
-        if let found = updates.available { return "\(found.version) available" }
+        if let found = updates.available {
+            return HeadroomCopy.newVersionAvailable(
+                from: UpdateCheck.installedVersion,
+                to: found.version
+            )
+        }
         if updates.lastChecked != nil { return HeadroomCopy.upToDate }
         return UpdateCheck.installedVersion
     }

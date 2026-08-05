@@ -9,12 +9,28 @@ APP_BUILD="$ROOT/macos/.build/Build/Products/Debug/Headroom.app"
 IOS_DERIVED="$ROOT/macos/.build-ios-shots"
 IOS_SIM_NAME="${HEADROOM_IOS_SIM:-iPhone 17}"
 
+# HeadroomMobile embeds the watch app; the default Xcode reports a watchOS SDK
+# but resolves destinations to "watchOS 26.5 is not installed". Prefer beta.
+if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode-beta.app/Contents/Developer ]]; then
+  export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+fi
+
 mkdir -p "$OUT"
 
 if [[ ! -x "$VENV/bin/python" ]]; then
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install -q pillow
 fi
+
+# Contract fixture keeps linear week curves + collapsed projections. Marketing
+# shots need the staged stories shape_demo_usage_burndown writes — same ones
+# --demo-burndown applies on the device projection.
+SHAPED="$OUT/.demo_usage.shaped.json"
+echo "→ shape demo burndown for screenshots"
+"$VENV/bin/python" "$ROOT/scripts/render_esp32_preview.py" \
+  --input "$FIXTURE" \
+  --write-shaped-fixture "$SHAPED"
+FIXTURE="$SHAPED"
 
 echo "→ ESP32 glance preview"
 "$VENV/bin/python" "$ROOT/scripts/render_esp32_preview.py" \

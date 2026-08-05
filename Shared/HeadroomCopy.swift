@@ -652,7 +652,17 @@ enum HeadroomCopy {
     static let checkingForUpdates = "Checking…"
     static let upToDate = "Up to date"
     static let installUpdate = "Install and restart"
-    static let newVersionAvailable = "New version available"
+    /// Popover footer and Settings status when a newer build is on the feed.
+    /// Left is what this copy is; right is what the feed offers.
+    static func newVersionAvailable(from installed: String, to latest: String) -> String {
+        "\(installed) > \(latest)"
+    }
+    static func newVersionAvailableAccessibility(
+        from installed: String,
+        to latest: String
+    ) -> String {
+        "New version available: \(installed) to \(latest), install Headroom \(latest)"
+    }
     /// Said to a copy that is not in /Applications, so it must not replace
     /// itself. Names the reason rather than greying a button with no comment.
     static let updatesNotFromHere =

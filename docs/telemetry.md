@@ -81,13 +81,15 @@ The public Community Pulse is a read-only aggregate view at the Worker’s
 
 - weekly active Macs across the retention window (empty and sub-threshold
   weeks stay on the axis as withheld);
-- build spread / version distribution against the current update-feed release;
+- build spread / version distribution against the current update-feed release
+  (`X.Y.Z` only, capped at that release — junk and ahead-of-feed builds stay out);
 - CPU architecture, macOS major version, and country mix (edge geo codes);
 - service adoption in three lanes — enabled, used, and healthy;
 - model-family shares and coarse feature adoption.
 
-It never publishes raw rows. Any group smaller than five contributing Macs is
-withheld, so the dashboard says “growing” while the community is still small.
+It never publishes raw rows. Empty groups stay withheld; any group with at
+least one contributing Mac is published. The floor used to be five while the
+community was still tiny; it is one now so early signal shows.
 
 The page, JSON route, rollup schema, and styling are all open in `telemetry/`,
 so the community can audit or self-host them.

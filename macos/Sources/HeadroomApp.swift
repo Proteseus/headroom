@@ -143,6 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AttentionAck.dismissedFingerprint = nil
         UserDefaults.standard.set("overview", forKey: "selectedDashboard")
+        // Usage · Attention · Activity — pin Usage so a leftover Attention
+        // selection from a previous launch does not ship in the README shot.
+        UserDefaults.standard.set(
+            DashboardMode.overview.rawValue,
+            forKey: "selectedDashboardMode")
         // Belt and braces: this path returns before the welcome window is even
         // built, but a shipped screenshot must never be onboarding.
         UserDefaults.standard.set(

@@ -529,7 +529,10 @@ struct DashboardView: View {
                     }
                 } label: {
                     Label(
-                        HeadroomCopy.newVersionAvailable,
+                        HeadroomCopy.newVersionAvailable(
+                            from: UpdateCheck.installedVersion,
+                            to: update.version
+                        ),
                         systemImage: "arrow.down.circle.fill"
                     )
                         .font(.caption.weight(.semibold))
@@ -538,7 +541,10 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
                 .help("Install Headroom \(update.version)")
                 .accessibilityLabel(
-                    "\(HeadroomCopy.newVersionAvailable): install Headroom \(update.version)"
+                    HeadroomCopy.newVersionAvailableAccessibility(
+                        from: UpdateCheck.installedVersion,
+                        to: update.version
+                    )
                 )
             }
             Spacer()
