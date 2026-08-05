@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Nested under Sync — see docs/multi-mac.md for the sync design.
+/// A sidebar root — see docs/multi-mac.md for the sync design.
 extension SettingsView {
     var otherMacsPane: some View {
         Form {

@@ -287,8 +287,6 @@ struct SettingsView: View {
             codingAgentsPane
         case .iPhone:
             iPhonePane
-        case .sync:
-            syncPane
         case .telemetry:
             telemetryPane
         case .integrations:

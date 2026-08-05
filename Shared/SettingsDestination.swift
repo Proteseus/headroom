@@ -3,8 +3,8 @@ import Foundation
 /// Settings navigation graph shared by macOS and iOS.
 ///
 /// Root order mirrors user intent (General → providers → watches → agents →
-/// sync → telemetry → About). Nested leaves sit under Integrations and
-/// Integrations (every watchable thing, see `SettingsIntegration`).
+/// devices → telemetry → About). Nested leaves sit under Integrations
+/// (every watchable thing, see `SettingsIntegration`).
 ///
 /// Integrations is one catalog of what you watch on Activity (and connect).
 /// Claude Code and Codex connection leaves live under Agents.
@@ -18,13 +18,13 @@ enum SettingsDestination: Hashable, Sendable {
     case sources
     case codingAgents
     case iPhone
-    case sync
     case telemetry
     case integrations
     case about
 
-    /// Legacy leaf retained for state restoration; the Mac sidebar now places
-    /// this section beside iPhone under Sync.
+    /// The other Macs sharing this one's settings. A sidebar root beside
+    /// iPhone — the two used to be unlabeled sections inside a "Sync" pane
+    /// that neither named, so nothing in Settings said "iPhone" out loud.
     case otherMacs
     /// Nested under Integrations.
     case integration(SettingsIntegration)
@@ -34,9 +34,13 @@ enum SettingsDestination: Hashable, Sendable {
     case permissions
 
     /// Mac sidebar roots — short, fixed, progressive disclosure below.
+    ///
+    /// iPhone and Other Macs are named here rather than folded into one
+    /// "Sync" row: a person looking for phone permissions searches for the
+    /// word iPhone, and onboarding's phone step points at `.iPhone`.
     static let macRoots: [SettingsDestination] = [
-        .general, .sources, .integrations, .codingAgents, .sync, .telemetry,
-        .about,
+        .general, .sources, .integrations, .codingAgents, .iPhone, .otherMacs,
+        .telemetry, .about,
     ]
 
     /// iPhone Settings tab roots. Connection is the phone’s view of pairing;
@@ -54,7 +58,6 @@ enum SettingsDestination: Hashable, Sendable {
         case .sources: return HeadroomCopy.settingsSources
         case .codingAgents: return HeadroomCopy.codingAgents
         case .iPhone: return HeadroomCopy.settingsiPhone
-        case .sync: return HeadroomCopy.settingsSync
         case .telemetry: return HeadroomCopy.settingsTelemetry
         case .integrations: return HeadroomCopy.settingsIntegrations
         case .about: return HeadroomCopy.about
@@ -71,7 +74,6 @@ enum SettingsDestination: Hashable, Sendable {
         case .sources: return "checklist"
         case .codingAgents: return "cpu"
         case .iPhone: return "iphone"
-        case .sync: return "arrow.triangle.2.circlepath"
         case .telemetry: return "chart.xyaxis.line"
         case .integrations: return "link"
         case .about: return "info.circle"
@@ -90,7 +92,7 @@ enum SettingsDestination: Hashable, Sendable {
     /// typing a key, and keys are never entered on the phone.
     var isMacOnly: Bool {
         switch self {
-        case .general, .codingAgents, .sync, .telemetry, .otherMacs, .integration:
+        case .general, .codingAgents, .telemetry, .otherMacs, .integration:
             return true
         case .integrations, .sources, .iPhone, .about, .connection,
              .permissions:

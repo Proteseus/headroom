@@ -61,6 +61,8 @@ extension SettingsView {
                         }
                     }
                 }
+            } header: {
+                Text(HeadroomCopy.settingsPermissions)
             } footer: {
                 Text("Copy mobile token (~/.headroom/mobile-token), open Headroom on iPhone, tap this Mac, paste once. Do not use the host token (that’s for the ESP32). Tailscale names remain available as a fallback.")
             }

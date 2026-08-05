@@ -38,6 +38,16 @@ extension SettingsView {
                 }
             TextField("Organization slug", text: $sentryOrgDraft)
                 .onSubmit { Task { await saveSentryOrg() } }
+            // Return alone used to be the only way to commit the slug, so
+            // typing one and clicking elsewhere threw the edit away with
+            // nothing on screen to suggest it had.
+            HStack {
+                Button(HeadroomCopy.settingsSave) {
+                    Task { await saveSentryOrg() }
+                }
+                .disabled(isSyncing)
+                Spacer()
+            }
             HStack {
                 if sentryTokenDraft.isEmpty {
                     Button(HeadroomCopy.settingsRefresh) {
@@ -102,6 +112,15 @@ extension SettingsView {
                 }
             TextField("Site", text: $datadogSiteDraft)
                 .onSubmit { Task { await saveDatadogSite() } }
+            // See the Sentry slug above: Return-only lost silent edits.
+            HStack {
+                Button(HeadroomCopy.settingsSave) {
+                    Task { await saveDatadogSite() }
+                }
+                .disabled(isSyncing || datadogSiteDraft
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Spacer()
+            }
             HStack {
                 if datadogAPIDraft.isEmpty, datadogAppDraft.isEmpty {
                     Button(HeadroomCopy.settingsRefresh) {
@@ -163,6 +182,15 @@ extension SettingsView {
                 .onSubmit { Task { await saveAxiomConfig() } }
             TextField("Org id (PAT)", text: $axiomOrgDraft)
                 .onSubmit { Task { await saveAxiomConfig() } }
+            // One button for both fields, because `saveAxiomConfig` writes
+            // them together. See the Sentry slug above.
+            HStack {
+                Button(HeadroomCopy.settingsSave) {
+                    Task { await saveAxiomConfig() }
+                }
+                .disabled(isSyncing)
+                Spacer()
+            }
             HStack {
                 if axiomTokenDraft.isEmpty {
                     Button(HeadroomCopy.settingsRefresh) {

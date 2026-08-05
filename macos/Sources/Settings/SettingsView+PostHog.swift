@@ -71,6 +71,17 @@ extension SettingsView {
                 .onSubmit {
                     Task { await savePostHogHost() }
                 }
+                // Return alone used to be the only way to commit this, so
+                // typing a host and clicking elsewhere threw the edit away
+                // with nothing on screen to suggest it had.
+                HStack {
+                    Button(HeadroomCopy.settingsSave) {
+                        Task { await savePostHogHost() }
+                    }
+                    .disabled(isSyncing || posthogHostDraft
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer()
+                }
             }
             Picker("Window", selection: Binding(
                 get: { posthogRange },
