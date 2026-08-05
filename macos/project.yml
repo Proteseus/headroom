@@ -139,6 +139,7 @@ targets:
     sources:
       - path: ../widget/HeadroomWidget.swift
       - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/LossyDecode.swift
       - path: ../Shared/HeadroomRings.swift
       - path: ../Shared/HeadroomCopy.swift
       # Palette and chart geometry only — all three are deliberately free of
@@ -169,6 +170,7 @@ targets:
     sources:
       - path: ../widget/HeadroomWidget.swift
       - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/LossyDecode.swift
       - path: ../Shared/HeadroomRings.swift
       - path: ../Shared/HeadroomCopy.swift
       - path: ../Shared/HeadroomPalette.swift
@@ -206,6 +208,7 @@ targets:
       # geometry — the same files the widgets compile, and deliberately free of
       # the model layer so neither has to.
       - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/LossyDecode.swift
       - path: ../Shared/WidgetSnapshotPresentation.swift
       - path: ../Shared/HeadroomRings.swift
       - path: ../Shared/HeadroomCopy.swift
@@ -247,6 +250,7 @@ targets:
       # own screen does.
       - path: ../watch/Shared
       - path: ../Shared/WidgetSnapshot.swift
+      - path: ../Shared/LossyDecode.swift
       - path: ../Shared/WidgetSnapshotPresentation.swift
       - path: ../Shared/HeadroomRings.swift
       - path: ../Shared/HeadroomCopy.swift

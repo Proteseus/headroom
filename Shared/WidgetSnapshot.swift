@@ -96,6 +96,36 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
             /// chart does not paint a renewal rule from it.
             var windowEnd: Double?
             var exhausted: Bool?
+
+            init(
+                actual: [[Double]] = [],
+                projected: [[Double]] = [],
+                history: [[Double]]? = nil,
+                windowEnd: Double? = nil,
+                exhausted: Bool? = nil
+            ) {
+                self.actual = actual
+                self.projected = projected
+                self.history = history
+                self.windowEnd = windowEnd
+                self.exhausted = exhausted
+            }
+
+            /// An absent curve is an empty one, never a decode failure — the
+            /// chart simply has nothing to draw for it.
+            init(from decoder: Decoder) throws {
+                let row = try decoder.container(keyedBy: CodingKeys.self)
+                actual = try row.decodeIfPresent(
+                    [[Double]].self, forKey: .actual) ?? []
+                projected = try row.decodeIfPresent(
+                    [[Double]].self, forKey: .projected) ?? []
+                history = try row.decodeIfPresent(
+                    [[Double]].self, forKey: .history)
+                windowEnd = try row.decodeIfPresent(
+                    Double.self, forKey: .windowEnd)
+                exhausted = try row.decodeIfPresent(
+                    Bool.self, forKey: .exhausted)
+            }
         }
 
         var id: String
@@ -114,12 +144,79 @@ struct HeadroomWidgetSnapshot: Codable, Sendable {
         /// Also optional: a provider with no history yet has no line to draw,
         /// and the wide widget falls back to rings when none of them do.
         var burndown: Series?
+
+        init(
+            id: String,
+            title: String,
+            name: String? = nil,
+            percent: Double = 0,
+            accent: String? = nil,
+            layers: [Layer]? = nil,
+            burndown: Series? = nil
+        ) {
+            self.id = id
+            self.title = title
+            self.name = name
+            self.percent = percent
+            self.accent = accent
+            self.layers = layers
+            self.burndown = burndown
+        }
+
+        /// Only `id` is genuinely required: it is identity, and a row without
+        /// one cannot be drawn or told apart. Everything else falls back, so a
+        /// cache written by a different build costs at most a label.
+        init(from decoder: Decoder) throws {
+            let row = try decoder.container(keyedBy: CodingKeys.self)
+            id = try row.decode(String.self, forKey: .id)
+            title = try row.decodeIfPresent(String.self, forKey: .title) ?? id
+            name = try row.decodeIfPresent(String.self, forKey: .name)
+            percent = try row.decodeIfPresent(
+                Double.self, forKey: .percent) ?? 0
+            accent = try row.decodeIfPresent(String.self, forKey: .accent)
+            layers = try row.decodeLossyArrayIfPresent(
+                Layer.self, forKey: .layers)
+            burndown = try row.decodeIfPresent(Series.self, forKey: .burndown)
+        }
     }
 
     var updatedAt: Date
     var attentionLevel: String?
     var attentionSummary: String?
     var providers: [Provider]
+
+    init(
+        updatedAt: Date,
+        attentionLevel: String? = nil,
+        attentionSummary: String? = nil,
+        providers: [Provider] = []
+    ) {
+        self.updatedAt = updatedAt
+        self.attentionLevel = attentionLevel
+        self.attentionSummary = attentionSummary
+        self.providers = providers
+    }
+
+    /// Tolerant on purpose, and more so than `/usage` needs to be.
+    ///
+    /// This cache outlives the build that wrote it, and on the watch it is
+    /// the only thing a complication ever sees — `WatchSnapshotCache` decodes
+    /// with `try?`, so a single unreadable key would not show an error, it
+    /// would show the placeholder forever, with nothing to say why. A missing
+    /// `updatedAt` therefore reads as `distantPast`, which `isStale` already
+    /// knows how to say out loud, and one malformed provider costs that
+    /// provider rather than the whole face.
+    init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try root.decodeIfPresent(
+            Date.self, forKey: .updatedAt) ?? .distantPast
+        attentionLevel = try root.decodeIfPresent(
+            String.self, forKey: .attentionLevel)
+        attentionSummary = try root.decodeIfPresent(
+            String.self, forKey: .attentionSummary)
+        providers = try root.decodeLossyArrayIfPresent(
+            Provider.self, forKey: .providers) ?? []
+    }
 
     /// Unlike the app, a widget never learns that a fetch failed — it only ever
     /// sees the cache. So it judges by age, with a couple of refresh intervals
