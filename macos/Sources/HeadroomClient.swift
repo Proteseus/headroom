@@ -391,6 +391,20 @@ struct HeadroomClient: Sendable {
             AgentGatewayConfiguration.self, from: data)
     }
 
+    func setAgentAlerts(_ enabled: Bool) async throws
+        -> AgentGatewayConfiguration {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("config")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "alerts": enabled,
+        ])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 5))
+        return try JSONDecoder().decode(
+            AgentGatewayConfiguration.self, from: data)
+    }
+
     func fetchMultiMacConfiguration() async throws -> MultiMacConfiguration {
         let url = try base()
             .appendingPathComponent("machines")
@@ -923,6 +937,8 @@ struct AgentGatewayConfiguration: Decodable, Sendable {
     var ok: Bool
     var enabled: Bool
     var codexBinary: String
+    /// Optional for compatibility with hosts from before Agent alerts.
+    var alerts: Bool?
     var provider: AgentProviderStatus
 
     enum CodingKeys: String, CodingKey {

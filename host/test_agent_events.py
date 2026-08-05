@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 import agent_events
 import agent_gateway
@@ -180,6 +181,32 @@ class EventStoreTests(unittest.TestCase):
         self.assertEqual(other_payload[0]["machine_name"], "Laptop")
         self.assertEqual(first_payload[0]["session_id"],
                          other_payload[0]["session_id"])
+
+    @mock.patch("agent_gateway.app_config.agent_alerts", return_value=False)
+    def test_events_hide_passive_alerts_but_keep_questions_and_approvals(
+        self, _alerts
+    ):
+        passive = self.create(
+            "passive", kind="agent_waiting", title="Ready",
+            summary="Ready for your next instruction")
+        question = self.create(
+            "question", kind="structured_question", title="Pick one",
+            summary="Which option?", actions=[
+                {"id": "dismiss", "label": "Dismiss", "risk": "safe"},
+            ])
+        approval = self.create("approval")
+        gateway = agent_gateway.AgentGateway(
+            store=self.store,
+            codex=FakeAdapter(),
+            claude=FakeAdapter(),
+            machine={"id": "mac-studio-1", "name": "Studio"},
+        )
+
+        visible = gateway.events()["events"]
+
+        self.assertNotIn(passive["id"], [row["id"] for row in visible])
+        self.assertIn(question["id"], [row["id"] for row in visible])
+        self.assertIn(approval["id"], [row["id"] for row in visible])
 
 
 class RetentionTests(unittest.TestCase):

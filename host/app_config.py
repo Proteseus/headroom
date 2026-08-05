@@ -46,6 +46,9 @@ DEFAULTS = {
     # never launch a coding agent behind the user's back.
     "agent_gateway_enabled": False,
     "codex_binary": "codex",
+    # Passive agent notices are useful when coordinating several sessions, but
+    # questions and approvals remain visible when this is off.
+    "agent_alerts": True,
     # Escape hatch for a Gemini CLI install the host cannot find, or a future
     # layout it cannot read. The equivalent env vars are documented but do not
     # survive: the app rewrites the LaunchAgent plist on every host install.
@@ -664,6 +667,18 @@ def codex_binary():
     """Executable used for the Codex App Server child process."""
     value = str(get("codex_binary") or DEFAULTS["codex_binary"]).strip()
     return os.path.expanduser(value or DEFAULTS["codex_binary"])
+
+
+def agent_alerts():
+    """Whether passive coding-agent notices appear in the attention feed."""
+    return get("agent_alerts") is True
+
+
+def set_agent_alerts(enabled):
+    if not isinstance(enabled, bool):
+        raise ValueError("alerts must be true or false")
+    _persist(agent_alerts=enabled)
+    return agent_alerts()
 
 
 def gemini_oauth_client():

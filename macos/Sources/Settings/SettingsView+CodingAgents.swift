@@ -4,6 +4,22 @@ import SwiftUI
 extension SettingsView {
     var codingAgentsPane: some View {
         Form {
+            Section {
+                Toggle(
+                    HeadroomCopy.agentAlerts,
+                    isOn: Binding(
+                        get: { agentAlerts },
+                        set: { enabled in
+                            agentAlerts = enabled
+                            Task { await saveAgentAlerts() }
+                        }
+                    )
+                )
+                .disabled(endpointIsRemote || changingAgentAlerts)
+            } footer: {
+                Text(HeadroomCopy.agentAlertsHelp)
+            }
+
             if let surface = agentTaskSurface, !surface.startable.isEmpty {
                 Section {
                     StartAgentTaskView(
@@ -177,6 +193,7 @@ extension SettingsView {
         do {
             let configuration = try await client.fetchAgentGatewayConfiguration()
             agentGatewayEnabled = configuration.enabled
+            agentAlerts = configuration.alerts ?? true
             codexBinary = configuration.codexBinary
             agentProviderStatus = configuration.provider
         } catch {
@@ -254,6 +271,7 @@ extension SettingsView {
                 configuration = try await client.fetchAgentGatewayConfiguration()
             }
             agentGatewayEnabled = configuration.enabled
+            agentAlerts = configuration.alerts ?? agentAlerts
             codexBinary = configuration.codexBinary
             agentProviderStatus = configuration.provider
             agentGatewayMessage = configuration.enabled
@@ -261,6 +279,19 @@ extension SettingsView {
                     ? "Codex App Server is ready."
                     : configuration.provider.error)
                 : "Gateway is off."
+        } catch {
+            agentGatewayMessage = error.localizedDescription
+            await reloadAgentGateway()
+        }
+    }
+
+    func saveAgentAlerts() async {
+        guard !changingAgentAlerts else { return }
+        changingAgentAlerts = true
+        defer { changingAgentAlerts = false }
+        do {
+            let configuration = try await client.setAgentAlerts(agentAlerts)
+            agentAlerts = configuration.alerts ?? agentAlerts
         } catch {
             agentGatewayMessage = error.localizedDescription
             await reloadAgentGateway()

@@ -34,6 +34,9 @@ see [`attention.md`](attention.md).
   older host can still be read by a newer phone.
 - A separate `agents` mobile permission. It is off by default, even when the
   ordinary iPhone dashboard permissions use their defaults.
+- An **Agent alerts** setting. When off, passive `agent_waiting` notices such
+  as "Ready for your next instruction" stay out of the shared feed and phone
+  notifications; questions, choices, and approvals remain visible.
 - iPhone feed rows, local notifications, and in-app responses. Privileged
   actions marked `requires_biometric` invoke device-owner authentication.
 
@@ -49,7 +52,8 @@ The equivalent config, useful for headless hosts, is:
 ```json
 {
   "agent_gateway_enabled": true,
-  "codex_binary": "codex"
+  "codex_binary": "codex",
+  "agent_alerts": true
 }
 ```
 

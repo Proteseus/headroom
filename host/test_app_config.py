@@ -44,6 +44,7 @@ class AppConfigTests(unittest.TestCase):
         )
         self.assertFalse(app_config.agent_gateway_enabled())
         self.assertEqual(app_config.codex_binary(), "codex")
+        self.assertTrue(app_config.agent_alerts())
 
     def test_overrides_from_file(self):
         with open(self.path, "w") as handle:
@@ -64,6 +65,7 @@ class AppConfigTests(unittest.TestCase):
                 "mobile_permissions": ["read", "sources", "agents", "unknown"],
                 "agent_gateway_enabled": True,
                 "codex_binary": "/opt/codex",
+                "agent_alerts": False,
             }, handle)
         app_config.reload()
         self.assertEqual(app_config.timezone_name(), "America/Los_Angeles")
@@ -85,6 +87,7 @@ class AppConfigTests(unittest.TestCase):
             app_config.mobile_permissions(), {"read", "sources", "agents"})
         self.assertTrue(app_config.agent_gateway_enabled())
         self.assertEqual(app_config.codex_binary(), "/opt/codex")
+        self.assertFalse(app_config.agent_alerts())
 
     def test_a_bare_org_prefix_string_still_works(self):
         """Configs written before the key took a list must keep working."""
@@ -196,6 +199,12 @@ class AppConfigTests(unittest.TestCase):
         self.assertTrue(result["enabled"])
         self.assertTrue(result["codex_binary"].endswith("/bin/codex"))
         self.assertTrue(app_config.agent_gateway_enabled())
+
+    def test_persists_agent_alerts(self):
+        self.assertFalse(app_config.set_agent_alerts(False))
+        self.assertFalse(app_config.agent_alerts())
+        with self.assertRaises(ValueError):
+            app_config.set_agent_alerts("off")
 
     def test_persists_attention_ack_without_losing_other_config(self):
         with open(self.path, "w") as handle:

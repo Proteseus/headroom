@@ -148,12 +148,14 @@ struct SettingsView: View {
     @State var mobilePermissions = MobilePermissions.allEnabled
     @State var changingMobilePermission: MobilePermission?
     @State var agentGatewayEnabled = false
+    @State var agentAlerts = true
     @State var codexBinary = "codex"
     @State var agentProviderStatus: AgentProviderStatus?
     @State var agentGatewayMessage: String?
     @State var agentTaskSurface: AgentTaskSurface?
     @State var pickedTaskFolder: String?
     @State var changingAgentGateway = false
+    @State var changingAgentAlerts = false
     @State var claudeHooks: ClaudeHookConfiguration?
     @State var claudeHooksMessage: String?
     @State var changingClaudeHooks = false

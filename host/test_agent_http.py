@@ -22,6 +22,7 @@ class FakeGateway:
             "ok": True,
             "enabled": False,
             "codex_binary": "codex",
+            "alerts": True,
             "provider": {"provider": "codex", "connection": "disabled"},
         }
 
@@ -150,6 +151,16 @@ class AgentHTTPTests(unittest.TestCase):
         set_gateway.assert_called_once_with(
             enabled=True, codex_binary_value="/opt/codex")
         self.assertIn(("reconfigure",), self.gateway.calls)
+
+    @mock.patch("headroom_server.app_config.set_agent_alerts")
+    def test_mac_can_toggle_agent_alerts_without_restarting_codex(
+        self, set_alerts
+    ):
+        status, result = self.post("/agents/config", {"alerts": False})
+        self.assertEqual(status, 200)
+        set_alerts.assert_called_once_with(False)
+        self.assertNotIn(("reconfigure",), self.gateway.calls)
+        self.assertTrue(result["ok"])
 
     def test_missing_event_maps_to_not_found(self):
         status, result = self.post("/attention/events/missing/respond", {

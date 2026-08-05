@@ -2298,11 +2298,19 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/agents/config":
             try:
-                app_config.set_agent_gateway(
-                    enabled=payload.get("enabled"),
-                    codex_binary_value=payload.get("codex_binary"),
+                if "alerts" in payload:
+                    app_config.set_agent_alerts(payload["alerts"])
+                has_gateway_update = (
+                    "enabled" in payload or "codex_binary" in payload
                 )
-                result = agent_gateway.get().reconfigure()
+                if has_gateway_update:
+                    app_config.set_agent_gateway(
+                        enabled=payload.get("enabled"),
+                        codex_binary_value=payload.get("codex_binary"),
+                    )
+                    result = agent_gateway.get().reconfigure()
+                else:
+                    result = agent_gateway.get().configuration()
             except ValueError as error:
                 self._send_json(400, {"ok": False, "error": str(error)})
                 return

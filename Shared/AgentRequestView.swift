@@ -68,8 +68,8 @@ struct AgentRequestView: View {
         field.kind == "code" || field.kind == "json"
     }
 
-    /// A choice draws as its own list of bullets, so its newlines are
-    /// structure rather than length — expanding would change nothing.
+    /// A choice draws as its own list of pills, so its newlines are structure
+    /// rather than length — expanding would change nothing.
     private func isMultiline(_ field: AgentRequestField) -> Bool {
         guard field.kind != "choice" else { return false }
         return field.value.contains("\n") || field.value.count > Self.inlineLimit
@@ -78,19 +78,24 @@ struct AgentRequestView: View {
     @ViewBuilder
     private func fieldView(_ field: AgentRequestField) -> some View {
         if field.kind == "choice" {
-            // The options Claude is offering. Listed, not tapped: no hook can
-            // return the selection, so a button here would be a lie. You pick
-            // on the Mac; this is so you know what is waiting.
+            // The options Claude is offering. Presented, not tapped: no hook
+            // can return the selection, so a button here would be a lie. You
+            // pick on the Mac; the pills make the choices easy to scan while
+            // still wrapping long labels safely.
             VStack(alignment: .leading, spacing: 2) {
                 label(field)
                 ForEach(
                     Array(field.value.split(separator: "\n").enumerated()),
                     id: \.offset
                 ) { _, option in
-                    Text("• \(option)")
+                    Text(String(option))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.quaternary.opacity(0.5), in: Capsule())
                 }
             }
         } else if isMultiline(field) || isBulk(field) {
