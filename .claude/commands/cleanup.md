@@ -19,7 +19,8 @@ disagree, `AGENTS.md` wins.
 ## 0. Check nobody else is live
 
 `git worktree list`, `git status`, and `git log --all -20 --format='%h %cr %s'`.
-If another session looks like it is mid-change (a worktree you did not make,
+Run `./scripts/ship-inventory.sh` for a one-screen queue (unshipped commits,
+dirty paths, next version, recent Release runs). If another session looks like it is mid-change (a worktree you did not make,
 commits from the last few minutes, a half-applied edit), say so and stop. This
 command rewrites nothing, but it does publish, and publishing someone's
 half-finished work is not recoverable.

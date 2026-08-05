@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.9 — 2026-08-05
+
+### Added
+
+- **`scripts/ship-inventory.sh`** prints the ship queue: unshipped commits since
+  the last tag, dirty paths, next patch number, and recent Release runs.
+
+### Changed
+
+- **Release workflow queues** instead of running in parallel, so duplicate
+  TestFlight uploads for the same version are less likely.
+
 ## 1.8.8 — 2026-08-05
 
 ### Added
