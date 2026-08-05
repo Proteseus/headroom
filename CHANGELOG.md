@@ -7,6 +7,22 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.4 — 2026-08-05
+
+### Fixed
+
+- **Settings edits no longer vanish silently.** Host config POST failures surface
+  in the pane; iPhone settings appear in the Mac app when the companion is
+  paired.
+
+### Changed
+
+- **Timezone is settable** in General settings (host persists `timezone`).
+- **Self-hosted Plausible** accepts a custom API base URL, not just the cloud
+  host.
+- **Poll interval and repo discovery cap** are product constants again — not
+  exposed as tunables that drifted between surfaces.
+
 ## 1.8.3 — 2026-08-04
 
 ### Changed
