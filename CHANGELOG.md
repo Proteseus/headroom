@@ -7,6 +7,19 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.8.8 — 2026-08-05
+
+### Added
+
+- **Agent alerts toggle** in Coding agents settings. Passive notices such as
+  “Ready for your next instruction” can be hidden; questions, choices, and
+  approvals always stay visible.
+
+### Changed
+
+- **Choice requests render as pills** on the agent request sheet instead of
+  expecting free-text only.
+
 ## 1.8.7 — 2026-08-05
 
 ### Fixed
