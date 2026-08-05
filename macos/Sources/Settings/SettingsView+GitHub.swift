@@ -83,11 +83,11 @@ extension SettingsView {
                     text: $githubAlwaysRepos,
                     prompt: Text("acme/api, ada/site")
                 )
-                Stepper(
-                    "Discover up to \(githubMaxDiscovered) repos",
-                    value: $githubMaxDiscovered,
-                    in: 0...50
-                )
+                // The discovery cap is our API budget, not a fact about your
+                // setup — docs/product.md puts that class of number in the
+                // code. Owners and Always watch are how you say which repos
+                // matter. `github_max_discovered` stays readable in
+                // config.json for anyone who needs to move it.
                 HStack {
                     Button("Save repos") {
                         Task { await saveGitHubWatch() }

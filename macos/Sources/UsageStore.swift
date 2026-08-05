@@ -23,11 +23,17 @@ final class UsageStore: ObservableObject {
     var onSnapshotChange: ((UsageSnapshot, Bool) -> Void)?
 
     /// The popover is closed most of the time, and a closed popover only feeds
-    /// three bars in the menu bar. Polling the configured interval around the
+    /// three bars in the menu bar. Polling the active interval around the
     /// clock is battery spent on pixels nobody is looking at, so idle backs off
     /// to this and opening the popover refreshes immediately.
     private static let idleInterval: TimeInterval = 300
     private static let idleAfter: TimeInterval = 120
+    /// Cadence while someone is actually looking. Hardcoded per
+    /// docs/product.md: a poll interval is a tradeoff with a right answer,
+    /// not a preference. It was briefly a Settings picker, which the three
+    /// rules around it — retry backoff, the floor, the idle escalation —
+    /// already overrode in every state but this one.
+    private static let activeInterval: TimeInterval = 60
     private var refreshLoop: Task<Void, Never>?
     private var lastInteraction = Date()
     private var cadence = RefreshCadence()
@@ -144,10 +150,10 @@ final class UsageStore: ObservableObject {
         if let retry = cadence.retryInterval {
             return retry
         }
-        let configured = UserDefaults.standard.integer(forKey: "refreshInterval")
-        let active = TimeInterval(max(15, configured > 0 ? configured : 60))
         let idleFor = Date().timeIntervalSince(lastInteraction)
-        return idleFor > Self.idleAfter ? max(active, Self.idleInterval) : active
+        return idleFor > Self.idleAfter
+            ? max(Self.activeInterval, Self.idleInterval)
+            : Self.activeInterval
     }
 
     /// Apply a decoded snapshot without hitting the network (README exports).

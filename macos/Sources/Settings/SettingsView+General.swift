@@ -183,14 +183,11 @@ extension SettingsView {
             TextField(text: $endpoint) {
                 Text("Endpoint")
             }
-            Picker(selection: $refreshInterval) {
-                Text("15 seconds").tag(15)
-                Text("30 seconds").tag(30)
-                Text("1 minute").tag(60)
-                Text("2 minutes").tag(120)
-            } label: {
-                Text(HeadroomCopy.settingsRefresh)
-            }
+            // No poll-interval control here on purpose. docs/product.md names
+            // poll intervals as a tradeoff with a right answer, and the app
+            // already overrode the chosen number three ways — retry backoff,
+            // a 15s floor, and the idle escalation — so it only applied while
+            // the popover was active and nothing was failing.
             if endpointIsRemote {
                 SecureField(
                     "Host token",

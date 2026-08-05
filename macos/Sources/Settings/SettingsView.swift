@@ -7,8 +7,6 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("usageEndpoint")
     var endpoint = "http://127.0.0.1:8737/usage"
-    @AppStorage("refreshInterval")
-    var refreshInterval = 60
     @AppStorage("activityRowLimit")
     var activityRowLimit = 8
     @AppStorage("serverRowLimit")
