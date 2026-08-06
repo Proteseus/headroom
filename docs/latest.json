@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.2",
-  "published": "2026-08-06T08:33:47Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.2/Headroom-macOS.zip",
-  "sha256": "7be6b6be493b24f26fcbc1053340d4eba4d9dcdcb712985ef63b4d48b5b6ae15",
-  "size": 5896856,
+  "version": "1.9.3",
+  "published": "2026-08-06T09:47:27Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.3/Headroom-macOS.zip",
+  "sha256": "e04baadd67becb03b4bab8d67b351a5f14b42afb0b04d5a8a5c13bd298737ebf",
+  "size": 5898114,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Per-account color picker** in Settings → Providers — each login under a\n  provider gets its own swatch; \"Derived shade\" restores the auto tint that\n  follows the provider base.\n- **Renamable provider names** — click a provider title in Settings to edit;\n  account rows pick up the new brand everywhere.\n\n### Fixed\n\n- **Provider color changes now reach every account** — stale per-account accent\n  keys left by older Settings builds are cleared when the provider swatch\n  moves, so sibling logins follow the new base instead of keeping the old hex.\n  Thanks @leolobato for the report."
+  "notes_md": "### Fixed\n\n- **Fewer Keychain password prompts on macOS** — first-run source detection\n  and Zed quota polling no longer shell out to `/usr/bin/security`; reads go\n  through `SecItemCopyMatching` with fail-closed auth UI so background polls\n  do not loop SecurityAgent. Zed Deny sticks until you refresh the source in\n  Settings, same as Claude."
 }
