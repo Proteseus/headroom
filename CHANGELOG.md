@@ -7,6 +7,23 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.2 — 2026-08-06
+
+### Added
+
+- **Per-account color picker** in Settings → Providers — each login under a
+  provider gets its own swatch; "Derived shade" restores the auto tint that
+  follows the provider base.
+- **Renamable provider names** — click a provider title in Settings to edit;
+  account rows pick up the new brand everywhere.
+
+### Fixed
+
+- **Provider color changes now reach every account** — stale per-account accent
+  keys left by older Settings builds are cleared when the provider swatch
+  moves, so sibling logins follow the new base instead of keeping the old hex.
+  Thanks @leolobato for the report.
+
 ## 1.9.1 — 2026-08-05
 
 ### Fixed
