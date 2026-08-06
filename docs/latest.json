@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.1",
-  "published": "2026-08-06T08:11:24Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.1/Headroom-macOS.zip",
-  "sha256": "5ff83fce3d58e474dd71a8b5f0c1e2f9d165845c94c30c2ae5a41a7e4610d6e4",
-  "size": 5852147,
+  "version": "1.9.2",
+  "published": "2026-08-06T08:33:47Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.2/Headroom-macOS.zip",
+  "sha256": "7be6b6be493b24f26fcbc1053340d4eba4d9dcdcb712985ef63b4d48b5b6ae15",
+  "size": 5896856,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Provider account colors now use distinct same-service shades** in Settings\n  and across the usage surfaces, while preserving explicit account overrides.\n  Thanks @leolobato for reporting the bug."
+  "notes_md": "### Added\n\n- **Per-account color picker** in Settings → Providers — each login under a\n  provider gets its own swatch; \"Derived shade\" restores the auto tint that\n  follows the provider base.\n- **Renamable provider names** — click a provider title in Settings to edit;\n  account rows pick up the new brand everywhere.\n\n### Fixed\n\n- **Provider color changes now reach every account** — stale per-account accent\n  keys left by older Settings builds are cleared when the provider swatch\n  moves, so sibling logins follow the new base instead of keeping the old hex.\n  Thanks @leolobato for the report."
 }
