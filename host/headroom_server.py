@@ -77,6 +77,7 @@ import sources_config
 import supabase_usage
 import usb_bridge
 import vercel_builds
+import zed_usage
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
@@ -2744,6 +2745,8 @@ class Handler(BaseHTTPRequestHandler):
                     source = sources_config.BY_ID.get(sid)
                     oauth_usage.rearm_keychain(
                         None if source is None else source.account)
+                elif sid == "zed":
+                    zed_usage.rearm_keychain()
             _refresh_async(wanted, require_enabled=not explicit)
             self._send_json(202, {"ok": True, "sources": wanted})
             return

@@ -322,9 +322,10 @@ found* for an item that is plainly in Keychain Access. This is the whole trap:
   working. `KeychainScope` in `macos/Sources/Keychain.swift` names the three
   cases; `keychain.read_token()` is the host's side.
 - `/usr/bin/security find-generic-password` is the legacy SecKeychain API and
-  cannot be relied on to see synced items. The three sources that shelled out
-  to it now go through `host/keychain.py`, which was already there for the
-  argv-leak reason and is the only credential read path left.
+  cannot be relied on to see synced items. Every host credential read —
+  source pollers, first-run `detect_sources` probes, and Zed's internet
+  password — goes through `host/keychain.py` (`SecItemCopyMatching`). Probes
+  pass `allow_ui=False` so seeding never pops SecurityAgent.
 - `TokenStore.adoptSync()` migrates an old local-only token at launch, ordered
   **add-then-delete**. The local copy is the only copy until the synced one is
   confirmed written. Reversing that order loses a token the user pasted in
