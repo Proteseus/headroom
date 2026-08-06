@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.3",
-  "published": "2026-08-06T09:47:27Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.3/Headroom-macOS.zip",
-  "sha256": "e04baadd67becb03b4bab8d67b351a5f14b42afb0b04d5a8a5c13bd298737ebf",
-  "size": 5898114,
+  "version": "1.9.4",
+  "published": "2026-08-06T13:42:39Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.4/Headroom-macOS.zip",
+  "sha256": "1e28b1cf22ad2279861915081ccc7fe77649a7bc3ab37d2829ccfa783c22bac5",
+  "size": 5898743,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Fewer Keychain password prompts on macOS** — first-run source detection\n  and Zed quota polling no longer shell out to `/usr/bin/security`; reads go\n  through `SecItemCopyMatching` with fail-closed auth UI so background polls\n  do not loop SecurityAgent. Zed Deny sticks until you refresh the source in\n  Settings, same as Claude."
+  "notes_md": "### Fixed\n\n- **LaunchAgent host crash loop** — 1.9.3 called `usb_bridge.enabled()`\n  without defining it, so startup died after daemon threads began and Python\n  aborted in `Py_FinalizeEx` under KeepAlive. The USB bridge is opt-in again\n  (`HEADROOM_ENABLE_USB=1`), `/dev/null` stays off the board, and SIGTERM\n  exits without finalize so launchd restarts stay clean."
 }
