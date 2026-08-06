@@ -151,11 +151,12 @@ Do not kill the holder to get your turn.
 
 That does the check and refuses to race. Use it instead of `pio run -t upload`.
 
-`Headroom.app` launches `host/headroom_server.py`, which holds
-`/dev/cu.usbmodem*` open to push `/usage` to the board over USB-CDC. Flash
-while the app is running and the two fight for the port — and **esptool does
-not fail cleanly.** It can write part of the app partition and then stop
-responding, which leaves the board unbootable.
+`Headroom.app` serves `/usage` over Wi-Fi by default. Its USB-CDC bridge is
+opt-in (`HEADROOM_ENABLE_USB=1`) for travel/offline use; when enabled, it
+holds `/dev/cu.usbmodem*` open. Flash while that bridge is running and the
+two fight for the port — and **esptool does not fail cleanly.** It can write
+part of the app partition and then stop responding, which leaves the board
+unbootable.
 
 The failure reads as a hardware fault and isn't:
 

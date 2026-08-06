@@ -48,7 +48,9 @@ Needs [PlatformIO](https://platformio.org/).
 3. Prefer `./scripts/flash-esp32.sh` (checks the serial port is free). Or:
    `cd firmware && pio run -t upload && pio device monitor`.
 
-If the LaunchAgent owns `/dev/cu.usbmodem*`, stop it, flash, put it back:
+Wi-Fi is the default transport and the normal LaunchAgent does not claim
+`/dev/cu.usbmodem*`. For the offline USB fallback, start the host with
+`HEADROOM_ENABLE_USB=1`; stop that host before flashing or monitoring:
 
 ```bash
 launchctl bootout gui/$(id -u)/com.centaur-labs.headroom

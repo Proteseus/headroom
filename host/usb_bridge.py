@@ -1,4 +1,4 @@
-"""USB CDC side-channel for the ESP32 when Wi-Fi isn't available.
+"""Opt-in USB CDC side-channel for the ESP32 when Wi-Fi isn't available.
 
 Speaks a tiny framed protocol on the same Serial CDC used for debug logs:
 
@@ -7,8 +7,12 @@ Speaks a tiny framed protocol on the same Serial CDC used for debug logs:
   Mac → ESP:  HR <status> <nbytes>\\n + <nbytes bytes of body> + \\n
 
 Best-effort: missing or busy port is silent; never raises into the HTTP
-server. PlatformIO's serial monitor and this bridge cannot share the port —
-if the monitor holds it, USB data falls back to Wi-Fi on the board.
+server. The bridge is deliberately opt-in because opening a serial device
+long-term would block flashing, serial monitoring, and other board apps. Set
+HEADROOM_ENABLE_USB=1 to enable auto-detection, or set HEADROOM_USB_PORT to
+enable the bridge for one explicit device. PlatformIO's serial monitor and
+this bridge cannot share the port — if the monitor holds it, USB data falls
+back to Wi-Fi on the board.
 """
 
 from __future__ import annotations
@@ -24,6 +28,27 @@ PREFIX = "HR "
 BAUD = 115200
 RETRY_S = 2.0
 READ_IDLE_S = 0.25
+ENABLE_ENV = "HEADROOM_ENABLE_USB"
+
+
+_USB_PORT_OFF = {"", "/dev/null", "none", "off", "0", "false"}
+
+
+def enabled():
+    """Whether the host should claim a USB serial port.
+
+    Wi-Fi is the normal transport. An explicit USB port is also an explicit
+    request to enable the fallback, which keeps existing debug/travel flows
+    usable without making the always-on host own every ESP32 serial port.
+
+    `HEADROOM_USB_PORT=/dev/null` is the documented "stay off the board"
+    sentinel for local verification — treat it as off, not as a tty path.
+    """
+    flag = os.environ.get(ENABLE_ENV)
+    if flag is not None:
+        return flag.strip().lower() in {"1", "true", "yes", "on"}
+    port = os.environ.get("HEADROOM_USB_PORT", "").strip().lower()
+    return port not in _USB_PORT_OFF
 
 
 def is_hr_line(line: str) -> bool:
@@ -56,9 +81,11 @@ def format_reply(status: int, body: bytes = b"") -> bytes:
 def candidate_ports(override=None):
     """Return serial device paths to try (override wins, else auto-detect)."""
     if override:
-        return [override]
+        return [override] if override.strip().lower() not in _USB_PORT_OFF else []
     env = os.environ.get("HEADROOM_USB_PORT", "").strip()
     if env:
+        if env.lower() in _USB_PORT_OFF:
+            return []
         return [env]
     ports = sorted(glob.glob("/dev/cu.usbmodem*"))
     ports += sorted(

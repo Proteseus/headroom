@@ -3056,8 +3056,14 @@ def main():
             sys.exit(1)
         raise
 
+    # Gateway before any printing daemon threads. A raise here under threads
+    # that already write stdout aborts inside Py_FinalizeEx (LaunchAgent loop).
+    try:
+        agent_gateway.get().start()
+    except Exception as exc:
+        print(f"agent gateway failed to start: {exc}", flush=True)
+
     threading.Thread(target=_backfill_history, daemon=True).start()
-    agent_gateway.get().start()
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
     threading.Thread(target=_sync_loop, daemon=True).start()
@@ -3093,10 +3099,16 @@ def main():
     auth.mobile_token()
 
     def _shutdown(_signum, _frame):
-        agent_gateway.get().stop()
-        if bonjour is not None:
-            bonjour.terminate()
-        raise SystemExit
+        # launchd SIGTERM. Do not call srv.shutdown() here: that waits for
+        # serve_forever on this same thread and deadlocks. Do not raise
+        # SystemExit either — daemon threads keep printing into stdout and
+        # Py_FinalizeEx aborts (LaunchAgent crash loop). Skip finalize.
+        try:
+            if bonjour is not None:
+                bonjour.terminate()
+        except Exception:
+            pass
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, _shutdown)
     print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage", flush=True)
