@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.0",
-  "published": "2026-08-05T14:58:08Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.0/Headroom-macOS.zip",
-  "sha256": "166c0980002014052f2597b1894f58e66a07ccfc36459dd36b71e75c57b9dc4b",
-  "size": 5851364,
+  "version": "1.9.1",
+  "published": "2026-08-06T08:11:24Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.1/Headroom-macOS.zip",
+  "sha256": "5ff83fce3d58e474dd71a8b5f0c1e2f9d165845c94c30c2ae5a41a7e4610d6e4",
+  "size": 5852147,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Update chrome shows installed > latest** in the popover footer and General\n  settings (for example `1.8.9 > 1.9.0`), with a spoken accessibility label.\n- **Community Pulse publishes smaller groups** (floor drops from five Macs to\n  one) and only marketing `X.Y.Z` builds at or below the update-feed release.\n- **README and marketing screenshots** refresh the Mac/iPhone shots, pair the\n  ESP32 glance next to the menu bar, and shape demo burndown curves for the\n  screenshot pipeline."
+  "notes_md": "### Fixed\n\n- **Provider account colors now use distinct same-service shades** in Settings\n  and across the usage surfaces, while preserving explicit account overrides.\n  Thanks @leolobato for reporting the bug."
 }
