@@ -40,6 +40,9 @@ extension SettingsView {
                 },
                 onAccent: { ids, hex in
                     Task { await setAccents(ids, hex: hex) }
+                },
+                onTitle: { id, name in
+                    Task { await setTitle(id, name: name) }
                 }
             )
         }
@@ -130,6 +133,20 @@ extension SettingsView {
             sourcesMessage = hex == nil
                 ? "Restored the default color."
                 : "Color updated — menu bar, rings and iPhone follow."
+        } catch {
+            sourcesMessage = error.localizedDescription
+        }
+    }
+
+    func setTitle(_ id: String, name: String?) async {
+        togglingSourceID = id
+        defer { togglingSourceID = nil }
+        do {
+            _ = try await client.setSourceTitle(id, name: name)
+            await reloadSources()
+            sourcesMessage = name == nil
+                ? "Restored the default name."
+                : "Renamed — menu bar, rings and iPhone follow."
         } catch {
             sourcesMessage = error.localizedDescription
         }

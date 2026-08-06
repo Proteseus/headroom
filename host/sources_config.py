@@ -1075,7 +1075,7 @@ def meta_for(source_id):
     source = BY_ID.get(source_id)
     if source is None:
         return {"title": source_id, "hint": ""}
-    return {"title": source.title, "hint": source.hint}
+    return {"title": title_for(source_id), "hint": source.hint}
 
 
 def headline_pct(source_id, payload):
@@ -1181,6 +1181,38 @@ def _clean_accents(raw):
     return out
 
 
+# Provider display names are registry defaults until Settings renames one.
+TITLE_MAX_LEN = 40
+_PROVIDER_IDS = frozenset(source.id for source in BASE_SOURCES)
+
+
+def _normalize_title(value):
+    """Trimmed display name, or None when empty / too long."""
+    text = str(value or "").strip()
+    if not text or len(text) > TITLE_MAX_LEN:
+        return None
+    return text
+
+
+def normalize_title(value):
+    """Public form of the title rule, for callers validating before writing."""
+    return _normalize_title(value)
+
+
+def _clean_titles(raw):
+    """Overrides as stored: {provider_id: name}, junk dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for sid, value in raw.items():
+        if sid not in _PROVIDER_IDS:
+            continue
+        title = _normalize_title(value)
+        if title:
+            out[str(sid)] = title
+    return out
+
+
 def _known_ids():
     """Registry ids, plus accounts added since this process started.
 
@@ -1270,6 +1302,7 @@ def _blank_store():
         "order": _normalize_order(None),
         "integrations_order": _normalize_integrations_order(None),
         "accents": {},
+        "titles": {},
     }
 
 
@@ -1315,7 +1348,7 @@ def _load():
         return {"enabled": enabled, "dismissed": state["dismissed"],
                 "order": state["order"],
                 "integrations_order": state["integrations_order"],
-                "accents": {}}
+                "accents": {}, "titles": {}}
     except (OSError, json.JSONDecodeError):
         return _blank_store()
     if not isinstance(data, dict):
@@ -1332,6 +1365,7 @@ def _load():
         integrations_seed = None
     integrations_order = _normalize_integrations_order(integrations_seed)
     accents = _clean_accents(data.get("accents"))
+    titles = _clean_titles(data.get("titles"))
     known = _known_ids()
     enabled = {sid: False for sid in known}
     # Legacy files without an explicit map keep prior all-on behaviour only
@@ -1345,14 +1379,14 @@ def _load():
         return {"enabled": enabled,
                 "dismissed": _infer_dismissed(enabled, data.get("dismissed")),
                 "order": order, "integrations_order": integrations_order,
-                "accents": accents}
+                "accents": accents, "titles": titles}
     for sid in known:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
     return {"enabled": enabled,
             "dismissed": _infer_dismissed(enabled, data.get("dismissed")),
             "order": order, "integrations_order": integrations_order,
-            "accents": accents}
+            "accents": accents, "titles": titles}
 
 
 def _save(state):
@@ -1463,6 +1497,49 @@ def accent_overrides():
         return dict(_state_locked().get("accents") or {})
 
 
+def title_overrides():
+    with _lock:
+        return dict(_state_locked().get("titles") or {})
+
+
+def default_title(source_id):
+    """The registry's own name for a row, ignoring any override."""
+    provider, slug = accounts.split_id(source_id)
+    base = BASE_BY_ID.get(provider)
+    if base is None:
+        source = BY_ID.get(source_id)
+        return source.title if source else source_id
+    return base.title
+
+
+def title_for(source_id):
+    """The display name every surface should print for this row."""
+    provider, slug = accounts.split_id(source_id)
+    brand = title_overrides().get(provider) or default_title(provider)
+    if slug is None:
+        return brand
+    source = BY_ID.get(source_id)
+    if source is not None and source.account is not None:
+        return f"{brand} · {source.account.label}"
+    return brand
+
+
+def _purge_duplicate_account_accents(accents, provider_id, previous_base, new_base):
+    """Drop account overrides that mirror a provider color.
+
+    Older Settings builds copied the provider swatch onto every account row.
+    When the provider color moves, those stale keys would otherwise win over
+    the derived shades.
+    """
+    prefix = provider_id + ":"
+    for sid in list(accents.keys()):
+        if not sid.startswith(prefix):
+            continue
+        value = accents[sid]
+        if value == previous_base or value == new_base:
+            accents.pop(sid, None)
+
+
 def _account_accent(source_id, base_hex):
     """Return a stable same-hue shade for an extra account.
 
@@ -1499,6 +1576,16 @@ def _account_accent(source_id, base_hex):
     red, green, blue = colorsys.hls_to_rgb(hue, lightness, saturation)
     return "#{:02X}{:02X}{:02X}".format(
         round(red * 255), round(green * 255), round(blue * 255))
+
+
+def derived_accent_for(source_id):
+    """The shade a row would paint with no explicit account override."""
+    provider, slug = accounts.split_id(source_id)
+    if slug is None:
+        overrides = accent_overrides()
+        return overrides.get(provider) or default_accent(provider)
+    base = accent_overrides().get(provider) or default_accent(provider)
+    return _account_accent(source_id, base)
 
 
 def accent_for(source_id):
@@ -1549,6 +1636,12 @@ def set_accents(updates):
         state = _state_locked()
         accents = dict(state.get("accents") or {})
         for sid, accent in cleaned.items():
+            provider, slug = accounts.split_id(sid)
+            if slug is None:
+                previous_base = accents.get(sid) or default_accent(sid)
+                new_base = accent if accent is not None else default_accent(sid)
+                _purge_duplicate_account_accents(
+                    accents, sid, previous_base, new_base)
             if accent is None:
                 accents.pop(sid, None)
             else:
@@ -1556,6 +1649,33 @@ def set_accents(updates):
         state["accents"] = accents
         _save(state)
         return dict(accents)
+
+
+def set_titles(updates):
+    """Apply {provider_id: name | None}. None (or '') restores the default."""
+    cleaned = {}
+    for sid, value in (updates or {}).items():
+        if sid not in _PROVIDER_IDS:
+            continue
+        if value is None or str(value).strip() == "":
+            cleaned[sid] = None
+            continue
+        title = _normalize_title(value)
+        if title is None:
+            raise ValueError(
+                f"{value!r} is not a provider name (1–{TITLE_MAX_LEN} chars)")
+        cleaned[sid] = title
+    with _lock:
+        state = _state_locked()
+        titles = dict(state.get("titles") or {})
+        for sid, title in cleaned.items():
+            if title is None:
+                titles.pop(sid, None)
+            else:
+                titles[sid] = title
+        state["titles"] = titles
+        _save(state)
+        return dict(titles)
 
 
 def order_ids():
@@ -1694,10 +1814,12 @@ def detection_payload():
         "integrations_order": integrations_order_ids(),
         "focus": focus_ids(),
         "accents": accent_overrides(),
+        "titles": title_overrides(),
         "sources": [
             {
                 "id": source.id,
-                "title": source.title,
+                "title": title_for(source.id),
+                "title_default": default_title(source.id),
                 "hint": source.hint,
                 "kind": source.kind,
                 "group": source.group,

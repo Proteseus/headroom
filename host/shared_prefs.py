@@ -12,6 +12,7 @@ along with it.
     sources.enabled.<id>   bool
     sources.dismissed.<id> bool (True = Library; off-but-not-dismissed = paused)
     sources.accent.<id>    "#RRGGBB" or None (None = use the registry colour)
+    sources.title.<id>     display name or None (None = use the registry name)
     sources.order          [id, ...]
     sources.integrations_order [id, ...]
     config.<key>           whatever config.json holds, or None when unset
@@ -32,6 +33,7 @@ import sources_config
 ENABLED_PREFIX = "sources.enabled."
 DISMISSED_PREFIX = "sources.dismissed."
 ACCENT_PREFIX = "sources.accent."
+TITLE_PREFIX = "sources.title."
 ORDER_KEY = "sources.order"
 INTEGRATIONS_ORDER_KEY = "sources.integrations_order"
 # One-release read alias; apply still accepts it and writes integrations_order.
@@ -49,12 +51,15 @@ def read():
     enabled = sources_config.enabled_map()
     dismissed = sources_config.dismissed_map()
     accents = sources_config.accent_overrides()
+    titles = sources_config.title_overrides()
     out = {}
     for sid in _source_ids():
         out[ENABLED_PREFIX + sid] = bool(enabled.get(sid, False))
         out[DISMISSED_PREFIX + sid] = bool(
             dismissed.get(sid, not enabled.get(sid, False)))
         out[ACCENT_PREFIX + sid] = accents.get(sid)
+    for sid in sorted(titles.keys()):
+        out[TITLE_PREFIX + sid] = titles.get(sid)
     out[ORDER_KEY] = list(sources_config.order_ids())
     out[INTEGRATIONS_ORDER_KEY] = list(sources_config.integrations_order_ids())
     stored = app_config.shared_config()
@@ -64,7 +69,7 @@ def read():
 
 
 def _split(updates):
-    enabled, dismissed, accents, config = {}, {}, {}, {}
+    enabled, dismissed, accents, titles, config = {}, {}, {}, {}, {}
     order = None
     integrations_order = None
     for key, value in (updates or {}).items():
@@ -83,9 +88,12 @@ def _split(updates):
         elif key.startswith(ACCENT_PREFIX):
             if value is None or isinstance(value, str):
                 accents[key[len(ACCENT_PREFIX):]] = value
+        elif key.startswith(TITLE_PREFIX):
+            if value is None or isinstance(value, str):
+                titles[key[len(TITLE_PREFIX):]] = value
         elif key.startswith(CONFIG_PREFIX):
             config[key[len(CONFIG_PREFIX):]] = value
-    return enabled, dismissed, accents, order, integrations_order, config
+    return enabled, dismissed, accents, titles, order, integrations_order, config
 
 
 def apply(updates):
@@ -97,7 +105,7 @@ def apply(updates):
     `set_accents` already filter to known ids — this reports what survived so
     the caller does not record a stamp for a setting it did not keep.
     """
-    enabled, dismissed, accents, order, integrations_order, config = _split(
+    enabled, dismissed, accents, titles, order, integrations_order, config = _split(
         updates)
     known = set(_source_ids())
     applied = []
@@ -130,6 +138,18 @@ def apply(updates):
         if keep:
             sources_config.set_accents(keep)
             applied += [ACCENT_PREFIX + k for k in keep]
+
+    if titles:
+        keep = {}
+        for sid, value in titles.items():
+            if sid not in sources_config.BASE_BY_ID:
+                continue
+            if value is not None and sources_config.normalize_title(value) is None:
+                continue
+            keep[sid] = value
+        if keep:
+            sources_config.set_titles(keep)
+            applied += [TITLE_PREFIX + k for k in keep]
 
     if order is not None:
         sources_config.set_order(order)

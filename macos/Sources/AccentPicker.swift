@@ -18,6 +18,9 @@ struct AccentPicker: View {
     let currentHex: String?
     /// nil restores the default.
     let onPick: (String?) -> Void
+    /// What the default swatch means — "Default" on a provider, "Derived shade"
+    /// on an extra account whose auto color follows the provider base.
+    var defaultLabel: String = "Default"
 
     @Environment(\.dismiss) private var dismiss
 
@@ -44,7 +47,7 @@ struct AccentPicker: View {
                         isSelected: isDefault
                     )
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Default")
+                        Text(defaultLabel)
                         Text(defaultHex ?? "")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -55,7 +58,9 @@ struct AccentPicker: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
-                isDefault ? "Default color, selected" : "Default color")
+                isDefault
+                    ? "\(defaultLabel) color, selected"
+                    : "\(defaultLabel) color")
 
             Divider()
 

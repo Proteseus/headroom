@@ -149,7 +149,7 @@ def _reset_activity_rows(burndowns):
     rows = []
     for provider, pools in (burndowns or {}).items():
         source = sources_config.BY_ID.get(provider)
-        title = source.title if source else provider.capitalize()
+        title = sources_config.title_for(provider) if source else provider.capitalize()
         note_url = source.reset_note_url if source else None
         for pool, result in (pools or {}).items():
             pool_title = next(
@@ -1386,7 +1386,8 @@ def _sources_payload(state):
         fetched_age = _age_seconds(payload, now)
         row = {
             "id": source.id,
-            "title": source.title,
+            "title": sources_config.title_for(source.id),
+            "title_default": sources_config.default_title(source.id),
             "hint": source.hint,
             "kind": source.kind,
             "group": source.group,
@@ -1399,6 +1400,8 @@ def _sources_payload(state):
             # own answer, which is also how a client tells an override apart
             # from the shipped color.
             "accent_default": source.accent,
+            **({"accent_derived": sources_config.derived_accent_for(source.id)}
+               if source.account is not None else {}),
             "enabled": bool(enabled.get(source.id, True)),
             # Library vs Active membership. Off-but-not-dismissed is paused:
             # the row stays in Active, dimmed, and nothing polls it.
@@ -1513,7 +1516,8 @@ def _providers_payload(state, burndowns=None):
             age = _age_seconds(payload)
         row = {
             "id": source.id,
-            "title": source.title,
+            "title": sources_config.title_for(source.id),
+            "title_default": sources_config.default_title(source.id),
             "kind": "quota",
             "rank": rank,
             "enabled": bool(enabled.get(source.id, True)),
@@ -1545,6 +1549,8 @@ def _providers_payload(state, burndowns=None):
             "error": payload.get("error"),
             "accent": sources_config.accent_for(source.id),
             "accent_default": source.accent,
+            **({"accent_derived": sources_config.derived_accent_for(source.id)}
+               if source.account is not None else {}),
             "headline": source.headline[0] if source.headline else None,
             "reset_note_url": source.reset_note_url,
             # Subscription prices are registry metadata, not account usage.
@@ -2575,6 +2581,7 @@ class Handler(BaseHTTPRequestHandler):
                 # One-release alias from the Activity-only pin.
                 integrations_order = payload.get("services_order")
             accents = payload.get("accents")
+            titles = payload.get("titles")
             dismissed = payload.get("dismissed")
 
             def _sources_reply(**extra):
@@ -2586,6 +2593,7 @@ class Handler(BaseHTTPRequestHandler):
                     "integrations_order": sources_config.integrations_order_ids(),
                     "focus": sources_config.focus_ids(),
                     "accents": sources_config.accent_overrides(),
+                    "titles": sources_config.title_overrides(),
                 }
                 body.update(extra)
                 self._send_json(200, body)
@@ -2602,8 +2610,23 @@ class Handler(BaseHTTPRequestHandler):
                 sources_config.set_dismissed(dismissed)
                 publish()
                 if (enabled is None and order is None and accents is None
-                        and integrations_order is None):
+                        and titles is None and integrations_order is None):
                     _sources_reply()
+                    return
+            if titles is not None:
+                if not isinstance(titles, dict):
+                    self._send_json(
+                        400, {"ok": False, "error": "titles map required"})
+                    return
+                try:
+                    stored = sources_config.set_titles(titles)
+                except ValueError as error:
+                    self._send_json(400, {"ok": False, "error": str(error)})
+                    return
+                publish()
+                if (enabled is None and order is None and accents is None
+                        and integrations_order is None):
+                    _sources_reply(titles=stored)
                     return
             if accents is not None:
                 if not isinstance(accents, dict):
@@ -2618,7 +2641,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Colors are presentation only — no source needs refetching,
                 # but the cached document holds the old ones.
                 publish()
-                if (enabled is None and order is None
+                if (enabled is None and order is None and titles is None
                         and integrations_order is None):
                     _sources_reply(accents=stored)
                     return
@@ -3043,15 +3066,23 @@ def main():
     def _usb_sync_refresh():
         _refresh_async(sources_config.SOURCE_IDS)
 
-    threading.Thread(
-        target=usb_bridge.run,
-        kwargs={
-            "get_usage": _usb_get_usage,
-            "on_sync_refresh": _usb_sync_refresh,
-            "on_device": lambda query: _note_device(query, "usb"),
-        },
-        daemon=True,
-    ).start()
+    if usb_bridge.enabled():
+        threading.Thread(
+            target=usb_bridge.run,
+            kwargs={
+                "get_usage": _usb_get_usage,
+                "on_sync_refresh": _usb_sync_refresh,
+                "on_device": lambda query: _note_device(query, "usb"),
+            },
+            daemon=True,
+        ).start()
+        print("USB CDC fallback enabled — /dev/cu.usbmodem*", flush=True)
+    else:
+        print(
+            "USB CDC fallback disabled — Wi-Fi is the default "
+            f"(set {usb_bridge.ENABLE_ENV}=1 to enable)",
+            flush=True,
+        )
 
     global _bonjour
     bonjour = _bonjour = _advertise_bonjour(args.port)
@@ -3081,8 +3112,6 @@ def main():
     else:
         print("require_auth is off — /usage is open to the whole network",
               flush=True)
-    print("USB CDC fallback: HR protocol on /dev/cu.usbmodem* (best-effort)",
-          flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

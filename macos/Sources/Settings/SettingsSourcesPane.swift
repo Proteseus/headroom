@@ -47,6 +47,7 @@ struct SourceService: Identifiable {
     var isListed: Bool { rows.contains { !$0.isDismissed } }
     var accent: String? { primary.accent }
     var accentDefault: String? { primary.accentDefault }
+    var titleDefault: String? { primary.titleDefault }
 
     /// Group account-level sources into services, preserving the pinned
     /// order of first appearance — the same order `order` persists.
@@ -95,6 +96,7 @@ struct SettingsSourcesPane: View {
     let onNudgeService: (String, Int) -> Void
     let onDropTarget: (String, Bool) -> Void
     let onAccent: ([String], String?) -> Void
+    let onTitle: (String, String?) -> Void
 
     private var services: [SourceService] {
         SourceService.services(from: sources)
@@ -188,7 +190,8 @@ struct SettingsSourcesPane: View {
                         onRemoveAccount: onRemoveAccount,
                         onRefresh: onRefresh,
                         onNudge: { onNudgeService(service.id, $0) },
-                        onAccent: onAccent
+                        onAccent: onAccent,
+                        onTitle: onTitle
                     )
                     .modifier(DragReorder(
                         enabled: service.group == .ai,
@@ -335,9 +338,13 @@ private struct ActiveServiceRow: View {
     let onRefresh: ([String]?) -> Void
     let onNudge: (Int) -> Void
     let onAccent: ([String], String?) -> Void
+    let onTitle: (String, String?) -> Void
 
     @State private var isHovering = false
     @State private var isPickingColor = false
+    @State private var isRenaming = false
+    @State private var renameDraft = ""
+    @FocusState private var renameFocused: Bool
     @FocusState private var refreshFocused: Bool
     @FocusState private var dismissFocused: Bool
 
@@ -460,13 +467,49 @@ private struct ActiveServiceRow: View {
 
     private var titleLine: some View {
         HStack(spacing: 4) {
-            Text(service.title)
-                .fontWeight(.semibold)
+            Group {
+                if isRenaming {
+                    TextField("Name", text: $renameDraft, onCommit: commitRename)
+                        .textFieldStyle(.plain)
+                        .focused($renameFocused)
+                        .onSubmit { commitRename() }
+                } else {
+                    Text(service.title)
+                        .fontWeight(.semibold)
+                        .contentShape(Rectangle())
+                        .onTapGesture { beginRename() }
+                        .help("Click to rename")
+                }
+            }
+            .font(.system(size: 13))
             Text(subtitle)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .font(.system(size: 13))
+        .contextMenu {
+            Button("Rename") { beginRename() }
+            if service.title != (service.titleDefault ?? service.title) {
+                Button("Reset name") { onTitle(service.id, nil) }
+            }
+        }
+    }
+
+    private func beginRename() {
+        renameDraft = service.title
+        isRenaming = true
+        renameFocused = true
+    }
+
+    private func commitRename() {
+        isRenaming = false
+        let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultName = service.titleDefault ?? service.title
+        if trimmed.isEmpty || trimmed == defaultName {
+            onTitle(service.id, nil)
+        } else if trimmed != service.title {
+            onTitle(service.id, trimmed)
+        }
     }
 
     /// "· AI provider · Max 5x" — category as metadata, plan when known.
@@ -657,7 +700,8 @@ private struct ActiveServiceRow: View {
                         tint: tint(for: account),
                         isBusy: isBusy,
                         onToggleRows: onToggleRows,
-                        onRemoveAccount: onRemoveAccount)
+                        onRemoveAccount: onRemoveAccount,
+                        onAccent: onAccent)
                 }
             }
         }
@@ -731,14 +775,20 @@ private struct AccountRow: View {
     let isBusy: Bool
     let onToggleRows: ([String], Bool) -> Void
     let onRemoveAccount: (String) -> Void
+    let onAccent: ([String], String?) -> Void
 
     @State private var isHovering = false
+    @State private var isPickingColor = false
     @FocusState private var removeFocused: Bool
 
     private var isRemovable: Bool { account.id.contains(":") }
+    private var canPickColor: Bool { account.accentDefault != nil }
 
     var body: some View {
         HStack(spacing: 6) {
+            if canPickColor {
+                accountSwatch
+            }
             AccountBar(
                 name: accountTitle,
                 row: account,
@@ -776,7 +826,45 @@ private struct AccountRow: View {
                     onRemoveAccount(account.id)
                 }
             }
+            if canPickColor {
+                Button("Change color…") { isPickingColor = true }
+            }
         }
+    }
+
+    private var accountSwatch: some View {
+        Button {
+            isPickingColor = true
+        } label: {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(tint)
+                .frame(width: 14, height: 14)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .help("Change account color")
+        .accessibilityLabel("Change color for \(accountTitle)")
+        .popover(isPresented: $isPickingColor, arrowEdge: .bottom) {
+            AccentPicker(
+                title: accountTitle,
+                defaultHex: accountDefaultHex,
+                currentHex: account.accent,
+                onPick: { onAccent([account.id], $0) },
+                defaultLabel: account.id.contains(":")
+                    ? "Derived shade" : "Default"
+            )
+        }
+    }
+
+    /// Registry default on the provider row; derived shade on extra accounts.
+    private var accountDefaultHex: String? {
+        if account.id.contains(":") {
+            return account.accentDerived ?? account.accent
+        }
+        return account.accentDefault
     }
 
     /// Label · email when both exist; email alone; else the user label.

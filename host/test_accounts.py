@@ -256,6 +256,52 @@ class AccountsTests(unittest.TestCase):
         self.assertEqual(
             sources_config.accent_for("claude:work"), "#A371F7")
 
+    def test_provider_accent_change_clears_stale_account_duplicates(self):
+        sources_config.add_account("claude", "Cliq", self._claude_dir("cliq"))
+        sources_config.add_account(
+            "claude", "Signos", self._claude_dir("signos"))
+        sources_config.reload_registry()
+        # Simulate a pre-1.9.1 Settings build copying the provider swatch
+        # onto every account row.
+        sources_config.set_accents({
+            "claude": "#4F97D4",
+            "claude:cliq": "#4F97D4",
+            "claude:signos": "#4F97D4",
+        })
+        self.assertNotEqual(
+            sources_config.accent_for("claude:cliq"), "#4F97D4")
+        sources_config.set_accents({"claude": "#A371F7"})
+        self.assertEqual(sources_config.accent_for("claude"), "#A371F7")
+        self.assertNotEqual(
+            sources_config.accent_for("claude:cliq"), "#4F97D4")
+        self.assertNotEqual(
+            sources_config.accent_for("claude:cliq"), "#A371F7")
+        self.assertNotEqual(
+            sources_config.accent_for("claude:signos"), "#4F97D4")
+
+    def test_title_override_renames_provider_and_accounts(self):
+        sources_config.add_account("claude", "Work", self._claude_dir())
+        sources_config.reload_registry()
+        self.assertEqual(sources_config.title_for("claude"), "Claude")
+        sources_config.set_titles({"claude": "My Claude"})
+        self.assertEqual(sources_config.title_for("claude"), "My Claude")
+        self.assertEqual(
+            sources_config.title_for("claude:work"), "My Claude · Work")
+        sources_config.set_titles({"claude": None})
+        self.assertEqual(sources_config.title_for("claude"), "Claude")
+
+    def test_titles_are_validated(self):
+        with self.assertRaisesRegex(ValueError, "not a provider name"):
+            sources_config.set_titles({"claude": "x" * 41})
+
+    def test_derived_accent_is_what_account_default_means(self):
+        sources_config.add_account("claude", "Work", self._claude_dir())
+        sources_config.reload_registry()
+        sources_config.set_accents({"claude:work": "#A371F7"})
+        derived = sources_config.derived_accent_for("claude:work")
+        self.assertNotEqual(derived, "#A371F7")
+        self.assertEqual(sources_config.accent_for("claude:work"), "#A371F7")
+
     def test_store_survives_a_corrupt_file(self):
         with open(accounts.STORE_PATH, "w") as handle:
             handle.write("{ not json")

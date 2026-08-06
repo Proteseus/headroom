@@ -1198,6 +1198,11 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// The registry's own color, before any Settings override. Settings marks
     /// this swatch "Default"; everything else just paints `accent`.
     var accentDefault: String?
+    /// The registry's own name, before any Settings override.
+    var titleDefault: String?
+    /// The same-hue shade this account would get from its provider, before
+    /// any explicit account override. Absent on the default provider row.
+    var accentDerived: String?
     var headline: String?
     /// Where this provider's granted resets get explained, when it explains
     /// them anywhere. A permalink the app only ever opens — nothing fetches
@@ -1229,6 +1234,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         error: String? = nil,
         accent: String? = nil,
         accentDefault: String? = nil,
+        titleDefault: String? = nil,
+        accentDerived: String? = nil,
         headline: String? = nil,
         resetNoteURL: String? = nil,
         subscriptionPricing: SubscriptionPricing? = nil,
@@ -1252,6 +1259,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.error = error
         self.accent = accent
         self.accentDefault = accentDefault
+        self.titleDefault = titleDefault
+        self.accentDerived = accentDerived
         self.headline = headline
         self.resetNoteURL = resetNoteURL
         self.subscriptionPricing = subscriptionPricing
@@ -1267,6 +1276,8 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         case staleCause = "stale_cause"
         case retryInS = "retry_in_s"
         case accentDefault = "accent_default"
+        case titleDefault = "title_default"
+        case accentDerived = "accent_derived"
         case resetNoteURL = "reset_note_url"
         case subscriptionPricing = "subscription_pricing"
     }
@@ -2114,6 +2125,11 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     /// The registry's own color, so the picker can offer "Default" and tell
     /// an overridden row from a shipped one.
     var accentDefault: String?
+    /// The registry's own name, so Settings can offer "Reset" and tell an
+    /// overridden row from a shipped one.
+    var titleDefault: String?
+    /// Same-hue shade from the provider, before an explicit account override.
+    var accentDerived: String?
     var enabled: Bool?
     /// Settings' Library vs Active membership. Off-but-not-dismissed is
     /// paused: the row stays in Active, dimmed, and nothing polls it. Nil
@@ -2150,6 +2166,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
         case authRequired = "auth_required"
         case staleCause = "stale_cause"
         case accentDefault = "accent_default"
+        case titleDefault = "title_default"
+        case accentDerived = "accent_derived"
         case ageS = "age_s"
     }
 

@@ -315,6 +315,21 @@ struct HeadroomClient: Sendable {
         return (object?["accents"] as? [String: String]) ?? [:]
     }
 
+    /// Override the display name for a provider. Pass nil to restore the
+    /// registry default. Account rows pick up the new brand automatically.
+    @discardableResult
+    func setSourceTitle(_ id: String, name: String?) async throws -> [String: String] {
+        let url = try base().appendingPathComponent("sources")
+        let value: Any = name ?? NSNull()
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(
+                withJSONObject: ["titles": [id: value]]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["titles"] as? [String: String]) ?? [:]
+    }
+
     func fetchMobilePermissions() async throws -> MobilePermissions {
         let url = try base()
             .appendingPathComponent("mobile")
