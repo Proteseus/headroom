@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.3 — 2026-08-06
+
+### Fixed
+
+- **Fewer Keychain password prompts on macOS** — first-run source detection
+  and Zed quota polling no longer shell out to `/usr/bin/security`; reads go
+  through `SecItemCopyMatching` with fail-closed auth UI so background polls
+  do not loop SecurityAgent. Zed Deny sticks until you refresh the source in
+  Settings, same as Claude.
+
 ## 1.9.2 — 2026-08-06
 
 ### Added
