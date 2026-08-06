@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.4 — 2026-08-06
+
+### Fixed
+
+- **LaunchAgent host crash loop** — 1.9.3 called `usb_bridge.enabled()`
+  without defining it, so startup died after daemon threads began and Python
+  aborted in `Py_FinalizeEx` under KeepAlive. The USB bridge is opt-in again
+  (`HEADROOM_ENABLE_USB=1`), `/dev/null` stays off the board, and SIGTERM
+  exits without finalize so launchd restarts stay clean.
+
 ## 1.9.3 — 2026-08-06
 
 ### Fixed
