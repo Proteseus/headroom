@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.7",
-  "published": "2026-08-07T10:37:02Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.7/Headroom-macOS.zip",
-  "sha256": "a84ee0d4573fcfa61e5f5ec75b4a2071ee5a2a18cd41c6a2081a8a9bd5a8af46",
-  "size": 5973060,
+  "version": "1.9.8",
+  "published": "2026-08-07T10:44:42Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.8/Headroom-macOS.zip",
+  "sha256": "c6a15567814f16691de2caca2066d6b51778198b9ee8d57998ba2f78430b1ff9",
+  "size": 6065579,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Menu bar icon Remaining or Pace** in Settings → General. Remaining keeps\n  the fuel tanks; Pace places a mark above or below even spend so small gaps\n  move more than big ones. Tooltips follow the same reading."
+  "notes_md": "### Added\n\n- **Changelog in About** — opens the same `CHANGELOG.md` the release pipeline\n  already ships, readable offline. The Release build fails if the bundled\n  file is missing."
 }
