@@ -13,6 +13,7 @@ import UIKit
 /// cannot drift.
 struct AboutHeadroomView: View {
     @State private var starCount: Int?
+    @State private var showingChangelog = false
 
     private static let githubURL = URL(
         string: "https://github.com/michellzappa/headroom"
@@ -51,6 +52,13 @@ struct AboutHeadroomView: View {
                 .foregroundStyle(.tertiary)
 
             VStack(spacing: 4) {
+                Button(HeadroomCopy.changelog) {
+                    showingChangelog = true
+                }
+                .font(.caption.weight(.medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+
                 Link(destination: Self.githubURL) {
                     Text(HeadroomCopy.aboutSourceOnGitHub)
                         .font(.caption.weight(.medium))
@@ -73,6 +81,21 @@ struct AboutHeadroomView: View {
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
         .task { await loadStarCount() }
+        .sheet(isPresented: $showingChangelog) {
+            NavigationStack {
+                ChangelogView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(HeadroomCopy.done) {
+                                showingChangelog = false
+                            }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 480, minHeight: 420)
+            #endif
+        }
     }
 
     private var versionLabel: String {

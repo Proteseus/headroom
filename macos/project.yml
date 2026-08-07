@@ -46,6 +46,10 @@ targets:
       # host needs. See docs/updater.md.
       - path: ../scripts/update-app.sh
         buildPhase: resources
+      # Release notes for Settings → About. Same file the release workflow
+      # and App Store What's New already copy from — one source, shipped.
+      - path: ../CHANGELOG.md
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom.macos
@@ -98,6 +102,8 @@ targets:
           - Info.plist
           - HeadroomMobile.entitlements
       - path: ../Shared
+      - path: ../CHANGELOG.md
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HEADROOM_BUNDLE_PREFIX).headroom
