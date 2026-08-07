@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.9 — 2026-08-07
+
+### Fixed
+
+- **Activity no longer shows forever-fresh grants from a frozen clock.** The
+  live roll journal refuses and hides grants stamped ahead of now, so a
+  burndown test leak cannot leave an `0s` Granted row on the desk.
+
 ## 1.9.8 — 2026-08-07
 
 ### Added
