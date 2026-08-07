@@ -101,11 +101,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
+        // Only does anything under HostLifecycle.appOwned. Deliberately not
+        // waited on: the child also watches this pid, so a quit this handler
+        // misses still stops the host within a couple of seconds.
+        HostProcess.shared.stop()
     }
 
     /// If nothing answers on :8737 and this .app has a bundled host, install
     /// the LaunchAgent and wait for /health so first open isn't an error card.
     private static func ensureHostRunning(store: UsageStore) async {
+        // Under the app-owned lifecycle a reachable host is not enough. It may
+        // be a LaunchAgent from before the switch, or one started by hand. This
+        // app is the supervisor now, so it starts its own child and
+        // applyLifecycle retires whatever else was there.
+        if HostLifecycle.current == .appOwned, !HostProcess.shared.isRunning {
+            guard HostController.isBundled else { return }
+            await store.updateHost()
+            return
+        }
         if await HostController.isReachable() {
             await store.refresh()
             // launchd kept an older host alive across this app's update? Say so

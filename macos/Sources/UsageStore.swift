@@ -308,9 +308,11 @@ final class UsageStore: ObservableObject {
         await updateHost()
     }
 
-    /// Point the LaunchAgent at the host bundled in this .app and restart it.
-    /// Same call as first-run setup — launchctl bootout/bootstrap replaces
-    /// whatever job was there, including one installed from a clone.
+    /// Make the host bundled in this .app the one that is running, under
+    /// whichever `HostLifecycle` is selected. Same call as first-run setup.
+    /// Under `.launchAgent` that is a launchctl bootout/bootstrap, which
+    /// replaces whatever job was there, including one installed from a clone.
+    /// Under `.appOwned` it removes that job and spawns a child instead.
     ///
     /// Serialized: a second caller awaits the install already running rather
     /// than starting its own or, worse, returning early and reading /usage
@@ -328,16 +330,12 @@ final class UsageStore: ObservableObject {
     private func performHostInstall() async -> HostController.Readiness {
         isUpdatingHost = true
         defer { isUpdatingHost = false }
-        do {
-            _ = try HostController.installAndStart()
-        } catch {
-            errorMessage = error.localizedDescription
-            return .silent
-        }
-        // Wait for the host we just installed, not for anything that answers.
-        let readiness = await HostController.waitUntilReady(
-            expecting: HostController.bundledBuild)
-        switch readiness {
+        // Both lifecycles route through the coordinator, so every existing
+        // caller — first-run setup, the skew banner, Settings → Start host —
+        // keeps working without knowing which supervisor is in use, and cannot
+        // interleave with the Settings toggle.
+        let outcome = await HostLifecycleCoordinator.shared.apply(HostLifecycle.current)
+        switch outcome.readiness {
         case .ready, .foreign:
             await checkHostVersion(autoUpdate: false)
             // The host it replaced published a document; a plain GET would hand
@@ -345,8 +343,9 @@ final class UsageStore: ObservableObject {
             await refresh(forceSync: true)
         case .silent:
             hostReachable = false
+            if let message = outcome.errorMessage { errorMessage = message }
         }
-        return readiness
+        return outcome.readiness
     }
 
     func stopServer(_ server: LocalServer) async {

@@ -78,6 +78,13 @@ enum HeadroomCopy {
     static let hostLocalLaunchAgent = "Local LaunchAgent"
     static let hostLocalProcess = "Local process"
     static let hostRemoteEndpoint = "Remote endpoint"
+    /// Host lifecycle (Settings → General → Host).
+    static let hostKeepRunning = "Keep the host running when Headroom is closed"
+    static let hostKeepRunningOn = "A background service starts at login and serves the board, iPhone and Watch whether or not Headroom is open."
+    static let hostKeepRunningOff = "The host starts and stops with Headroom. Quitting the app stops the board, iPhone and Watch too."
+    static let hostOwnedByApp = "Local process · with Headroom"
+    static let hostStoppedCleanly = "The host stopped and did not restart. Something else may own port 8737."
+    static let hostGaveUp = "The host failed to stay up. Check ~/.headroom/logs/headroom.err."
     static let hostRefreshDetails = "Refresh details"
     static let hostNotAvailable = "Not available"
     static let settingsSave = "Save"

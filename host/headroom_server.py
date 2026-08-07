@@ -69,6 +69,7 @@ import icloud_sync
 import local_servers
 import meters
 import oauth_usage
+import parent_watch
 import plausible_usage
 import posthog_usage
 import quota_samples
@@ -2976,6 +2977,10 @@ def main():
     ap.add_argument("--port", type=int, default=8737)
     ap.add_argument("--interval", type=int, default=15,
                     help="seconds between log rescans")
+    ap.add_argument("--exit-with-pid", type=int, default=0,
+                    help="exit when this pid goes away; 0 disables. Set by "
+                         "Headroom.app when it owns the host lifecycle "
+                         "instead of launchd (see parent_watch.py)")
     args = ap.parse_args()
 
     # Unbuffered logs under LaunchAgent redirects.
@@ -2984,6 +2989,22 @@ def main():
         sys.stderr.reconfigure(line_buffering=True)
     except Exception:
         pass
+
+    # Before the scan, not after. Bootstrapping a large ~/.claude tree takes
+    # long enough that an app quitting during it would leave the orphan this
+    # flag exists to prevent. Same skip-finalize reasoning as _shutdown below.
+    if args.exit_with_pid > 0:
+        def _exit_with_parent():
+            print(f"parent {args.exit_with_pid} is gone — exiting", flush=True)
+            try:
+                if _bonjour is not None:
+                    _bonjour.terminate()
+            except Exception:
+                pass
+            os._exit(0)
+
+        parent_watch.start(args.exit_with_pid, _exit_with_parent)
+        print(f"Lifecycle owned by pid {args.exit_with_pid}", flush=True)
 
     _rotate_logs()
     print(f"Bootstrapping from {LOG_ROOT} ...", flush=True)

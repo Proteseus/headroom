@@ -107,7 +107,8 @@ surface-specific (see the end of this file), but the shape does not.
 | **Local servers** | Listening ports panel | macOS, iOS |
 | **Xcode builds** | Active `xcodebuild` / IDE compiles on this Mac | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
-| **General** | Host endpoint and runtime details, Open at Login, welcome, App updates | macOS Settings |
+| **General** | Host endpoint and runtime details, host lifecycle, Open at Login, welcome, App updates | macOS Settings |
+| **Keep the host running when Headroom is closed** | Who supervises the host. On, launchd owns it and it serves the board, iPhone and Watch whether or not the app is open. Off, the app owns it and quitting Headroom stops it. On by default. See [host.md](host.md) | macOS Settings |
 | **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
 | **Providers** | AI coding-quota meters Headroom draws rings for. Order and focus live here. Claude Code / Codex connection settings live under Agents. OpenRouter and AI Gateway are prepaid balances under Integrations → Activity, not here | macOS Settings, iOS Settings, Welcome |
@@ -287,6 +288,8 @@ blank axis.
 | **Mac unavailable** | iOS cannot reach the host |
 | **Host not answering** | Mac popover header and setup body while the local host is down — same fact as the menu-bar tooltip. Not a Foundation URLError |
 | **Starting the host…** | Setup card while Start host / auto-start is in flight |
+| **Local LaunchAgent** | Settings → Host → Process, when launchd owns the host |
+| **Local process · with Headroom** | Same row, when the app owns the host and quitting stops it |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |
 | **All clear** | Healthy summary — host default, Attention card, and the Activity feed with nothing failing |

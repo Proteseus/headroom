@@ -101,6 +101,14 @@ where you set no env var, is the bug back.
 
 ## The host LaunchAgent is not yours to repoint
 
+**Read the mode first.** Settings → General → Host has a "Keep the host running
+when Headroom is closed" toggle ([docs/host.md](docs/host.md)). It is on by
+default and everything below assumes it. When it is off there is no plist and
+no job: `Headroom.app` spawns the host as a child, and quitting the app is what
+stops it. `launchctl bootout` on a label that does not exist is not a fix, and
+neither is writing the plist back.
+
+
 `~/Library/LaunchAgents/com.centaur-labs.headroom.plist` runs the host MZ
 actually uses. It was repointed at agent scratchpad paths five times in one
 day, and every time the host died — because the scratchpad had been cleaned up,

@@ -90,6 +90,36 @@ The served document is rebuilt once per poll tick and cached as bytes.
 `attention.level` is `ok` | `warn` | `critical` — acknowledgement is stored by
 fingerprint so clearing on one surface clears the same warning everywhere.
 
+## Who owns the host process
+
+Two modes, same `headroom_server.py` on the same port. **Settings → General →
+Host → Keep the host running when Headroom is closed.**
+
+| Mode | Owner | Quitting Headroom | Default |
+|---|---|---|---|
+| On | launchd, via `~/Library/LaunchAgents/com.centaur-labs.headroom.plist` | host keeps serving | yes |
+| Off | `Headroom.app`, as a child process | host stops, and so do the board, iPhone and Watch | no |
+
+Switching modes stops the outgoing owner, waits for :8737 to go quiet, then
+starts the incoming one. Both directions need that wait: the incoming host
+binds the port on start and exits 0 rather than fighting for it, and under
+`KeepAlive: SuccessfulExit false` launchd does not bring the loser back.
+
+In app-owned mode the app passes `--exit-with-pid <its pid>` and the host
+watches it (`host/parent_watch.py`). Two things stop the child, and both are
+needed: `applicationWillTerminate` sends SIGTERM, and the pid watch catches a
+crash or a force quit, where no handler runs at all. Without the watch the
+child is reparented to launchd and holds :8737, so the next launch finds a
+foreign host it cannot stop from the UI.
+
+`kill` works in app-owned mode and is meant to. The app restarts a child that
+dies with a non-zero status, up to four times with a widening delay, and never
+restarts a clean exit. A clean exit is either someone stopping it on purpose or
+the host standing down from a port something else owns, and restarting into
+either is the crash loop 1.9.3 shipped.
+
+Logs go to `~/.headroom/logs/headroom.log` and `.err` in both modes.
+
 ## Host version
 
 launchd keeps whatever host it was given running across app updates, so the

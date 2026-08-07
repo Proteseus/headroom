@@ -166,6 +166,9 @@ struct SettingsView: View {
     @State var openAtLogin = LaunchAtLogin.isRequested
     @State var openAtLoginNeedsApproval = LaunchAtLogin.needsApproval
     @State var openAtLoginMessage: String?
+    @State var hostKeepRunning = HostLifecycle.current == .launchAgent
+    @State var hostLifecycleBusy = false
+    @State var hostLifecycleMessage: String?
     @State var selection: SettingsDestination? = .general
     /// The pushed leaf under the selected root (one
     /// integration under Integrations/Coding agents). A `NavigationStack`

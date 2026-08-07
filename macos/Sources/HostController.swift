@@ -304,7 +304,9 @@ enum HostController {
         try? FileManager.default.removeItem(at: legacy)
     }
 
-    private static func seedConfigIfNeeded() {
+    /// Also called by `HostProcess` before it spawns the child: the app-owned
+    /// mode never writes a plist, so this is the only remaining seed point.
+    static func seedConfigIfNeeded() {
         let config = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".headroom/config.json")
         guard !FileManager.default.fileExists(atPath: config.path) else { return }

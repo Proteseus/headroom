@@ -236,6 +236,23 @@ extension SettingsView {
                 Text(hostProcessLabel)
                     .foregroundStyle(.secondary)
             }
+            if !endpointIsRemote, HostController.isBundled {
+                Toggle(HeadroomCopy.hostKeepRunning, isOn: Binding(
+                    get: { hostKeepRunning },
+                    set: { setHostKeepRunning($0) }
+                ))
+                .disabled(hostLifecycleBusy)
+                Text(hostKeepRunning
+                     ? HeadroomCopy.hostKeepRunningOn
+                     : HeadroomCopy.hostKeepRunningOff)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let hostLifecycleMessage {
+                    Text(hostLifecycleMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             LabeledContent(HeadroomCopy.hostStatus) {
                 if hostHealthLoading {
                     ProgressView()
@@ -318,8 +335,37 @@ extension SettingsView {
 
     var hostProcessLabel: String {
         if endpointIsRemote { return HeadroomCopy.hostRemoteEndpoint }
-        if HostController.isBundled { return HeadroomCopy.hostLocalLaunchAgent }
-        return HeadroomCopy.hostLocalProcess
+        guard HostController.isBundled else { return HeadroomCopy.hostLocalProcess }
+        return HostLifecycle.current == .appOwned
+            ? HeadroomCopy.hostOwnedByApp
+            : HeadroomCopy.hostLocalLaunchAgent
+    }
+
+    /// On means launchd owns the host. Off means this app does, and quitting
+    /// Headroom stops it. The toggle reads as "keep running" rather than naming
+    /// a LaunchAgent, because the choice is about what a quit does.
+    func setHostKeepRunning(_ keepRunning: Bool) {
+        hostKeepRunning = keepRunning
+        hostLifecycleBusy = true
+        hostLifecycleMessage = nil
+        let mode: HostLifecycle = keepRunning ? .launchAgent : .appOwned
+        HostLifecycle.store(mode)
+        Task {
+            let outcome = await HostLifecycleCoordinator.shared.apply(mode)
+            switch outcome.readiness {
+            case .ready:
+                hostLifecycleMessage = nil
+            case let .foreign(build):
+                hostLifecycleMessage = """
+                    Another host already owns :8737\(build.map { " (\($0))" } ?? "").
+                    """
+            case .silent:
+                hostLifecycleMessage =
+                    outcome.errorMessage ?? HeadroomCopy.hostUnavailable
+            }
+            await reloadHostHealth()
+            hostLifecycleBusy = false
+        }
     }
 
     func hostUptimeLabel(_ seconds: Int?) -> String {
