@@ -7,6 +7,23 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.6 — 2026-08-07
+
+### Added
+
+- **Remove background service** in Settings → General → Host — stops the host,
+  removes its login item for both the current and the legacy label, and quits.
+  It shows only while there is one to remove, and it is the way to leave
+  cleanly before deleting the app. Your settings, tokens and history stay in
+  `~/.headroom`.
+
+### Fixed
+
+- **Deleting Headroom no longer leaves a service behind** — the login item
+  names a script inside the app bundle, so removing the app left launchd
+  running a job whose target was gone, respawning it every few seconds with
+  nothing left to clean it up. Reported by @leolobato.
+
 ## 1.9.5 — 2026-08-07
 
 ### Added
