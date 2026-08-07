@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.9",
-  "published": "2026-08-07T10:52:57Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.9/Headroom-macOS.zip",
-  "sha256": "2de0944d7c462aefa90cded91e882c17013012aca98fbd381611bf127490a881",
-  "size": 6066112,
+  "version": "1.10.0",
+  "published": "2026-08-07T11:02:47Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.10.0/Headroom-macOS.zip",
+  "sha256": "51b5cbbf1fa39db89d5d1c1c7ee013a9539b0cba32d0dd311f1e32af852cc86d",
+  "size": 6104794,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Activity no longer shows forever-fresh grants from a frozen clock.** The\n  live roll journal refuses and hides grants stamped ahead of now, so a\n  burndown test leak cannot leave an `0s` Granted row on the desk."
+  "notes_md": "### Added\n\n- **Plausible visitor histograms** on Activity rows and site detail — daily\n  for 7d/30d windows, hourly for day/24h, same role as OpenRouter spend\n  charts.\n\n### Fixed\n\n- **AI Gateway Create token** opens the API keys page, not the gateway home."
 }
