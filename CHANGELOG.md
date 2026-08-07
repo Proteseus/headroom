@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.7 — 2026-08-07
+
+### Added
+
+- **Menu bar icon Remaining or Pace** in Settings → General. Remaining keeps
+  the fuel tanks; Pace places a mark above or below even spend so small gaps
+  move more than big ones. Tooltips follow the same reading.
+
 ## 1.9.6 — 2026-08-07
 
 ### Added
