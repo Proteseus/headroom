@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.5",
-  "published": "2026-08-07T07:13:01Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.5/Headroom-macOS.zip",
-  "sha256": "ada0cb1fc80f8e822ad7513512807b023dce7885504408b2d355e4c49483be05",
-  "size": 5946037,
+  "version": "1.9.6",
+  "published": "2026-08-07T09:16:03Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.6/Headroom-macOS.zip",
+  "sha256": "70dec85de25c758a243ec1944d4942ee73ced3cc65db8fdd1511e0ed1d89e3df",
+  "size": 5957576,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Choose who runs the host** — Settings → General → Host gains *Keep the\n  host running when Headroom is closed*. On, launchd owns the host and it\n  serves the board, iPhone and Watch whether or not the app is open. Off,\n  Headroom owns it: quitting the app stops the host, and `kill` sticks\n  instead of being undone by launchd seconds later. On by default, so nothing\n  changes unless you ask for it. Suggested by @leolobato.\n\n### Changed\n\n- **The host can exit with its parent** — a new `--exit-with-pid` makes the\n  host watch the process that spawned it and stop when that process goes. A\n  crash or a force quit can no longer leave a child holding port 8737, which\n  the next launch would see as a foreign host it cannot stop.\n- **App-owned host restarts have a budget** — four, with a widening delay,\n  and never after a clean exit. A clean exit means someone stopped the host on\n  purpose, or it stood down from a port something else owns. Restarting into\n  either is the crash loop 1.9.3 shipped.\n- **Docs: the host merges into the app** — `docs/host-merge.md` replaces the\n  Swift host study. It records the decision to move the server into\n  `Headroom.app` and retire the Python host, corrects the study's reason for\n  ruling that out, and sets the phases."
+  "notes_md": "### Added\n\n- **Remove background service** in Settings → General → Host — stops the host,\n  removes its login item for both the current and the legacy label, and quits.\n  It shows only while there is one to remove, and it is the way to leave\n  cleanly before deleting the app. Your settings, tokens and history stay in\n  `~/.headroom`.\n\n### Fixed\n\n- **Deleting Headroom no longer leaves a service behind** — the login item\n  names a script inside the app bundle, so removing the app left launchd\n  running a job whose target was gone, respawning it every few seconds with\n  nothing left to clean it up. Reported by @leolobato."
 }
