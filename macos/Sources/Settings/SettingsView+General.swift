@@ -8,6 +8,18 @@ extension SettingsView {
             timezoneSection
 
             Section {
+                Picker(HeadroomCopy.menuBarIcon, selection: $menuBarIconStyle) {
+                    Text(HeadroomCopy.menuBarIconRemaining)
+                        .tag(MenuBarIconStyle.remaining.rawValue)
+                    Text(HeadroomCopy.menuBarIconPace)
+                        .tag(MenuBarIconStyle.pace.rawValue)
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                Text(HeadroomCopy.menuBarIconHint)
+            }
+
+            Section {
                 Toggle(HeadroomCopy.openAtLogin, isOn: Binding(
                     get: { openAtLogin },
                     set: { setOpenAtLogin($0) }

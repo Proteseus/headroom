@@ -434,12 +434,25 @@ blocks — not a separate Settings list.
 
 ## Focus (the top 3)
 
-The providers the compact surfaces draw: menu-bar tanks, the iOS widget, and
+The providers the compact surfaces draw: menu-bar icon, the iOS widget, and
 the ESP32 glance slots. Picked host-side from the pinned order (enabled only,
 `sources_config.FOCUS_LIMIT`) and served as `focus` in `/usage`, so no surface
 computes its own top-N. Drag to reorder under Mac Settings → Providers.
 
 Say **top 3** in user-facing copy, not "focus" — that word is API vocabulary.
+
+### Menu bar icon
+
+Mac Settings → General → **Menu bar icon** picks the glyph’s reading. Same
+three slots either way; only the mark changes.
+
+| Option | Family | What each slot shows |
+|---|---|---|
+| **Remaining** | Fuel | Fill height = quota left (today’s tanks) |
+| **Pace** | Pace | Dot above/below even-spend midline; `tanh((used − pace) / 8)` so small gaps move more than big ones |
+
+Do not name the Pace option after the game metaphor in chrome — **Pace** is
+the glossary word; the midline-and-dot shape is just how it draws.
 
 Pool titles (`Session`, `Weekly`, `Total`, `API`, …) come from the host
 `PoolSpec` and should not be re-hardcoded in UI chrome when the API supplies them.

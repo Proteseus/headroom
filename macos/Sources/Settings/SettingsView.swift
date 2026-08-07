@@ -183,6 +183,8 @@ struct SettingsView: View {
     @State var columnVisibility = NavigationSplitViewVisibility.all
     @ObservedObject var updates = UpdateChecker.shared
     @AppStorage(UpdateChecker.automaticKey) var automaticUpdateChecks = true
+    @AppStorage(MenuBarIconStyle.defaultsKey)
+    var menuBarIconStyle = MenuBarIconStyle.remaining.rawValue
     @State var updateInstallMessage: String?
 
     var client: HeadroomClient { HeadroomClient(endpoint: endpoint) }

@@ -103,6 +103,13 @@ enum HeadroomCopy {
     /// macOS Settings → General. Matches System Settings → Login Items wording.
     static let openAtLogin = "Open at Login"
     static let openLoginItemsSettings = "Open Login Items…"
+    /// macOS Settings → General. Menu-bar glyph style (fuel vs pace).
+    static let menuBarIcon = "Menu bar icon"
+    static let menuBarIconRemaining = "Remaining"
+    static let menuBarIconPace = "Pace"
+    static let menuBarIconHint =
+        "①②③ follow Providers order. Remaining fills each slot by what’s left. Pace places a mark above or below even spend — small gaps move more than big ones."
+
     /// Welcome rail / first-run heading for the Sources step.
     static let welcomeWhatToWatch = "What to watch"
     /// Welcome rail for the iPhone step — Settings keeps the short “iPhone”.
