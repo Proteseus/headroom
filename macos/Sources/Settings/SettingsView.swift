@@ -169,6 +169,8 @@ struct SettingsView: View {
     @State var hostKeepRunning = HostLifecycle.current == .launchAgent
     @State var hostLifecycleBusy = false
     @State var hostLifecycleMessage: String?
+    @State var hostHasLaunchAgent = HostController.hasLaunchAgent
+    @State var hostRemoveConfirming = false
     @State var selection: SettingsDestination? = .general
     /// The pushed leaf under the selected root (one
     /// integration under Integrations/Coding agents). A `NavigationStack`

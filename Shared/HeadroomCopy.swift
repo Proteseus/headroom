@@ -85,6 +85,11 @@ enum HeadroomCopy {
     static let hostOwnedByApp = "Local process · with Headroom"
     static let hostStoppedCleanly = "The host stopped and did not restart. Something else may own port 8737."
     static let hostGaveUp = "The host failed to stay up. Check ~/.headroom/logs/headroom.err."
+    /// Leaving cleanly, for someone about to delete the app.
+    static let hostRemoveService = "Remove background service…"
+    static let hostRemoveServiceTitle = "Remove the background service?"
+    static let hostRemoveServiceBody = "Headroom stops the host, removes its login item, and quits. Nothing runs in the background until you open Headroom again. Your settings, tokens, and history stay in ~/.headroom."
+    static let hostRemoveServiceConfirm = "Remove and Quit"
     static let hostRefreshDetails = "Refresh details"
     static let hostNotAvailable = "Not available"
     static let settingsSave = "Save"
@@ -114,8 +119,15 @@ enum HeadroomCopy {
     static let aboutSourceOnGitHub = "Source on GitHub"
     static let aboutGitHubStarsLabel = "GitHub stars"
     static let aboutCommunityPulse = "Community Pulse"
+    /// Release notes from the bundled CHANGELOG.md (Settings → About).
+    static let changelog = "Changelog"
+    static let changelogUnavailable = "Changelog unavailable"
+    static let changelogUnavailableHint =
+        "This build did not ship with release notes."
+    static let changelogOnGitHub = "View on GitHub"
     static let aboutOpenSourceFooter =
         "Headroom is open source. Star counts come from GitHub."
+    static let done = "Done"
 
     static func aboutGitHubStars(_ count: Int) -> String {
         "\(count.formatted()) \(aboutGitHubStarsLabel)"

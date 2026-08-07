@@ -290,6 +290,20 @@ enum HostController {
         return .foreign(build: lastSeen.build)
     }
 
+    /// True while a LaunchAgent plist exists for either label.
+    ///
+    /// Gates the button that removes the background service, which only means
+    /// something when there is one. In app-owned mode there is no plist and
+    /// quitting is already the whole story. The legacy label counts: a plist
+    /// left by a pre-rename install is exactly the leftover worth removing.
+    static var hasLaunchAgent: Bool {
+        let fm = FileManager.default
+        let legacy = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(legacyLabel).plist")
+        return fm.fileExists(atPath: launchAgentURL.path)
+            || fm.fileExists(atPath: legacy.path)
+    }
+
     static func uninstall() {
         retireLegacyAgent()
         _ = runLaunchctl(["bootout", "\(domain)/\(label)"])

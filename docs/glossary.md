@@ -109,6 +109,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Settings** | Preferences | macOS window, iOS tab |
 | **General** | Host endpoint and runtime details, host lifecycle, Open at Login, welcome, App updates | macOS Settings |
 | **Keep the host running when Headroom is closed** | Who supervises the host. On, launchd owns it and it serves the board, iPhone and Watch whether or not the app is open. Off, the app owns it and quitting Headroom stops it. On by default. See [host.md](host.md) | macOS Settings |
+| **Remove background service…** | Stops the host, removes its LaunchAgent for both the current and legacy label, and quits. Shown only while a plist exists. The way to leave cleanly before deleting the app | macOS Settings |
 | **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
 | **Providers** | AI coding-quota meters Headroom draws rings for. Order and focus live here. Claude Code / Codex connection settings live under Agents. OpenRouter and AI Gateway are prepaid balances under Integrations → Activity, not here | macOS Settings, iOS Settings, Welcome |
@@ -131,9 +132,10 @@ surface-specific (see the end of this file), but the shape does not.
 | **iPhone** | Pairing + grants on Mac; notifications on iOS | Sync on macOS, iOS Settings, Welcome |
 | **Open the TestFlight invite** | Install link on Welcome’s phone step and Settings → iPhone | macOS Welcome, macOS Settings |
 | **On your phone** | Welcome rail title for the iPhone step | macOS Welcome |
-| **About** | Product credit in Settings: icon, version, creator, GitHub source link, live star count, Community Pulse | macOS, iOS |
+| **About** | Product credit in Settings: icon, version, creator, Changelog, GitHub source link, live star count, Community Pulse | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
 | **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
+| **Changelog** | Readable release notes from the bundled `CHANGELOG.md`, opened from About | macOS, iOS |
 | **Source on GitHub** | Link to the public repository from About | macOS, iOS |
 | **GitHub stars** | Live star count under the source link on About | macOS, iOS |
 | **Attention** | Warning / status card on the Mac, and the iOS tab it became (scoring policy: `docs/attention.md`) | macOS, iOS |

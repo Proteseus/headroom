@@ -120,6 +120,29 @@ either is the crash loop 1.9.3 shipped.
 
 Logs go to `~/.headroom/logs/headroom.log` and `.err` in both modes.
 
+### Leaving cleanly
+
+**Settings → General → Host → Remove background service.** It stops the host,
+boots out and deletes the plist for both the current and the legacy label, and
+quits Headroom. It appears only while a plist exists.
+
+Quitting is part of the action rather than advice afterwards. The app installs
+the LaunchAgent whenever it finds no host running, so a removal that left the
+app open would be undone by its own poll loop.
+
+Use it before deleting `Headroom.app`. The plist names a script inside the
+bundle:
+
+```
+/usr/bin/python3 /Applications/Headroom.app/Contents/Resources/host/headroom_server.py
+```
+
+Delete the app without removing the service and that job outlives it. launchd
+keeps trying to exec a path that is gone, and `KeepAlive` is
+`SuccessfulExit: false`, so a failed exec respawns every `ThrottleInterval`.
+Nothing is left running to clean it up. `scripts/uninstall-host.sh` fixes it
+from a clone; without one, boot out the label and delete both plists by hand.
+
 ## Host version
 
 launchd keeps whatever host it was given running across app updates, so the

@@ -252,6 +252,15 @@ extension SettingsView {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                // Only when there is one to remove. The plist outlives the app
+                // if someone deletes Headroom without leaving first, and then
+                // launchd respawns a host from a bundle that is gone.
+                if hostHasLaunchAgent {
+                    Button(HeadroomCopy.hostRemoveService, role: .destructive) {
+                        hostRemoveConfirming = true
+                    }
+                    .disabled(hostLifecycleBusy)
+                }
             }
             LabeledContent(HeadroomCopy.hostStatus) {
                 if hostHealthLoading {
@@ -310,6 +319,27 @@ extension SettingsView {
                  ? "Remote hosts need the host token (~/.headroom/token) — not the mobile token used by iPhone."
                  : "Mac, iPhone, and ESP32 all read this host. If it’s down, tap Start host or run ./scripts/install-host.sh from a clone. Source toggles also hide ESP32 pages.")
         }
+        .alert(HeadroomCopy.hostRemoveServiceTitle, isPresented: $hostRemoveConfirming) {
+            Button(HeadroomCopy.hostRemoveServiceConfirm, role: .destructive) {
+                removeBackgroundService()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(HeadroomCopy.hostRemoveServiceBody)
+        }
+    }
+
+    /// Leave nothing behind, for someone about to delete the app.
+    ///
+    /// Quitting is part of the action rather than a suggestion afterwards. The
+    /// app reinstalls the LaunchAgent whenever it finds no host running, so a
+    /// removal that left the app open would be undone by its own poll loop.
+    func removeBackgroundService() {
+        hostLifecycleBusy = true
+        HostProcess.shared.stop()
+        HostController.uninstall()
+        hostHasLaunchAgent = HostController.hasLaunchAgent
+        NSApp.terminate(nil)
     }
 
     func saveHostToken() {
@@ -363,6 +393,9 @@ extension SettingsView {
                 hostLifecycleMessage =
                     outcome.errorMessage ?? HeadroomCopy.hostUnavailable
             }
+            // Switching to app-owned deletes the plist; switching back writes
+            // one. The remove button appears and disappears with it.
+            hostHasLaunchAgent = HostController.hasLaunchAgent
             await reloadHostHealth()
             hostLifecycleBusy = false
         }
