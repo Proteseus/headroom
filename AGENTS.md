@@ -433,7 +433,7 @@ Settings pane. Gateway prefs live under Coding agents; see
 
 ## Contracts, access, and standing decisions
 
-Four docs exist so these are lookups rather than judgment calls. Read the one
+Five docs exist so these are lookups rather than judgment calls. Read the one
 that matches before you change the thing it governs.
 
 **[docs/contract.md](docs/contract.md) — changing `/usage`.** Additive only:
@@ -472,6 +472,16 @@ place by having a level or a headroom that means something** (attribution has
 neither and is deliberately not a meter), and **anything printing a dollar
 says whether the figure was observed or estimated**, because nobody audits a
 percentage against a card statement and everybody audits a dollar.
+
+**[docs/host-merge.md](docs/host-merge.md) — changing the host or its
+lifecycle.** The decision is made: the server moves into `Headroom.app` as a
+Swift library, and the Python host and its LaunchAgent go away. Read it before
+you invest in the split, and before you argue the ESP32 needs a daemon. It does
+not: the app is `LSUIElement` and starts at login in the same session, so
+availability is already equal. The reasons for the merge are entitlements, the
+version-skew machinery, and one process a user can stop. Ordinary work on
+`host/` continues until the phases land, but the wire format is frozen at every
+phase boundary, so a port is not an occasion to rename a key.
 
 ## Multi-Mac
 
