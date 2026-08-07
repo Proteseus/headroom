@@ -116,8 +116,10 @@ write — ask. If the invocation named no uncommitted work, ship branches only.
 8. Only then start the next set. A second bump before the previous tag exists
    leaves the gate looking at a version it cannot place.
 
-**Numbers:** patch increments, never past `.9`, roll the minor at `.9` — the
-table in `AGENTS.md`.
+**Numbers:** patch increments; minor and patch never past `.9`. At `X.Y.9`
+roll the minor; at `X.9.9` roll the major (`1.9.9` → **2.0.0**, never
+`1.10.0`). Table in `AGENTS.md`. Use `./scripts/ship-inventory.sh` for the
+next number — do not invent it.
 
 Compute every version from the tag that exists **at the moment you merge**,
 and recompute after each release. Bump commits sitting in branches are

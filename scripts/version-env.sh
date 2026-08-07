@@ -34,6 +34,23 @@ if [[ ! "$HEADROOM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]];
   exit 1
 fi
 
+# Minor and patch are single digits (AGENTS.md). Major is unbounded.
+# Grandfathered overshoots stay readable so old tags and the 1.10.0 mistake
+# still build; nothing new may claim a double-digit minor or patch.
+_ver_core="${HEADROOM_VERSION%%[-+]*}"
+IFS=. read -r _ver_maj _ver_min _ver_pat <<<"$_ver_core"
+case "$HEADROOM_VERSION" in
+  1.0.10|1.0.11|1.10.0) ;;
+  *)
+    if [[ ! "$_ver_min" =~ ^[0-9]$ || ! "$_ver_pat" =~ ^[0-9]$ ]]; then
+      echo "error: host/VERSION minor and patch must be single digits 0-9 (got '$HEADROOM_VERSION')" >&2
+      echo "       after X.Y.9 roll minor; after X.9.9 roll major to (X+1).0.0 — never X.10.0" >&2
+      exit 1
+    fi
+    ;;
+esac
+unset _ver_core _ver_maj _ver_min _ver_pat
+
 HEADROOM_BUILD="$(git -C "$_ROOT" rev-list --count HEAD 2>/dev/null || true)"
 if [[ -z "${HEADROOM_BUILD:-}" || ! "$HEADROOM_BUILD" =~ ^[0-9]+$ ]]; then
   HEADROOM_BUILD=0

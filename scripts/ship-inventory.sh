@@ -27,14 +27,25 @@ if [[ -n "$UNCOMMITTED" ]]; then
   DIRTY_COUNT="$(printf '%s\n' "$UNCOMMITTED" | wc -l | tr -d ' ')"
 fi
 
-# Next patch per AGENTS.md roll rule (.9 → next minor).
+# Next version per AGENTS.md: minor and patch are single digits only.
+# X.Y.9 → X.(Y+1).0 ; X.9.9 → (X+1).0.0 — never X.10.0.
 next_version() {
   local v="$1"
   local major minor patch
   IFS=. read -r major minor patch <<<"$v"
+  # Grandfathered overshoots: jump to the roll they were owed.
+  case "$v" in
+    1.0.10|1.0.11) echo "1.1.0"; return ;;
+    1.10.0) echo "2.0.0"; return ;;
+  esac
   patch=$((patch + 1))
   if (( patch > 9 )); then
     minor=$((minor + 1))
+    patch=0
+  fi
+  if (( minor > 9 )); then
+    major=$((major + 1))
+    minor=0
     patch=0
   fi
   echo "${major}.${minor}.${patch}"

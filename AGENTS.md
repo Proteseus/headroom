@@ -254,7 +254,9 @@ Xcode reads it — then stage `CHANGELOG.md` and `host/VERSION` and nothing else
 Naming the xcconfig as a third path fails the `git add`.
 
 **Each coherent set of changes gets exactly one release.** Increment the patch.
-When the patch would pass 9, roll to the next minor and reset it:
+**Minor and patch are single digits only — never `.10`.** When the patch would
+pass 9, roll the minor and reset the patch; when the minor would pass 9, roll
+the major and reset both:
 
 | From | Change | To |
 |---|---|---|
@@ -263,10 +265,11 @@ When the patch would pass 9, roll to the next minor and reset it:
 | 1.1.9 | anything shippable | **1.2.0** |
 | 1.9.9 | anything shippable | **2.0.0** |
 
-Never go past `.9`. `1.0.10` and `1.0.11` are shipped overshoots from before
-the rule and stay tagged where they are; the roll they were owed happens at the
-next release off them, which is why 1.0.11 is followed by **1.1.0** and not
-1.0.12.
+Never write `1.10.0` or `1.0.10`. `1.0.10`, `1.0.11`, and `1.10.0` are
+shipped overshoots that stay tagged where they are; the roll they were owed
+happens at the next release off them (`1.0.11` → **1.1.0**, `1.10.0` →
+**2.0.0**). `scripts/version-env.sh` and `scripts/ship-inventory.sh` enforce
+the single-digit rule going forward.
 
 The number is claimed at merge, not at branch. Several branches sitting on
 unmerged bumps is the normal state here, and each one was numbered against the

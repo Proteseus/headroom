@@ -3,10 +3,11 @@
 Marketing version lives in [`host/VERSION`](../host/VERSION), hand-bumped.
 Apple build numbers are `git rev-list --count HEAD` via [`scripts/version-env.sh`](../scripts/version-env.sh).
 
-**Each coherent set of changes gets one release, and the patch never passes 9.**
-Increment the patch; at `.9` roll to the next minor and reset it, so 1.1.9 is
-followed by 1.2.0 and 1.9.9 by 2.0.0. The existing `v1.0.10` and `v1.0.11`
-tags predate this rule; the next release after them rolls to `1.1.0`.
+**Each coherent set of changes gets one release. Minor and patch never pass 9.**
+Increment the patch; at `X.Y.9` roll to `X.(Y+1).0`; at `X.9.9` roll to
+`(X+1).0.0`. So 1.1.9 → 1.2.0 and **1.9.9 → 2.0.0** — never `1.10.0`.
+`v1.0.10`, `v1.0.11`, and `v1.10.0` are tagged overshoots that stay; the next
+release after them takes the roll they were owed.
 
 Because the bump ships whatever is on `main`, one-set-per-release means one
 branch per set, merged and bumped one at a time — see

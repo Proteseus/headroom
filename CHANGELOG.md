@@ -7,6 +7,17 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.0 — 2026-08-07
+
+### Changed
+
+- **Versioning:** after `1.9.9` the next release is `2.0.0`. Minor and patch
+  stay single digits — never `1.10.0`. That number already shipped as an
+  overshoot (same Plausible histograms); this tag is the roll it was owed, and
+  the feed points here. `AGENTS.md`, `ship-inventory.sh`, and `version-env.sh`
+  enforce the rule going forward. Same pattern as the old `1.0.10` / `1.0.11`
+  tags.
+
 ## 1.10.0 — 2026-08-07
 
 ### Added
