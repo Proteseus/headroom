@@ -7,6 +7,32 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.5 — 2026-08-07
+
+### Added
+
+- **Choose who runs the host** — Settings → General → Host gains *Keep the
+  host running when Headroom is closed*. On, launchd owns the host and it
+  serves the board, iPhone and Watch whether or not the app is open. Off,
+  Headroom owns it: quitting the app stops the host, and `kill` sticks
+  instead of being undone by launchd seconds later. On by default, so nothing
+  changes unless you ask for it. Suggested by @leolobato.
+
+### Changed
+
+- **The host can exit with its parent** — a new `--exit-with-pid` makes the
+  host watch the process that spawned it and stop when that process goes. A
+  crash or a force quit can no longer leave a child holding port 8737, which
+  the next launch would see as a foreign host it cannot stop.
+- **App-owned host restarts have a budget** — four, with a widening delay,
+  and never after a clean exit. A clean exit means someone stopped the host on
+  purpose, or it stood down from a port something else owns. Restarting into
+  either is the crash loop 1.9.3 shipped.
+- **Docs: the host merges into the app** — `docs/host-merge.md` replaces the
+  Swift host study. It records the decision to move the server into
+  `Headroom.app` and retire the Python host, corrects the study's reason for
+  ruling that out, and sets the phases.
+
 ## 1.9.4 — 2026-08-06
 
 ### Fixed
