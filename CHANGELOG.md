@@ -7,6 +7,14 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.9.8 — 2026-08-07
+
+### Added
+
+- **Changelog in About** — opens the same `CHANGELOG.md` the release pipeline
+  already ships, readable offline. The Release build fails if the bundled
+  file is missing.
+
 ## 1.9.7 — 2026-08-07
 
 ### Added
