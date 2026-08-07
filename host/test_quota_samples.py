@@ -303,6 +303,51 @@ class RollJournalTests(unittest.TestCase):
             [],
         )
 
+    def test_journal_hides_grants_ahead_of_now(self):
+        # A frozen test clock that leaked into the live journal must not
+        # surface as a forever-fresh Activity row.
+        with open(self.rolls_path, "w") as handle:
+            handle.write(json.dumps({
+                "t": int(NOW + 7 * 24 * 3600),
+                "provider": "codex",
+                "pool": "week",
+                "kind": "granted",
+                "source": "observed",
+                "forgiven_pct": 18.0,
+            }) + "\n")
+            handle.write(json.dumps({
+                "t": int(NOW - 3600),
+                "provider": "codex",
+                "pool": "week",
+                "kind": "granted",
+                "source": "observed",
+                "forgiven_pct": 51.0,
+            }) + "\n")
+        got = quota_samples.remembered_rolls(
+            "codex", "week", since=0, limit=None, now=NOW)
+        self.assertEqual(got, [{
+            "t": int(NOW - 3600),
+            "kind": "granted",
+            "forgiven_pct": 51.0,
+            "source": "observed",
+        }])
+
+    def test_live_journal_refuses_wall_clock_futures(self):
+        # Unpatched burndown tests used to append NOW-relative grants into the
+        # desk owner's file. Refuse those when ROLLS_PATH is the live path.
+        live = str(Path(self.tmp.name) / "live" / "quota_resets.jsonl")
+        Path(live).parent.mkdir()
+        with patch.object(quota_samples, "ROLLS_PATH", live), \
+             patch.object(quota_samples, "_rolls_path_is_live",
+                          return_value=True):
+            quota_samples._remember_rolls(
+                "codex", "week",
+                [{"t": int(NOW - 6 * 3600), "kind": "granted",
+                  "forgiven_pct": 18.0, "source": "observed"}],
+                now=NOW,
+            )
+            self.assertFalse(Path(live).exists())
+
 
 class RecordTests(unittest.TestCase):
     def setUp(self):

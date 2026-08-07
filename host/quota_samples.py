@@ -302,7 +302,7 @@ def rolls_for(provider, pool, rows, *, now=None, since=None, limit=MAX_ROLLS,
             for event in detected
         ]
 
-    _remember_rolls(provider, pool, to_remember)
+    _remember_rolls(provider, pool, to_remember, now=now)
     return remembered_rolls(
         provider, pool, since=since, limit=limit, now=now)
 
@@ -319,7 +319,10 @@ def remembered_rolls(provider, pool, *, since=None, limit=MAX_ROLLS, now=None):
                 if row.get("provider") != provider or row.get("pool") != pool:
                     continue
                 t = _num(row.get("t"))
-                if t is None or t < since:
+                # A grant stamped ahead of `now` is not news — it is usually a
+                # frozen test clock that leaked into the desk journal. Serving
+                # it makes Activity say "0s" forever (`fmt_ago` clamps futures).
+                if t is None or t < since or t > now:
                     continue
                 event = {
                     "t": int(t),
@@ -384,13 +387,33 @@ def _prefer_roll(left, right):
     return winner
 
 
-def _remember_rolls(provider, pool, events):
+def _rolls_path_is_live():
+    """True when the journal is the desk owner's `~/.headroom` file.
+
+    Unit tests redirect `ROLLS_PATH` (or `HOME`) so they can freeze `now`
+    years ahead and still persist. The live path must not accept those
+    futures — one unpatched burndown fixture already stamped a Jan 2027
+    "18% back" grant that Activity then showed as `0s` forever.
+    """
+    live = os.path.expanduser("~/.headroom/quota_resets.jsonl")
+    try:
+        return os.path.samefile(ROLLS_PATH, live)
+    except OSError:
+        return os.path.abspath(ROLLS_PATH) == os.path.abspath(live)
+
+
+def _remember_rolls(provider, pool, events, *, now=None):
     """Append newly seen grants to the journal. Idempotent per stable key."""
     if not events:
         return
+    now = time.time() if now is None else float(now)
+    # On the live journal, also refuse wall-clock futures. Tests may pass a
+    # frozen `now` years ahead; those only write when ROLLS_PATH is redirected.
+    wall = time.time()
+    live = _rolls_path_is_live()
     known_ids = set()
     known_t = set()
-    for roll in remembered_rolls(provider, pool, since=0, limit=None):
+    for roll in remembered_rolls(provider, pool, since=0, limit=None, now=now):
         if roll.get("tweet_id"):
             known_ids.add(str(roll["tweet_id"]))
         known_t.add(int(roll["t"]))
@@ -398,6 +421,10 @@ def _remember_rolls(provider, pool, events):
     for event in events:
         t = _num(event.get("t"))
         if t is None:
+            continue
+        if t > now + WINDOW_TOLERANCE_S:
+            continue
+        if live and t > wall + WINDOW_TOLERANCE_S:
             continue
         tweet_id = event.get("tweet_id")
         tweet_id = str(tweet_id) if tweet_id else None
