@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.10.0",
-  "published": "2026-08-07T11:02:47Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.10.0/Headroom-macOS.zip",
-  "sha256": "51b5cbbf1fa39db89d5d1c1c7ee013a9539b0cba32d0dd311f1e32af852cc86d",
-  "size": 6104794,
+  "version": "2.0.0",
+  "published": "2026-08-07T11:16:44Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.0/Headroom-macOS.zip",
+  "sha256": "baff043c82a1547e138b9cb3da11f7b9cd91ccabcdddd5a5f2918cab8881276a",
+  "size": 6104961,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Plausible visitor histograms** on Activity rows and site detail — daily\n  for 7d/30d windows, hourly for day/24h, same role as OpenRouter spend\n  charts.\n\n### Fixed\n\n- **AI Gateway Create token** opens the API keys page, not the gateway home."
+  "notes_md": "### Changed\n\n- **Versioning:** after `1.9.9` the next release is `2.0.0`. Minor and patch\n  stay single digits — never `1.10.0`. That number already shipped as an\n  overshoot (same Plausible histograms); this tag is the roll it was owed, and\n  the feed points here. `AGENTS.md`, `ship-inventory.sh`, and `version-env.sh`\n  enforce the rule going forward. Same pattern as the old `1.0.10` / `1.0.11`\n  tags."
 }
