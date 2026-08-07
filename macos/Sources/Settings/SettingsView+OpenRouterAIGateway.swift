@@ -109,7 +109,7 @@ extension SettingsView {
                 }
                 Spacer()
                 Button(HeadroomCopy.settingsCreateToken) {
-                    openURL("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway&title=AI%20Gateway")
+                    openURL("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI%20Gateway%20API%20Keys")
                 }
                 .buttonStyle(.link)
             }

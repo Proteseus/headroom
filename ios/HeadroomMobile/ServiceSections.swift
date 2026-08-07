@@ -147,11 +147,21 @@ struct ServiceSections: View {
                             NavigationLink {
                                 PlausibleSiteDetail(site: site)
                             } label: {
-                                VStack(alignment: .leading) {
-                                    Text(site.domain ?? "Site")
-                                    Text(plausibleDetail(site))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading) {
+                                        Text(site.domain ?? "Site")
+                                        Text(plausibleDetail(site))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 0)
+                                    if let series = site.byDay,
+                                       series.contains(where: { ($0.visitors ?? 0) > 0 }) {
+                                        PlausibleTrafficSparkline(
+                                            days: series,
+                                            tint: HeadroomPalette.providerTint(id: "plausible")
+                                        )
+                                    }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }

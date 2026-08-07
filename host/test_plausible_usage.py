@@ -83,7 +83,11 @@ class PlausibleUsageTests(unittest.TestCase):
 
     @patch("plausible_usage._query")
     @patch("plausible_usage._realtime", return_value=1)
-    def test_fetch_site_uses_configured_range(self, _realtime, query):
+    @patch("plausible_usage._fetch_series", return_value=[
+        {"day": "2026-08-06 10", "visitors": 2},
+        {"day": "2026-08-06 11", "visitors": 5},
+    ])
+    def test_fetch_site_uses_configured_range(self, _series, _realtime, query):
         query.side_effect = [
             {"visitors": 9, "pageviews": 12},
             {"visitors": 40, "pageviews": 80, "bounce_rate": 50, "visit_duration": 60},
@@ -93,6 +97,43 @@ class PlausibleUsageTests(unittest.TestCase):
         self.assertEqual(row["range"], "24h")
         self.assertEqual(query.call_args_list[0].args[3], "24h")
         self.assertEqual(query.call_args_list[1].args[3], "7d")
+        self.assertEqual(len(row["by_day"]), 2)
+        self.assertEqual(row["by_day"][1]["visitors"], 5)
+
+    @patch("plausible_usage._request")
+    def test_fetch_series_fills_empty_hours(self, request):
+        request.return_value = {
+            "results": [
+                {"metrics": [4], "dimensions": ["2026-08-06 11:00:00"]},
+            ],
+            "meta": {
+                "time_labels": [
+                    "2026-08-06 10:00:00",
+                    "2026-08-06 11:00:00",
+                    "2026-08-06 12:00:00",
+                ],
+            },
+        }
+        rows = plausible_usage._fetch_series("secret", "a.dev", "24h")
+        self.assertEqual(
+            rows,
+            [
+                {"day": "2026-08-06 10", "visitors": 0},
+                {"day": "2026-08-06 11", "visitors": 4},
+                {"day": "2026-08-06 12", "visitors": 0},
+            ],
+        )
+        body = request.call_args.kwargs["body"]
+        self.assertEqual(body["dimensions"], ["time:hour"])
+        self.assertTrue(body["include"]["time_labels"])
+
+    def test_series_spec_picks_bucket(self):
+        self.assertEqual(
+            plausible_usage._series_spec("7d"), ("7d", "time:day"))
+        self.assertEqual(
+            plausible_usage._series_spec("30d"), ("30d", "time:day"))
+        self.assertEqual(
+            plausible_usage._series_spec("24h"), ("24h", "time:hour"))
 
     @patch("plausible_usage._list_sites", return_value=(["a.dev", "b.dev", "c.dev"], None))
     @patch("plausible_usage._configured_sites", return_value=["b.dev"])

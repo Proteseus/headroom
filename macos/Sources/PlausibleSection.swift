@@ -52,6 +52,7 @@ struct PlausibleSection: View {
 
     @ViewBuilder
     private func row(_ site: PlausibleSite) -> some View {
+        let series = site.byDay ?? []
         HStack(spacing: 8) {
             Button {
                 selection = .plausible(site.domain)
@@ -76,6 +77,12 @@ struct PlausibleSection: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
+                    if series.contains(where: { ($0.visitors ?? 0) > 0 }) {
+                        PlausibleTrafficSparkline(
+                            days: series,
+                            tint: HeadroomPalette.providerTint(id: "plausible")
+                        )
+                    }
                     if let live = site.realtime, live > 0 {
                         Text("\(live)")
                             .font(.caption.monospacedDigit().weight(.semibold))

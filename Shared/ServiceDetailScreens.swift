@@ -29,6 +29,7 @@ struct PlausibleSiteDetail: View {
     let site: PlausibleSite
 
     var body: some View {
+        let series = site.byDay ?? []
         List {
             Section("Site") {
                 APIDetailMetaRow(title: "Domain", value: site.domain, monospaced: true)
@@ -39,6 +40,17 @@ struct PlausibleSiteDetail: View {
                             .foregroundStyle(HeadroomPalette.orange)
                             .multilineTextAlignment(.trailing)
                     }
+                }
+            }
+            if !series.isEmpty {
+                Section {
+                    PlausibleTrafficChart(
+                        days: series,
+                        title: site.windowLabel,
+                        tint: HeadroomPalette.providerTint(id: "plausible")
+                    )
+                    .padding(.vertical, 4)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
             }
             Section("Traffic") {

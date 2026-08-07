@@ -2419,6 +2419,9 @@ struct PlausibleSite: Decodable, Identifiable, Sendable {
     var bounceRate7d: Double?
     var visitDuration7d: Int?
     var realtime: Int?
+    /// Visitor histogram for the configured window — daily for 7d/30d,
+    /// hourly for day/24h. Same visual role as OpenRouter `spend.by_day`.
+    var byDay: [PlausibleTrafficDay]?
     var dashboardURL: String?
     var error: String?
     var range: String?
@@ -2438,9 +2441,17 @@ struct PlausibleSite: Decodable, Identifiable, Sendable {
         case pageviews7d = "pageviews_7d"
         case bounceRate7d = "bounce_rate_7d"
         case visitDuration7d = "visit_duration_7d"
+        case byDay = "by_day"
         case dashboardURL = "dashboard_url"
         case rangeLabel = "range_label"
     }
+}
+
+/// One bar in a Plausible site histogram (`by_day`).
+struct PlausibleTrafficDay: Decodable, Sendable, Equatable, Identifiable {
+    var day: String?
+    var visitors: Int?
+    var id: String { day ?? "\(visitors ?? 0)" }
 }
 
 struct PostHogUsage: Decodable, Sendable {

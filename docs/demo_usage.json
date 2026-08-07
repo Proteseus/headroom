@@ -931,6 +931,14 @@
         "bounce_rate_7d": 41.5,
         "visit_duration_7d": 142,
         "realtime": 3,
+        "by_day": [
+          { "day": "2026-08-06 10", "visitors": 4 },
+          { "day": "2026-08-06 11", "visitors": 9 },
+          { "day": "2026-08-06 12", "visitors": 12 },
+          { "day": "2026-08-06 13", "visitors": 7 },
+          { "day": "2026-08-06 14", "visitors": 15 },
+          { "day": "2026-08-06 15", "visitors": 11 }
+        ],
         "dashboard_url": "https://plausible.io/acme.dev",
         "error": null
       },
@@ -945,6 +953,14 @@
         "bounce_rate_7d": 52.0,
         "visit_duration_7d": 88,
         "realtime": 1,
+        "by_day": [
+          { "day": "2026-08-06 10", "visitors": 1 },
+          { "day": "2026-08-06 11", "visitors": 3 },
+          { "day": "2026-08-06 12", "visitors": 5 },
+          { "day": "2026-08-06 13", "visitors": 2 },
+          { "day": "2026-08-06 14", "visitors": 8 },
+          { "day": "2026-08-06 15", "visitors": 4 }
+        ],
         "dashboard_url": "https://plausible.io/docs.acme.dev",
         "error": null
       }
