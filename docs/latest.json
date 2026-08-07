@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.6",
-  "published": "2026-08-07T09:16:03Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.6/Headroom-macOS.zip",
-  "sha256": "70dec85de25c758a243ec1944d4942ee73ced3cc65db8fdd1511e0ed1d89e3df",
-  "size": 5957576,
+  "version": "1.9.7",
+  "published": "2026-08-07T10:37:02Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.7/Headroom-macOS.zip",
+  "sha256": "a84ee0d4573fcfa61e5f5ec75b4a2071ee5a2a18cd41c6a2081a8a9bd5a8af46",
+  "size": 5973060,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Remove background service** in Settings → General → Host — stops the host,\n  removes its login item for both the current and the legacy label, and quits.\n  It shows only while there is one to remove, and it is the way to leave\n  cleanly before deleting the app. Your settings, tokens and history stay in\n  `~/.headroom`.\n\n### Fixed\n\n- **Deleting Headroom no longer leaves a service behind** — the login item\n  names a script inside the app bundle, so removing the app left launchd\n  running a job whose target was gone, respawning it every few seconds with\n  nothing left to clean it up. Reported by @leolobato."
+  "notes_md": "### Added\n\n- **Menu bar icon Remaining or Pace** in Settings → General. Remaining keeps\n  the fuel tanks; Pace places a mark above or below even spend so small gaps\n  move more than big ones. Tooltips follow the same reading."
 }
