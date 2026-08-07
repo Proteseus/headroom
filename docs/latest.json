@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.9.8",
-  "published": "2026-08-07T10:44:42Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.8/Headroom-macOS.zip",
-  "sha256": "c6a15567814f16691de2caca2066d6b51778198b9ee8d57998ba2f78430b1ff9",
-  "size": 6065579,
+  "version": "1.9.9",
+  "published": "2026-08-07T10:52:57Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v1.9.9/Headroom-macOS.zip",
+  "sha256": "2de0944d7c462aefa90cded91e882c17013012aca98fbd381611bf127490a881",
+  "size": 6066112,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Changelog in About** — opens the same `CHANGELOG.md` the release pipeline\n  already ships, readable offline. The Release build fails if the bundled\n  file is missing."
+  "notes_md": "### Fixed\n\n- **Activity no longer shows forever-fresh grants from a frozen clock.** The\n  live roll journal refuses and hides grants stamped ahead of now, so a\n  burndown test leak cannot leave an `0s` Granted row on the desk."
 }
