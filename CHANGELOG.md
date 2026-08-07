@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 1.10.0 — 2026-08-07
+
+### Added
+
+- **Plausible visitor histograms** on Activity rows and site detail — daily
+  for 7d/30d windows, hourly for day/24h, same role as OpenRouter spend
+  charts.
+
+### Fixed
+
+- **AI Gateway Create token** opens the API keys page, not the gateway home.
+
 ## 1.9.9 — 2026-08-07
 
 ### Fixed
