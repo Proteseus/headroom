@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "2.0.0",
-  "published": "2026-08-07T11:16:44Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.0/Headroom-macOS.zip",
-  "sha256": "baff043c82a1547e138b9cb3da11f7b9cd91ccabcdddd5a5f2918cab8881276a",
-  "size": 6104961,
+  "version": "2.0.1",
+  "published": "2026-08-08T15:54:33Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.1/Headroom-macOS.zip",
+  "sha256": "98920c0ebd71b19416a758bcfc8c06a1f274fe7210919cef0d0c053370487646",
+  "size": 6107120,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **Versioning:** after `1.9.9` the next release is `2.0.0`. Minor and patch\n  stay single digits — never `1.10.0`. That number already shipped as an\n  overshoot (same Plausible histograms); this tag is the roll it was owed, and\n  the feed points here. `AGENTS.md`, `ship-inventory.sh`, and `version-env.sh`\n  enforce the rule going forward. Same pattern as the old `1.0.10` / `1.0.11`\n  tags."
+  "notes_md": "### Fixed\n\n- **Claude stops asking for a sign-in it already has.** Headroom imported\n  Claude Code's credentials once and then preferred its own copy forever. When\n  that copy's refresh token expired the copy still looked valid — an access\n  token stays a non-empty string long after it stops working — so every poll\n  tried to renew a dead grant, and the good token each `claude login` wrote to\n  the Keychain was never read. A stored login whose refresh token has expired\n  no longer counts as credentials, so re-import is how the daemon recovers\n  rather than something that only ever happened once. Logins from before the\n  expiry field existed are unaffected.\n- **The sign-in error names the reason instead of a dead URL.** Refresh also\n  tried a fallback host whose route now 404s, and reported whichever error\n  came last — so `invalid_grant: Refresh token not found or invalid` reached\n  the menu bar as `HTTP 404 from console.anthropic.com`. That host is out of\n  the list, a definitive `invalid_grant` stops the search instead of falling\n  through to it, and a 404 can no longer outrank an answer that says what is\n  actually wrong.\n- **An expired grant reads as \"needs sign-in\" on every path.** One route\n  raised it through a generic handler, which dropped the flag separating the\n  single failure a person can fix from an outage they can only wait out."
 }
