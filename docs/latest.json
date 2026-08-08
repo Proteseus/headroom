@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "2.0.1",
-  "published": "2026-08-08T15:54:33Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.1/Headroom-macOS.zip",
-  "sha256": "98920c0ebd71b19416a758bcfc8c06a1f274fe7210919cef0d0c053370487646",
-  "size": 6107120,
+  "version": "2.0.2",
+  "published": "2026-08-08T16:07:08Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.2/Headroom-macOS.zip",
+  "sha256": "96604b6e8a46f01400a3925c43d0f5a8e9e633def3fb02db024241682ed92179",
+  "size": 6107708,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Claude stops asking for a sign-in it already has.** Headroom imported\n  Claude Code's credentials once and then preferred its own copy forever. When\n  that copy's refresh token expired the copy still looked valid — an access\n  token stays a non-empty string long after it stops working — so every poll\n  tried to renew a dead grant, and the good token each `claude login` wrote to\n  the Keychain was never read. A stored login whose refresh token has expired\n  no longer counts as credentials, so re-import is how the daemon recovers\n  rather than something that only ever happened once. Logins from before the\n  expiry field existed are unaffected.\n- **The sign-in error names the reason instead of a dead URL.** Refresh also\n  tried a fallback host whose route now 404s, and reported whichever error\n  came last — so `invalid_grant: Refresh token not found or invalid` reached\n  the menu bar as `HTTP 404 from console.anthropic.com`. That host is out of\n  the list, a definitive `invalid_grant` stops the search instead of falling\n  through to it, and a 404 can no longer outrank an answer that says what is\n  actually wrong.\n- **An expired grant reads as \"needs sign-in\" on every path.** One route\n  raised it through a generic handler, which dropped the flag separating the\n  single failure a person can fix from an outage they can only wait out."
+  "notes_md": "### Fixed\n\n- **Grok source stops logging its own users out.** `_acp_billing()` spawned\n  `grok agent stdio` and SIGKILLed it the instant the billing answer arrived.\n  The CLI rotates `~/.grok/auth.json` during startup — lock, then rewrite —\n  and a kill landing inside that window deleted the login file outright,\n  leaving `auth.json.lock` orphaned and the source reporting \"not signed in to\n  Grok CLI\" until someone ran `grok login` again. Observed twice in five days\n  of production polling. Shutdown now closes stdin so the agent sees EOF and\n  exits cleanly, escalating to `terminate` then `kill` only if it lingers past\n  two 3s timeouts; poll cost is unchanged. (#26)"
 }
