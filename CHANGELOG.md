@@ -7,6 +7,30 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.1 — 2026-08-08
+
+### Fixed
+
+- **Claude stops asking for a sign-in it already has.** Headroom imported
+  Claude Code's credentials once and then preferred its own copy forever. When
+  that copy's refresh token expired the copy still looked valid — an access
+  token stays a non-empty string long after it stops working — so every poll
+  tried to renew a dead grant, and the good token each `claude login` wrote to
+  the Keychain was never read. A stored login whose refresh token has expired
+  no longer counts as credentials, so re-import is how the daemon recovers
+  rather than something that only ever happened once. Logins from before the
+  expiry field existed are unaffected.
+- **The sign-in error names the reason instead of a dead URL.** Refresh also
+  tried a fallback host whose route now 404s, and reported whichever error
+  came last — so `invalid_grant: Refresh token not found or invalid` reached
+  the menu bar as `HTTP 404 from console.anthropic.com`. That host is out of
+  the list, a definitive `invalid_grant` stops the search instead of falling
+  through to it, and a 404 can no longer outrank an answer that says what is
+  actually wrong.
+- **An expired grant reads as "needs sign-in" on every path.** One route
+  raised it through a generic handler, which dropped the flag separating the
+  single failure a person can fix from an outage they can only wait out.
+
 ## 2.0.0 — 2026-08-07
 
 ### Changed
