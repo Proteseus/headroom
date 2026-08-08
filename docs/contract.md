@@ -236,6 +236,10 @@ Two rules keep it a projection rather than a fork:
   identically. A null that survives into the device view is a field the board
   will silently read as zero.
 
+The one non-usage field is the additive `device_effect` command envelope. It
+is host control state for the board's next poll, not a second source of usage
+data; older firmware ignores it and flashed firmware consumes each id once.
+
 The board also never picks anything. The host chooses which three providers are
 in `focus`, in pinned order, enabled only — so the desk, the menu bar and the
 widget cannot disagree about which three. **The board is a render target.** Any

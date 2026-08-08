@@ -74,6 +74,26 @@ BOOT returns home.
 | Bottom-right | Link glyph — Wi‑Fi arcs or USB cable |
 | Bottom-left | Power — plug on VBUS; battery fill + % when a cell is present; bolt while charging |
 
+## Reset celebration
+
+When a provider's quota window rolls, the board takes over the screen for about
+2.4 seconds with an accent-tinted confetti burst. The provider's configured
+accent supplies all of the particle shades. To test it remotely from the Mac
+or another private-network machine, send the host token and optionally name a
+provider slot:
+
+```bash
+curl -sS -X POST \
+  -H "X-Headroom-Token: $(cat ~/.headroom/token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"effect":"reset","provider":"codex"}' \
+  http://headroom.local:8737/device/effect
+```
+
+The command is picked up on the board's next normal poll. Omit `provider` to
+use the first selected model's accent. The endpoint is token-authenticated and
+private-network-only.
+
 ## Auto brightness
 
 Follows local solar times from lat/lon (Amsterdam defaults) plus a fixed

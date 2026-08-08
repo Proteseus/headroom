@@ -570,6 +570,17 @@ static const char *PREFS_NS = "headroom";
 // Versioned so the old Burndown/Activity/History ordering cannot silently
 // restore the wrong card after this dashboard reshuffle.
 static const char *PREF_HOME_MODE = "home_pane_v2";
+static const char *PREF_EFFECT_ID = "effect_id";
+static uint32_t lastEffectId = 0;
+static bool pendingCelebration = false;
+static uint16_t pendingCelebrationAccent = COL_DIM;
+
+// The primary burndown window start is stable between polls and changes when
+// the provider grants or schedules a new window. Keep one baseline per slot so
+// the visual only fires after the first payload, never at boot.
+static String resetBaselineIds[MAX_SLOTS];
+static uint32_t resetBaselineStarts[MAX_SLOTS] = {};
+static bool resetBaselineReady[MAX_SLOTS] = {};
 
 // Must match docs/glossary.md / Shared/HeadroomCopy.swift.
 static const char *LABEL_BURNDOWN = "Burndown";
@@ -597,6 +608,18 @@ static void homeModeLoad() {
 static void homeModeSave() {
   if (!prefs.begin(PREFS_NS, false)) return;
   prefs.putUChar(PREF_HOME_MODE, (uint8_t)homeMode);
+  prefs.end();
+}
+
+static void effectLoad() {
+  if (!prefs.begin(PREFS_NS, true)) return;
+  lastEffectId = prefs.getULong(PREF_EFFECT_ID, 0);
+  prefs.end();
+}
+
+static void effectSave() {
+  if (!prefs.begin(PREFS_NS, false)) return;
+  prefs.putULong(PREF_EFFECT_ID, lastEffectId);
   prefs.end();
 }
 
@@ -1275,6 +1298,7 @@ static bool usageFilterReady(JsonDocument **out) {
   filter["spend"]["total"] = true;
   filter["spend"]["days"] = true;
   filter["spend"]["avg"] = true;
+  filter["device_effect"] = true;
 
   // Leave `built` false on overflow so the next fetch retries the build once
   // PSRAM frees up, rather than latching a filter that silently eats providers.
@@ -1518,6 +1542,52 @@ static bool applyUsageDoc(JsonDocument &doc) {
     for (uint8_t i = 0; i < slotN; i++) {
       JsonObject b = bd[slots[i].id.c_str()].as<JsonObject>();
       if (!b.isNull()) applyBurndownDoc(b, slots[i].burn);
+    }
+  }
+
+  // A changed burndown window start is the host's cross-provider reset
+  // boundary. Baseline the first payload so powering on never celebrates an
+  // already-existing window; subsequent scheduled or granted rolls do.
+  for (uint8_t i = 0; i < MAX_SLOTS; i++) {
+    if (i >= slotN || !slots[i].burn.t0) {
+      resetBaselineReady[i] = false;
+      resetBaselineIds[i] = "";
+      resetBaselineStarts[i] = 0;
+      continue;
+    }
+    const bool sameProvider = resetBaselineReady[i]
+        && resetBaselineIds[i] == slots[i].id;
+    if (sameProvider && resetBaselineStarts[i] != slots[i].burn.t0) {
+      pendingCelebration = true;
+      pendingCelebrationAccent = slots[i].accent;
+      Serial.printf("reset celebration: %s\n", slots[i].id.c_str());
+    }
+    resetBaselineIds[i] = slots[i].id;
+    resetBaselineStarts[i] = slots[i].burn.t0;
+    resetBaselineReady[i] = true;
+  }
+
+  // A device effect is additive and host-commanded. The id is persisted when
+  // consumed, so a board reboot does not replay an old remote test command.
+  JsonObject effect = doc["device_effect"].as<JsonObject>();
+  if (!effect.isNull() && strcmp((const char *)(effect["kind"] | ""),
+                                 "reset") == 0) {
+    const uint32_t effectId = (uint32_t)(effect["id"] | 0u);
+    if (effectId > lastEffectId) {
+      lastEffectId = effectId;
+      effectSave();
+      pendingCelebration = true;
+      pendingCelebrationAccent = slotN > 0 ? slots[0].accent : COL_DIM;
+      const char *provider = (const char *)(effect["provider"] | "");
+      for (uint8_t i = 0; i < slotN; i++) {
+        if (provider[0] && slots[i].id == provider) {
+          pendingCelebrationAccent = slots[i].accent;
+          break;
+        }
+      }
+      if (!provider[0] && slotN > 0) pendingCelebrationAccent = slots[0].accent;
+      Serial.printf("remote celebration: %s\n",
+                    provider[0] ? provider : "default");
     }
   }
 
@@ -2603,6 +2673,7 @@ static const char *pageName(Page p) {
 
 // Blend a colour toward the background. RGB565 has to be unpacked to do it.
 static uint16_t dimToward(uint16_t color, uint16_t bg, float factor);
+static void playResetCelebration(uint16_t accent);
 
 // Footprint the home page reserves for the link glyph, bottom-right.
 static const int16_t LINK_GLYPH_W = 18;
@@ -2811,6 +2882,76 @@ static uint16_t dimToward(uint16_t color, uint16_t bg, float factor) {
   const int g = bgc + (int)((cg - bgc) * factor + 0.5f);
   const int b = bb + (int)((cb - bb) * factor + 0.5f);
   return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// Full-screen reset celebration. It is intentionally a small, deterministic
+// particle field rather than a stored bitmap: every piece is a shade of the
+// provider accent, the frame fits in the existing canvas, and the same show is
+// available for both observed resets and the remote test command.
+static const uint16_t CELEBRATION_SEEDS[32] = {
+    0x13A7, 0x2C41, 0x38D2, 0x4F19, 0x52B8, 0x67E3, 0x71A0, 0x8C26,
+    0x95D4, 0xA13B, 0xB84E, 0xC207, 0xD96A, 0xE31C, 0xF047, 0x0B92,
+    0x1DD8, 0x2A6F, 0x3E15, 0x46C9, 0x58B2, 0x63F1, 0x76AC, 0x89D3,
+    0x9A28, 0xA74D, 0xB36E, 0xC8F0, 0xD41B, 0xE6A5, 0xF92C, 0x05E7,
+};
+static const uint8_t CELEBRATION_FRAMES = 35;
+static const uint32_t CELEBRATION_FRAME_MS = 70;
+
+static uint16_t celebrationShade(uint16_t accent, uint8_t index) {
+  switch (index % 5) {
+    case 0: return accent;
+    case 1: return dimToward(accent, COL_BG, 0.42f);
+    case 2: return dimToward(accent, COL_BG, 0.70f);
+    case 3: return dimToward(accent, COL_WHITE, 0.40f);
+    default: return dimToward(accent, COL_WHITE, 0.82f);
+  }
+}
+
+static void playResetCelebration(uint16_t accent) {
+  const float totalS = (CELEBRATION_FRAMES - 1) *
+                       (CELEBRATION_FRAME_MS / 1000.0f);
+  const int16_t cx = scrW() / 2;
+  const int16_t cy = scrH() / 2;
+  for (uint8_t frame = 0; frame < CELEBRATION_FRAMES; frame++) {
+    const uint32_t started = millis();
+    const float seconds = frame * (CELEBRATION_FRAME_MS / 1000.0f);
+    const float progress = seconds / totalS;
+    gfx->clear(COL_BG);
+
+    // A restrained radial pulse gives the first burst a sense of lift without
+    // turning the selected accent into a new alarm colour.
+    const int16_t radius = (int16_t)(18 + progress * 170.0f);
+    gfx->drawCircle(cx, cy, radius,
+                    dimToward(accent, COL_BG, 0.16f * (1.0f - progress)));
+    if (progress < 0.35f) {
+      gfx->fillCircle(cx, cy, (int16_t)(10 + (1.0f - progress) * 16),
+                      dimToward(accent, COL_BG, 0.10f));
+    }
+
+    for (uint8_t i = 0; i < 32; i++) {
+      const uint16_t seed = CELEBRATION_SEEDS[i];
+      const float originX = (float)((int)(seed & 0x7F) - 64);
+      const float originY = (float)((int)((seed >> 7) & 0x1F) - 16);
+      const float vx = (float)((int)((seed >> 2) & 0x1F) - 16) * 7.0f;
+      const float vy = -42.0f - (float)((seed >> 10) & 0x1F) * 2.3f;
+      const float x = cx + originX + vx * seconds;
+      const float y = cy + originY + vy * seconds + 57.0f * seconds * seconds;
+      const int16_t px = (int16_t)lroundf(x);
+      const int16_t py = (int16_t)lroundf(y);
+      const int16_t size = 3 + (seed & 0x03);
+      const uint16_t color = celebrationShade(accent, i);
+      if (((frame + seed) & 0x03) == 0) {
+        gfx->drawFastVLine(px, py, (int16_t)(size + 4), color);
+      } else if (((frame + seed) & 0x01) == 0) {
+        gfx->fillRect(px, py, (int16_t)(size + 2), size, color);
+      } else {
+        gfx->fillRect(px, py, size, (int16_t)(size + 2), color);
+      }
+    }
+    gfx->flush();
+    const uint32_t spent = millis() - started;
+    if (spent < CELEBRATION_FRAME_MS) delay(CELEBRATION_FRAME_MS - spent);
+  }
 }
 
 // Fixed-size "now" dot, riding inside the band. Sizing it off the band rather
@@ -4505,8 +4646,16 @@ static void forceSyncFromDesk() {
   delay(150);
   yield();
   esp_task_wdt_reset();
-  if (fetchUsage(USB_TIMEOUT_SYNC_MS)) drawDashboard();
-  else drawStatus(ok ? "synced" : "sync failed", ok ? COL_GREEN : COL_RED);
+  if (fetchUsage(USB_TIMEOUT_SYNC_MS)) {
+    drawDashboard();
+    if (pendingCelebration) {
+      pendingCelebration = false;
+      playResetCelebration(pendingCelebrationAccent);
+      drawDashboard();
+    }
+  } else {
+    drawStatus(ok ? "synced" : "sync failed", ok ? COL_GREEN : COL_RED);
+  }
 }
 
 // ---------------- OTA ----------------
@@ -4627,6 +4776,7 @@ void setup() {
   pinMode(BTN_BOOT, INPUT_PULLUP);
   bool touchOk = touchInit();
   homeModeLoad();   // before the first home paint
+  effectLoad();
 
   bool pok = panel->begin();
   Serial.printf("panel->begin: %s\n", pok ? "ok" : "FAIL");
@@ -4846,6 +4996,11 @@ void loop() {
     if (fetchUsage()) {
       fetchFails = 0;
       drawDashboard();
+      if (pendingCelebration) {
+        pendingCelebration = false;
+        playResetCelebration(pendingCelebrationAccent);
+        drawDashboard();
+      }
     } else {
       if (fetchFails < FETCH_BACKOFF_MAX) fetchFails++;
       logNetDiag();

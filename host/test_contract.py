@@ -106,6 +106,8 @@ EMITTABLE = (
     # Whole subtree, like burndown: device_view already trimmed it to the
     # focus providers and their ring pools.
     | {("providers",)}
+    | {("device_effect",), ("device_effect", "id"),
+       ("device_effect", "kind"), ("device_effect", "provider")}
     | {("burndown",)}
     | {("burndown", provider) for provider in sources_config.BURN_SOURCE_IDS}
     | {("burndown", provider, key)
@@ -133,6 +135,14 @@ class DeviceViewContractTests(unittest.TestCase):
         self.assertTrue(device["vercel"]["deployments"])
         self.assertTrue(device["git"]["commits"])
         self.assertTrue(device["sources"])
+
+    def test_device_view_carries_an_additive_effect_command(self):
+        device = device_view.build(_demo_doc(), effect={
+            "id": 42, "kind": "reset", "provider": "codex",
+        })
+        self.assertEqual(device["device_effect"], {
+            "id": 42, "kind": "reset", "provider": "codex",
+        })
 
     def test_device_view_drops_nulls(self):
         doc = {"plan": None, "week_pct": 12.0, "updated": "x",

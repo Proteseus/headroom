@@ -1073,7 +1073,8 @@ def publish():
     doc = _compute_doc()
     usage = json.dumps(doc).encode()
     device = json.dumps(
-        device_view.build(doc), separators=(",", ":")).encode()
+        device_view.build(doc, effect=_device_effect_payload()),
+        separators=(",", ":")).encode()
     with _cache_lock:
         _cache.update(doc=doc, usage=usage, device=device, built=time.time())
     return doc
@@ -1581,6 +1582,8 @@ def _providers_payload(state, burndowns=None):
 # Wi-Fi answer and a cable answer.
 _device_lock = threading.Lock()
 _device = {"firmware": None, "seen": 0.0, "via": None}
+_device_effect_lock = threading.Lock()
+_device_effect = {"id": 0, "kind": None, "provider": None}
 
 
 def _note_device(query, via):
@@ -1611,6 +1614,28 @@ def _device_payload(now):
             "via": _device["via"],
             "age_s": int(max(0, now - _device["seen"])),
         }
+
+
+def _device_effect_payload():
+    with _device_effect_lock:
+        if not _device_effect["id"] or not _device_effect["kind"]:
+            return None
+        return dict(_device_effect)
+
+
+def trigger_device_effect(kind="reset", provider=None):
+    """Queue an additive board effect for the next device projection."""
+    if kind != "reset":
+        raise ValueError("unknown device effect")
+    provider = provider.strip() if isinstance(provider, str) else None
+    if provider == "":
+        provider = None
+    with _device_effect_lock:
+        # Epoch seconds survive a host restart in practice; the increment
+        # handles two test commands issued in the same second.
+        effect_id = max(int(time.time()), _device_effect["id"] + 1)
+        _device_effect.update(id=effect_id, kind=kind, provider=provider)
+        return dict(_device_effect)
 
 
 def _github_watch_payload():
@@ -2095,6 +2120,7 @@ class Handler(BaseHTTPRequestHandler):
             "/plausible/refresh",
             "/posthog/refresh",
             "/sync/refresh",
+            "/device/effect",
             "/sources",
             "/mobile/permissions",
             "/attention/ack",
@@ -2137,6 +2163,15 @@ class Handler(BaseHTTPRequestHandler):
                     and not self._mobile_permission_allowed("refresh")):
                 self._send_json(
                     403, {"ok": False, "error": "mobile refresh disabled"})
+                return
+        elif path == "/device/effect":
+            if not self._is_private():
+                self._send_json(403, {"ok": False, "error": "private network only"})
+                return
+            if (self._is_mobile_client()
+                    and not self._mobile_permission_allowed("refresh")):
+                self._send_json(
+                    403, {"ok": False, "error": "mobile device control disabled"})
                 return
         elif path == "/sources":
             if (not self._is_loopback()
@@ -2750,6 +2785,18 @@ class Handler(BaseHTTPRequestHandler):
                     zed_usage.rearm_keychain()
             _refresh_async(wanted, require_enabled=not explicit)
             self._send_json(202, {"ok": True, "sources": wanted})
+            return
+
+        if path == "/device/effect":
+            try:
+                effect = trigger_device_effect(
+                    payload.get("effect", "reset"), payload.get("provider"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            # Materialize immediately so the board needs only one normal poll.
+            publish()
+            self._send_json(202, {"ok": True, "effect": effect})
             return
 
         result = local_servers.stop_server(

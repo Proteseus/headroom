@@ -504,7 +504,7 @@ def _device_providers(doc):
     return rows
 
 
-def build(doc):
+def build(doc, effect=None):
     """Project a full rollup document down to the board's subset."""
     doc = doc or {}
     vercel = doc.get("vercel") or {}
@@ -555,6 +555,17 @@ def build(doc):
     providers = _device_providers(doc)
     if providers:
         device["providers"] = providers
+
+    # Additive command channel for effects the board consumes on its next poll.
+    # Older firmware ignores this field; flashed firmware uses the same visual
+    # path for a remote test and an observed reset.
+    if isinstance(effect, dict) and effect.get("id") is not None:
+        device["device_effect"] = {
+            "id": int(effect["id"]),
+            "kind": str(effect.get("kind") or "reset"),
+            **({"provider": str(effect["provider"])}
+               if effect.get("provider") else {}),
+        }
 
     # Charts only for what the board can show: its three slots, plus the
     # legacy trio an un-reflashed board still draws by name. In the default
