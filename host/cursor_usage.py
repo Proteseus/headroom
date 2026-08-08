@@ -73,6 +73,15 @@ def _read_token(account=None):
     return tok.strip() if tok else None
 
 
+def login_email(account=None):
+    """Signed-in Cursor email from the IDE's cached profile, when present."""
+    raw = _state_value("cursorAuth/cachedEmail", account)
+    if not raw:
+        return None
+    email = raw.strip()
+    return email if "@" in email else None
+
+
 def _read_plan(account=None):
     raw = _state_value("cursorAuth/stripeMembershipType", account)
     return _prettify_plan(raw)

@@ -18,7 +18,10 @@ struct WatchComplicationProvider: TimelineProvider {
         in context: Context,
         completion: @escaping (WatchComplicationEntry) -> Void
     ) {
-        completion(WatchComplicationEntry(date: .now, snapshot: load()))
+        // Invented numbers belong in the complication gallery and nowhere
+        // else — on the face they read as this week's quota.
+        let snapshot = context.isPreview ? .placeholder : load()
+        completion(WatchComplicationEntry(date: .now, snapshot: snapshot))
     }
 
     /// A short run of entries rather than one.
@@ -48,7 +51,7 @@ struct WatchComplicationProvider: TimelineProvider {
     }
 
     private func load() -> HeadroomWidgetSnapshot {
-        WatchSnapshotCache.load() ?? .placeholder
+        WatchSnapshotCache.load() ?? .awaitingFirstSync
     }
 }
 

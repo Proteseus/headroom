@@ -15,7 +15,11 @@ struct HeadroomWidgetProvider: TimelineProvider {
         in context: Context,
         completion: @escaping (HeadroomWidgetEntry) -> Void
     ) {
-        completion(HeadroomWidgetEntry(date: .now, snapshot: load()))
+        // The gallery is the one place invented numbers are the right
+        // answer — it is showing what the widget looks like, not what your
+        // quota is. Everywhere else, no cache means say so.
+        let snapshot = context.isPreview ? .placeholder : load()
+        completion(HeadroomWidgetEntry(date: .now, snapshot: snapshot))
     }
 
     func getTimeline(
@@ -30,7 +34,7 @@ struct HeadroomWidgetProvider: TimelineProvider {
     }
 
     private func load() -> HeadroomWidgetSnapshot {
-        HeadroomWidgetSnapshot.cached() ?? .placeholder
+        HeadroomWidgetSnapshot.cached() ?? .awaitingFirstSync
     }
 }
 
@@ -145,7 +149,10 @@ struct HeadroomWidgetView: View {
 
     @ViewBuilder
     private var staleNote: some View {
-        if entry.snapshot.isStale {
+        // With no providers there is nothing to be stale about, and the
+        // empty-state line already explains itself — an age beside it would
+        // be measuring a reading that was never taken.
+        if entry.snapshot.isStale, !entry.snapshot.providers.isEmpty {
             Text(HeadroomCopy.ago(entry.snapshot.age))
                 .font(.caption2)
                 .foregroundStyle(.secondary)

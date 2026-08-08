@@ -129,6 +129,10 @@ final class ModelsTests: XCTestCase {
               "bounce_rate_7d": 41.5,
               "visit_duration_7d": 142,
               "realtime": 3,
+              "by_day": [
+                { "day": "2026-08-06 12", "visitors": 8 },
+                { "day": "2026-08-06 13", "visitors": 14 }
+              ],
               "dashboard_url": "https://plausible.io/acme.dev"
             }]
           },
@@ -163,6 +167,17 @@ final class ModelsTests: XCTestCase {
               "pid": 4242,
               "reachable": true,
               "latency_ms": 2
+            }],
+            "builds": [{
+              "name": "Headroom",
+              "kind": "xcodebuild",
+              "action": "test",
+              "scheme": "Headroom",
+              "target": "Headroom.xcodeproj",
+              "pid": 5252,
+              "cmd": "xcodebuild",
+              "cwd": "/Users/mz/Dev/headroom/macos",
+              "age_s": 38
             }]
           }
         }
@@ -192,6 +207,9 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.local?.servers?.first?.port, 3000)
         XCTAssertEqual(value.local?.servers?.first?.pid, 4242)
         XCTAssertEqual(value.local?.servers?.first?.latencyMS, 2)
+        XCTAssertEqual(value.local?.builds?.first?.name, "Headroom")
+        XCTAssertEqual(value.local?.builds?.first?.kind, "xcodebuild")
+        XCTAssertEqual(value.local?.builds?.first?.ageS, 38)
         XCTAssertEqual(value.activity?.first?.status, "error")
         XCTAssertEqual(value.activity?.first?.shortSHA, "abc1234")
         XCTAssertEqual(value.supabase?.alertCount, 1)
@@ -215,6 +233,8 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(value.plausible?.windowLabel, "24h")
         XCTAssertEqual(value.plausible?.sites?.first?.domain, "acme.dev")
         XCTAssertEqual(value.plausible?.sites?.first?.visitorsToday, 98)
+        XCTAssertEqual(value.plausible?.sites?.first?.byDay?.count, 2)
+        XCTAssertEqual(value.plausible?.sites?.first?.byDay?.last?.visitors, 14)
         XCTAssertEqual(value.posthog?.realtime, 5)
         XCTAssertEqual(value.posthog?.range, "24h")
         XCTAssertEqual(value.posthog?.windowLabel, "24h")

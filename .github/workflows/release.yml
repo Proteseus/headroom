@@ -17,6 +17,12 @@ on:
         type: boolean
         default: false
 
+# One Release run at a time. Parallel pushes to main used to spawn duplicate
+# runs for the same version (duplicate TestFlight uploads, e.g. build 90189).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

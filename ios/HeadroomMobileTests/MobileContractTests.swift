@@ -294,7 +294,7 @@ final class MobileContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.connected, "Connected")
         XCTAssertEqual(HeadroomCopy.macUnavailable, "Mac unavailable")
         XCTAssertEqual(HeadroomCopy.noHistoryYet, "No history yet")
-        XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")
+        XCTAssertEqual(HeadroomCopy.clearAttention, HeadroomCopy.dismissAll)
         XCTAssertEqual(HeadroomCopy.githubActions, "GitHub Actions")
     }
 }

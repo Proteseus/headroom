@@ -37,7 +37,7 @@ struct MachinesSection: View {
                     .lineLimit(1)
                 if machine.needsYou {
                     Circle()
-                        .fill(HeadroomPalette.amber)
+                        .fill(HeadroomPalette.orange)
                         .frame(width: 6, height: 6)
                         .accessibilityLabel("Needs you")
                 }

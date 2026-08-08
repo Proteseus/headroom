@@ -5,7 +5,7 @@ import SwiftUI
 /// sections. Provider selection stays inside Usage, matching the iPhone's
 /// Usage → provider detail relationship.
 /// Each section owns its own rendering and preferences — see QuotaSection,
-/// ActivitySection, SupabaseSection, ServersSection.
+/// ActivitySection, SupabaseSection, ServersSection, BuildsSection.
 struct DashboardView: View {
     @ObservedObject var store: UsageStore
     @AppStorage("selectedProvider")
@@ -15,11 +15,17 @@ struct DashboardView: View {
     @AppStorage("selectedDashboardMode")
     private var selectedModeRaw = DashboardMode.overview.rawValue
     @State private var serverToStop: LocalServer?
+    /// Activity / Attention row drill-in. Explicit swap rather than
+    /// `NavigationStack` — the latter's chrome is unreliable inside an
+    /// `NSPopover`, and a Back that returns to the mode you left is clearer.
+    @State private var serviceDetail: ServiceDetailSelection?
     @ObservedObject private var updates = UpdateChecker.shared
     @State private var updateInstallMessage: String?
+    @AppStorage("confirmServerStops")
+    private var confirmServerStops = true
 
     private var visibleProviders: [QuotaProviderInfo] {
-        store.snapshot.visibleQuotaProviders
+        store.snapshot.codingQuotaProviders
     }
 
     private var selectedMode: DashboardMode {
@@ -46,82 +52,100 @@ struct DashboardView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(spacing: 16) {
-                    if needsSetup {
-                        SetupView(store: store) {
-                            Task { await store.refresh() }
-                        }
-                    } else {
-                        if let skew = store.hostSkew {
-                            HostSkewBanner(skew: skew, store: store)
-                        }
-                        modeSwitcher
-                        if selectedMode == .attention {
-                            AttentionSection(store: store)
-                        } else if selectedMode == .activity {
-                            ActivitySection(items: store.snapshot.activity ?? [])
-                            SupabaseSection(data: store.snapshot.supabase)
-                            PlausibleSection(data: store.snapshot.plausible)
-                            PostHogSection(data: store.snapshot.posthog)
-                            ServersSection(store: store, pendingStop: $serverToStop)
-                            MachinesSection(machines: store.snapshot.peerMachines)
+            if let serviceDetail {
+                serviceDetailPane(serviceDetail)
+            } else {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        if needsSetup {
+                            SetupView(store: store) {
+                                Task { await store.refresh() }
+                            }
                         } else {
-                            providerSwitcher
-                            if selectedDashboardRaw == DashboardSelection.overview {
-                                QuotaOverviewCard(snapshot: store.snapshot) { providerID in
-                                    selectedProviderRaw = providerID
-                                    selectedDashboardRaw = providerID
+                            if let skew = store.hostSkew {
+                                HostSkewBanner(skew: skew, store: store)
+                            }
+                            modeSwitcher
+                            if selectedMode == .attention {
+                                AttentionSection(
+                                    store: store,
+                                    selection: $serviceDetail
+                                )
+                            } else if selectedMode == .activity {
+                                let blocks = IntegrationWatch.activityBlocks(
+                                    from: store.snapshot.integrationsOrder
+                                        ?? store.snapshot.servicesOrder
+                                )
+                                ForEach(blocks) { watch in
+                                    activityBlock(watch, blocks: blocks)
                                 }
-                                OverviewBurndownCard(snapshot: store.snapshot)
-                                DailyBurnCard(
-                                    days: store.snapshot.byDay ?? [],
-                                    providerIDs: visibleProviders.map(\.id),
-                                    tintFor: store.snapshot.tint(forProviderID:)
-                                )
-                                ActivityHistoryCard(
-                                    history: store.snapshot.activityHistory
-                                )
-                                SpendCard(
-                                    history: store.snapshot.history,
-                                    today: store.snapshot.today
-                                )
+                                MachinesSection(machines: store.snapshot.peerMachines)
                             } else {
-                                let providerID = selectedDashboardRaw
-                                let meter = store.snapshot.meter(
-                                    forProviderID: providerID)
-                                ProviderQuotaCard(
-                                    meter: meter,
-                                    subscriptionPricing: store.snapshot
-                                        .visibleQuotaProviders
-                                        .first { $0.id == providerID }?
-                                        .subscriptionPricing,
-                                    tint: store.snapshot.tint(
+                                providerSwitcher
+                                if selectedDashboardRaw == DashboardSelection.overview {
+                                    QuotaOverviewCard(snapshot: store.snapshot) { providerID in
+                                        selectedProviderRaw = providerID
+                                        selectedDashboardRaw = providerID
+                                    }
+                                    OverviewBurndownCard(snapshot: store.snapshot)
+                                    DailyBurnCard(
+                                        days: store.snapshot.byDay ?? [],
+                                        providerIDs: visibleProviders.map(\.id),
+                                        tintFor: store.snapshot.tint(forProviderID:)
+                                    )
+                                    ActivityHistoryCard(
+                                        history: store.snapshot.activityHistory
+                                    )
+                                    SpendCard(
+                                        history: store.snapshot.history,
+                                        today: store.snapshot.today
+                                    )
+                                } else {
+                                    let providerID = selectedDashboardRaw
+                                    let meter = store.snapshot.meter(
                                         forProviderID: providerID)
-                                )
-                                BurndownCard(
-                                    providerID: providerID,
-                                    rings: store.snapshot.burndownRings(
-                                        forProviderID: providerID),
-                                    tint: store.snapshot.tint(
-                                        forProviderID: providerID),
-                                    resetNoteURL: store.snapshot
-                                        .visibleQuotaProviders
-                                        .first { $0.id == providerID }?
-                                        .resetNoteURL
-                                        .flatMap(URL.init(string:))
-                                )
+                                    let provider = store.snapshot
+                                        .codingQuotaProviders
+                                        .first { $0.id == providerID }
+                                    ProviderQuotaCard(
+                                        meter: meter,
+                                        subscriptionPricing: provider?
+                                            .subscriptionPricing,
+                                        todayBurn: store.snapshot.byDay?
+                                            .last?
+                                            .burn(forProviderID: providerID),
+                                        tint: store.snapshot.tint(
+                                            forProviderID: providerID)
+                                    )
+                                    // Window burndown only — balance providers
+                                    // live on Activity, not Usage tabs.
+                                    if provider != nil {
+                                        BurndownCard(
+                                            providerID: providerID,
+                                            rings: store.snapshot.burndownRings(
+                                                forProviderID: providerID),
+                                            tint: store.snapshot.tint(
+                                                forProviderID: providerID),
+                                            resetNoteURL: provider?
+                                                .resetNoteURL
+                                                .flatMap(URL.init(string:))
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+                    .padding(16)
                 }
-                .padding(16)
             }
             Divider()
             footer
         }
         .frame(width: 390, height: 620)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: selectedModeRaw) { _, _ in
+            serviceDetail = nil
+        }
         .alert(item: $serverToStop) { server in
             Alert(
                 title: Text("Stop \(server.name ?? "server")?"),
@@ -142,6 +166,222 @@ struct DashboardView: View {
             Button("OK", role: .cancel) { updateInstallMessage = nil }
         } message: {
             Text(updateInstallMessage ?? "Please try again from Settings.")
+        }
+    }
+
+    /// Full-height drill-in: Back to the mode you left, then the shared detail
+    /// page (same views as iPhone). Resolves by id so numbers stay live.
+    @ViewBuilder
+    private func serviceDetailPane(_ selection: ServiceDetailSelection) -> some View {
+        VStack(spacing: 0) {
+            ZStack {
+                HStack(spacing: 8) {
+                    Button {
+                        serviceDetail = nil
+                    } label: {
+                        Label(selectedMode.title, systemImage: "chevron.left")
+                            .labelStyle(.titleAndIcon)
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Back to \(selectedMode.title)")
+                    Spacer(minLength: 0)
+                    PermalinkButton(url: serviceDetailPermalink(selection))
+                }
+                Text(serviceDetailTitle(selection))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .padding(.horizontal, 96)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            Divider()
+            resolvedServiceDetail(selection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private func activityItem(id: String) -> ActivityItem? {
+        (store.snapshot.activity ?? []).first { $0.id == id }
+            ?? AttentionList.failures(in: store.snapshot).first { $0.id == id }
+    }
+
+    private func serviceDetailPermalink(
+        _ selection: ServiceDetailSelection
+    ) -> URL? {
+        switch selection {
+        case .activity(let id):
+            return activityItem(id: id).flatMap(Permalink.activity)
+        case .plausible(let domain):
+            return store.snapshot.plausible?.sites?
+                .first { $0.domain == domain }
+                .flatMap { Permalink.url(from: $0.dashboardURL) }
+        case .posthog(let id):
+            return store.snapshot.posthog?.projects?
+                .first { $0.id == id }
+                .flatMap { Permalink.url(from: $0.dashboardURL) }
+        case .supabase(let ref):
+            return store.snapshot.supabase?.projects?
+                .first { $0.ref == ref }
+                .flatMap { Permalink.url(from: $0.dashboardURL) }
+        case .server(let id):
+            return store.snapshot.local?.servers?
+                .first { $0.id == id }
+                .flatMap(Permalink.localServer)
+        case .build:
+            return nil
+        }
+    }
+
+    private func serviceDetailTitle(_ selection: ServiceDetailSelection) -> String {
+        switch selection {
+        case .activity(let id):
+            return activityItem(id: id)?.subject ?? "Event"
+        case .plausible(let domain):
+            return domain
+        case .posthog(let id):
+            return store.snapshot.posthog?.projects?
+                .first { $0.id == id }?.displayName
+                ?? "PostHog"
+        case .supabase(let ref):
+            let project = store.snapshot.supabase?.projects?
+                .first { $0.ref == ref }
+            return project?.name ?? project?.ref ?? "Supabase"
+        case .server(let id):
+            return store.snapshot.local?.servers?
+                .first { $0.id == id }?.name
+                ?? "Server"
+        case .build(let id):
+            return store.snapshot.local?.builds?
+                .first { $0.id == id }?.name
+                ?? "Xcode"
+        }
+    }
+
+    @ViewBuilder
+    private func resolvedServiceDetail(
+        _ selection: ServiceDetailSelection
+    ) -> some View {
+        switch selection {
+        case .activity(let id):
+            if let item = activityItem(id: id) {
+                ActivityItemDetail(item: item)
+            } else {
+                serviceDetailMissing("This event is no longer in the feed.")
+            }
+        case .plausible(let domain):
+            if let site = store.snapshot.plausible?.sites?
+                .first(where: { $0.domain == domain }) {
+                PlausibleSiteDetail(site: site)
+            } else {
+                serviceDetailMissing("This site is no longer in the reading.")
+            }
+        case .posthog(let id):
+            if let project = store.snapshot.posthog?.projects?
+                .first(where: { $0.id == id }) {
+                PostHogProjectDetail(project: project)
+            } else {
+                serviceDetailMissing("This project is no longer in the reading.")
+            }
+        case .supabase(let ref):
+            if let project = store.snapshot.supabase?.projects?
+                .first(where: { $0.ref == ref }) {
+                SupabaseProjectDetail(project: project)
+            } else {
+                serviceDetailMissing("This project is no longer in the reading.")
+            }
+        case .server(let id):
+            if let server = store.snapshot.local?.servers?
+                .first(where: { $0.id == id }) {
+                LocalServerDetail(
+                    server: server,
+                    hostName: localComputerName,
+                    canStop: server.pid != nil,
+                    isStopping: store.stoppingServerID == server.id,
+                    onStop: {
+                        if confirmServerStops {
+                            serverToStop = server
+                        } else {
+                            Task { await store.stopServer(server) }
+                        }
+                    }
+                )
+            } else {
+                serviceDetailMissing("This server is no longer listening.")
+            }
+        case .build(let id):
+            if let build = store.snapshot.local?.builds?
+                .first(where: { $0.id == id }) {
+                LocalBuildDetail(build: build, hostName: localComputerName)
+            } else {
+                serviceDetailMissing("This build is no longer running.")
+            }
+        }
+    }
+
+    private var localComputerName: String {
+        Host.current().localizedName ?? "This Mac"
+    }
+
+    private func serviceDetailMissing(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "questionmark.circle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+
+    @ViewBuilder
+    private func activityBlock(
+        _ watch: IntegrationWatch, blocks: [IntegrationWatch]
+    ) -> some View {
+        let feed = (store.snapshot.activity ?? []).filter {
+            !ActivityStatusStyle.resolve($0.status).needsAttention
+        }
+        switch watch {
+        case .git, .github, .vercel, .sentry, .datadog, .axiom:
+            // Mixed chronological feed once, at the first feed watch in
+            // catalog order. Later feed slots skip.
+            if IntegrationWatch.isLeadFeedWatch(watch, in: blocks),
+               !feed.isEmpty {
+                ActivitySection(items: feed, selection: $serviceDetail)
+            }
+        case .supabase:
+            SupabaseSection(
+                data: store.snapshot.supabase,
+                selection: $serviceDetail
+            )
+        case .plausible:
+            PlausibleSection(
+                data: store.snapshot.plausible,
+                selection: $serviceDetail
+            )
+        case .posthog:
+            PostHogSection(
+                data: store.snapshot.posthog,
+                selection: $serviceDetail
+            )
+        case .servers:
+            ServersSection(
+                store: store,
+                pendingStop: $serverToStop,
+                selection: $serviceDetail
+            )
+        case .builds:
+            BuildsSection(store: store, selection: $serviceDetail)
+        case .openrouter, .aiGateway:
+            let provider = store.snapshot.balanceProviders
+                .first { $0.id == watch.rawValue }
+            BalanceSpendSection(
+                provider: provider,
+                meter: store.snapshot.meter(forProviderID: watch.rawValue)
+            )
         }
     }
 
@@ -214,12 +454,16 @@ struct DashboardView: View {
     }
 
     private var headerDotColor: Color {
-        if store.errorMessage != nil { return HeadroomPalette.amber }
+        // Host-down is a wait, not an alarm — soft amber matches "Not updating"
+        // / in-flight. Orange is for actionable Attention and real fetch fails
+        // once a host is there to fail against.
+        if needsSetup { return HeadroomPalette.amber }
+        if store.errorMessage != nil { return HeadroomPalette.orange }
         if store.snapshot.attention?.isWarning == true {
             if store.snapshot.attention?.isCritical == true {
                 return HeadroomPalette.red
             }
-            return HeadroomPalette.amber
+            return HeadroomPalette.orange
         }
         return HeadroomPalette.green
     }
@@ -285,7 +529,10 @@ struct DashboardView: View {
                     }
                 } label: {
                     Label(
-                        HeadroomCopy.newVersionAvailable,
+                        HeadroomCopy.newVersionAvailable(
+                            from: UpdateCheck.installedVersion,
+                            to: update.version
+                        ),
                         systemImage: "arrow.down.circle.fill"
                     )
                         .font(.caption.weight(.semibold))
@@ -294,7 +541,10 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
                 .help("Install Headroom \(update.version)")
                 .accessibilityLabel(
-                    "\(HeadroomCopy.newVersionAvailable): install Headroom \(update.version)"
+                    HeadroomCopy.newVersionAvailableAccessibility(
+                        from: UpdateCheck.installedVersion,
+                        to: update.version
+                    )
                 )
             }
             Spacer()
@@ -326,6 +576,12 @@ struct DashboardView: View {
             return store.errorMessage == nil && store.lastRefresh != nil
                 ? HeadroomCopy.refreshing
                 : HeadroomCopy.reconnecting
+        }
+        // Setup owns the host-down story. Don't also paint Foundation's
+        // "Could not connect to the server" under the title — same fact twice,
+        // once as an error.
+        if needsSetup {
+            return HeadroomCopy.hostNotAnswering
         }
         if let error = store.errorMessage {
             return error

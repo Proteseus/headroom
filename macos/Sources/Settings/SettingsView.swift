@@ -2,21 +2,33 @@ import AppKit
 import SwiftUI
 
 /// Mac Settings: sidebar of intent panes + detail Forms, nested Integrations
-/// and Other Macs. Same taxonomy as iOS (`SettingsDestination`); accessory
+/// and Sync. Same taxonomy as iOS (`SettingsDestination`); accessory
 /// apps keep the system `Settings` scene so SettingsLink / ⌘, keep working.
 struct SettingsView: View {
     @AppStorage("usageEndpoint")
     var endpoint = "http://127.0.0.1:8737/usage"
-    @AppStorage("refreshInterval")
-    var refreshInterval = 60
     @AppStorage("activityRowLimit")
     var activityRowLimit = 8
     @AppStorage("serverRowLimit")
     var serverRowLimit = 5
+
+    /// Mac dashboard display caps — not host fetch limits. Kept in one place
+    /// so the hub stepper, leaf steppers, and Activity/Servers sections clamp
+    /// the same way.
+    static let activityRowLimitRange = 3...24
+    static let serverRowLimitRange = 1...8
     @AppStorage("confirmServerStops")
     var confirmServerStops = true
     @AppStorage(ResetNotifications.defaultsKey)
     var notifyOnQuotaReset = false
+    @AppStorage(HeadroomTelemetry.enabledKey)
+    var telemetryEnabled = true
+    @State var telemetryPreview: HeadroomTelemetryBatch?
+    @State var telemetryPreviewLoading = false
+    @State var telemetryCopyMessage: String?
+    @State var communityStats: HeadroomCommunityStats?
+    @State var communityStatsLoading = false
+    @State var communityStatsMessage: String?
 
     @State var sources: [SyncSource] = []
     @State var sourcesMessage: String?
@@ -26,6 +38,11 @@ struct SettingsView: View {
     @State var dropTargetID: String?
     /// Live usage by account id — feeds the Active card's bars.
     @State var usageProviders: [String: QuotaProviderInfo] = [:]
+    /// Activity panel pin order from the host (legacy).
+    @State var servicesOrder: [String] = IntegrationWatch.activityBlocks(from: nil)
+        .map(\.rawValue)
+    /// Full Integrations catalog pin order.
+    @State var integrationsOrder: [String] = IntegrationWatch.allCases.map(\.rawValue)
     /// Multi-account capability + current logins, from `/accounts`. Empty on
     /// hosts predating the endpoint, which simply hides "Add account…".
     @State var accountProviders: [AccountProvider] = []
@@ -47,6 +64,7 @@ struct SettingsView: View {
     @State var plausibleMessage: String?
     @State var plausibleRange = "24h"
     @State var plausibleConfig = PlausibleConfiguration()
+    @State var plausibleHostDraft = "https://plausible.io"
     @State var plausibleSitesDraft = ""
     @State var savingPlausibleSites = false
     @State var plausibleSitesEditable = true
@@ -60,6 +78,21 @@ struct SettingsView: View {
     @State var posthogProjectsDraft = ""
     @State var savingPostHogProjects = false
     @State var posthogProjectsEditable = true
+
+    @State var sentryToken = ""
+    @State var sentryTokenStored = false
+    @State var sentryMessage: String?
+    @State var sentryOrgDraft = ""
+    @State var datadogAPIKey = ""
+    @State var datadogAppKey = ""
+    @State var datadogKeysStored = false
+    @State var datadogMessage: String?
+    @State var datadogSiteDraft = "datadoghq.com"
+    @State var axiomToken = ""
+    @State var axiomTokenStored = false
+    @State var axiomMessage: String?
+    @State var axiomHostDraft = "https://api.axiom.co"
+    @State var axiomOrgDraft = ""
 
     @State var openrouterToken = ""
     @State var openrouterTokenStored = false
@@ -104,16 +137,25 @@ struct SettingsView: View {
 
     @State var hostToken = ""
     @State var hostTokenStored = false
+    @State var hostHealth: HealthReport?
+    @State var hostHealthMessage: String?
+    @State var hostHealthLoading = false
+    /// The zone the host draws day boundaries in. Blank until /config/timezone
+    /// answers, which is also how a host predating the route stays read-only.
+    @State var timezoneDraft = ""
+    @State var timezoneMessage: String?
     @State var mobileTokenMessage: String?
     @State var mobilePermissions = MobilePermissions.allEnabled
     @State var changingMobilePermission: MobilePermission?
     @State var agentGatewayEnabled = false
+    @State var agentAlerts = true
     @State var codexBinary = "codex"
     @State var agentProviderStatus: AgentProviderStatus?
     @State var agentGatewayMessage: String?
     @State var agentTaskSurface: AgentTaskSurface?
     @State var pickedTaskFolder: String?
     @State var changingAgentGateway = false
+    @State var changingAgentAlerts = false
     @State var claudeHooks: ClaudeHookConfiguration?
     @State var claudeHooksMessage: String?
     @State var changingClaudeHooks = false
@@ -124,8 +166,13 @@ struct SettingsView: View {
     @State var openAtLogin = LaunchAtLogin.isRequested
     @State var openAtLoginNeedsApproval = LaunchAtLogin.needsApproval
     @State var openAtLoginMessage: String?
+    @State var hostKeepRunning = HostLifecycle.current == .launchAgent
+    @State var hostLifecycleBusy = false
+    @State var hostLifecycleMessage: String?
+    @State var hostHasLaunchAgent = HostController.hasLaunchAgent
+    @State var hostRemoveConfirming = false
     @State var selection: SettingsDestination? = .general
-    /// The pushed leaf under the selected root (Other Macs under General, one
+    /// The pushed leaf under the selected root (one
     /// integration under Integrations/Coding agents). A `NavigationStack`
     /// nested inside `NavigationSplitView`'s detail can't dock its automatic
     /// Back control into the window's real toolbar here, so it fell back to
@@ -136,6 +183,8 @@ struct SettingsView: View {
     @State var columnVisibility = NavigationSplitViewVisibility.all
     @ObservedObject var updates = UpdateChecker.shared
     @AppStorage(UpdateChecker.automaticKey) var automaticUpdateChecks = true
+    @AppStorage(MenuBarIconStyle.defaultsKey)
+    var menuBarIconStyle = MenuBarIconStyle.remaining.rawValue
     @State var updateInstallMessage: String?
 
     var client: HeadroomClient { HeadroomClient(endpoint: endpoint) }
@@ -154,16 +203,6 @@ struct SettingsView: View {
                     ForEach(SettingsDestination.macRoots, id: \.self) { dest in
                         Label(dest.title, systemImage: dest.symbol)
                             .tag(dest)
-                            // `onChange(of: selection)` below only fires when
-                            // the value changes, so re-clicking the root you're
-                            // already on left a pushed leaf (e.g. an
-                            // integration opened from Integrations) stranded —
-                            // Back had nothing further to pop to, but nothing
-                            // told you that's what happened. A simultaneous
-                            // gesture sees every click, changed value or not.
-                            .simultaneousGesture(TapGesture().onEnded {
-                                leaf = nil
-                            })
                     }
                 }
             }
@@ -192,6 +231,10 @@ struct SettingsView: View {
                         .navigationTitle(dest.title)
                 }
             }
+            // Identity the detail on the root so a sidebar click always
+            // rebuilds the pane — without this, SwiftUI can keep showing the
+            // previous root's body when selection updates race a leftover leaf.
+            .id(leaf.map { "leaf-\($0.title)" } ?? "root-\((selection ?? .general).title)")
         }
         .frame(width: 820, height: 600)
         .formStyle(.grouped)
@@ -199,12 +242,20 @@ struct SettingsView: View {
         .onChange(of: selection) { _, _ in
             // Sidebar swapped the root; drop any pushed leaf so Back isn't
             // left pointing at a pane that is no longer under it.
+            //
+            // Do not attach a TapGesture to sidebar rows: on macOS it races
+            // List(selection:) and often swallows the click, so the highlight
+            // moves (or doesn't) while the detail stays put.
             leaf = nil
         }
         .task {
             tokenStored = TokenStore.supabase.exists()
             plausibleTokenStored = TokenStore.plausible.exists()
             posthogTokenStored = TokenStore.posthog.exists()
+            sentryTokenStored = TokenStore.sentry.exists()
+            datadogKeysStored = TokenStore.datadogAPI.exists()
+                && TokenStore.datadogApp.exists()
+            axiomTokenStored = TokenStore.axiom.exists()
             githubTokenStored = TokenStore.github.exists()
             openrouterTokenStored = TokenStore.openrouter.exists()
             aiGatewayTokenStored = TokenStore.aiGateway.exists()
@@ -222,12 +273,16 @@ struct SettingsView: View {
             await reloadSupabaseConfiguration()
             await reloadPlausibleConfiguration()
             await reloadPostHogConfiguration()
+            await reloadHostHealth()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification
         )) { _ in
             // Login Items approval happens in System Settings; re-read on return.
             refreshOpenAtLogin()
+        }
+        .onChange(of: endpoint) { _, _ in
+            Task { await reloadHostHealth() }
         }
     }
 
@@ -244,6 +299,8 @@ struct SettingsView: View {
             codingAgentsPane
         case .iPhone:
             iPhonePane
+        case .telemetry:
+            telemetryPane
         case .integrations:
             integrationsHub
         case .integration(let kind):

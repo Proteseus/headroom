@@ -101,6 +101,14 @@ where you set no env var, is the bug back.
 
 ## The host LaunchAgent is not yours to repoint
 
+**Read the mode first.** Settings → General → Host has a "Keep the host running
+when Headroom is closed" toggle ([docs/host.md](docs/host.md)). It is on by
+default and everything below assumes it. When it is off there is no plist and
+no job: `Headroom.app` spawns the host as a child, and quitting the app is what
+stops it. `launchctl bootout` on a label that does not exist is not a fix, and
+neither is writing the plist back.
+
+
 `~/Library/LaunchAgents/com.centaur-labs.headroom.plist` runs the host MZ
 actually uses. It was repointed at agent scratchpad paths five times in one
 day, and every time the host died — because the scratchpad had been cleaned up,
@@ -151,11 +159,12 @@ Do not kill the holder to get your turn.
 
 That does the check and refuses to race. Use it instead of `pio run -t upload`.
 
-`Headroom.app` launches `host/headroom_server.py`, which holds
-`/dev/cu.usbmodem*` open to push `/usage` to the board over USB-CDC. Flash
-while the app is running and the two fight for the port — and **esptool does
-not fail cleanly.** It can write part of the app partition and then stop
-responding, which leaves the board unbootable.
+`Headroom.app` serves `/usage` over Wi-Fi by default. Its USB-CDC bridge is
+opt-in (`HEADROOM_ENABLE_USB=1`) for travel/offline use; when enabled, it
+holds `/dev/cu.usbmodem*` open. Flash while that bridge is running and the
+two fight for the port — and **esptool does not fail cleanly.** It can write
+part of the app partition and then stop responding, which leaves the board
+unbootable.
 
 The failure reads as a hardware fault and isn't:
 
@@ -245,7 +254,9 @@ Xcode reads it — then stage `CHANGELOG.md` and `host/VERSION` and nothing else
 Naming the xcconfig as a third path fails the `git add`.
 
 **Each coherent set of changes gets exactly one release.** Increment the patch.
-When the patch would pass 9, roll to the next minor and reset it:
+**Minor and patch are single digits only — never `.10`.** When the patch would
+pass 9, roll the minor and reset the patch; when the minor would pass 9, roll
+the major and reset both:
 
 | From | Change | To |
 |---|---|---|
@@ -254,10 +265,11 @@ When the patch would pass 9, roll to the next minor and reset it:
 | 1.1.9 | anything shippable | **1.2.0** |
 | 1.9.9 | anything shippable | **2.0.0** |
 
-Never go past `.9`. `1.0.10` and `1.0.11` are shipped overshoots from before
-the rule and stay tagged where they are; the roll they were owed happens at the
-next release off them, which is why 1.0.11 is followed by **1.1.0** and not
-1.0.12.
+Never write `1.10.0` or `1.0.10`. `1.0.10`, `1.0.11`, and `1.10.0` are
+shipped overshoots that stay tagged where they are; the roll they were owed
+happens at the next release off them (`1.0.11` → **1.1.0**, `1.10.0` →
+**2.0.0**). `scripts/version-env.sh` and `scripts/ship-inventory.sh` enforce
+the single-digit rule going forward.
 
 The number is claimed at merge, not at branch. Several branches sitting on
 unmerged bumps is the normal state here, and each one was numbered against the
@@ -432,7 +444,7 @@ Settings pane. Gateway prefs live under Coding agents; see
 
 ## Contracts, access, and standing decisions
 
-Four docs exist so these are lookups rather than judgment calls. Read the one
+Five docs exist so these are lookups rather than judgment calls. Read the one
 that matches before you change the thing it governs.
 
 **[docs/contract.md](docs/contract.md) — changing `/usage`.** Additive only:
@@ -471,6 +483,16 @@ place by having a level or a headroom that means something** (attribution has
 neither and is deliberately not a meter), and **anything printing a dollar
 says whether the figure was observed or estimated**, because nobody audits a
 percentage against a card statement and everybody audits a dollar.
+
+**[docs/host-merge.md](docs/host-merge.md) — changing the host or its
+lifecycle.** The decision is made: the server moves into `Headroom.app` as a
+Swift library, and the Python host and its LaunchAgent go away. Read it before
+you invest in the split, and before you argue the ESP32 needs a daemon. It does
+not: the app is `LSUIElement` and starts at login in the same session, so
+availability is already equal. The reasons for the merge are entitlements, the
+version-skew machinery, and one process a user can stop. Ordinary work on
+`host/` continues until the phases land, but the wire format is frozen at every
+phase boundary, so a port is not an occasion to rename a key.
 
 ## Multi-Mac
 
@@ -531,4 +553,4 @@ container answers.
 | `watch/` | Watch app + complications ([docs/watch.md](docs/watch.md)) |
 | `widget/` | One widget source, built for iOS and macOS |
 | `Shared/` | Models, copy, palette, rings, chart math — compiled by several targets |
-| `firmware/` | ESP32 |
+| `firmware/` | ESP32 ([docs/esp32.md](docs/esp32.md)) |

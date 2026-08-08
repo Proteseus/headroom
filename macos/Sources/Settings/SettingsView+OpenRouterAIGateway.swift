@@ -22,7 +22,11 @@ extension SettingsView {
             if openrouterTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("Management API key", text: $openrouterToken)
+            SecureField(
+                "Management API key",
+                text: $openrouterToken,
+                prompt: keyFieldPrompt(stored: openrouterTokenStored)
+            )
                 .onSubmit {
                     if !openrouterTokenDraft.isEmpty { saveOpenRouterToken() }
                 }
@@ -49,7 +53,7 @@ extension SettingsView {
                 }
                 Spacer()
                 Button(HeadroomCopy.settingsCreateToken) {
-                    openURL("https://openrouter.ai/settings/keys")
+                    openURL("https://openrouter.ai/settings/management-keys")
                 }
                 .buttonStyle(.link)
             }
@@ -59,7 +63,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Needs a Management API key — a regular inference key cannot read the account balance. Stored in Keychain, never in /usage.")
+            Text("Needs a Management API key from openrouter.ai/settings/management-keys — not a regular inference key from /settings/keys. Stored in Keychain, never in /usage.")
         }
     }
 
@@ -74,7 +78,11 @@ extension SettingsView {
             if aiGatewayTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("AI Gateway API key", text: $aiGatewayToken)
+            SecureField(
+                "AI Gateway API key",
+                text: $aiGatewayToken,
+                prompt: keyFieldPrompt(stored: aiGatewayTokenStored)
+            )
                 .onSubmit {
                     if !aiGatewayTokenDraft.isEmpty { saveAIGatewayToken() }
                 }
@@ -101,7 +109,7 @@ extension SettingsView {
                 }
                 Spacer()
                 Button(HeadroomCopy.settingsCreateToken) {
-                    openURL("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway&title=AI%20Gateway")
+                    openURL("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI%20Gateway%20API%20Keys")
                 }
                 .buttonStyle(.link)
             }
@@ -111,7 +119,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Separate from Vercel deploys — this watches AI Gateway credits. Key stays in Keychain.")
+            Text("Separate from Vercel deploys — this watches AI Gateway credits via a Gateway API key (not the CLI deploy login). Key stays in Keychain.")
         }
     }
 

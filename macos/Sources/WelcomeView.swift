@@ -322,19 +322,28 @@ struct WelcomeView: View {
                 ])
 
                 VStack(alignment: .leading, spacing: 7) {
-                    detailRow("Login item", HostController.label)
+                    if HostLifecycle.current == .appOwned {
+                        detailRow("Runs", "With Headroom")
+                    } else {
+                        detailRow("Login item", HostController.label)
+                    }
                     detailRow("Logs", "~/.headroom/logs")
                 }
                 .padding(16)
                 .glassPanel(cornerRadius: 13)
 
-                Button("Show the login item in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([
-                        HostController.launchAgentURL
-                    ])
+                // Nothing to reveal in app-owned mode: there is no plist, and
+                // pointing Finder at a path that does not exist is worse than
+                // saying nothing.
+                if HostLifecycle.current != .appOwned {
+                    Button("Show the login item in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([
+                            HostController.launchAgentURL
+                        ])
+                    }
+                    .glassButton()
+                    .controlSize(.small)
                 }
-                .glassButton()
-                .controlSize(.small)
             }
         }
     }
@@ -381,7 +390,7 @@ struct WelcomeView: View {
                 if let sourcesError {
                     Text(sourcesError)
                         .font(.callout)
-                        .foregroundStyle(HeadroomPalette.amber)
+                        .foregroundStyle(HeadroomPalette.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if sourceRows.isEmpty {

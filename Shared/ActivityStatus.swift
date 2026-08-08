@@ -12,7 +12,8 @@ import SwiftUI
 ///
 /// Colour is never the only channel: every state also carries a glyph and a
 /// word, which is what makes the feed readable in greyscale and to anyone who
-/// doesn't separate red from grey.
+/// doesn't separate red from grey. Soft amber is in flight; orange is yours
+/// to act on; red is broken.
 struct ActivityStatusStyle {
     /// How loudly a row reads. The feed groups on `.attention`, so what is
     /// broken sits above what merely happened.
@@ -35,8 +36,11 @@ struct ActivityStatusStyle {
     var needsAttention: Bool { weight == .attention }
 
     static func resolve(_ status: String?) -> ActivityStatusStyle {
-        switch status {
-        case "error", "failure":
+        // Host status strings are lowercased today; tolerate drift so a raw
+        // Vercel `ERROR` / `BLOCKED` still lands on Attention rather than
+        // looking like an unexplained quiet row.
+        switch status?.lowercased() {
+        case "error", "failure", "blocked":
             ActivityStatusStyle(
                 label: HeadroomCopy.activityFailed,
                 symbol: "exclamationmark.triangle.fill",
@@ -61,21 +65,21 @@ struct ActivityStatusStyle {
             ActivityStatusStyle(
                 label: HeadroomCopy.activityReviewRequest,
                 symbol: "eye",
-                tint: HeadroomPalette.amber,
+                tint: HeadroomPalette.orange,
                 weight: .attention
             )
         case "assigned":
             ActivityStatusStyle(
                 label: HeadroomCopy.activityAssigned,
                 symbol: "person.crop.circle.badge.checkmark",
-                tint: HeadroomPalette.amber,
+                tint: HeadroomPalette.orange,
                 weight: .attention
             )
         case "mention":
             ActivityStatusStyle(
                 label: HeadroomCopy.activityMention,
                 symbol: "at",
-                tint: HeadroomPalette.amber,
+                tint: HeadroomPalette.orange,
                 weight: .attention
             )
         case "queued", "pending":
@@ -159,9 +163,9 @@ struct ActivityStatusStyle {
     }
 }
 
-/// Shared ordering for the mixed host activity feed. Both native surfaces use
-/// the same function-level groups; their renderers only differ in density and
-/// interaction style.
+/// Shared ordering when a surface groups the mixed host activity feed by
+/// kind. Activity itself is chronological; contract tests and any kind-grouped
+/// view still share this order.
 struct ActivityGroup: Identifiable, Sendable {
     let kind: String
     let rows: [ActivityItem]
@@ -172,7 +176,8 @@ struct ActivityGroup: Identifiable, Sendable {
 
 enum ActivityGrouping {
     static let kindOrder = [
-        "github", "deployment", "commit", "supabase", "reset", "claude-status",
+        "github", "deployment", "commit", "sentry", "datadog", "axiom",
+        "supabase", "reset", "claude-status",
     ]
 
     static func groups(from rows: [ActivityItem]) -> [ActivityGroup] {

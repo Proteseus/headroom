@@ -38,7 +38,7 @@ struct AttentionScreen: View {
                     VStack(spacing: 0) {
                         if store.isStale {
                             ArchivedDataNotice(store: store)
-                                .padding(.horizontal, 20)
+                                .padding(.horizontal, MobileHomeChrome.pageInset)
                                 .padding(.top, 8)
                         }
                         PageEmptyState(
@@ -162,9 +162,7 @@ struct AttentionScreen: View {
     /// `nonisolated` because it is a rule about data, not about a view: the
     /// tab bar's badge and the tests both ask it off the main actor.
     nonisolated static func failures(in snapshot: UsageSnapshot) -> [ActivityItem] {
-        (snapshot.activity ?? []).filter {
-            ActivityStatusStyle.resolve($0.status).needsAttention
-        }
+        AttentionList.failures(in: snapshot)
     }
 
     @ViewBuilder
@@ -215,7 +213,11 @@ struct AttentionScreen: View {
     ) -> some View {
         Section {
             ForEach(reasons) { reason in
-                attentionReasonRow(reason)
+                AttentionReasonRow(
+                    reason: reason,
+                    permalink: AttentionList.permalink(
+                        for: reason, in: store.snapshot)
+                )
                     .swipeActions(
                         edge: .trailing,
                         allowsFullSwipe: true
@@ -227,7 +229,7 @@ struct AttentionScreen: View {
                     }
             }
             ForEach(failures) { failure in
-                ActivityRow(item: failure)
+                ActivityFeedRow(item: failure)
                     .swipeActions(
                         edge: .trailing,
                         allowsFullSwipe: true
@@ -264,34 +266,6 @@ struct AttentionScreen: View {
                     .textCase(nil)
             }
         }
-    }
-
-    /// Same leading-icon / title / caption / trailing-age frame as
-    /// `ActivityRow`, so the two halves of one List read as one List.
-    /// Brand mark when the reason names a source (monochrome — services have
-    /// no colour); warning triangle, tinted by level, only for kinds with no
-    /// logo (`stale`, `signin`).
-    private func attentionReasonRow(_ reason: AttentionReason) -> some View {
-        let hasBrand = ProviderIcon.sourceID(forKind: reason.kind) != nil
-        return HStack(alignment: .top, spacing: 10) {
-            ProviderMark.forKind(
-                reason.kind,
-                size: 16,
-                fallbackSystemImage: "exclamationmark.triangle.fill"
-            )
-            .foregroundStyle(
-                hasBrand
-                    ? AnyShapeStyle(.primary)
-                    : AnyShapeStyle(HeadroomPalette.attention(reason.level))
-            )
-            .frame(width: 16)
-            .padding(.top, 2)
-            Text(reason.summary ?? HeadroomCopy.needsAttention)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 4)
     }
 
     private func agentRow(_ event: AgentAttentionEvent) -> some View {
@@ -341,7 +315,7 @@ struct AttentionScreen: View {
                         ForEach(reasons, id: \.self) { reason in
                             Text(reason)
                                 .font(.caption)
-                                .foregroundStyle(HeadroomPalette.amber)
+                                .foregroundStyle(HeadroomPalette.orange)
                         }
                     }
                 }

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.6.5",
-  "published": "2026-08-02T20:34:34Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.6.5/Headroom-macOS.zip",
-  "sha256": "c723116ea0ae41dd84ae90e92ce6a88add65d72ccaf4cfa51e5863c0f8c48732",
-  "size": 4554438,
+  "version": "2.0.0",
+  "published": "2026-08-07T11:16:44Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.0/Headroom-macOS.zip",
+  "sha256": "baff043c82a1547e138b9cb3da11f7b9cd91ccabcdddd5a5f2918cab8881276a",
+  "size": 6104961,
   "min_macos": "14.0",
-  "notes_md": "### Changed\n\n- **ESP32 home follows the Mac dashboard.** The lower pane cycles Daily\n  burn, History, Spend, then Burndown — stacked seven-day burn and the\n  estimated spend figures the Mac card already leads with. The Activity\n  feed leaves that cycle for its detail pages."
+  "notes_md": "### Changed\n\n- **Versioning:** after `1.9.9` the next release is `2.0.0`. Minor and patch\n  stay single digits — never `1.10.0`. That number already shipped as an\n  overshoot (same Plausible histograms); this tag is the roll it was owed, and\n  the feed points here. `AGENTS.md`, `ship-inventory.sh`, and `version-env.sh`\n  enforce the rule going forward. Same pattern as the old `1.0.10` / `1.0.11`\n  tags."
 }

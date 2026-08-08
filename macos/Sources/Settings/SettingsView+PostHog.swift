@@ -1,8 +1,27 @@
 import SwiftUI
 
 extension SettingsView {
+    static let posthogUSHost = "https://us.posthog.com"
+    static let posthogEUHost = "https://eu.posthog.com"
+
     var posthogTokenDraft: String {
         posthogToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Normalized host without a trailing slash, for comparing cloud regions.
+    var posthogHostNormalized: String {
+        posthogHostDraft
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    /// Cloud region URL when the draft is US or EU; nil means Custom / self-hosted.
+    var posthogCloudHost: String? {
+        switch posthogHostNormalized.lowercased() {
+        case Self.posthogUSHost: return Self.posthogUSHost
+        case Self.posthogEUHost: return Self.posthogEUHost
+        default: return nil
+        }
     }
 
     @ViewBuilder
@@ -16,14 +35,54 @@ extension SettingsView {
             if posthogTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("Personal API key", text: $posthogToken)
+            SecureField(
+                "Personal API key",
+                text: $posthogToken,
+                prompt: keyFieldPrompt(stored: posthogTokenStored)
+            )
                 .onSubmit {
                     if !posthogTokenDraft.isEmpty { savePostHogToken() }
                 }
-            TextField("Host", text: $posthogHostDraft)
+            Picker("Region", selection: Binding(
+                get: { posthogCloudHost ?? "custom" },
+                set: { newValue in
+                    if newValue == "custom" {
+                        if posthogCloudHost != nil {
+                            posthogHostDraft = ""
+                        }
+                        return
+                    }
+                    guard newValue != posthogHostNormalized else { return }
+                    posthogHostDraft = newValue
+                    Task { await savePostHogHost() }
+                }
+            )) {
+                Text("US Cloud").tag(Self.posthogUSHost)
+                Text("EU Cloud").tag(Self.posthogEUHost)
+                Text("Custom").tag("custom")
+            }
+            .disabled(isSyncing)
+            if posthogCloudHost == nil {
+                TextField(
+                    "Host",
+                    text: $posthogHostDraft,
+                    prompt: Text("https://posthog.example.com")
+                )
                 .onSubmit {
                     Task { await savePostHogHost() }
                 }
+                // Return alone used to be the only way to commit this, so
+                // typing a host and clicking elsewhere threw the edit away
+                // with nothing on screen to suggest it had.
+                HStack {
+                    Button(HeadroomCopy.settingsSave) {
+                        Task { await savePostHogHost() }
+                    }
+                    .disabled(isSyncing || posthogHostDraft
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer()
+                }
+            }
             Picker("Window", selection: Binding(
                 get: { posthogRange },
                 set: { newValue in
@@ -60,7 +119,10 @@ extension SettingsView {
                 }
                 Spacer()
                 Button(HeadroomCopy.settingsCreateKey) {
-                    openURL("https://app.posthog.com/settings/user-api-keys")
+                    let base = posthogCloudHost == Self.posthogEUHost
+                        ? Self.posthogEUHost
+                        : "https://app.posthog.com"
+                    openURL("\(base)/settings/user-api-keys")
                 }
                 .buttonStyle(.link)
             }
@@ -70,7 +132,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Personal API key stays in Keychain. Use https://us.posthog.com or https://eu.posthog.com, or your self-hosted URL.")
+            Text("Personal API key stays in Keychain (project:read, query:read). Self-hosted? Pick Custom and paste the URL.")
         }
 
         Section {
@@ -83,7 +145,7 @@ extension SettingsView {
             } else if let error = posthogConfig.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else if posthogConfig.available.isEmpty {
                 Text(posthogTokenStored
                       ? "0 projects this key can see."
@@ -129,7 +191,7 @@ extension SettingsView {
             Text("Projects")
         } footer: {
             Text(posthogProjectsEditable
-                 ? "Tick which projects to track. Listing needs a personal API key with project:read."
+                 ? "Tick which projects to track. Listing uses project:read; event counts use query:read."
                  : "The project list comes from PostHog once the host can answer /config/posthog.")
         }
     }

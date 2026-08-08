@@ -27,6 +27,9 @@ enum ProviderIcon {
         case "supabase", "supabase-security": "ProviderSupabase"
         case "plausible": "ProviderPlausible"
         case "posthog": "ProviderPostHog"
+        case "sentry": nil
+        case "datadog": nil
+        case "axiom": nil
         default: nil
         }
     }
@@ -42,6 +45,7 @@ enum ProviderIcon {
         case "github-inbox": return "github"
         case "supabase-security": return "supabase"
         case "claude-status": return "claude"
+        case "sentry", "datadog", "axiom": return kind
         case "stale", "signin", "reset", "other": return nil
         default:
             return assetName(for: kind) != nil ? kind : nil

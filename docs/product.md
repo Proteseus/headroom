@@ -78,8 +78,9 @@ consider whether *our* number is wrong — not to add a slider. A slider moves
 the decision to the user and makes every future change to that number a
 compatibility problem.
 
-`SettingsView.swift` is 1,405 lines. That is the cost of the rows in the top
-half of the table, and it is why the bottom half stays out.
+The Settings module is thousands of lines across the sidebar panes. That is
+the cost of the rows in the top half of the table, and it is why the bottom
+half stays out.
 
 ## History is a user asset
 
@@ -88,7 +89,8 @@ actually spent your quota.
 
 | Store | Retention | Where |
 |---|---|---|
-| Quota samples | **14 days** | `~/.headroom/quota_samples.jsonl` |
+| Quota samples | **90 days** | `~/.headroom/quota_samples.jsonl` |
+| Quota resets | **400 days** | `~/.headroom/quota_resets.jsonl` (Codex also merges [codex-resets.com](https://codex-resets.com)) |
 | Daily burn | **30 days** | `~/.headroom/daily_burn.json` |
 | Claude history | **400 days** | `~/.headroom/claude_history.json` |
 | Agent ledger | **30 days from settlement** | `~/.headroom/attention.sqlite3` |

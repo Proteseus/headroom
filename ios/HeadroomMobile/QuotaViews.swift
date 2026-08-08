@@ -5,7 +5,7 @@ struct QuotaOverviewCard: View {
     let snapshot: UsageSnapshot
 
     private var providers: [QuotaProviderInfo] {
-        snapshot.visibleQuotaProviders
+        snapshot.codingQuotaProviders
     }
 
     var body: some View {
@@ -27,7 +27,10 @@ struct QuotaOverviewCard: View {
                             burndown: provider.orderedBurndown(
                                 from: snapshot.burndown?[provider.id]
                             ),
-                            subscriptionPricing: provider.subscriptionPricing
+                            subscriptionPricing: provider.subscriptionPricing,
+                            todayBurn: snapshot.byDay?
+                                .last?
+                                .burn(forProviderID: provider.id)
                         )
                     } label: {
                         HStack(spacing: 10) {
@@ -63,12 +66,16 @@ private struct ProviderSummaryRow: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            HeadroomRings(
-                layers: provider.ringLayers(burndown: burndown),
-                tint: provider.tint
-            )
-            .frame(width: 82, height: 82)
-            .opacity(provider.readingSuspect ? 0.4 : 1)
+            if provider.isBalanceOnly {
+                spendSummaryMark
+            } else {
+                HeadroomRings(
+                    layers: provider.ringLayers(burndown: burndown),
+                    tint: provider.tint
+                )
+                .frame(width: 82, height: 82)
+                .opacity(provider.readingSuspect ? 0.4 : 1)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -98,10 +105,22 @@ private struct ProviderSummaryRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                if let balance = meter.balanceLabel {
+                if let period = meter.spend?.periodUSD,
+                   let days = meter.spend?.periodDays {
+                    Text("\(period.dollarLabel) / \(days)d")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else if let balance = meter.balanceLabel {
                     Text(balance)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                if let today = meter.spend?.todayUSD {
+                    Text("\(today.dollarLabel) today")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                         .monospacedDigit()
                 }
                 // Ahead of the headline, because a headline written from
@@ -111,7 +130,7 @@ private struct ProviderSummaryRow: View {
                         .font(.caption2)
                         .foregroundStyle(
                             meter.statusAlarming
-                                ? HeadroomPalette.amber : Color.secondary)
+                                ? HeadroomPalette.orange : Color.secondary)
                         .lineLimit(1)
                 }
                 // Same reasoning as the Mac card: `ok` stays true while the
@@ -123,7 +142,7 @@ private struct ProviderSummaryRow: View {
                         .font(.caption2)
                         .foregroundStyle(
                             meter.statusAlarming
-                                ? HeadroomPalette.amber : Color.secondary)
+                                ? HeadroomPalette.orange : Color.secondary)
                         .lineLimit(2)
                 } else if let headline = provider.headline {
                     Text(headline)
@@ -131,6 +150,23 @@ private struct ProviderSummaryRow: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(2)
                 }
+            }
+        }
+    }
+
+    private var spendSummaryMark: some View {
+        let days = meter.spend?.byDay ?? []
+        return Group {
+            if days.contains(where: { ($0.usd ?? 0) > 0 }) {
+                BalanceSpendSparkline(
+                    days: days, tint: provider.tint, diameter: 82
+                )
+                .opacity(provider.readingSuspect ? 0.4 : 1)
+            } else {
+                Text("—")
+                    .font(.title2)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 82, height: 82)
             }
         }
     }
@@ -143,6 +179,8 @@ private struct ProviderQuotaDetail: View {
     /// sequence. Do not re-sort here.
     let burndown: [Burndown]
     let subscriptionPricing: SubscriptionPricing?
+    /// Headline-meter points burned today (`by_day`), same as the board.
+    var todayBurn: Double? = nil
 
     /// "Connected" is a claim about right now, and a provider whose numbers
     /// stopped arriving is in no position to make it. `ok` alone would let it.
@@ -153,7 +191,7 @@ private struct ProviderQuotaDetail: View {
 
     private var statusTint: Color {
         if meter.statusAlarming || meter.ok == false {
-            return HeadroomPalette.amber
+            return HeadroomPalette.orange
         }
         if provider.readingSuspect {
             return .secondary
@@ -166,16 +204,50 @@ private struct ProviderQuotaDetail: View {
             LazyVStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        HeadroomRings(
-                            layers: provider.ringLayers(burndown: burndown),
-                            tint: provider.tint
-                        )
-                        .frame(width: 112, height: 112)
-                        .opacity(provider.readingSuspect ? 0.4 : 1)
+                        if provider.isBalanceOnly {
+                            if let days = meter.spend?.byDay,
+                               days.contains(where: { ($0.usd ?? 0) > 0 }) {
+                                BalanceSpendSparkline(
+                                    days: days,
+                                    tint: provider.tint,
+                                    diameter: 112
+                                )
+                                .opacity(provider.readingSuspect ? 0.4 : 1)
+                            } else {
+                                Text(HeadroomCopy.accountUse)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 112, height: 112)
+                            }
+                        } else {
+                            HeadroomRings(
+                                layers: provider.ringLayers(burndown: burndown),
+                                tint: provider.tint
+                            )
+                            .frame(width: 112, height: 112)
+                            .opacity(provider.readingSuspect ? 0.4 : 1)
+                        }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(meter.plan ?? HeadroomCopy.planUnknown)
-                                .foregroundStyle(.secondary)
+                            if let period = meter.spend?.periodUSD,
+                               let days = meter.spend?.periodDays {
+                                Text("\(period.dollarLabel) / \(days)d")
+                                    .font(.title3.weight(.semibold))
+                                    .monospacedDigit()
+                            } else {
+                                Text(meter.plan ?? HeadroomCopy.planUnknown)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let todayBurn, !provider.isBalanceOnly {
+                                Text(HeadroomFormat.todayBurn(todayBurn))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            if let today = meter.spend?.todayUSD {
+                                Text(today.dollarLabel + " today")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
                             Text(statusLabel)
                                 .foregroundStyle(statusTint)
                                 .multilineTextAlignment(.trailing)
@@ -190,7 +262,13 @@ private struct ProviderQuotaDetail: View {
                         MobileQuotaRow(window: window, tint: provider.tint)
                     }
 
-                    if let balance = meter.balanceLabel {
+                    if let spend = meter.spend, spend.hasFigures || spend.reportError != nil {
+                        BalanceSpendCard(
+                            spend: spend,
+                            remainingLabel: meter.balanceLabel,
+                            tint: provider.tint
+                        )
+                    } else if let balance = meter.balanceLabel {
                         MobileBalanceRow(
                             label: balance,
                             level: meter.balanceLevel,
@@ -235,7 +313,7 @@ private struct ProviderQuotaDetail: View {
                             .font(.caption)
                             .foregroundStyle(
                                 meter.statusAlarming
-                                    ? HeadroomPalette.amber : Color.secondary)
+                                    ? HeadroomPalette.orange : Color.secondary)
                             .lineLimit(2)
                     }
                 }
@@ -245,6 +323,7 @@ private struct ProviderQuotaDetail: View {
                     SubscriptionPricingView(
                         pricing: subscriptionPricing,
                         currentPlan: meter.plan)
+                    .headroomCard()
                 }
 
                 ForEach(burndown) { pool in
@@ -320,54 +399,7 @@ private struct MobileBalanceRow: View {
     }
 }
 
-private struct SubscriptionPricingView: View {
-    let pricing: SubscriptionPricing
-    let currentPlan: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Subscription price")
-                    .font(.headline)
-                Spacer()
-                if let url = pricing.url.flatMap(URL.init(string:)) {
-                    Link("Source", destination: url)
-                        .font(.caption)
-                }
-            }
-            if let price = pricing.currentPrice(for: currentPlan) {
-                HStack(spacing: 8) {
-                    Text(currentPlan ?? price.title)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(price.compactPrice)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .font(.subheadline)
-            } else if let currentPlan {
-                HStack(spacing: 8) {
-                    Text(currentPlan)
-                        .lineLimit(1)
-                    Spacer()
-                    Text("See provider")
-                        .foregroundStyle(.secondary)
-                }
-                .font(.subheadline)
-            } else {
-                Text(HeadroomCopy.planUnknown)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let checked = pricing.checked {
-                Text("List prices · checked \(checked)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .headroomCard()
-    }
-}
+// SubscriptionPricingView lives in Shared/ — one block, two type scales.
 
 private struct BurndownPoint: Identifiable {
     let id: String
@@ -908,13 +940,25 @@ struct DailyBurnChart: View {
 
     private var visibleDays: [DailyBurnDay] { Array(days.suffix(7)) }
 
+    private var todayTotal: Double {
+        let ids = providers.map(\.id)
+        return visibleDays.last.map { $0.total(forProviderIDs: ids) } ?? 0
+    }
+
+    private var subtitle: String {
+        if todayTotal > 0 {
+            return HeadroomFormat.todayBurn(todayTotal)
+        }
+        return HeadroomCopy.dailyBurnUnit
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(HeadroomCopy.dailyBurn)
                     .font(.headline)
                 Spacer()
-                Text(HeadroomCopy.dailyBurnUnit)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

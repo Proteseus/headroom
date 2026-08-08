@@ -44,6 +44,7 @@ class AppConfigTests(unittest.TestCase):
         )
         self.assertFalse(app_config.agent_gateway_enabled())
         self.assertEqual(app_config.codex_binary(), "codex")
+        self.assertTrue(app_config.agent_alerts())
 
     def test_overrides_from_file(self):
         with open(self.path, "w") as handle:
@@ -64,6 +65,7 @@ class AppConfigTests(unittest.TestCase):
                 "mobile_permissions": ["read", "sources", "agents", "unknown"],
                 "agent_gateway_enabled": True,
                 "codex_binary": "/opt/codex",
+                "agent_alerts": False,
             }, handle)
         app_config.reload()
         self.assertEqual(app_config.timezone_name(), "America/Los_Angeles")
@@ -85,6 +87,7 @@ class AppConfigTests(unittest.TestCase):
             app_config.mobile_permissions(), {"read", "sources", "agents"})
         self.assertTrue(app_config.agent_gateway_enabled())
         self.assertEqual(app_config.codex_binary(), "/opt/codex")
+        self.assertFalse(app_config.agent_alerts())
 
     def test_a_bare_org_prefix_string_still_works(self):
         """Configs written before the key took a list must keep working."""
@@ -196,6 +199,12 @@ class AppConfigTests(unittest.TestCase):
         self.assertTrue(result["enabled"])
         self.assertTrue(result["codex_binary"].endswith("/bin/codex"))
         self.assertTrue(app_config.agent_gateway_enabled())
+
+    def test_persists_agent_alerts(self):
+        self.assertFalse(app_config.set_agent_alerts(False))
+        self.assertFalse(app_config.agent_alerts())
+        with self.assertRaises(ValueError):
+            app_config.set_agent_alerts("off")
 
     def test_persists_attention_ack_without_losing_other_config(self):
         with open(self.path, "w") as handle:
@@ -495,6 +504,140 @@ class SpendParseTests(unittest.TestCase):
         self.assertEqual(parsed["spend"]["used_usd"], 15.15)
         self.assertEqual(parsed["spend"]["limit_usd"], 20.0)
         self.assertEqual(parsed["on_demand"]["used_usd"], 5.0)
+
+
+class TimezoneSettingTests(unittest.TestCase):
+    """The zone every day boundary is drawn in.
+
+    It defaults to UTC and drives `ZoneInfo(...)` on the request path, so a
+    name that does not resolve has to be refused where it is typed rather
+    than raised once per document afterwards.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "config.json")
+        self.patcher = mock.patch.object(app_config, "STORE_PATH", self.path)
+        self.patcher.start()
+        app_config.reload()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.tmp.cleanup()
+        app_config.reload()
+
+    def test_round_trips_a_real_zone(self):
+        self.assertEqual(
+            app_config.set_timezone("America/Los_Angeles"),
+            "America/Los_Angeles")
+        self.assertEqual(app_config.timezone_name(), "America/Los_Angeles")
+
+    def test_rejects_a_zone_the_tz_database_cannot_resolve(self):
+        app_config.set_timezone("Europe/Berlin")
+        with self.assertRaises(ValueError):
+            app_config.set_timezone("Mars/Olympus_Mons")
+        # The bad write must not have disturbed the good one.
+        self.assertEqual(app_config.timezone_name(), "Europe/Berlin")
+
+    def test_rejects_blank(self):
+        with self.assertRaises(ValueError):
+            app_config.set_timezone("   ")
+
+    def test_follows_you_between_macs(self):
+        # One person has one notion of "today"; burndown history merges
+        # across Macs, so two disagreeing day boundaries would thin one
+        # curve against another's buckets.
+        self.assertIn("timezone", app_config.SHARED_CONFIG_KEYS)
+
+
+class PlausibleHostSettingTests(unittest.TestCase):
+    """Parity with `posthog_host` — the same shape of value.
+
+    `plausible_host` was readable and synced from the start but had no
+    setter, so a self-hosted instance could only be reached by hand editing
+    config.json while PostHog had a picker for the identical decision.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "config.json")
+        self.patcher = mock.patch.object(app_config, "STORE_PATH", self.path)
+        self.patcher.start()
+        app_config.reload()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.tmp.cleanup()
+        app_config.reload()
+
+    def test_round_trips_and_trims_a_trailing_slash(self):
+        self.assertEqual(
+            app_config.set_plausible_host("https://stats.example.com/"),
+            "https://stats.example.com")
+        self.assertEqual(
+            app_config.plausible_host(), "https://stats.example.com")
+
+    def test_assumes_https_when_no_scheme_is_given(self):
+        self.assertEqual(
+            app_config.set_plausible_host("stats.example.com"),
+            "https://stats.example.com")
+
+    def test_rejects_blank(self):
+        with self.assertRaises(ValueError):
+            app_config.set_plausible_host("")
+
+    def test_refuses_a_scheme_that_is_not_http(self):
+        # These hosts are where a Keychain key gets sent as a bearer token,
+        # and `file://` / `gopher://` contain "://" so a mere presence test
+        # lets them reach urlopen.
+        for value in ("file:///etc/passwd", "gopher://evil.tld",
+                      "ftp://evil.tld"):
+            with self.assertRaises(ValueError, msg=value):
+                app_config.set_plausible_host(value)
+            with self.assertRaises(ValueError, msg=value):
+                app_config.set_posthog_host(value)
+
+
+class SharedConfigValidationTests(unittest.TestCase):
+    """A peer's record is untrusted input, not a shortcut past the setters.
+
+    `plausible_host`, `posthog_host` and `axiom_host` are synced, and each is
+    the destination a provider key is sent to. The folder transport may be
+    Dropbox or Syncthing, which can have other participants.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "config.json")
+        self.patcher = mock.patch.object(app_config, "STORE_PATH", self.path)
+        self.patcher.start()
+        app_config.reload()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.tmp.cleanup()
+        app_config.reload()
+
+    def test_a_synced_api_host_goes_through_the_same_validator(self):
+        with self.assertRaises(ValueError):
+            app_config.set_shared_config({"posthog_host": "file:///etc/passwd"})
+        self.assertEqual(
+            app_config.posthog_host(), "https://us.posthog.com")
+
+    def test_a_synced_host_without_a_scheme_is_normalised_not_trusted(self):
+        app_config.set_shared_config({"plausible_host": "stats.example.com"})
+        self.assertEqual(
+            app_config.plausible_host(), "https://stats.example.com")
+
+    def test_keys_outside_the_whitelist_are_still_ignored(self):
+        app_config.set_shared_config({"auth_token": "nope", "dev_root": "/tmp"})
+        self.assertIsNone(app_config.get("auth_token"))
+
+    def test_setting_the_host_leaves_the_site_list_alone(self):
+        app_config.set_plausible_sites(sites=["a.example", "b.example"])
+        app_config.set_plausible_host("https://stats.example.com")
+        self.assertEqual(
+            app_config.plausible_sites(), ("a.example", "b.example"))
 
 
 if __name__ == "__main__":

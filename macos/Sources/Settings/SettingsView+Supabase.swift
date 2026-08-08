@@ -15,7 +15,11 @@ extension SettingsView {
             if tokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("sbp_… or access token", text: $supabaseToken)
+            SecureField(
+                "sbp_… or access token",
+                text: $supabaseToken,
+                prompt: keyFieldPrompt(stored: tokenStored)
+            )
                 .onSubmit {
                     if !tokenDraft.isEmpty { saveSupabaseToken() }
                 }
@@ -54,7 +58,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Personal access token from the Supabase dashboard — not a project anon/service key. Stays in Keychain.")
+            Text("Account personal access token from the Supabase dashboard — not a project anon/service key. PATs have no narrower scopes; the token sees every project the account can. Stays in Keychain.")
         }
 
         Section {
@@ -67,7 +71,7 @@ extension SettingsView {
             } else if let error = supabaseConfig.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else if supabaseConfig.available.isEmpty {
                 Text(tokenStored
                       ? "0 projects this token can see."

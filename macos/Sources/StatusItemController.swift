@@ -81,10 +81,12 @@ final class StatusItemController: NSObject {
     private func update(snapshot: UsageSnapshot, healthy: Bool) {
         let attention = snapshot.attention
         let showPip = attention?.isWarning == true
+        let style = MenuBarIconStyle.current
         statusItem.button?.image = MeterIconRenderer.render(
             snapshot: snapshot,
             healthy: healthy,
-            attentionLevel: showPip ? attention?.level : nil
+            attentionLevel: showPip ? attention?.level : nil,
+            style: style
         )
         if !healthy {
             // "Backend" is not a word this product uses anywhere else, and
@@ -95,19 +97,43 @@ final class StatusItemController: NSObject {
             statusItem.button?.toolTip =
                 "\(HeadroomCopy.product) — \(attention.summary ?? HeadroomCopy.needsAttention)"
         } else {
-            let parts = snapshot.visibleQuotaProviders.map { provider in
+            let parts = snapshot.codingQuotaProviders.map { provider in
                 let meter = snapshot.meter(for: provider)
-                guard let used = meter.menuBarWindow.percent else {
-                    return "\(provider.displayTitle) —"
+                let window = meter.menuBarWindow
+                switch style {
+                case .remaining:
+                    guard let used = window.percent else {
+                        return "\(provider.displayTitle) —"
+                    }
+                    let remaining = 100 - used
+                    let pct = Int(max(0, min(remaining, 100)).rounded())
+                    return "\(provider.displayTitle) \(pct)% left"
+                case .pace:
+                    return Self.paceTooltip(
+                        title: provider.displayTitle,
+                        used: window.percent,
+                        pace: window.pacePercent
+                    )
                 }
-                let remaining = 100 - used
-                let pct = Int(max(0, min(remaining, 100)).rounded())
-                return "\(provider.displayTitle) \(pct)% left"
             }
             statusItem.button?.toolTip = parts.isEmpty
                 ? "Headroom"
                 : "Headroom — \(parts.joined(separator: ", "))"
         }
+    }
+
+    /// Raw delta in the tooltip — the glyph compresses; the hover does not.
+    private static func paceTooltip(
+        title: String,
+        used: Double?,
+        pace: Double?
+    ) -> String {
+        guard let used, let pace else { return "\(title) —" }
+        let delta = used - pace
+        let pts = Int(abs(delta).rounded())
+        if pts < 2 { return "\(title) on pace" }
+        if delta > 0 { return "\(title) \(pts)% over" }
+        return "\(title) \(pts)% under"
     }
 
     @objc private func togglePopover() {
@@ -160,7 +186,8 @@ enum MeterIconRenderer {
     static func render(
         snapshot: UsageSnapshot,
         healthy: Bool,
-        attentionLevel: String? = nil
+        attentionLevel: String? = nil,
+        style: MenuBarIconStyle = .current
     ) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let warning = attentionLevel == "warn" || attentionLevel == "critical"
@@ -169,7 +196,7 @@ enum MeterIconRenderer {
             // every quota source is off. The host picks which 3 (pinned
             // order, enabled only); icon geometry is sized for that same
             // hard limit. While the first poll is still out (or nothing is
-            // enabled), draw that many empty tanks so the slot is never blank.
+            // enabled), draw that many empty slots so the slot is never blank.
             let visibleProviders = snapshot.focusProviders()
             let barCount = visibleProviders.isEmpty ? 3 : visibleProviders.count
             let barWidthPixels = 6
@@ -181,38 +208,45 @@ enum MeterIconRenderer {
             let groupX = (canvasPixels - groupWidth) / 2
             let barY = (canvasPixels - barHeightPixels) / 2
 
-            // One vertical tank per provider. It shows the long quota window:
-            // Weekly for Claude/Codex and Total for Cursor, which has no
-            // weekly pool. The tank drains as consumption rises. With nothing
-            // to show yet, draw three empty outlines so the slot is never blank.
-            if visibleProviders.isEmpty {
-                for index in 0..<barCount {
-                    drawVerticalBar(
-                        rect: PixelRect(
+            let slots: [(PixelRect, MeterWindow?)] = {
+                if visibleProviders.isEmpty {
+                    return (0..<barCount).map { index in
+                        (
+                            PixelRect(
+                                x: groupX + index * (barWidthPixels + gapPixels),
+                                y: barY,
+                                width: barWidthPixels,
+                                height: barHeightPixels
+                            ),
+                            nil
+                        )
+                    }
+                }
+                return visibleProviders.enumerated().map { index, provider in
+                    (
+                        PixelRect(
                             x: groupX + index * (barWidthPixels + gapPixels),
                             y: barY,
                             width: barWidthPixels,
                             height: barHeightPixels
                         ),
-                        used: nil,
-                        healthy: healthy
+                        snapshot.meter(for: provider).menuBarWindow
                     )
                 }
-            } else {
-                for (index, provider) in visibleProviders.enumerated() {
-                    let meter = snapshot.meter(for: provider)
+            }()
+
+            switch style {
+            case .remaining:
+                for (rect, window) in slots {
                     drawVerticalBar(
-                        rect: PixelRect(
-                            x: groupX + index * (barWidthPixels + gapPixels),
-                            y: barY,
-                            width: barWidthPixels,
-                            height: barHeightPixels
-                        ),
-                        used: meter.menuBarWindow.percent,
+                        rect: rect,
+                        used: window?.percent,
                         healthy: healthy,
-                        unavailable: meter.menuBarWindow.percent == nil
+                        unavailable: window?.percent == nil
                     )
                 }
+            case .pace:
+                drawPaceGlyph(slots: slots, healthy: healthy)
             }
 
             if warning {
@@ -225,14 +259,109 @@ enum MeterIconRenderer {
         }
         // Template icons can't show the colored warning pip.
         image.isTemplate = !warning
-        let active = snapshot.visibleQuotaProviders
+        let active = snapshot.codingQuotaProviders
         if active.isEmpty {
             image.accessibilityDescription = "Headroom — no coding providers enabled"
         } else {
             let labels = active.map(\.displayTitle).joined(separator: ", ")
-            image.accessibilityDescription = "\(labels) long-window quota remaining"
+            switch style {
+            case .remaining:
+                image.accessibilityDescription =
+                    "\(labels) long-window quota remaining"
+            case .pace:
+                image.accessibilityDescription =
+                    "\(labels) long-window pace"
+            }
         }
         return image
+    }
+
+    private static func drawPaceGlyph(
+        slots: [(PixelRect, MeterWindow?)],
+        healthy: Bool
+    ) {
+        guard let first = slots.first, let last = slots.last else { return }
+        for (rect, window) in slots {
+            drawSlotTrack(
+                rect: rect,
+                healthy: healthy,
+                unavailable: window?.percent == nil || window?.pacePercent == nil
+            )
+        }
+
+        // One rail across the group — the even-spend target.
+        let midY = first.0.y + first.0.height / 2
+        let rail = PixelRect(
+            x: first.0.x,
+            y: midY,
+            width: last.0.x + last.0.width - first.0.x,
+            height: 2
+        )
+        let railAlpha: CGFloat = healthy ? 0.40 : 0.25
+        NSColor.labelColor.withAlphaComponent(railAlpha).setFill()
+        NSBezierPath(rect: rail.rect).fill()
+
+        let dotPixels = 4
+        let padPixels = 3
+        for (rect, window) in slots {
+            guard let used = window?.percent, let pace = window?.pacePercent
+            else { continue }
+            let t = MenuBarIconStyle.paceOffset(used: used, pace: pace)
+            let halfTravel = max(
+                0,
+                (rect.height / 2) - padPixels - (dotPixels / 2)
+            )
+            let centerY = midY + Int((CGFloat(t) * CGFloat(halfTravel)).rounded())
+            let centerX = rect.x + rect.width / 2
+            let dot = PixelRect(
+                x: centerX - dotPixels / 2,
+                y: centerY - dotPixels / 2,
+                width: dotPixels,
+                height: dotPixels
+            )
+            let fillAlpha: CGFloat = healthy ? 1 : 0.55
+            NSColor.labelColor.withAlphaComponent(fillAlpha).setFill()
+            NSBezierPath(ovalIn: dot.rect).fill()
+        }
+    }
+
+    private static func drawSlotTrack(
+        rect pixelRect: PixelRect,
+        healthy: Bool,
+        unavailable: Bool
+    ) {
+        let base = NSColor.labelColor
+        let alpha: CGFloat = unavailable ? 0.45 : 1
+        let trackFillAlpha: CGFloat = healthy ? 0.18 : 0.12
+        let trackStrokeAlpha: CGFloat = healthy ? 0.36 : 0.22
+        let frame = pixelRect.rect
+        let radius = CGFloat(pixelRect.width / 2) / outputScale
+        let track = NSBezierPath(
+            roundedRect: frame,
+            xRadius: radius,
+            yRadius: radius
+        )
+        base.withAlphaComponent(trackFillAlpha * alpha).setFill()
+        track.fill()
+
+        let strokePixels = 2
+        let insetPixels = strokePixels / 2
+        let strokeRect = PixelRect(
+            x: pixelRect.x + insetPixels,
+            y: pixelRect.y + insetPixels,
+            width: pixelRect.width - insetPixels * 2,
+            height: pixelRect.height - insetPixels * 2
+        )
+        let stroke = NSBezierPath(
+            roundedRect: strokeRect.rect,
+            xRadius: CGFloat(max(0, pixelRect.width / 2 - insetPixels))
+                / outputScale,
+            yRadius: CGFloat(max(0, pixelRect.width / 2 - insetPixels))
+                / outputScale
+        )
+        stroke.lineWidth = CGFloat(strokePixels) / outputScale
+        base.withAlphaComponent(trackStrokeAlpha * alpha).setStroke()
+        stroke.stroke()
     }
 
     private static func drawVerticalBar(

@@ -3,8 +3,8 @@ import Foundation
 /// Decides which granted resets are worth announcing, and remembers which ones
 /// already were.
 ///
-/// The host reports every grant it can still see in the sample log — a fortnight
-/// of them — on every poll. Announcing that list would fire a notification every
+/// The host reports every grant it can still see in the journal — months of
+/// them — on every poll. Announcing that list would fire a notification every
 /// ten seconds, so the decision is "which of these is new to *this* device",
 /// and it has to survive a relaunch: a menu bar app restarts often enough that
 /// keeping the answer in memory would re-announce a week-old reset every time.

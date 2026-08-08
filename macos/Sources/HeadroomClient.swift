@@ -243,6 +243,26 @@ struct HeadroomClient: Sendable {
         return (object?["order"] as? [String]) ?? order
     }
 
+    /// Pin the Integrations catalog order (Settings list + Activity blocks).
+    @discardableResult
+    func setIntegrationsOrder(_ order: [String]) async throws -> [String] {
+        let url = try base().appendingPathComponent("sources")
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(withJSONObject: [
+                "integrations_order": order,
+            ]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["integrations_order"] as? [String]) ?? order
+    }
+
+    /// Legacy alias — Activity-only pin merged into the full catalog.
+    @discardableResult
+    func setServicesOrder(_ order: [String]) async throws -> [String] {
+        try await setIntegrationsOrder(order)
+    }
+
     /// Extra logins per provider, and which providers can hold them.
     func fetchAccounts() async throws -> ProviderAccounts {
         let url = try base().appendingPathComponent("accounts")
@@ -293,6 +313,21 @@ struct HeadroomClient: Sendable {
             timeout: 8))
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return (object?["accents"] as? [String: String]) ?? [:]
+    }
+
+    /// Override the display name for a provider. Pass nil to restore the
+    /// registry default. Account rows pick up the new brand automatically.
+    @discardableResult
+    func setSourceTitle(_ id: String, name: String?) async throws -> [String: String] {
+        let url = try base().appendingPathComponent("sources")
+        let value: Any = name ?? NSNull()
+        let data = try await send(request(
+            url, method: "POST",
+            body: try JSONSerialization.data(
+                withJSONObject: ["titles": [id: value]]),
+            timeout: 8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["titles"] as? [String: String]) ?? [:]
     }
 
     func fetchMobilePermissions() async throws -> MobilePermissions {
@@ -367,6 +402,20 @@ struct HeadroomClient: Sendable {
         ])
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(
+            AgentGatewayConfiguration.self, from: data)
+    }
+
+    func setAgentAlerts(_ enabled: Bool) async throws
+        -> AgentGatewayConfiguration {
+        let url = try base()
+            .appendingPathComponent("agents")
+            .appendingPathComponent("config")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "alerts": enabled,
+        ])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 5))
         return try JSONDecoder().decode(
             AgentGatewayConfiguration.self, from: data)
     }
@@ -562,16 +611,45 @@ struct HeadroomClient: Sendable {
 
     @discardableResult
     func setPlausibleConfiguration(
-        sites: [String]
+        sites: [String],
+        host: String? = nil
     ) async throws -> PlausibleConfiguration {
         let url = try base()
             .appendingPathComponent("config")
             .appendingPathComponent("plausible")
-        let body = try JSONSerialization.data(
-            withJSONObject: ["sites": sites])
+        var payload: [String: Any] = ["sites": sites]
+        if let host {
+            payload["host"] = host
+        }
+        let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 10))
         return try JSONDecoder().decode(PlausibleConfiguration.self, from: data)
+    }
+
+    func fetchTimezoneConfiguration() async throws -> TimezoneConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("timezone")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(TimezoneConfiguration.self, from: data)
+    }
+
+    /// Persist the zone every day boundary is drawn in. The host validates
+    /// the name against its tz database and answers 400 for one it cannot
+    /// resolve, so a typo never reaches the request path.
+    @discardableResult
+    func setTimezoneConfiguration(
+        _ identifier: String
+    ) async throws -> TimezoneConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("timezone")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["timezone": identifier])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 10))
+        return try JSONDecoder().decode(TimezoneConfiguration.self, from: data)
     }
 
     func fetchPostHogConfiguration() async throws -> PostHogConfiguration {
@@ -598,6 +676,71 @@ struct HeadroomClient: Sendable {
         let data = try await send(request(
             url, method: "POST", body: body, timeout: 10))
         return try JSONDecoder().decode(PostHogConfiguration.self, from: data)
+    }
+
+    func fetchSentryConfiguration() async throws -> SentryConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("sentry")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(SentryConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setSentryConfiguration(org: String) async throws -> SentryConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("sentry")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["org": org])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(SentryConfiguration.self, from: data)
+    }
+
+    func fetchDatadogConfiguration() async throws -> DatadogConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("datadog")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(DatadogConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setDatadogConfiguration(site: String) async throws -> DatadogConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("datadog")
+        let body = try JSONSerialization.data(
+            withJSONObject: ["site": site])
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(DatadogConfiguration.self, from: data)
+    }
+
+    func fetchAxiomConfiguration() async throws -> AxiomConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("axiom")
+        let data = try await send(request(url, timeout: 8))
+        return try JSONDecoder().decode(AxiomConfiguration.self, from: data)
+    }
+
+    @discardableResult
+    func setAxiomConfiguration(
+        host: String? = nil,
+        orgId: String? = nil
+    ) async throws -> AxiomConfiguration {
+        let url = try base()
+            .appendingPathComponent("config")
+            .appendingPathComponent("axiom")
+        var payload: [String: Any] = [:]
+        if let host { payload["host"] = host }
+        if let orgId { payload["org_id"] = orgId }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await send(request(
+            url, method: "POST", body: body, timeout: 8))
+        return try JSONDecoder().decode(AxiomConfiguration.self, from: data)
     }
 
     func stopServer(pid: Int, port: Int) async throws {
@@ -747,9 +890,16 @@ struct PlausibleConfiguration: Decodable, Sendable {
     /// Empty means every site the key can list.
     var sites: [String] = []
     var available: [PlausibleSiteOption] = []
+    /// Cloud or self-hosted, same as `PostHogConfiguration.host`.
+    var host: String?
     var ok: Bool?
     var configured: Bool?
     var error: String?
+}
+
+struct TimezoneConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var timezone: String?
 }
 
 struct PlausibleSiteOption: Decodable, Sendable, Identifiable, Hashable {
@@ -774,10 +924,36 @@ struct PostHogProjectOption: Decodable, Sendable, Identifiable, Hashable {
     var name: String
 }
 
+struct SentryConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var org: String?
+}
+
+struct DatadogConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var site: String?
+}
+
+struct AxiomConfiguration: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var host: String?
+    var orgId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, host
+        case orgId = "org_id"
+    }
+}
+
 struct AgentGatewayConfiguration: Decodable, Sendable {
     var ok: Bool
     var enabled: Bool
     var codexBinary: String
+    /// Optional for compatibility with hosts from before Agent alerts.
+    var alerts: Bool?
     var provider: AgentProviderStatus
 
     enum CodingKeys: String, CodingKey {
@@ -868,34 +1044,8 @@ struct ClaudeHookConfiguration: Decodable, Sendable {
     }
 }
 
-struct HealthReport: Decodable, Sendable {
-    var ok: Bool?
-    var uptimeS: Int?
-    var updated: String?
-    var sources: [String: SourceHealth]
-    /// Absent on hosts older than the version handshake — see HostVersion.
-    var version: String?
-    var build: String?
-
-    enum CodingKeys: String, CodingKey {
-        case ok, updated, sources, version, build
-        case uptimeS = "uptime_s"
-    }
-}
-
-struct SourceHealth: Decodable, Sendable {
-    var ok: Bool?
-    var stale: Bool?
-    var enabled: Bool?
-    var ageS: Int?
-    var error: String?
-    var detail: String?
-
-    enum CodingKeys: String, CodingKey {
-        case ok, stale, enabled, error, detail
-        case ageS = "age_s"
-    }
-}
+// HealthReport / SourceHealth moved to Shared/HealthModels.swift so the
+// iPhone decodes /health through the same types.
 
 private struct StopServerRequest: Encodable {
     let pid: Int

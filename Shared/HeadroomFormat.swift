@@ -88,4 +88,14 @@ enum HeadroomFormat {
     static func eventMoment(_ date: Date) -> String {
         eventMoment.string(from: date)
     }
+
+    /// "Today 8%" / "Today 8.5%" — daily burn for one provider or the stack.
+    /// Whole numbers drop the decimal so the board and the Mac agree.
+    static func todayBurn(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if rounded == rounded.rounded() {
+            return "Today \(Int(rounded))%"
+        }
+        return "Today \(rounded)%"
+    }
 }

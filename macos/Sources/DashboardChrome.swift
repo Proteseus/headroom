@@ -64,6 +64,7 @@ enum DashboardMode: String, CaseIterable, Hashable {
 extension HeadroomPalette {
     static let nsGreen = nsRGB(95, 155, 115)
     static let nsAmber = nsRGB(195, 155, 85)
+    static let nsOrange = nsRGB(217, 138, 60)
     static let nsRed = nsRGB(175, 105, 100)
 
     static func nsRGB(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor {
@@ -78,7 +79,7 @@ extension HeadroomPalette {
     static func nsAttention(_ level: String?) -> NSColor {
         switch level {
         case "critical": nsRed
-        case "warn": nsAmber
+        case "warn": nsOrange
         default: nsGreen
         }
     }

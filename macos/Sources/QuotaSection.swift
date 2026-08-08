@@ -22,7 +22,7 @@ struct QuotaOverviewCard: View {
     /// row wraps instead of shrinking further.
     private static let minimumRingCell: CGFloat = 54
 
-    private var providers: [QuotaProviderInfo] { snapshot.visibleQuotaProviders }
+    private var providers: [QuotaProviderInfo] { snapshot.codingQuotaProviders }
 
     /// Columns that fit the measured width, balanced across however many rows
     /// that takes — six providers read as 3+3, not 5+1.
@@ -91,6 +91,8 @@ struct QuotaOverviewCard: View {
 struct ProviderQuotaCard: View {
     let meter: ProviderMeter
     let subscriptionPricing: SubscriptionPricing?
+    /// Headline-meter points burned today for this provider (`by_day`).
+    var todayBurn: Double? = nil
     var tint: Color? = nil
 
     private var brand: Color {
@@ -106,16 +108,32 @@ struct ProviderQuotaCard: View {
                 Text(meter.title)
                     .font(.headline)
                 Spacer()
-                Text(meter.plan ?? "—")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(meter.plan ?? "—")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if let todayBurn {
+                        Text(HeadroomFormat.todayBurn(todayBurn))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
             }
             ForEach(
                 Array(meter.displayableWindows.enumerated()), id: \.offset
             ) { _, window in
                 QuotaRow(window: window, tint: brand)
             }
-            if let balance = meter.balanceLabel {
+            // Balance providers: account use history is the leaf. Remaining
+            // credits are a figure under it — not a depletion bar.
+            if let spend = meter.spend, spend.hasFigures || spend.reportError != nil {
+                BalanceSpendCard(
+                    spend: spend,
+                    remainingLabel: meter.balanceLabel,
+                    tint: brand
+                )
+            } else if let balance = meter.balanceLabel {
                 BalanceRow(
                     label: balance,
                     level: meter.balanceLevel,
@@ -155,7 +173,9 @@ struct ProviderQuotaCard: View {
             if let subscriptionPricing {
                 SubscriptionPricingView(
                     pricing: subscriptionPricing,
-                    currentPlan: meter.plan)
+                    currentPlan: meter.plan,
+                    scale: .compact)
+                .padding(.top, 2)
             }
             // Above the error, and shown even though `ok` is true: every bar
             // on this card is a number the Mac stopped being able to refresh.
@@ -169,7 +189,7 @@ struct ProviderQuotaCard: View {
                 .font(.caption)
                 .foregroundStyle(
                     meter.statusAlarming
-                        ? HeadroomPalette.amber : Color.secondary)
+                        ? HeadroomPalette.orange : Color.secondary)
             }
             // Not gated on `ok`. The host holds `ok` true while it replays the
             // last good bars, so gating here hid the message on exactly the
@@ -181,7 +201,7 @@ struct ProviderQuotaCard: View {
                     .font(.caption)
                     .foregroundStyle(
                         meter.statusAlarming
-                            ? HeadroomPalette.amber : Color.secondary)
+                            ? HeadroomPalette.orange : Color.secondary)
                     .lineLimit(2)
             }
         }
@@ -189,54 +209,7 @@ struct ProviderQuotaCard: View {
     }
 }
 
-private struct SubscriptionPricingView: View {
-    let pricing: SubscriptionPricing
-    let currentPlan: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("Subscription price")
-                    .font(.caption.weight(.medium))
-                Spacer()
-                if let url = pricing.url.flatMap(URL.init(string:)) {
-                    Link("Source", destination: url)
-                        .font(.caption2)
-                }
-            }
-            if let price = pricing.currentPrice(for: currentPlan) {
-                HStack(spacing: 8) {
-                    Text(currentPlan ?? price.title)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(price.compactPrice)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .font(.caption2)
-            } else if let currentPlan {
-                HStack(spacing: 8) {
-                    Text(currentPlan)
-                        .lineLimit(1)
-                    Spacer()
-                    Text("See provider")
-                        .foregroundStyle(.secondary)
-                }
-                .font(.caption2)
-            } else {
-                Text(HeadroomCopy.planUnknown)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if let checked = pricing.checked {
-                Text("List prices · checked \(checked)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.top, 2)
-    }
-}
+// SubscriptionPricingView lives in Shared/ — one block, two type scales.
 
 struct QuotaRow: View {
     let window: MeterWindow
@@ -318,19 +291,9 @@ struct ProviderQuotaRing: View {
     private var ringLayers: [HeadroomRingLayer] {
         let layers = provider.ringLayers(burndown: rings)
         guard layers.isEmpty else { return layers }
-        // Balance-only providers have no window bands. Draw spent fraction so
-        // the arc empties as credits go — still not a pace ring, just a glance
-        // mark that matches the depletion bar on the detail card.
-        if let balance = provider.primaryBalance, let level = balance.level {
-            return [
-                HeadroomRingLayer(
-                    id: "balance",
-                    name: "Balance",
-                    percent: (1 - level) * 100,
-                    pacePercent: nil
-                ),
-            ]
-        }
+        // Balance-only providers have no window bands — do not invent a ring
+        // from the pot. The depletion bar on the detail card is the mark.
+        if provider.isBalanceOnly { return [] }
         // A host predating the pool registry ships no pools, which leaves the
         // headline window as the only thing there is to draw.
         return [
@@ -349,8 +312,16 @@ struct ProviderQuotaRing: View {
     /// the fetch is failing, the age of the data replaces it.
     private var windowCaption: String {
         if let note = provider.statusNote { return note }
-        if let balance = provider.primaryBalance?.balanceRemainingLabel {
-            return balance
+        if provider.isBalanceOnly {
+            if let period = meter.spend?.periodUSD,
+               let days = meter.spend?.periodDays {
+                return "\(period.dollarLabel) / \(days)d"
+            }
+            if let today = meter.spend?.todayUSD {
+                return "\(today.dollarLabel) today"
+            }
+            return provider.primaryBalance?.balanceRemainingLabel
+                ?? HeadroomCopy.noSpendYet
         }
         if let reset = headline.reset, !reset.isEmpty {
             return "\(headline.title) · \(reset)"
@@ -360,11 +331,13 @@ struct ProviderQuotaRing: View {
 
     var body: some View {
         VStack(spacing: 7) {
-            HeadroomRings(layers: ringLayers, tint: tint)
-            .frame(width: diameter, height: diameter)
-            // Drained of colour, because the gap between arc and pace dot is
-            // the reading, and on frozen numbers that reading is fiction.
-            .opacity(provider.readingSuspect ? 0.4 : 1)
+            if provider.isBalanceOnly {
+                spendMark
+            } else {
+                HeadroomRings(layers: ringLayers, tint: tint)
+                    .frame(width: diameter, height: diameter)
+                    .opacity(provider.readingSuspect ? 0.4 : 1)
+            }
             Text(meter.title)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(tint)
@@ -373,7 +346,7 @@ struct ProviderQuotaRing: View {
             Text(windowCaption)
                 .font(.caption2)
                 .foregroundStyle(
-                    provider.statusAlarming ? HeadroomPalette.amber : .secondary)
+                    provider.statusAlarming ? HeadroomPalette.orange : .secondary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
@@ -381,8 +354,30 @@ struct ProviderQuotaRing: View {
         .accessibilityElement(children: .combine)
         // The rings no longer carry a printed percentage, so state it here
         // rather than leaving VoiceOver with just a provider name.
-        .accessibilityValue(
-            headline.percent.map { "\(Int($0.rounded())) percent used" } ?? "unknown"
-        )
+        .accessibilityValue(accessibilityReading)
+    }
+
+    private var accessibilityReading: String {
+        if provider.isBalanceOnly {
+            return windowCaption
+        }
+        return headline.percent.map { "\(Int($0.rounded())) percent used" } ?? "unknown"
+    }
+
+    /// Daily account-use sparkline for prepaid providers — not a remaining-
+    /// credits depletion bar.
+    private var spendMark: some View {
+        let days = meter.spend?.byDay ?? []
+        return Group {
+            if days.contains(where: { ($0.usd ?? 0) > 0 }) {
+                BalanceSpendSparkline(days: days, tint: tint, diameter: diameter)
+                    .opacity(provider.readingSuspect ? 0.4 : 1)
+            } else {
+                Text("—")
+                    .font(.title2)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: diameter, height: diameter)
+            }
+        }
     }
 }

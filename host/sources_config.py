@@ -28,6 +28,7 @@ Stdlib only.
 
 from __future__ import annotations
 
+import colorsys
 import functools
 import json
 import os
@@ -52,9 +53,13 @@ import opencode_usage
 import openrouter_usage
 import plausible_usage
 import posthog_usage
+import sentry_alerts
+import datadog_monitors
+import axiom_monitors
 import supabase_usage
 import vercel_builds
 import windsurf_usage
+import xcode_builds
 import zed_usage
 
 STORE_PATH = os.path.expanduser("~/.headroom/sources.json")
@@ -355,11 +360,32 @@ def _detail_claude_status(payload):
     return payload.get("description") or indicator
 
 
+def _fetch_local(force=False):
+    """Listening servers plus active Xcode / Swift builds on this Mac."""
+    servers = local_servers.fetch_servers(force=force)
+    builds = xcode_builds.fetch_builds(force=force)
+    server_ok = bool(servers.get("ok"))
+    build_ok = bool(builds.get("ok"))
+    return {
+        "ok": server_ok or build_ok,
+        "host": servers.get("host") or builds.get("host"),
+        "error": (None if (server_ok or build_ok)
+                  else (servers.get("error") or builds.get("error"))),
+        "stale": bool(servers.get("stale") or builds.get("stale")),
+        "servers": servers.get("servers") or [],
+        "builds": builds.get("builds") or [],
+    }
+
+
 def _detail_local(payload):
     if not payload.get("ok"):
         return payload.get("error")
-    count = len(payload.get("servers") or [])
-    return f"{payload.get('host') or 'local'} · {count} servers"
+    servers = len(payload.get("servers") or [])
+    builds = len(payload.get("builds") or [])
+    bits = [f"{servers} servers"]
+    if builds:
+        bits.append(f"{builds} builds")
+    return f"{payload.get('host') or 'local'} · " + " · ".join(bits)
 
 
 def _detail_supabase(payload):
@@ -389,7 +415,17 @@ def _detail_balance(payload):
     rem = (payload.get("balance") or {}).get("remaining_usd")
     if rem is None:
         return payload.get("error") or "no balance"
-    return f"${rem:,.2f} left"
+    bits = [f"${rem:,.2f} left"]
+    spend = payload.get("spend") or {}
+    runway = spend.get("runway_days")
+    if isinstance(runway, (int, float)) and runway > 0:
+        if runway >= 10:
+            bits.append(f"~{runway:.0f}d runway")
+        else:
+            bits.append(f"~{runway:.1f}d runway")
+    elif spend.get("today_usd") is not None:
+        bits.append(f"${spend['today_usd']:,.2f} today")
+    return " · ".join(bits)
 
 
 def _summary_balance(payload):
@@ -398,6 +434,11 @@ def _summary_balance(payload):
     bits = [f"remaining={rem}"]
     if used is not None:
         bits.append(f"used={used}")
+    spend = payload.get("spend") or {}
+    if spend.get("today_usd") is not None:
+        bits.append(f"today={spend['today_usd']}")
+    if spend.get("runway_days") is not None:
+        bits.append(f"runway_d={spend['runway_days']}")
     return "  ".join(bits)
 
 
@@ -408,6 +449,7 @@ def _blank_balance():
         "error": None,
         "plan": None,
         "balance": None,
+        "spend": None,
     }
 
 
@@ -441,6 +483,45 @@ def _detail_posthog(payload):
         bits.append(f"{live} live")
     bits.append(f"{events} events {label}")
     return " · ".join(bits)
+
+
+def _detail_sentry(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
+    alerts = payload.get("alert_count") or 0
+    org = payload.get("org")
+    if alerts:
+        bit = f"{alerts} fresh" + ("" if alerts == 1 else " issues")
+        return f"{org} · {bit}" if org else bit
+    return f"{org} · all clear" if org else "all clear"
+
+
+def _detail_datadog(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
+    alerts = payload.get("alert_count") or 0
+    warns = payload.get("warn_count") or 0
+    bits = []
+    if alerts:
+        bits.append(f"{alerts} alert" + ("" if alerts == 1 else "s"))
+    if warns:
+        bits.append(f"{warns} warn" + ("" if warns == 1 else "s"))
+    return " · ".join(bits) if bits else "all clear"
+
+
+def _detail_axiom(payload):
+    if not payload.get("configured"):
+        return payload.get("error") or "not connected"
+    if not payload.get("ok"):
+        return payload.get("error") or "not reporting"
+    alerts = payload.get("alert_count") or 0
+    if alerts:
+        return f"{alerts} open" + ("" if alerts == 1 else " alerts")
+    return "all clear"
 
 
 # ---------------- log summaries (stdout under the LaunchAgent) ----------------
@@ -484,7 +565,8 @@ def _summary_claude_status(payload):
 
 def _summary_local(payload):
     return (f"host={payload.get('host')}  "
-            f"servers={len(payload.get('servers') or [])}")
+            f"servers={len(payload.get('servers') or [])}  "
+            f"builds={len(payload.get('builds') or [])}")
 
 
 def _summary_supabase(payload):
@@ -503,6 +585,23 @@ def _summary_posthog(payload):
     return (f"projects={payload.get('project_count')} "
             f"live={payload.get('realtime')} "
             f"events={payload.get('events_today')}")
+
+
+def _summary_sentry(payload):
+    return (f"org={payload.get('org')}  "
+            f"alerts={payload.get('alert_count')}  "
+            f"issues={len(payload.get('issues') or [])}")
+
+
+def _summary_datadog(payload):
+    return (f"alerts={payload.get('alert_count')}  "
+            f"warns={payload.get('warn_count')}  "
+            f"site={payload.get('site')}")
+
+
+def _summary_axiom(payload):
+    return (f"alerts={payload.get('alert_count')}  "
+            f"host={payload.get('host')}")
 
 
 # ---------------- blank payloads (shape before the first fetch) ----------------
@@ -539,7 +638,7 @@ def _blank_claude_status():
 
 
 def _blank_local():
-    return {"ok": False, "host": None, "servers": []}
+    return {"ok": False, "host": None, "servers": [], "builds": []}
 
 
 def _blank_supabase():
@@ -558,6 +657,21 @@ def _blank_posthog():
     return {"ok": False, "configured": False, "projects": [],
             "project_count": 0, "events_today": 0, "users_today": 0,
             "realtime": 0, "range": "24h", "range_label": "24h"}
+
+
+def _blank_sentry():
+    return {"ok": False, "configured": False, "issues": [],
+            "alert_count": 0, "org": None, "error": None}
+
+
+def _blank_datadog():
+    return {"ok": False, "configured": False, "monitors": [],
+            "alert_count": 0, "warn_count": 0, "site": None, "error": None}
+
+
+def _blank_axiom():
+    return {"ok": False, "configured": False, "alerts": [],
+            "alert_count": 0, "host": None, "org_id": None, "error": None}
 
 
 # Order matters — Mac Settings rows and the ESP32 footer dots follow it, and
@@ -719,9 +833,9 @@ BASE_SOURCES = (
            codex_usage.fetch_quota, summary_fn=_summary_codex,
            kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
            headline=("week", "session"), accent="#10A37F",
-           # Codex resets are announced by OpenAI's Codex lead rather than on a
-           # status page, so the permalink is the account itself.
-           reset_note_url="https://x.com/thsottiaux",
+           # Codex global resets are announced by OpenAI's Codex lead; the
+           # tracker is the checkable record Headroom merges into the heatmap.
+           reset_note_url="https://codex-resets.com",
            account_kind=accounts.KIND_DIR,
            account_file=codex_usage.AUTH_NAME,
            account_hint="~/.codex-work (a second CODEX_HOME)",
@@ -798,20 +912,32 @@ BASE_SOURCES = (
     Source("github", "GitHub Actions", "Failed / running workflows", 90,
            github_actions.fetch_actions, _detail_github, _summary_github,
            _blank_github),
-    Source("local", "Local", "Listening dev servers", local_servers.CACHE_TTL_S,
-           local_servers.fetch_servers, _detail_local, _summary_local,
-           _blank_local),
+    Source("local", "Local", "Listening servers and Xcode builds",
+           min(local_servers.CACHE_TTL_S, xcode_builds.CACHE_TTL_S),
+           _fetch_local, _detail_local, _summary_local, _blank_local),
     Source("supabase", "Supabase", "PAT in Headroom Keychain", 5 * 60,
            supabase_usage.fetch_projects, _detail_supabase, _summary_supabase,
            _blank_supabase),
-    Source("plausible", "Plausible", "Stats/Sites API key in Keychain",
+    Source("plausible", "Plausible", "Stats API key (stats:read; sites:read to list)",
            plausible_usage.CACHE_TTL_S,
            plausible_usage.fetch_stats, _detail_plausible, _summary_plausible,
            _blank_plausible),
-    Source("posthog", "PostHog", "Personal API key in Keychain",
+    Source("posthog", "PostHog", "Personal API key (project:read, query:read)",
            posthog_usage.CACHE_TTL_S,
            posthog_usage.fetch_stats, _detail_posthog, _summary_posthog,
            _blank_posthog),
+    Source("sentry", "Sentry", "Auth token (event:read)",
+           sentry_alerts.CACHE_TTL_S,
+           sentry_alerts.fetch_issues, _detail_sentry, _summary_sentry,
+           _blank_sentry),
+    Source("datadog", "Datadog", "API + App key (monitors_read)",
+           datadog_monitors.CACHE_TTL_S,
+           datadog_monitors.fetch_monitors, _detail_datadog, _summary_datadog,
+           _blank_datadog),
+    Source("axiom", "Axiom", "API token (monitors|read)",
+           axiom_monitors.CACHE_TTL_S,
+           axiom_monitors.fetch_alerts, _detail_axiom, _summary_axiom,
+           _blank_axiom),
 )
 
 
@@ -858,6 +984,50 @@ BASE_BY_ID = {source.id: source for source in BASE_SOURCES}
 # Quota subset — pollers, daily burn, burndown samples, /usage providers[].
 QUOTA_SOURCES = tuple(s for s in SOURCES if s.kind == "quota")
 BURN_SOURCE_IDS = tuple(s.id for s in QUOTA_SOURCES)
+
+# Integrations catalog: everything you watch on Activity (and connect).
+# Distinct from quota `order` (Sources / rings). `servers`/`builds` are
+# Activity blocks under the `local` source; enable maps through SOURCE_FOR_WATCH.
+INTEGRATION_CATALOG_IDS = (
+    "git",
+    "github",
+    "vercel",
+    "openrouter",
+    "ai-gateway",
+    "supabase",
+    "plausible",
+    "posthog",
+    "sentry",
+    "datadog",
+    "axiom",
+    "servers",
+    "builds",
+)
+
+# Catalog ids that paint an Activity block. Prepaid balances (OpenRouter,
+# AI Gateway) paint account-use panels here — not Usage rings. Claude Code /
+# Codex are Coding agents, not Integrations catalog rows.
+ACTIVITY_BLOCK_IDS = (
+    "git",
+    "github",
+    "vercel",
+    "openrouter",
+    "ai-gateway",
+    "supabase",
+    "plausible",
+    "posthog",
+    "sentry",
+    "datadog",
+    "axiom",
+    "servers",
+    "builds",
+)
+
+# Watch catalog id → sources.enabled key.
+SOURCE_FOR_WATCH = {
+    "servers": "local",
+    "builds": "local",
+}
 
 
 def add_account(provider, label, root):
@@ -909,7 +1079,7 @@ def meta_for(source_id):
     source = BY_ID.get(source_id)
     if source is None:
         return {"title": source_id, "hint": ""}
-    return {"title": source.title, "hint": source.hint}
+    return {"title": title_for(source_id), "hint": source.hint}
 
 
 def headline_pct(source_id, payload):
@@ -1015,6 +1185,38 @@ def _clean_accents(raw):
     return out
 
 
+# Provider display names are registry defaults until Settings renames one.
+TITLE_MAX_LEN = 40
+_PROVIDER_IDS = frozenset(source.id for source in BASE_SOURCES)
+
+
+def _normalize_title(value):
+    """Trimmed display name, or None when empty / too long."""
+    text = str(value or "").strip()
+    if not text or len(text) > TITLE_MAX_LEN:
+        return None
+    return text
+
+
+def normalize_title(value):
+    """Public form of the title rule, for callers validating before writing."""
+    return _normalize_title(value)
+
+
+def _clean_titles(raw):
+    """Overrides as stored: {provider_id: name}, junk dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for sid, value in raw.items():
+        if sid not in _PROVIDER_IDS:
+            continue
+        title = _normalize_title(value)
+        if title:
+            out[str(sid)] = title
+    return out
+
+
 def _known_ids():
     """Registry ids, plus accounts added since this process started.
 
@@ -1052,6 +1254,23 @@ def _default_enabled():
     return enabled
 
 
+def _normalize_integrations_order(raw):
+    """Pinned Integrations catalog ids, deduped, with unknowns dropped.
+
+    New catalog entries after a pin land at the end. Ids that left the set
+    drop out rather than poisoning the list.
+    """
+    known = set(INTEGRATION_CATALOG_IDS)
+    out = []
+    for sid in (raw or []):
+        if sid in known and sid not in out:
+            out.append(sid)
+    for sid in INTEGRATION_CATALOG_IDS:
+        if sid not in out:
+            out.append(sid)
+    return out
+
+
 def _normalize_order(raw):
     """Pinned quota ids, deduped, with unpinned ones appended.
 
@@ -1085,7 +1304,9 @@ def _blank_store():
         "enabled": enabled,
         "dismissed": _infer_dismissed(enabled, None),
         "order": _normalize_order(None),
+        "integrations_order": _normalize_integrations_order(None),
         "accents": {},
+        "titles": {},
     }
 
 
@@ -1120,6 +1341,7 @@ def _load():
             "enabled": enabled,
             "dismissed": _infer_dismissed(enabled, None),
             "order": _normalize_order(None),
+            "integrations_order": _normalize_integrations_order(None),
             "seeded_from": "detect",
             "detected": detect_sources.detected_map(),
         }
@@ -1128,14 +1350,26 @@ def _load():
         except OSError:
             pass
         return {"enabled": enabled, "dismissed": state["dismissed"],
-                "order": state["order"], "accents": {}}
+                "order": state["order"],
+                "integrations_order": state["integrations_order"],
+                "accents": {}, "titles": {}}
     except (OSError, json.JSONDecodeError):
         return _blank_store()
     if not isinstance(data, dict):
         return _blank_store()
     order = _normalize_order(
         data.get("order") if isinstance(data.get("order"), list) else None)
+    # Prefer integrations_order; fall back to the short-lived services_order
+    # pin so a Mac that only ever set Activity panels keeps that prefix.
+    if isinstance(data.get("integrations_order"), list):
+        integrations_seed = data.get("integrations_order")
+    elif isinstance(data.get("services_order"), list):
+        integrations_seed = data.get("services_order")
+    else:
+        integrations_seed = None
+    integrations_order = _normalize_integrations_order(integrations_seed)
     accents = _clean_accents(data.get("accents"))
+    titles = _clean_titles(data.get("titles"))
     known = _known_ids()
     enabled = {sid: False for sid in known}
     # Legacy files without an explicit map keep prior all-on behaviour only
@@ -1148,13 +1382,15 @@ def _load():
         enabled = {sid: True for sid in known}
         return {"enabled": enabled,
                 "dismissed": _infer_dismissed(enabled, data.get("dismissed")),
-                "order": order, "accents": accents}
+                "order": order, "integrations_order": integrations_order,
+                "accents": accents, "titles": titles}
     for sid in known:
         if sid in raw:
             enabled[sid] = bool(raw[sid])
     return {"enabled": enabled,
             "dismissed": _infer_dismissed(enabled, data.get("dismissed")),
-            "order": order, "accents": accents}
+            "order": order, "integrations_order": integrations_order,
+            "accents": accents, "titles": titles}
 
 
 def _save(state):
@@ -1265,15 +1501,120 @@ def accent_overrides():
         return dict(_state_locked().get("accents") or {})
 
 
+def title_overrides():
+    with _lock:
+        return dict(_state_locked().get("titles") or {})
+
+
+def default_title(source_id):
+    """The registry's own name for a row, ignoring any override."""
+    provider, slug = accounts.split_id(source_id)
+    base = BASE_BY_ID.get(provider)
+    if base is None:
+        source = BY_ID.get(source_id)
+        return source.title if source else source_id
+    return base.title
+
+
+def title_for(source_id):
+    """The display name every surface should print for this row."""
+    provider, slug = accounts.split_id(source_id)
+    brand = title_overrides().get(provider) or default_title(provider)
+    if slug is None:
+        return brand
+    source = BY_ID.get(source_id)
+    if source is not None and source.account is not None:
+        return f"{brand} · {source.account.label}"
+    return brand
+
+
+def _purge_duplicate_account_accents(accents, provider_id, previous_base, new_base):
+    """Drop account overrides that mirror a provider color.
+
+    Older Settings builds copied the provider swatch onto every account row.
+    When the provider color moves, those stale keys would otherwise win over
+    the derived shades.
+    """
+    prefix = provider_id + ":"
+    for sid in list(accents.keys()):
+        if not sid.startswith(prefix):
+            continue
+        value = accents[sid]
+        if value == previous_base or value == new_base:
+            accents.pop(sid, None)
+
+
+def _account_accent(source_id, base_hex):
+    """Return a stable same-hue shade for an extra account.
+
+    The bare provider row keeps the registry/override color. Extra accounts
+    use lightness offsets in their registry order, so the colors remain
+    recognizable as one service while still identifying each account. The
+    result is derived from the base color rather than stored, which means a
+    provider accent override recolors all of its account shades together.
+    """
+    provider, slug = accounts.split_id(source_id)
+    if slug is None or not _normalize_accent(base_hex):
+        return base_hex
+
+    siblings = [
+        source.id for source in SOURCES
+        if accounts.split_id(source.id)[0] == provider
+    ]
+    try:
+        index = siblings.index(source_id)
+    except ValueError:
+        return base_hex
+
+    # The default row is index zero. Alternating lighter/darker stops keeps
+    # the shades legible on both light and dark surfaces without changing the
+    # provider hue. There are at most eight extra accounts today.
+    offsets = (0.0, 0.14, -0.14, 0.24, -0.24, 0.32, -0.32, 0.38, -0.38)
+    offset = offsets[min(index, len(offsets) - 1)]
+    value = int(base_hex.lstrip("#"), 16)
+    red = ((value >> 16) & 0xFF) / 255.0
+    green = ((value >> 8) & 0xFF) / 255.0
+    blue = (value & 0xFF) / 255.0
+    hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
+    lightness = min(0.80, max(0.20, lightness + offset))
+    red, green, blue = colorsys.hls_to_rgb(hue, lightness, saturation)
+    return "#{:02X}{:02X}{:02X}".format(
+        round(red * 255), round(green * 255), round(blue * 255))
+
+
+def derived_accent_for(source_id):
+    """The shade a row would paint with no explicit account override."""
+    provider, slug = accounts.split_id(source_id)
+    if slug is None:
+        overrides = accent_overrides()
+        return overrides.get(provider) or default_accent(provider)
+    base = accent_overrides().get(provider) or default_accent(provider)
+    return _account_accent(source_id, base)
+
+
 def accent_for(source_id):
-    """The color every surface should paint this row: override, else registry.
+    """The color every surface should paint this row.
 
     One resolution, on the host, because the menu bar, the popover rings, the
     phone and its widget each read `accent` off the payload — if they each
     merged an override locally they would drift the moment one of them was a
-    poll behind.
+    poll behind. Extra accounts get a derived shade unless they have an
+    explicit per-account override.
     """
-    return accent_overrides().get(source_id) or default_accent(source_id)
+    overrides = accent_overrides()
+    explicit = overrides.get(source_id)
+    is_account = accounts.is_account_id(source_id)
+    provider, _ = accounts.split_id(source_id)
+    base = overrides.get(provider) or default_accent(provider)
+    # Older Settings builds wrote the same service override to every account
+    # row. Treat that legacy duplicate as "no account override" so upgrading
+    # immediately restores distinct shades instead of preserving the bug.
+    if explicit and (not is_account or explicit != base):
+        return explicit
+    default = default_accent(source_id)
+    if not is_account:
+        return default
+    return _account_accent(source_id, base)
 
 
 def set_accents(updates):
@@ -1299,6 +1640,12 @@ def set_accents(updates):
         state = _state_locked()
         accents = dict(state.get("accents") or {})
         for sid, accent in cleaned.items():
+            provider, slug = accounts.split_id(sid)
+            if slug is None:
+                previous_base = accents.get(sid) or default_accent(sid)
+                new_base = accent if accent is not None else default_accent(sid)
+                _purge_duplicate_account_accents(
+                    accents, sid, previous_base, new_base)
             if accent is None:
                 accents.pop(sid, None)
             else:
@@ -1306,6 +1653,33 @@ def set_accents(updates):
         state["accents"] = accents
         _save(state)
         return dict(accents)
+
+
+def set_titles(updates):
+    """Apply {provider_id: name | None}. None (or '') restores the default."""
+    cleaned = {}
+    for sid, value in (updates or {}).items():
+        if sid not in _PROVIDER_IDS:
+            continue
+        if value is None or str(value).strip() == "":
+            cleaned[sid] = None
+            continue
+        title = _normalize_title(value)
+        if title is None:
+            raise ValueError(
+                f"{value!r} is not a provider name (1–{TITLE_MAX_LEN} chars)")
+        cleaned[sid] = title
+    with _lock:
+        state = _state_locked()
+        titles = dict(state.get("titles") or {})
+        for sid, title in cleaned.items():
+            if title is None:
+                titles.pop(sid, None)
+            else:
+                titles[sid] = title
+        state["titles"] = titles
+        _save(state)
+        return dict(titles)
 
 
 def order_ids():
@@ -1321,6 +1695,49 @@ def set_order(ids):
         state["order"] = _normalize_order(ids)
         _save(state)
         return list(state["order"])
+
+
+def services_order_ids():
+    """Activity block ids in pin order (subset of integrations_order)."""
+    return [sid for sid in integrations_order_ids() if sid in ACTIVITY_BLOCK_IDS]
+
+
+def set_services_order(ids):
+    """Legacy write: merge Activity pins into the full integrations catalog."""
+    # Keep relative order of the rest of the catalog; put the given Activity
+    # ids first in the order supplied.
+    current = integrations_order_ids()
+    wanted = _normalize_integrations_order(ids)
+    activity = [sid for sid in wanted if sid in ACTIVITY_BLOCK_IDS]
+    rest = [sid for sid in current if sid not in ACTIVITY_BLOCK_IDS]
+    return set_integrations_order(activity + rest)
+
+
+def integrations_order_ids():
+    """Integrations catalog ids in the user's pinned order."""
+    with _lock:
+        state = _state_locked()
+        if "integrations_order" not in state:
+            legacy = state.get("services_order")
+            state["integrations_order"] = _normalize_integrations_order(
+                legacy if isinstance(legacy, list) else None)
+            state.pop("services_order", None)
+        return list(state["integrations_order"])
+
+
+def set_integrations_order(ids):
+    """Pin the Integrations catalog order. Returns the normalized full list."""
+    with _lock:
+        state = _state_locked()
+        state["integrations_order"] = _normalize_integrations_order(ids)
+        state.pop("services_order", None)
+        _save(state)
+        return list(state["integrations_order"])
+
+
+def source_id_for_watch(watch_id):
+    """sources.enabled key for a catalog watch id."""
+    return SOURCE_FOR_WATCH.get(watch_id, watch_id)
 
 
 def ordered_quota_sources():
@@ -1398,12 +1815,15 @@ def detection_payload():
         "enabled": enabled,
         "groups": list(GROUP_IDS),
         "order": order_ids(),
+        "integrations_order": integrations_order_ids(),
         "focus": focus_ids(),
         "accents": accent_overrides(),
+        "titles": title_overrides(),
         "sources": [
             {
                 "id": source.id,
-                "title": source.title,
+                "title": title_for(source.id),
+                "title_default": default_title(source.id),
                 "hint": source.hint,
                 "kind": source.kind,
                 "group": source.group,

@@ -19,7 +19,15 @@ enum HeadroomCopy {
     static let supabase = "Supabase"
     static let plausible = "Plausible"
     static let posthog = "PostHog"
+    static let sentry = "Sentry"
+    static let datadog = "Datadog"
+    static let axiom = "Axiom"
     static let localServers = "Local servers"
+    static let xcodeBuilds = "Xcode builds"
+    static let local = "Local"
+    static let integrationsOrderHint = "Drag to reorder · toggles what Activity watches"
+    static let activityRowsHint =
+        "How many Recent rows the Activity feed draws on this Mac. Same control on Git, Actions, Vercel, Supabase, Sentry, Datadog, and Axiom."
     static let otherMacs = "Other Macs"
     static let computers = "Computers"
     static let addComputer = "Add computer"
@@ -36,8 +44,10 @@ enum HeadroomCopy {
     // friendlier rail titles for the same ideas (see `SettingsDestination`).
 
     static let settingsGeneral = "General"
-    static let settingsSources = "Sources"
+    static let settingsSources = "Providers"
     static let settingsiPhone = "iPhone"
+    static let settingsSync = "Sync"
+    static let settingsTelemetry = "Telemetry"
     static let settingsIntegrations = "Integrations"
     /// The two halves of Integrations that are not agents. Code is where work
     /// lands; services are what you point a key at.
@@ -50,13 +60,38 @@ enum HeadroomCopy {
     static let settingsConnection = "Connection"
     static let settingsPermissions = "Permissions"
     /// General pane: row-count steppers for what this Mac draws.
-    static let settingsDashboard = "Dashboard"
     /// LabeledContent title on every integration detail Status row.
     static let settingsStatus = "Status"
     static let settingsConnect = "Connect"
     static let settingsDisconnect = "Disconnect"
     static let settingsReplace = "Replace"
     static let settingsRefresh = "Refresh"
+    static let hostRunning = "Running"
+    static let hostProcess = "Process"
+    static let hostStatus = "Host status"
+    static let hostVersion = "Version"
+    static let hostBuild = "Build"
+    static let hostUptime = "Uptime"
+    static let hostSourcesReporting = "Sources reporting"
+    static let hostReachable = "Reachable"
+    static let hostUnavailable = "Unavailable"
+    static let hostLocalLaunchAgent = "Local LaunchAgent"
+    static let hostLocalProcess = "Local process"
+    static let hostRemoteEndpoint = "Remote endpoint"
+    /// Host lifecycle (Settings → General → Host).
+    static let hostKeepRunning = "Keep the host running when Headroom is closed"
+    static let hostKeepRunningOn = "A background service starts at login and serves the board, iPhone and Watch whether or not Headroom is open."
+    static let hostKeepRunningOff = "The host starts and stops with Headroom. Quitting the app stops the board, iPhone and Watch too."
+    static let hostOwnedByApp = "Local process · with Headroom"
+    static let hostStoppedCleanly = "The host stopped and did not restart. Something else may own port 8737."
+    static let hostGaveUp = "The host failed to stay up. Check ~/.headroom/logs/headroom.err."
+    /// Leaving cleanly, for someone about to delete the app.
+    static let hostRemoveService = "Remove background service…"
+    static let hostRemoveServiceTitle = "Remove the background service?"
+    static let hostRemoveServiceBody = "Headroom stops the host, removes its login item, and quits. Nothing runs in the background until you open Headroom again. Your settings, tokens, and history stay in ~/.headroom."
+    static let hostRemoveServiceConfirm = "Remove and Quit"
+    static let hostRefreshDetails = "Refresh details"
+    static let hostNotAvailable = "Not available"
     static let settingsSave = "Save"
     static let settingsCreateToken = "Create token…"
     static let settingsCreateKey = "Create key…"
@@ -68,6 +103,13 @@ enum HeadroomCopy {
     /// macOS Settings → General. Matches System Settings → Login Items wording.
     static let openAtLogin = "Open at Login"
     static let openLoginItemsSettings = "Open Login Items…"
+    /// macOS Settings → General. Menu-bar glyph style (fuel vs pace).
+    static let menuBarIcon = "Menu bar icon"
+    static let menuBarIconRemaining = "Remaining"
+    static let menuBarIconPace = "Pace"
+    static let menuBarIconHint =
+        "①②③ follow Providers order. Remaining fills each slot by what’s left. Pace places a mark above or below even spend — small gaps move more than big ones."
+
     /// Welcome rail / first-run heading for the Sources step.
     static let welcomeWhatToWatch = "What to watch"
     /// Welcome rail for the iPhone step — Settings keeps the short “iPhone”.
@@ -81,6 +123,22 @@ enum HeadroomCopy {
     static let createdBy = "Created by Michell Zappa"
     /// App Store / signing entity — secondary to the personal credit.
     static let publisher = "Centaur Labs"
+    static let aboutSourceOnGitHub = "Source on GitHub"
+    static let aboutGitHubStarsLabel = "GitHub stars"
+    static let aboutCommunityPulse = "Community Pulse"
+    /// Release notes from the bundled CHANGELOG.md (Settings → About).
+    static let changelog = "Changelog"
+    static let changelogUnavailable = "Changelog unavailable"
+    static let changelogUnavailableHint =
+        "This build did not ship with release notes."
+    static let changelogOnGitHub = "View on GitHub"
+    static let aboutOpenSourceFooter =
+        "Headroom is open source. Star counts come from GitHub."
+    static let done = "Done"
+
+    static func aboutGitHubStars(_ count: Int) -> String {
+        "\(count.formatted()) \(aboutGitHubStarsLabel)"
+    }
 
     // MARK: Charts
 
@@ -123,8 +181,16 @@ enum HeadroomCopy {
     /// rather than in a tooltip: nobody audits a percentage against a card
     /// statement, and everybody audits a dollar. See docs/metering.md.
     static let spendEstimated = "Estimated"
+    static let spendObserved = "Observed"
+    static let accountUse = "Account use"
     static let spendToday = "today"
     static let spendPerActiveDay = "per active day"
+    static let spendPerDay = "per day"
+    static let spendRunway = "runway"
+    static let spendRecentDays = "Recent days"
+    static let spendByModel = "By model"
+    static let spendByKey = "By key"
+    static func spendLastDays(_ days: Int) -> String { "\(days)d" }
     /// Shown only when a model burned tokens that `pricing.py` has no rates
     /// for, so part of the figure came from the fallback rate. The names are
     /// the fix, so the names are what it shows.
@@ -187,23 +253,56 @@ enum HeadroomCopy {
         "Reset credit expires \(label)"
     }
 
-    /// Header over the list of past grants on a pool's detail card. "Recent"
-    /// rather than "All": the list only reaches as far back as the sample log
-    /// was kept, and promising a complete record would be a lie the first time
-    /// retention drops something off the end.
+    /// Header over the grant calendar on a pool's detail card. "Recent"
+    /// rather than "All": the host journal only reaches ~six months, and
+    /// promising a complete record would be a lie the first time retention
+    /// drops something off the end.
     static let resetHistory = "Recent resets"
+
+    /// Caption beside the heatmap legend — how many grants the journal still
+    /// holds for this pool, not how many cells are lit.
+    static func resetHistoryCount(_ count: Int) -> String {
+        count == 1 ? "1 reset" : "\(count) resets"
+    }
+
+    /// Shown under the legend when the grid is sized from real data rather
+    /// than the full six-month journal window.
+    static func resetHistorySince(_ date: Date) -> String {
+        let formatted = date.formatted(.dateTime.month(.abbreviated).day())
+        return "since \(formatted)"
+    }
+
+    /// Legend swatch for a public / matched global grant.
+    static let resetHistoryGlobal = "Global"
+
+    /// Legend swatch for a banked credit the reader spent themselves.
+    static let resetHistoryYours = "Your credit"
+
+    /// One-line footnote under the reset heatmap. Scheduled weekly rolls are
+    /// deliberately absent — the chart axis already ends on those.
+    static let resetHistoryFootnote =
+        "Global grants and credits you spent. Weekly auto-resets stay off the grid."
+
+    /// Day-detail kind label for one grant row.
+    static func resetHistoryKind(_ source: String?) -> String {
+        switch source {
+        case "observed": return resetHistoryYours
+        case "announced", "both": return resetHistoryGlobal
+        default: return resetGranted
+        }
+    }
 
     /// The amount half of a reset history row — the date carries the rest.
     /// Falls back to the bare noun when a grant handed back too little to
     /// round to a point, which happens when a window rolls near empty.
     static func resetPointsBack(_ forgivenPct: Double?) -> String {
         guard let forgivenPct, forgivenPct >= 1 else { return "reset" }
-        return "\(Int(forgivenPct.rounded())) pts back"
+        return "\(Int(forgivenPct.rounded()))% back"
     }
 
-    /// Shown in place of the list before any grant has been seen. Codex resets
-    /// are something you spend a credit on, so an empty list is the normal
-    /// state, not a missing-data state.
+    /// Shown in place of the heatmap before any grant has been seen. Codex
+    /// resets are something you spend a credit on, so an empty grid is the
+    /// normal state, not a missing-data state.
     static let noResetsYet = "No resets yet"
 
     /// Settings toggle, both platforms.
@@ -219,8 +318,11 @@ enum HeadroomCopy {
     static let connected = "Connected"
     /// Integrations hub / detail when nothing is pasted yet.
     static let notConnected = "Not connected"
-    /// Detail Status row: the credential is in this Mac's Keychain.
+    /// Detail Status / Credential row: the credential is in this Mac's Keychain.
     static let inKeychain = "Keychain"
+    /// Empty SecureField prompt when a token is already stored — shows a key
+    /// is present without revealing it. Paste replaces.
+    static let settingsKeySavedPrompt = "••••••••••••"
     static let signedIn = "Signed in"
     static let notSignedIn = "Not signed in"
     static let hooksInstalled = "Hooks installed"
@@ -241,14 +343,35 @@ enum HeadroomCopy {
     static let reconnecting = "Reconnecting…"
     /// In-flight poll / sync while the link is already healthy.
     static let refreshing = "Refreshing…"
-    static let clearAttention = "Clear"
+    /// Popover header / setup body while `/health` is quiet — same fact as the
+    /// menu-bar tooltip ("host not answering"), not a Foundation URLError.
+    static let hostNotAnswering = "Host not answering"
+    /// Auto-start / Start host in flight on the setup card.
+    static let startingHost = "Starting the host…"
+    static let hostIsRunning = "Host is running"
+    static let hostStartHint =
+        "Starts at login. Needs the local process on :8737."
+    static let hostNothingOnPort = "Nothing is answering on :8737 yet."
+    static let startHost = "Start host"
+    static let restartHost = "Restart host"
+    static let retryCheck = "Retry check"
+    static let whatToTrack = "What to track"
+    static let whatToTrackHint =
+        "From local sign-in. Change either list later in Settings."
     static let dismiss = "Dismiss"
     /// Bulk clear on either Attention section: passive agent notices, or the
-    /// warnings the rollup and the feed put in the queue.
+    /// warnings the rollup and the feed put in the queue. Mac Attention uses
+    /// the same label and action (no per-row swipe there).
     static let dismissAll = "Dismiss all"
+    /// Legacy name for `dismissAll` — Mac Attention used to say Clear and only
+    /// ack the rollup; both surfaces now dismiss the queue and ack together.
+    static let clearAttention = dismissAll
     static let refreshAll = "Refresh all"
     static let answerCodingAgents = "Answer coding agents"
-    static let codingAgents = "Coding agents"
+    static let codingAgents = "Agents"
+    static let agentAlerts = "Agent alerts"
+    static let agentAlertsHelp =
+        "Show passive agent notices such as “Ready for your next instruction”. Questions, choices, and approvals always remain visible."
     static let agentCompanionTitle = "Your agents, wherever you are"
     static let agentQuestionMode = "Claude questions"
     static let agentQuestionNotify = "Show on Mac + iPhone"
@@ -361,6 +484,7 @@ enum HeadroomCopy {
     static let sourcePaused = "Off"
     /// The inline add link under a multi-account-capable service.
     static let addAccount = "Add account…"
+    static let addAccountSection = "Add account"
     /// A Library chip whose credential has no local trace to import.
     static let notDetected = "not detected"
     /// Row-subtitle category labels. The Library groups use `aiProvidersGroup`
@@ -475,14 +599,14 @@ enum HeadroomCopy {
     /// Open issue or PR on a watched repo that @mentions you.
     static let activityMention = "Mention"
 
-    /// The feed's section title on the iOS Activity tab, where it shares a
-    /// screen with the service panels. "Recent" rather than "Activity", which
-    /// is the tab it is already sitting in.
+    /// The feed's section title on the iOS Activity tab and Mac Activity
+    /// mode, where it shares a screen with the service panels. "Recent"
+    /// rather than "Activity", which is the tab / mode it already sits in.
     static let recentActivity = "Recent"
 
-    /// Function-level headers for the iOS Activity tab. The host's activity
-    /// feed is intentionally mixed, so the phone groups it by what happened
-    /// rather than asking the reader to decode a generic chronological list.
+    /// Function-level titles for activity kinds. The Activity tab itself is
+    /// one chronological list; these labels remain for Attention captions,
+    /// contract tests, and any surface that still groups by kind.
     static let vercelDeployments = "Vercel deployments"
     static let gitCommits = "Git commits"
     static let quotaResets = "Quota resets"
@@ -495,6 +619,9 @@ enum HeadroomCopy {
         case "deployment": return vercelDeployments
         case "commit": return gitCommits
         case "supabase": return supabase
+        case "sentry": return sentry
+        case "datadog": return datadog
+        case "axiom": return axiom
         case "reset": return quotaResets
         case "claude-status": return claudeStatus
         default: return otherActivity
@@ -515,6 +642,7 @@ enum HeadroomCopy {
     static let noCodingSources = "No coding sources"
     static let noActivityYet = "No activity yet"
     static let noLocalServers = "No local servers"
+    static let noXcodeBuilds = "No Xcode builds"
     static let waitingForMacSync = "Waiting for Mac sync"
     static let searchingNearby = "Searching…"
 
@@ -550,17 +678,103 @@ enum HeadroomCopy {
     static let checkingForUpdates = "Checking…"
     static let upToDate = "Up to date"
     static let installUpdate = "Install and restart"
-    static let newVersionAvailable = "New version available"
+    /// Popover footer and Settings status when a newer build is on the feed.
+    /// Left is what this copy is; right is what the feed offers.
+    static func newVersionAvailable(from installed: String, to latest: String) -> String {
+        "\(installed) > \(latest)"
+    }
+    static func newVersionAvailableAccessibility(
+        from installed: String,
+        to latest: String
+    ) -> String {
+        "New version available: \(installed) to \(latest), install Headroom \(latest)"
+    }
     /// Said to a copy that is not in /Applications, so it must not replace
     /// itself. Names the reason rather than greying a button with no comment.
     static let updatesNotFromHere =
         "Updates install to /Applications. This copy runs from somewhere else."
     static let updateCheckFailed = "Could not reach the update feed."
 
+    // MARK: Telemetry
+
+    static let telemetryHeader = "Anonymous diagnostics"
+    static let telemetryToggle = "Share anonymous product diagnostics"
+    static let telemetryWhatIsShared = "What Headroom shares"
+    static let telemetrySharedDetail =
+        "Once a week: the app and host versions, macOS version, processor family, enabled and healthy service names, normalized model-family shares, a few feature flags, and a week-scoped dedupe key so this Mac cannot be counted twice in the same week."
+    static let telemetryNeverSharedDetail =
+        "Never: prompts, commands, files, repositories, branches, account names, email addresses, tokens, exact spend, raw model names, a stable install id, or per-request activity."
+    static let telemetryViewSource = "Read the telemetry code on GitHub"
+    static let telemetryCommunityPulse = "See the public Community Pulse"
+    static let telemetryCommunityHeader = "Community Pulse"
+    static let telemetryCommunityLoading = "Loading the community snapshot…"
+    static let telemetryCommunityUnavailable = "Community data is unavailable right now."
+    static let telemetryCommunityGrowing = "The community is still growing."
+    static let telemetryCommunityThreshold = "Counts appear after at least five Macs contribute."
+    static let telemetryWeeklyActive = "Weekly active Macs"
+    static let telemetryWeekOverWeek = "Week over week"
+    static let telemetryLatestBuild = "Most common build"
+    static let telemetryTopArchitecture = "Most common CPU"
+    static let telemetryServicesInUse = "Services in use"
+    static let telemetryModelMix = "Model family mix"
+    static let telemetryBuildSpread = "Build spread"
+    static let telemetryVersionDistribution = "Version distribution"
+    static let telemetryLatestRelease = "Latest release"
+    static let telemetryOnLatest = "on latest"
+    static let telemetryArchitectureMix = "Architecture"
+    static let telemetryMacOSMix = "macOS major"
+    static let telemetryCountryMix = "Countries"
+    static let telemetryServiceMix = "Service mix"
+    static let telemetryServicesEnabled = "Enabled"
+    static let telemetryServicesUsed = "Used"
+    static let telemetryServicesHealthy = "Healthy"
+    static let telemetryFeatureAdoption = "Feature adoption"
+    static let telemetryNoPublishedData = "Not enough community data to publish this yet."
+    static let telemetryRefreshCommunity = "Refresh community"
+    static let telemetryLatestWeek = "latest week"
+    static let telemetryMacs = "Macs"
+    static let telemetryNeedPriorWeek = "Need two published weeks"
+    static let telemetryCommunityFooter =
+        "A public aggregate of other opted-in Macs. Small groups stay hidden; weekly counts are reports, not user identities. This Mac’s payload is shown above."
+    static let telemetryFooter =
+        "On by default so we can see which builds and services are actually in use. Turn it off at any time; pending data is deleted from this Mac."
+    static let telemetryVisualizer = "Inspect this week's aggregate"
+    static let telemetryWaitingForPreview = "No preview loaded"
+    static let telemetryPreviewReady = "This is what Headroom would send"
+    static let telemetryRefreshPreview = "Refresh"
+    static let telemetryCopyPayload = "Copy JSON"
+    static let telemetryCopied = "Copied"
+    static let telemetryPreviewOff =
+        "Turn diagnostics on to build a local preview. Nothing is sent by this view."
+    static let telemetryBuildingPreview = "Building preview…"
+    static let telemetryPreviewUnavailable =
+        "A preview is not available yet. Try Refresh."
+    static let telemetryApp = "App"
+    static let telemetryHost = "Host"
+    static let telemetryPeriod = "Period"
+    static let telemetryMac = "Mac"
+    static let telemetryLastSent = "Last sent"
+    static let telemetryHostVersionDetail = "host version"
+    static let telemetryWeeklyDetail = "one batch per week"
+    static let telemetryServices = "Services"
+    static let telemetryNoServices = "No enabled or observed services yet."
+    static let telemetryEnabled = "enabled"
+    static let telemetryUsed = "used"
+    static let telemetryHealthy = "healthy"
+    static let telemetryModels = "Model families"
+    static let telemetryNoModels = "No model-family history is available yet."
+    static let telemetryFeatures = "Feature flags"
+    static let telemetryNoFeatures = "No feature flags are available yet."
+    static let telemetryNever = "Never"
+    static let telemetryNoPending = "No pending batch"
+    static let telemetryPending = "Pending locally"
+    static let notAvailable = "Not available"
+
     // MARK: Widget
 
     static let openToSync = "Open to sync"
     static let openHeadroom = "Open Headroom"
+    static let openPermalink = "Open"
 
     // MARK: Watch
 

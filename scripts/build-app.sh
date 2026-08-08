@@ -107,6 +107,14 @@ done
   exit 1
 }
 
+# About → Changelog reads this offline. Shipping without it leaves a dead
+# button and a "view on GitHub" fallback — fail the build instead.
+[[ -f "$APP_SRC/Contents/Resources/CHANGELOG.md" ]] || {
+  echo "error: CHANGELOG.md missing from $APP_SRC/Contents/Resources" >&2
+  echo "       (macos/project.yml copies it in as a resource)" >&2
+  exit 1
+}
+
 DIST="$ROOT/dist"
 rm -rf "$DIST"
 mkdir -p "$DIST"

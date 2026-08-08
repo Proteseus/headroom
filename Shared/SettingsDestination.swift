@@ -2,17 +2,15 @@ import Foundation
 
 /// Settings navigation graph shared by macOS and iOS.
 ///
-/// Root order mirrors user intent (General → what you watch → what you connect
-/// to → agents → phone → About). Nested leaves sit under General (Other Macs)
-/// and Integrations (every external service, see `SettingsIntegration`).
+/// Root order mirrors user intent (General → providers → watches → agents →
+/// devices → telemetry → About). Nested leaves sit under Integrations
+/// (every watchable thing, see `SettingsIntegration`).
 ///
-/// Integrations is the single home for connection settings. `Coding agents`
-/// survives as a root because starting a task is an action rather than a
-/// preference; the Claude Code and Codex *connections* live under Integrations
-/// with everything else.
+/// Integrations is one catalog of what you watch on Activity (and connect).
+/// Claude Code and Codex connection leaves live under Agents.
 ///
 /// Onboarding (`WelcomePane`) maps onto the same ideas where it can:
-/// - Sources ↔ Welcome “What to watch” (same symbol)
+/// - Providers ↔ Welcome “What to watch” (same symbol)
 /// - iPhone ↔ Welcome “On your phone”
 /// - General ↔ Welcome “Background helper” (the host this Mac runs)
 enum SettingsDestination: Hashable, Sendable {
@@ -20,10 +18,13 @@ enum SettingsDestination: Hashable, Sendable {
     case sources
     case codingAgents
     case iPhone
+    case telemetry
     case integrations
     case about
 
-    /// Nested under General.
+    /// The other Macs sharing this one's settings. A sidebar root beside
+    /// iPhone — the two used to be unlabeled sections inside a "Sync" pane
+    /// that neither named, so nothing in Settings said "iPhone" out loud.
     case otherMacs
     /// Nested under Integrations.
     case integration(SettingsIntegration)
@@ -33,17 +34,20 @@ enum SettingsDestination: Hashable, Sendable {
     case permissions
 
     /// Mac sidebar roots — short, fixed, progressive disclosure below.
+    ///
+    /// iPhone and Other Macs are named here rather than folded into one
+    /// "Sync" row: a person looking for phone permissions searches for the
+    /// word iPhone, and onboarding's phone step points at `.iPhone`.
     static let macRoots: [SettingsDestination] = [
-        .general, .sources, .integrations, .codingAgents, .iPhone, .about,
+        .general, .sources, .integrations, .codingAgents, .iPhone, .otherMacs,
+        .telemetry, .about,
     ]
 
     /// iPhone Settings tab roots. Connection is the phone’s view of pairing;
     /// Mac’s General covers host endpoint on the Mac itself.
     ///
-    /// Integrations earns a root here for the same reason it has one on the
-    /// Mac: Sources lists what you watch, Integrations lists what Headroom is
-    /// connected to. The phone's version is on/off and status only — keys are
-    /// entered on the Mac and the phone never sees them.
+    /// Integrations is the same watch catalog as Mac — enable, reorder, status.
+    /// Keys are entered on the Mac; the phone never sees them.
     static let iOSRoots: [SettingsDestination] = [
         .connection, .sources, .integrations, .iPhone, .about,
     ]
@@ -54,6 +58,7 @@ enum SettingsDestination: Hashable, Sendable {
         case .sources: return HeadroomCopy.settingsSources
         case .codingAgents: return HeadroomCopy.codingAgents
         case .iPhone: return HeadroomCopy.settingsiPhone
+        case .telemetry: return HeadroomCopy.settingsTelemetry
         case .integrations: return HeadroomCopy.settingsIntegrations
         case .about: return HeadroomCopy.about
         case .otherMacs: return HeadroomCopy.otherMacs
@@ -69,6 +74,7 @@ enum SettingsDestination: Hashable, Sendable {
         case .sources: return "checklist"
         case .codingAgents: return "cpu"
         case .iPhone: return "iphone"
+        case .telemetry: return "chart.xyaxis.line"
         case .integrations: return "link"
         case .about: return "info.circle"
         case .otherMacs: return "laptopcomputer.and.iphone"
@@ -86,7 +92,7 @@ enum SettingsDestination: Hashable, Sendable {
     /// typing a key, and keys are never entered on the phone.
     var isMacOnly: Bool {
         switch self {
-        case .general, .codingAgents, .otherMacs, .integration:
+        case .general, .codingAgents, .telemetry, .otherMacs, .integration:
             return true
         case .integrations, .sources, .iPhone, .about, .connection,
              .permissions:
@@ -115,6 +121,11 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
     case supabase
     case plausible
     case posthog
+    case sentry
+    case datadog
+    case axiom
+    /// Local servers + Xcode builds (shared `local` source).
+    case local
 
     /// Hub grouping. Agents can run code, the rest only report — worth a
     /// visible line between them in a list someone scans for "what did I
@@ -140,7 +151,8 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .claudeCode, .codex: return .agents
         case .git, .github, .vercel: return .code
         case .openrouter, .aiGateway: return .balances
-        case .supabase, .plausible, .posthog: return .services
+        case .supabase, .plausible, .posthog, .sentry, .datadog, .axiom, .local:
+            return .services
         }
     }
 
@@ -160,6 +172,10 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .supabase: return "Supabase"
         case .plausible: return "Plausible"
         case .posthog: return HeadroomCopy.posthog
+        case .sentry: return HeadroomCopy.sentry
+        case .datadog: return HeadroomCopy.datadog
+        case .axiom: return HeadroomCopy.axiom
+        case .local: return HeadroomCopy.local
         }
     }
 
@@ -175,6 +191,10 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         case .supabase: return "cylinder.split.1x2"
         case .plausible: return "chart.xyaxis.line"
         case .posthog: return "chart.bar.doc.horizontal"
+        case .sentry: return "ladybug"
+        case .datadog: return "chart.xyaxis.line"
+        case .axiom: return "scroll"
+        case .local: return "laptopcomputer"
         }
     }
 
@@ -185,7 +205,20 @@ enum SettingsIntegration: String, Hashable, CaseIterable, Sendable {
         switch self {
         case .claudeCode, .codex: return true
         case .git, .github, .vercel, .openrouter, .aiGateway,
-             .supabase, .plausible, .posthog:
+             .supabase, .plausible, .posthog, .sentry, .datadog, .axiom, .local:
+            return false
+        }
+    }
+
+    /// Leaves that share the Mac Activity feed row-count stepper. Same
+    /// `@AppStorage` as the Integrations hub — open any of these and the
+    /// limit is still there. Balances and agents have no Activity rows.
+    var sharesActivityRowLimit: Bool {
+        switch self {
+        case .git, .github, .vercel, .supabase, .sentry, .datadog, .axiom:
+            return true
+        case .claudeCode, .codex, .openrouter, .aiGateway, .plausible,
+             .posthog, .local:
             return false
         }
     }

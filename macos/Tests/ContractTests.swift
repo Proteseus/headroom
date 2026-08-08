@@ -87,11 +87,26 @@ final class ContractTests: XCTestCase {
         XCTAssertTrue(
             Set(["claude", "codex", "cursor", "openrouter", "ai-gateway"])
                 .isSubset(of: Set(snapshot.visibleQuotaProviders.map(\.id))))
+        XCTAssertEqual(
+            Set(snapshot.codingQuotaProviders.map(\.id)),
+            Set(["claude", "codex", "cursor"]))
+        XCTAssertEqual(
+            Set(snapshot.balanceProviders.map(\.id)),
+            Set(["openrouter", "ai-gateway"]))
         let openrouter = try XCTUnwrap(
             snapshot.providers?.first { $0.id == "openrouter" })
         XCTAssertEqual(openrouter.primaryBalance?.meterKind, "balance")
         XCTAssertEqual(openrouter.primaryBalance?.headroom?.unit, "usd")
         XCTAssertEqual(openrouter.primaryBalance?.headroom?.value, 62.5)
+        XCTAssertTrue(openrouter.isBalanceOnly)
+        let spend = try XCTUnwrap(openrouter.spend)
+        XCTAssertEqual(spend.todayUSD, 2.4)
+        XCTAssertEqual(spend.runwayDays, 50.0)
+        XCTAssertEqual(spend.byModel?.first?.id, "anthropic/claude-sonnet-4")
+        XCTAssertEqual(spend.byKey?.first?.name, "headroom-dev")
+        let gateway = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "ai-gateway" })
+        XCTAssertEqual(gateway.spend?.periodUSD, 4.5)
         XCTAssertNotNil(snapshot.codex, "codex")
         XCTAssertNotNil(snapshot.cursor, "cursor")
         XCTAssertNotNil(snapshot.vercel, "vercel")
@@ -175,7 +190,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(pricing.currency, "USD")
         XCTAssertEqual(pricing.checked, "2026-08-01")
         XCTAssertEqual(pricing.url, "https://www.anthropic.com/pricing")
-        let pro = try XCTUnwrap(pricing.plans.first { $0.id == "pro" })
+        let pro = try XCTUnwrap(pricing.plans?.first { $0.id == "pro" })
         XCTAssertEqual(pro.monthlyUSD, 20)
         XCTAssertEqual(pro.annualUSD, 200)
         XCTAssertEqual(pro.compactPrice, "$20 / user / mo · $200 / user / yr")
@@ -189,6 +204,54 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             codex.subscriptionPricing?.currentPrice(for: codex.plan)?.compactPrice,
             "$25 / user / mo · $240 / user / yr")
+    }
+
+    /// A malformed plan row costs that row, never the provider carrying it.
+    /// Before plans went lossy, one bad row threw out of subscription_pricing
+    /// and the row-lossy providers[] decode silently dropped the whole
+    /// provider — ring, meter, burndown and Activity leaf all gone over one
+    /// registry typo.
+    func testBadSubscriptionPlanRowKeepsTheProvider() throws {
+        let json = """
+        {
+          "providers": [
+            {
+              "id": "claude",
+              "title": "Claude",
+              "plan": "Pro",
+              "subscription_pricing": {
+                "currency": "USD",
+                "plans": [
+                  {"id": 42, "title": ["not", "a", "string"]},
+                  {"title": "Untitled tier", "monthly_usd": 5},
+                  {"id": "pro", "title": "Pro", "monthly_usd": 20}
+                ]
+              }
+            },
+            {
+              "id": "codex",
+              "subscription_pricing": {"currency": "USD"}
+            }
+          ]
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            UsageSnapshot.self, from: Data(json.utf8))
+
+        let claude = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "claude" })
+        let pricing = try XCTUnwrap(claude.subscriptionPricing)
+        // The unparseable row is dropped; the id-less one survives.
+        XCTAssertEqual(pricing.plans?.count, 2)
+        XCTAssertEqual(
+            pricing.currentPrice(for: "Pro")?.monthlyUSD, 20)
+        XCTAssertNil(pricing.currentPrice(for: "Enterprise"))
+
+        // A catalog with no plans key at all keeps its provider too.
+        let codex = try XCTUnwrap(
+            snapshot.providers?.first { $0.id == "codex" })
+        XCTAssertNil(codex.subscriptionPricing?.plans)
+        XCTAssertNil(codex.subscriptionPricing?.currentPrice(for: "Plus"))
     }
 
     func testFocusPicksTheProvidersTheHostChose() throws {
@@ -268,11 +331,11 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.connected, "Connected")
         XCTAssertEqual(HeadroomCopy.notConnected, "Not connected")
         XCTAssertEqual(HeadroomCopy.inKeychain, "Keychain")
+        XCTAssertEqual(HeadroomCopy.settingsKeySavedPrompt, "••••••••••••")
         XCTAssertEqual(HeadroomCopy.macUnavailable, "Mac unavailable")
         XCTAssertEqual(HeadroomCopy.hooksInstalled, "Hooks installed")
         XCTAssertEqual(HeadroomCopy.gatewayOn, "Gateway on")
         XCTAssertEqual(HeadroomCopy.settingsStatus, "Status")
-        XCTAssertEqual(HeadroomCopy.settingsDashboard, "Dashboard")
         XCTAssertEqual(HeadroomCopy.on, "On")
         XCTAssertEqual(HeadroomCopy.off, "Off")
         XCTAssertEqual(HeadroomCopy.collectingHistory, "Collecting history")
@@ -283,7 +346,8 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(HeadroomCopy.windowSliceFrame, "7 days of this window")
         XCTAssertEqual(HeadroomCopy.noHistoryYet, "No history yet")
         XCTAssertEqual(HeadroomCopy.noCodingSources, "No coding sources")
-        XCTAssertEqual(HeadroomCopy.clearAttention, "Clear")
+        XCTAssertEqual(HeadroomCopy.dismissAll, "Dismiss all")
+        XCTAssertEqual(HeadroomCopy.clearAttention, HeadroomCopy.dismissAll)
         XCTAssertEqual(HeadroomCopy.githubActions, "GitHub Actions")
         XCTAssertEqual(HeadroomCopy.openAtLogin, "Open at Login")
         XCTAssertEqual(HeadroomCopy.poolBurndown("Weekly"), "Weekly burndown")
@@ -331,6 +395,12 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             snapshot.visibleQuotaProviders.map(\.id),
             ["claude", "codex", "openrouter", "ai-gateway"])
+        XCTAssertEqual(
+            snapshot.codingQuotaProviders.map(\.id),
+            ["claude", "codex"])
+        XCTAssertEqual(
+            snapshot.balanceProviders.map(\.id),
+            ["openrouter", "ai-gateway"])
     }
 
     func testEmptyQuotaSourcesYieldNoActiveProviders() throws {
@@ -375,12 +445,13 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(
             snapshot.activeQuotaProviders.map(\.rawValue),
             ["claude"])
-        // Mac surfaces use visibleQuotaProviders — unknown ids still meter.
+        // Mac Usage tabs / rings use codingQuotaProviders — unknown ids still
+        // meter when they are window quotas.
         let gemini = snapshot.meter(forProviderID: "gemini")
         XCTAssertEqual(gemini.title, "Gemini")
         XCTAssertEqual(gemini.primary.percent, 20)
         XCTAssertEqual(
-            DashboardSelection.tabs(for: snapshot.visibleQuotaProviders),
+            DashboardSelection.tabs(for: snapshot.codingQuotaProviders),
             ["overview", "claude", "gemini"])
     }
 
@@ -707,5 +778,119 @@ final class ContractTests: XCTestCase {
         let absent = try JSONDecoder().decode(
             UsageSnapshot.self, from: Data(#"{}"#.utf8))
         XCTAssertNil(absent.activity)
+    }
+}
+
+/// The widget/watch cache, which outlives the build that wrote it.
+///
+/// This is the one payload with no error path at all: `WatchSnapshotCache`
+/// and `HeadroomWidgetSnapshot.cached()` both decode with `try?`, so anything
+/// that throws is indistinguishable from "nothing cached yet" — a placeholder
+/// face, forever, with nothing on screen to say why. These pin the tolerance
+/// that keeps a cache from a different build readable.
+final class WidgetSnapshotSkewTests: XCTestCase {
+    private func decode(_ json: String) throws -> HeadroomWidgetSnapshot {
+        try JSONDecoder().decode(
+            HeadroomWidgetSnapshot.self, from: Data(json.utf8))
+    }
+
+    func testAnEmptyObjectStillDecodes() throws {
+        // The floor: whatever a future build adds, the envelope survives.
+        let snapshot = try decode("{}")
+        XCTAssertTrue(snapshot.providers.isEmpty)
+        XCTAssertTrue(snapshot.isStale)
+    }
+
+    func testAMissingTimestampReadsAsStaleRatherThanFailing() throws {
+        // distantPast is the honest answer to "when was this written" when
+        // the payload does not say, and `isStale` already knows how to
+        // report it.
+        let snapshot = try decode(#"{"providers": []}"#)
+        XCTAssertTrue(snapshot.isStale)
+    }
+
+    func testOneMalformedProviderCostsThatProviderNotTheFace() throws {
+        // The row without an id is the unusable one; the rest must survive.
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "claude", "title": "Claude", "percent": 40},
+            {"title": "no id here", "percent": 10},
+            {"id": "codex", "title": "Codex", "percent": 20}
+        ]}
+        """)
+        XCTAssertEqual(snapshot.providers.map(\.id), ["claude", "codex"])
+    }
+
+    func testAProviderFallsBackRatherThanDroppingOut() throws {
+        // Only `id` is identity. A build that stopped writing `title` or
+        // `percent` should cost a label, not the provider.
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [{"id": "claude"}]}
+        """)
+        let provider = try XCTUnwrap(snapshot.providers.first)
+        XCTAssertEqual(provider.title, "claude")
+        XCTAssertEqual(provider.percent, 0)
+    }
+
+    func testAnAbsentBurndownCurveIsEmptyNotAFailure() throws {
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "claude", "title": "Claude", "percent": 40,
+             "burndown": {"windowEnd": 12}}
+        ]}
+        """)
+        let series = try XCTUnwrap(snapshot.providers.first?.burndown)
+        XCTAssertTrue(series.actual.isEmpty)
+        XCTAssertTrue(series.projected.isEmpty)
+        XCTAssertEqual(series.windowEnd, 12)
+    }
+
+    func testTheNoCacheStateCarriesNoInventedNumbers() {
+        // What a home screen or watch face shows before the app has ever
+        // synced. It must not be the gallery's demo data: a widget added on
+        // day one otherwise states that Claude is at 42% with nothing behind
+        // it, which is worse than showing nothing at all.
+        XCTAssertTrue(HeadroomWidgetSnapshot.awaitingFirstSync.providers.isEmpty)
+        XCTAssertNotNil(
+            HeadroomWidgetSnapshot.awaitingFirstSync.attentionSummary,
+            "the empty state has to explain itself")
+    }
+
+    func testTheGalleryPlaceholderStillHasSomethingToShow() {
+        // The other half: the widget picker is the one place invented
+        // numbers are correct, so this must not be emptied by accident.
+        XCTAssertFalse(HeadroomWidgetSnapshot.placeholder.providers.isEmpty)
+        XCTAssertFalse(HeadroomWidgetSnapshot.placeholder.isStale)
+    }
+
+    func testWhatThisBuildWritesIsWhatThisBuildReads() throws {
+        // The tolerance above must not have cost the round trip.
+        let written = HeadroomWidgetSnapshot(
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            attentionLevel: "warn",
+            attentionSummary: "one build failed",
+            providers: [
+                HeadroomWidgetSnapshot.Provider(
+                    id: "claude",
+                    title: "Claude",
+                    name: "Claude · Work",
+                    percent: 42,
+                    accent: "#D97757",
+                    layers: [.init(id: "week", name: "Week", percent: 42)],
+                    burndown: .init(
+                        actual: [[1, 100], [2, 80]],
+                        projected: [[2, 80], [3, 60]])
+                ),
+            ]
+        )
+        let read = try JSONDecoder().decode(
+            HeadroomWidgetSnapshot.self,
+            from: try JSONEncoder().encode(written))
+        XCTAssertEqual(read.updatedAt, written.updatedAt)
+        XCTAssertEqual(read.attentionSummary, "one build failed")
+        XCTAssertEqual(read.providers.first?.name, "Claude · Work")
+        XCTAssertEqual(read.providers.first?.percent, 42)
+        XCTAssertEqual(read.providers.first?.layers?.first?.name, "Week")
+        XCTAssertEqual(read.providers.first?.burndown?.actual.count, 2)
     }
 }

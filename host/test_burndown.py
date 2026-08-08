@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import burndown
+import quota_samples
 
 
 TZ = ZoneInfo("Europe/Berlin")
@@ -11,6 +15,30 @@ WEEK_S = 7 * 24 * 3600
 DAY_S = 24 * 3600
 RESETS = 3 * DAY_S          # 3 days left, so 4 days elapsed
 WINDOW_START = int(NOW - (WEEK_S - RESETS))
+
+# `burndown.compute` persists grants via `rolls_for`. Keep that journal off the
+# desk owner's ~/.headroom — a frozen NOW years ahead otherwise lands as a
+# forever-"0s" Activity row (GrantedResetTests' 18% fixture did exactly that).
+_rolls_tmp = None
+_rolls_patcher = None
+
+
+def setUpModule():
+    global _rolls_tmp, _rolls_patcher
+    _rolls_tmp = tempfile.TemporaryDirectory()
+    path = str(Path(_rolls_tmp.name) / "quota_resets.jsonl")
+    _rolls_patcher = patch.object(quota_samples, "ROLLS_PATH", path)
+    _rolls_patcher.start()
+
+
+def tearDownModule():
+    global _rolls_tmp, _rolls_patcher
+    if _rolls_patcher is not None:
+        _rolls_patcher.stop()
+        _rolls_patcher = None
+    if _rolls_tmp is not None:
+        _rolls_tmp.cleanup()
+        _rolls_tmp = None
 
 
 def payload(week_pct, resets_in_s=RESETS):

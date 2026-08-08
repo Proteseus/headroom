@@ -45,8 +45,9 @@ struct SourceService: Identifiable {
     /// every row off, none dismissed — stays listed, dimmed. On hosts
     /// predating `dismissed` the two collapse to the same answer.
     var isListed: Bool { rows.contains { !$0.isDismissed } }
-    var accent: String? { rows.compactMap(\.accent).first }
-    var accentDefault: String? { rows.compactMap(\.accentDefault).first }
+    var accent: String? { primary.accent }
+    var accentDefault: String? { primary.accentDefault }
+    var titleDefault: String? { primary.titleDefault }
 
     /// Group account-level sources into services, preserving the pinned
     /// order of first appearance — the same order `order` persists.
@@ -95,6 +96,7 @@ struct SettingsSourcesPane: View {
     let onNudgeService: (String, Int) -> Void
     let onDropTarget: (String, Bool) -> Void
     let onAccent: ([String], String?) -> Void
+    let onTitle: (String, String?) -> Void
 
     private var services: [SourceService] {
         SourceService.services(from: sources)
@@ -145,6 +147,7 @@ struct SettingsSourcesPane: View {
                     HeadroomCopy.sourcesLibrary,
                     hint: HeadroomCopy.sourcesLibraryHint)
                 libraryGroup(.ai, title: HeadroomCopy.aiProvidersGroup)
+                addAccountButtons
                 footerBar
             }
             .padding(20)
@@ -177,7 +180,6 @@ struct SettingsSourcesPane: View {
                     ActiveServiceRow(
                         service: service,
                         usage: usage,
-                        capability: capability(for: service),
                         badgeSlots: focusSlots[service.id] ?? [],
                         isBusy: isBusy(service),
                         isDropTarget: dropTargetID == service.id,
@@ -186,10 +188,10 @@ struct SettingsSourcesPane: View {
                             onDismissRows(service.rows.map(\.id))
                         },
                         onRemoveAccount: onRemoveAccount,
-                        onAddAccount: onAddAccount,
                         onRefresh: onRefresh,
                         onNudge: { onNudgeService(service.id, $0) },
-                        onAccent: onAccent
+                        onAccent: onAccent,
+                        onTitle: onTitle
                     )
                     .modifier(DragReorder(
                         enabled: service.group == .ai,
@@ -230,6 +232,39 @@ struct SettingsSourcesPane: View {
                             onEnable: {
                                 onToggleRows(service.rows.map(\.id), true)
                             },
+                            onAddAccount: onAddAccount
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Extra logins for providers already in Active — buttons live under
+    /// Library so Active rows stay meters-only. Library chips that are not
+    /// detected already open the same sheet, so they stay out of this row.
+    @ViewBuilder
+    private var addAccountButtons: some View {
+        let activeIDs = Set(activeServices.map(\.id))
+        let caps = accountProviders.filter {
+            !$0.isFull && activeIDs.contains($0.id)
+        }
+        if !caps.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(HeadroomCopy.addAccountSection.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .kerning(0.5)
+                    .foregroundStyle(.secondary)
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 8),
+                        count: 3),
+                    spacing: 8
+                ) {
+                    ForEach(caps) { provider in
+                        AddAccountChip(
+                            provider: provider,
+                            isBusy: busyID != nil,
                             onAddAccount: onAddAccount
                         )
                     }
@@ -294,20 +329,22 @@ struct SettingsSourcesPane: View {
 private struct ActiveServiceRow: View {
     let service: SourceService
     let usage: [String: QuotaProviderInfo]
-    let capability: AccountProvider?
     let badgeSlots: [Int]
     let isBusy: Bool
     let isDropTarget: Bool
     let onToggleRows: ([String], Bool) -> Void
     let onDismiss: () -> Void
     let onRemoveAccount: (String) -> Void
-    let onAddAccount: (AccountProvider) -> Void
     let onRefresh: ([String]?) -> Void
     let onNudge: (Int) -> Void
     let onAccent: ([String], String?) -> Void
+    let onTitle: (String, String?) -> Void
 
     @State private var isHovering = false
     @State private var isPickingColor = false
+    @State private var isRenaming = false
+    @State private var renameDraft = ""
+    @FocusState private var renameFocused: Bool
     @FocusState private var refreshFocused: Bool
     @FocusState private var dismissFocused: Bool
 
@@ -329,6 +366,25 @@ private struct ActiveServiceRow: View {
             return nil
         }
         return service.enabledRows.first
+    }
+
+    /// Account rows carry their own accent. Fall back through the source row
+    /// for hosts that only sent `/sources`, then to the service tint for old
+    /// hosts that had no account-level color at all.
+    private func tint(for account: SyncSource) -> Color {
+        usage[account.id]?.tint
+            ?? HeadroomPalette.color(hex: account.accent)
+            ?? tint
+    }
+
+    private func accountEmail(_ account: SyncSource) -> String? {
+        let fromUsage = usage[account.id]?.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let fromUsage, !fromUsage.isEmpty { return fromUsage }
+        let fromSource = account.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let fromSource, !fromSource.isEmpty { return fromSource }
+        return nil
     }
 
     var body: some View {
@@ -354,11 +410,17 @@ private struct ActiveServiceRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     titleLine
                     if let account = inlineAccount {
+                        if let email = accountEmail(account) {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                         AccountBar(
                             name: nil,
                             row: account,
                             usage: usage[account.id],
-                            tint: tint)
+                            tint: tint(for: account))
                     }
                 }
 
@@ -367,7 +429,7 @@ private struct ActiveServiceRow: View {
                 trailing
             }
 
-            if namedAccounts != nil || capability != nil {
+            if namedAccounts != nil {
                 accountBlock
             }
         }
@@ -405,13 +467,49 @@ private struct ActiveServiceRow: View {
 
     private var titleLine: some View {
         HStack(spacing: 4) {
-            Text(service.title)
-                .fontWeight(.semibold)
+            Group {
+                if isRenaming {
+                    TextField("Name", text: $renameDraft, onCommit: commitRename)
+                        .textFieldStyle(.plain)
+                        .focused($renameFocused)
+                        .onSubmit { commitRename() }
+                } else {
+                    Text(service.title)
+                        .fontWeight(.semibold)
+                        .contentShape(Rectangle())
+                        .onTapGesture { beginRename() }
+                        .help("Click to rename")
+                }
+            }
+            .font(.system(size: 13))
             Text(subtitle)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .font(.system(size: 13))
+        .contextMenu {
+            Button("Rename") { beginRename() }
+            if service.title != (service.titleDefault ?? service.title) {
+                Button("Reset name") { onTitle(service.id, nil) }
+            }
+        }
+    }
+
+    private func beginRename() {
+        renameDraft = service.title
+        isRenaming = true
+        renameFocused = true
+    }
+
+    private func commitRename() {
+        isRenaming = false
+        let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultName = service.titleDefault ?? service.title
+        if trimmed.isEmpty || trimmed == defaultName {
+            onTitle(service.id, nil)
+        } else if trimmed != service.title {
+            onTitle(service.id, trimmed)
+        }
     }
 
     /// "· AI provider · Max 5x" — category as metadata, plan when known.
@@ -480,7 +578,10 @@ private struct ActiveServiceRow: View {
                 title: service.title,
                 defaultHex: service.accentDefault,
                 currentHex: service.accent,
-                onPick: { onAccent(service.rows.map(\.id), $0) }
+                // The service swatch controls the base row. Extra accounts
+                // derive their shades from that base instead of receiving
+                // the same explicit override and collapsing to one color.
+                onPick: { onAccent([service.primary.id], $0) }
             )
         }
     }
@@ -577,9 +678,10 @@ private struct ActiveServiceRow: View {
         return ages.max().map(TimeInterval.init)
     }
 
-    /// Warning-amber once a *stale* source is an hour behind. Age alone is
+    /// Soft amber once a *stale* source is an hour behind. Age alone is
     /// not the trigger: a provider polled hourly is not a provider in
     /// trouble. Rate-limit holds stay quiet — the host is waiting on purpose.
+    /// Needs-sign-in oranges elsewhere; stale stays soft.
     private var isStaleWarning: Bool {
         guard service.enabledRows.contains(where: {
             $0.stale == true && !$0.isRateLimited
@@ -595,19 +697,12 @@ private struct ActiveServiceRow: View {
                     AccountRow(
                         account: account,
                         usage: usage[account.id],
-                        tint: tint,
+                        tint: tint(for: account),
                         isBusy: isBusy,
                         onToggleRows: onToggleRows,
-                        onRemoveAccount: onRemoveAccount)
+                        onRemoveAccount: onRemoveAccount,
+                        onAccent: onAccent)
                 }
-            }
-            if let capability, !capability.isFull {
-                Button(HeadroomCopy.addAccount) {
-                    onAddAccount(capability)
-                }
-                .buttonStyle(.link)
-                .font(.caption)
-                .disabled(isBusy)
             }
         }
         .padding(.leading, 74)
@@ -680,16 +775,22 @@ private struct AccountRow: View {
     let isBusy: Bool
     let onToggleRows: ([String], Bool) -> Void
     let onRemoveAccount: (String) -> Void
+    let onAccent: ([String], String?) -> Void
 
     @State private var isHovering = false
+    @State private var isPickingColor = false
     @FocusState private var removeFocused: Bool
 
     private var isRemovable: Bool { account.id.contains(":") }
+    private var canPickColor: Bool { account.accentDefault != nil }
 
     var body: some View {
         HStack(spacing: 6) {
+            if canPickColor {
+                accountSwatch
+            }
             AccountBar(
-                name: account.label ?? "Default",
+                name: accountTitle,
                 row: account,
                 usage: usage,
                 tint: tint)
@@ -725,7 +826,60 @@ private struct AccountRow: View {
                     onRemoveAccount(account.id)
                 }
             }
+            if canPickColor {
+                Button("Change color…") { isPickingColor = true }
+            }
         }
+    }
+
+    private var accountSwatch: some View {
+        Button {
+            isPickingColor = true
+        } label: {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(tint)
+                .frame(width: 14, height: 14)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .help("Change account color")
+        .accessibilityLabel("Change color for \(accountTitle)")
+        .popover(isPresented: $isPickingColor, arrowEdge: .bottom) {
+            AccentPicker(
+                title: accountTitle,
+                defaultHex: accountDefaultHex,
+                currentHex: account.accent,
+                onPick: { onAccent([account.id], $0) },
+                defaultLabel: account.id.contains(":")
+                    ? "Derived shade" : "Default"
+            )
+        }
+    }
+
+    /// Registry default on the provider row; derived shade on extra accounts.
+    private var accountDefaultHex: String? {
+        if account.id.contains(":") {
+            return account.accentDerived ?? account.accent
+        }
+        return account.accentDefault
+    }
+
+    /// Label · email when both exist; email alone; else the user label.
+    private var accountTitle: String {
+        let label = account.label?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = (usage?.email ?? account.email)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasLabel = !(label ?? "").isEmpty
+        let hasEmail = !(email ?? "").isEmpty
+        if hasLabel, hasEmail, label != email {
+            return "\(label!) · \(email!)"
+        }
+        if hasEmail { return email! }
+        return label ?? "Default"
     }
 }
 
@@ -747,7 +901,7 @@ private struct AccountBar: View {
                     .font(.system(size: 12))
                     .foregroundStyle(isOff ? AnyShapeStyle(.secondary)
                                            : AnyShapeStyle(.primary))
-                    .frame(width: 70, alignment: .leading)
+                    .frame(minWidth: 70, maxWidth: 160, alignment: .leading)
                     .lineLimit(1)
             }
             if isOff {
@@ -758,7 +912,7 @@ private struct AccountBar: View {
             } else if row.needsSignIn {
                 Text(HeadroomCopy.needsSignIn)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if let pool = primaryPool, let pct = pool.pct {
                 bar(fraction: pct / 100)
@@ -821,6 +975,53 @@ private struct AccountBar: View {
             if lr != rr { return lr < rr }
             return lhs.key < rhs.key
         }?.value
+    }
+}
+
+/// Library chip that only opens the add-account sheet — for providers that
+/// already sit in Active and still have room for another login.
+private struct AddAccountChip: View {
+    let provider: AccountProvider
+    let isBusy: Bool
+    let onAddAccount: (AccountProvider) -> Void
+
+    var body: some View {
+        Button {
+            onAddAccount(provider)
+        } label: {
+            HStack(spacing: 6) {
+                if ProviderIcon.assetName(for: provider.id) != nil {
+                    ProviderMark(providerID: provider.id, size: 11)
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                } else {
+                    Circle()
+                        .fill(Color(nsColor: .tertiaryLabelColor))
+                        .frame(width: 8, height: 8)
+                }
+                Text(provider.title)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "plus")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color(nsColor: .separatorColor))
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .help("Add another \(provider.title) account")
+        .accessibilityLabel("\(HeadroomCopy.addAccount) \(provider.title)")
     }
 }
 

@@ -21,6 +21,11 @@ holding a local-only copy from before the app migrated it must keep working.
 The unentitled host reaching a synchronizable item is not a given and was
 checked on macOS 15 before this shipped: plain `SecItemCopyMatching` finds
 them, with no `kSecUseDataProtectionKeychain` needed.
+
+`allow_ui=False` sets `kSecUseAuthenticationUIFail` so a locked or ACL-gated
+item returns `errSecInteractionNotAllowed` instead of popping SecurityAgent.
+First-run probes and background polls that must not interrupt use that;
+Claude's one-shot foreign-item import keeps the default (`allow_ui=True`).
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ ERR_SEC_SUCCESS = 0
 ERR_SEC_ITEM_NOT_FOUND = -25300
 ERR_SEC_USER_CANCELED = -128
 ERR_SEC_AUTH_FAILED = -25293
+ERR_SEC_INTERACTION_NOT_ALLOWED = -25308
 _CF_STRING_ENCODING_UTF8 = 0x08000100
 
 
@@ -68,10 +74,22 @@ def _load():
         ctypes.POINTER(ctypes.c_void_p), ctypes.c_long,
         ctypes.c_void_p, ctypes.c_void_p,
     ]
+    cf.CFDictionaryGetValue.restype = ctypes.c_void_p
+    cf.CFDictionaryGetValue.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     cf.CFDataGetLength.restype = ctypes.c_long
     cf.CFDataGetLength.argtypes = [ctypes.c_void_p]
     cf.CFDataGetBytePtr.restype = ctypes.c_void_p
     cf.CFDataGetBytePtr.argtypes = [ctypes.c_void_p]
+    cf.CFStringGetCString.restype = ctypes.c_bool
+    cf.CFStringGetCString.argtypes = [
+        ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32,
+    ]
+    cf.CFGetTypeID.restype = ctypes.c_ulong
+    cf.CFGetTypeID.argtypes = [ctypes.c_void_p]
+    cf.CFDictionaryGetTypeID.restype = ctypes.c_ulong
+    cf.CFDictionaryGetTypeID.argtypes = []
+    cf.CFDataGetTypeID.restype = ctypes.c_ulong
+    cf.CFDataGetTypeID.argtypes = []
     cf.CFRelease.restype = None
     cf.CFRelease.argtypes = [ctypes.c_void_p]
 
@@ -131,7 +149,35 @@ def _cfdata_bytes(cf, ref):
     return ctypes.string_at(ptr, length)
 
 
-def get_generic_password(service, account=None, synchronizable=False):
+def _cfstr_to_py(cf, ref):
+    if not ref:
+        return None
+    buf = ctypes.create_string_buffer(4096)
+    if not cf.CFStringGetCString(ref, buf, len(buf), _CF_STRING_ENCODING_UTF8):
+        return None
+    return buf.value.decode("utf-8")
+
+
+def _decode_secret(raw):
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
+
+
+def _auth_ui_pairs(cf, sec, allow_ui):
+    """Fail closed when interaction would be needed, or leave the OS default."""
+    if allow_ui:
+        return []
+    return [(
+        _const(sec, "kSecUseAuthenticationUI"),
+        _const(sec, "kSecUseAuthenticationUIFail"),
+    )]
+
+
+def get_generic_password(
+    service, account=None, synchronizable=False, allow_ui=True,
+):
     """Return (OSStatus, secret_str_or_None).
 
     Does not raise on the usual miss / cancel / auth-failed outcomes — those
@@ -140,6 +186,9 @@ def get_generic_password(service, account=None, synchronizable=False):
 
     Pass `synchronizable=True` for anything the app stores with iCloud Keychain
     sync on; see the module docstring for why a default query cannot see it.
+
+    Pass `allow_ui=False` for probes / background paths that must not pop
+    SecurityAgent — a gated item becomes a miss instead of a modal.
     """
     cf, sec = _load()
     owned = []
@@ -169,6 +218,7 @@ def get_generic_password(service, account=None, synchronizable=False):
                 _const(sec, "kSecAttrSynchronizable"),
                 _const(sec, "kSecAttrSynchronizableAny"),
             ))
+        pairs.extend(_auth_ui_pairs(cf, sec, allow_ui))
         query = track(_cfdict(cf, pairs))
         status = int(sec.SecItemCopyMatching(query, ctypes.byref(result)))
         if status != ERR_SEC_SUCCESS:
@@ -177,17 +227,71 @@ def get_generic_password(service, account=None, synchronizable=False):
             return ERR_SEC_ITEM_NOT_FOUND, None
         owned.append(result.value)
         raw = _cfdata_bytes(cf, result.value)
-        try:
-            return ERR_SEC_SUCCESS, raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return ERR_SEC_SUCCESS, raw.decode("utf-8", errors="replace")
+        return ERR_SEC_SUCCESS, _decode_secret(raw)
     finally:
         for ref in owned:
             if ref:
                 cf.CFRelease(ref)
 
 
-def read_token(service, account, synchronizable=True):
+def get_internet_password(server, allow_ui=True):
+    """Return (OSStatus, secret_str_or_None, account_str_or_None).
+
+    Zed (and similar) store session tokens as internet passwords keyed by
+    server host. Account is optional — some blobs only need the password.
+    """
+    cf, sec = _load()
+    owned = []
+    result = ctypes.c_void_p()
+
+    def track(ref):
+        owned.append(ref)
+        return ref
+
+    try:
+        pairs = [
+            (_const(sec, "kSecClass"),
+             _const(sec, "kSecClassInternetPassword")),
+            (_const(sec, "kSecAttrServer"), track(_cfstr(cf, server))),
+            (_const(sec, "kSecReturnData"),
+             _const(cf, "kCFBooleanTrue")),
+            (_const(sec, "kSecReturnAttributes"),
+             _const(cf, "kCFBooleanTrue")),
+            (_const(sec, "kSecMatchLimit"),
+             _const(sec, "kSecMatchLimitOne")),
+        ]
+        pairs.extend(_auth_ui_pairs(cf, sec, allow_ui))
+        query = track(_cfdict(cf, pairs))
+        status = int(sec.SecItemCopyMatching(query, ctypes.byref(result)))
+        if status != ERR_SEC_SUCCESS:
+            return status, None, None
+        if not result.value:
+            return ERR_SEC_ITEM_NOT_FOUND, None, None
+        owned.append(result.value)
+
+        secret = None
+        account = None
+        if cf.CFGetTypeID(result.value) == cf.CFDictionaryGetTypeID():
+            data_ref = cf.CFDictionaryGetValue(
+                result.value, _const(sec, "kSecValueData"))
+            if data_ref:
+                secret = _decode_secret(_cfdata_bytes(cf, data_ref))
+            acct_ref = cf.CFDictionaryGetValue(
+                result.value, _const(sec, "kSecAttrAccount"))
+            if acct_ref:
+                account = _cfstr_to_py(cf, acct_ref)
+        elif cf.CFGetTypeID(result.value) == cf.CFDataGetTypeID():
+            secret = _decode_secret(_cfdata_bytes(cf, result.value))
+        if not secret:
+            return ERR_SEC_ITEM_NOT_FOUND, None, account
+        return ERR_SEC_SUCCESS, secret, account
+    finally:
+        for ref in owned:
+            if ref:
+                cf.CFRelease(ref)
+
+
+def read_token(service, account, synchronizable=True, allow_ui=True):
     """A stored token as a stripped string, or None for every failure.
 
     The shape every source's `_keychain_token()` wanted: a miss, a denied
@@ -196,7 +300,8 @@ def read_token(service, account, synchronizable=True):
     """
     try:
         status, secret = get_generic_password(
-            service, account, synchronizable=synchronizable)
+            service, account,
+            synchronizable=synchronizable, allow_ui=allow_ui)
     except KeychainError:
         return None
     if status != ERR_SEC_SUCCESS or not secret:

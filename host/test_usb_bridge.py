@@ -103,6 +103,34 @@ class FrameTests(unittest.TestCase):
 
 
 class CandidatePortTests(unittest.TestCase):
+    def test_disabled_by_default(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(usb_bridge.enabled())
+
+    def test_explicit_enable(self):
+        with mock.patch.dict(os.environ, {"HEADROOM_ENABLE_USB": "1"},
+                             clear=True):
+            self.assertTrue(usb_bridge.enabled())
+
+    def test_explicit_port_enables_bridge(self):
+        with mock.patch.dict(os.environ, {"HEADROOM_USB_PORT": "/dev/cu.test"},
+                             clear=True):
+            self.assertTrue(usb_bridge.enabled())
+
+    def test_dev_null_sentinel_stays_off(self):
+        # AGENTS.md: HEADROOM_USB_PORT=/dev/null keeps verification off the board.
+        with mock.patch.dict(os.environ, {"HEADROOM_USB_PORT": "/dev/null"},
+                             clear=True):
+            self.assertFalse(usb_bridge.enabled())
+
+    def test_explicit_disable_wins(self):
+        with mock.patch.dict(
+            os.environ,
+            {"HEADROOM_ENABLE_USB": "0", "HEADROOM_USB_PORT": "/dev/cu.test"},
+            clear=True,
+        ):
+            self.assertFalse(usb_bridge.enabled())
+
     def test_override_wins(self):
         self.assertEqual(
             usb_bridge.candidate_ports(override="/dev/cu.usbmodemTEST"),

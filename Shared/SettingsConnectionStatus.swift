@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Each integration used to pick its own colour and invent its own phrase for
 /// the same three outcomes (healthy, needs attention, host too old to say).
-/// Resolve here so amber only means something the reader can act on.
+/// Resolve here so orange only means something the reader can act on.
 struct SettingsConnectionStatus: Equatable, Sendable {
     /// How loudly the caption reads.
     enum Tone: Equatable, Sendable {
@@ -14,10 +14,10 @@ struct SettingsConnectionStatus: Equatable, Sendable {
         case ok
         /// Explicit success with a symbol — detail panes only.
         case good
-        /// Something the user can fix. Amber.
+        /// Something the user can fix. Orange.
         case attention
         /// Host predates the field, or state is unavailable. Secondary, never
-        /// amber — colouring "unknown" would warn about nothing actionable.
+        /// orange — colouring "unknown" would warn about nothing actionable.
         case unknown
     }
 
@@ -36,7 +36,7 @@ struct SettingsConnectionStatus: Equatable, Sendable {
         switch tone {
         case .ok, .unknown: AnyShapeStyle(.secondary)
         case .good: AnyShapeStyle(HeadroomPalette.green)
-        case .attention: AnyShapeStyle(HeadroomPalette.amber)
+        case .attention: AnyShapeStyle(HeadroomPalette.orange)
         }
     }
 

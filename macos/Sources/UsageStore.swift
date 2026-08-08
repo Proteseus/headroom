@@ -19,23 +19,41 @@ final class UsageStore: ObservableObject {
     /// keying "show onboarding" off it swapped the whole dashboard for the
     /// setup sheet over things that had nothing to do with the host being down.
     @Published private(set) var hostReachable = true
+    /// Attention rows dismissed in this popover. Matches the iPhone queue:
+    /// clearing the list has to drop every place it is counted, including the
+    /// mode switcher once that grows a badge. Pruned when the host stops
+    /// reporting the row so a returning failure can light Attention again.
+    @Published private(set) var dismissedAttentionIDs: Set<String> = []
 
     var onSnapshotChange: ((UsageSnapshot, Bool) -> Void)?
 
+    /// Failed feed rows still waiting in Attention, minus local dismissals.
+    var attentionFailures: [ActivityItem] {
+        AttentionList.failures(in: snapshot)
+            .filter { !dismissedAttentionIDs.contains($0.id) }
+    }
+
+    /// Rollup reasons with no concrete failure row, minus local dismissals.
+    var attentionReasons: [AttentionReason] {
+        AttentionList.leftoverReasons(in: snapshot)
+            .filter { !dismissedAttentionIDs.contains($0.id) }
+    }
+
     /// The popover is closed most of the time, and a closed popover only feeds
-    /// three bars in the menu bar. Polling the configured interval around the
+    /// three bars in the menu bar. Polling the active interval around the
     /// clock is battery spent on pixels nobody is looking at, so idle backs off
     /// to this and opening the popover refreshes immediately.
     private static let idleInterval: TimeInterval = 300
     private static let idleAfter: TimeInterval = 120
-    /// Ceiling for the fast retry after a failed poll. Long enough that a Mac
-    /// with no host installed isn't spinning, short enough that a host which
-    /// comes back is on screen before anyone reaches for the menu bar.
-    private static let retryCeiling: TimeInterval = 30
-
+    /// Cadence while someone is actually looking. Hardcoded per
+    /// docs/product.md: a poll interval is a tradeoff with a right answer,
+    /// not a preference. It was briefly a Settings picker, which the three
+    /// rules around it — retry backoff, the floor, the idle escalation —
+    /// already overrode in every state but this one.
+    private static let activeInterval: TimeInterval = 60
     private var refreshLoop: Task<Void, Never>?
     private var lastInteraction = Date()
-    private var consecutiveFailures = 0
+    private var cadence = RefreshCadence()
 
     /// Who answered /health last. launchd hands the same port to whatever host
     /// it just started, so "still 200 on :8737" proves nothing — the build
@@ -146,19 +164,19 @@ final class UsageStore: ObservableObject {
         // Nothing answered last time — the host is mid-restart, or launchd is
         // between agents. Sitting out a full minute (or five, when idle) leaves
         // dead meters long after it is back, so retry fast and back off.
-        if consecutiveFailures > 0 {
-            return min(Self.retryCeiling,
-                       pow(2, Double(min(consecutiveFailures, 5))))
+        if let retry = cadence.retryInterval {
+            return retry
         }
-        let configured = UserDefaults.standard.integer(forKey: "refreshInterval")
-        let active = TimeInterval(max(15, configured > 0 ? configured : 60))
         let idleFor = Date().timeIntervalSince(lastInteraction)
-        return idleFor > Self.idleAfter ? max(active, Self.idleInterval) : active
+        return idleFor > Self.idleAfter
+            ? max(Self.activeInterval, Self.idleInterval)
+            : Self.activeInterval
     }
 
     /// Apply a decoded snapshot without hitting the network (README exports).
     func applySnapshot(_ value: UsageSnapshot, healthy: Bool = true) {
         snapshot = value
+        pruneDismissedAttention()
         lastRefresh = Date()
         errorMessage = healthy ? nil : "fixture"
         onSnapshotChange?(value, healthy)
@@ -192,17 +210,29 @@ final class UsageStore: ObservableObject {
                 onSnapshotChange?(value, true)
             }
 
+            pruneDismissedAttention()
             lastRefresh = Date()
-            consecutiveFailures = 0
+            cadence.noteSuccess()
             // Written once per successful pass, after any forced re-sync, so
             // the widget never picks up the pre-sync document. The Mac is the
             // source here — this cache is current, unlike the phone's.
             HeadroomWidgetCache.save(snapshot)
         } catch {
-            consecutiveFailures += 1
+            cadence.noteFailure()
             errorMessage = error.localizedDescription
             onSnapshotChange?(snapshot, false)
         }
+    }
+
+    /// Same bulk action as iPhone **Dismiss all**: hide every Attention row
+    /// here and ack the rollup so the menu-bar pip goes out with the list.
+    func dismissAllAttention() async {
+        var next = dismissedAttentionIDs
+        next.formUnion(AttentionList.failures(in: snapshot).map(\.id))
+        next.formUnion((snapshot.attention?.reasons ?? []).map(\.id))
+        // Reassign so `@Published` fires — in-place Set mutation does not.
+        dismissedAttentionIDs = next
+        await acknowledgeAttention()
     }
 
     func acknowledgeAttention() async {
@@ -215,6 +245,14 @@ final class UsageStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Drop dismissals for rows the host no longer reports, so a failure that
+    /// comes back can come back.
+    private func pruneDismissedAttention() {
+        let live = Set(AttentionList.failures(in: snapshot).map(\.id))
+            .union((snapshot.attention?.reasons ?? []).map(\.id))
+        dismissedAttentionIDs = dismissedAttentionIDs.intersection(live)
     }
 
     /// Ask /health which host is actually answering; true when that is a
@@ -270,9 +308,11 @@ final class UsageStore: ObservableObject {
         await updateHost()
     }
 
-    /// Point the LaunchAgent at the host bundled in this .app and restart it.
-    /// Same call as first-run setup — launchctl bootout/bootstrap replaces
-    /// whatever job was there, including one installed from a clone.
+    /// Make the host bundled in this .app the one that is running, under
+    /// whichever `HostLifecycle` is selected. Same call as first-run setup.
+    /// Under `.launchAgent` that is a launchctl bootout/bootstrap, which
+    /// replaces whatever job was there, including one installed from a clone.
+    /// Under `.appOwned` it removes that job and spawns a child instead.
     ///
     /// Serialized: a second caller awaits the install already running rather
     /// than starting its own or, worse, returning early and reading /usage
@@ -290,16 +330,12 @@ final class UsageStore: ObservableObject {
     private func performHostInstall() async -> HostController.Readiness {
         isUpdatingHost = true
         defer { isUpdatingHost = false }
-        do {
-            _ = try HostController.installAndStart()
-        } catch {
-            errorMessage = error.localizedDescription
-            return .silent
-        }
-        // Wait for the host we just installed, not for anything that answers.
-        let readiness = await HostController.waitUntilReady(
-            expecting: HostController.bundledBuild)
-        switch readiness {
+        // Both lifecycles route through the coordinator, so every existing
+        // caller — first-run setup, the skew banner, Settings → Start host —
+        // keeps working without knowing which supervisor is in use, and cannot
+        // interleave with the Settings toggle.
+        let outcome = await HostLifecycleCoordinator.shared.apply(HostLifecycle.current)
+        switch outcome.readiness {
         case .ready, .foreign:
             await checkHostVersion(autoUpdate: false)
             // The host it replaced published a document; a plain GET would hand
@@ -307,8 +343,9 @@ final class UsageStore: ObservableObject {
             await refresh(forceSync: true)
         case .silent:
             hostReachable = false
+            if let message = outcome.errorMessage { errorMessage = message }
         }
-        return readiness
+        return outcome.readiness
     }
 
     func stopServer(_ server: LocalServer) async {

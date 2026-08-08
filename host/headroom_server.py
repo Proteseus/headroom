@@ -55,9 +55,13 @@ import burndown
 import cache_util
 import claude_history
 import claude_status
+import codex_usage
+import cursor_usage
 import daily_burn
 import detect_sources
 import device_view
+import datadog_monitors
+import axiom_monitors
 import git_activity
 import github_actions
 import host_version
@@ -65,13 +69,16 @@ import icloud_sync
 import local_servers
 import meters
 import oauth_usage
+import parent_watch
 import plausible_usage
 import posthog_usage
 import quota_samples
+import sentry_alerts
 import sources_config
 import supabase_usage
 import usb_bridge
 import vercel_builds
+import zed_usage
 
 LOG_ROOT = os.path.expanduser("~/.claude/projects")
 RETENTION_S = 7 * 24 * 3600  # keep events long enough for the weekly window
@@ -144,7 +151,7 @@ def _reset_activity_rows(burndowns):
     rows = []
     for provider, pools in (burndowns or {}).items():
         source = sources_config.BY_ID.get(provider)
-        title = source.title if source else provider.capitalize()
+        title = sources_config.title_for(provider) if source else provider.capitalize()
         note_url = source.reset_note_url if source else None
         for pool, result in (pools or {}).items():
             pool_title = next(
@@ -179,7 +186,8 @@ def _reset_activity_rows(burndowns):
 
 
 def _build_activity(vercel, git, supabase=None, github=None,
-                    claude_status_payload=None, burndowns=None):
+                    claude_status_payload=None, burndowns=None,
+                    sentry=None, datadog=None, axiom=None):
     """Merge deploys, commits, Actions failures, backend alerts, and grants."""
     deployments = vercel.get("deployments") or []
     commits = git.get("commits") or []
@@ -391,6 +399,68 @@ def _build_activity(vercel, git, supabase=None, github=None,
             "inspector_url": (
                 claude_status_payload.get("url") or claude_status.PAGE_URL
             ),
+        })
+
+    sentry = sentry or {}
+    for issue in (sentry.get("issues") or [])[:6]:
+        if not sentry_alerts._is_fresh(issue):
+            continue
+        items.append({
+            "id": f"sentry:{issue.get('id')}",
+            "kind": "sentry",
+            "status": "error",
+            "subject": issue.get("title") or "Sentry issue",
+            "repo": issue.get("project") or "Sentry",
+            "project": issue.get("short_id") or issue.get("project"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(issue.get("last_seen")),
+            "ago": issue.get("ago"),
+            "error_message": issue.get("level"),
+            "url": issue.get("url"),
+            "inspector_url": issue.get("url"),
+        })
+
+    datadog = datadog or {}
+    for monitor in (datadog.get("monitors") or [])[:6]:
+        items.append({
+            "id": f"datadog:{monitor.get('id')}",
+            "kind": "datadog",
+            "status": "error",
+            "subject": monitor.get("name") or "Datadog monitor",
+            "repo": "Datadog",
+            "project": monitor.get("overall_state"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(monitor.get("created_at")),
+            "ago": monitor.get("ago"),
+            "error_message": monitor.get("overall_state"),
+            "url": monitor.get("url"),
+            "inspector_url": monitor.get("url"),
+        })
+
+    axiom = axiom or {}
+    for alert in (axiom.get("alerts") or [])[:6]:
+        items.append({
+            "id": f"axiom:{alert.get('id')}",
+            "kind": "axiom",
+            "status": "error",
+            "subject": alert.get("name") or "Axiom alert",
+            "repo": "Axiom",
+            "project": alert.get("type"),
+            "branch": None,
+            "sha": None,
+            "short_sha": None,
+            "target": None,
+            "created_at": _unix_seconds(alert.get("created_at")),
+            "ago": alert.get("ago"),
+            "error_message": alert.get("description"),
+            "url": alert.get("url"),
+            "inspector_url": alert.get("url"),
         })
 
     items.extend(_reset_activity_rows(burndowns))
@@ -786,6 +856,9 @@ def _compute_doc():
     supabase = state["supabase"]
     plausible = state["plausible"]
     posthog = state["posthog"]
+    sentry = state.get("sentry") or {}
+    datadog = state.get("datadog") or {}
+    axiom = state.get("axiom") or {}
     claude_status_payload = state.get("claude-status") or {}
 
     local_tz = _local_tz()
@@ -868,10 +941,40 @@ def _compute_doc():
             "commits": git.get("commits") or [],
         },
         "activity": _build_activity(
-            vercel, git, supabase, github, claude_status_payload, burndowns),
+            vercel, git, supabase, github, claude_status_payload, burndowns,
+            sentry, datadog, axiom),
         "supabase": supabase,
         "plausible": plausible,
         "posthog": posthog,
+        "sentry": {
+            "ok": bool(sentry.get("ok")),
+            "configured": bool(sentry.get("configured")),
+            "error": sentry.get("error"),
+            "stale": bool(sentry.get("stale")),
+            "org": sentry.get("org"),
+            "alert_count": sentry.get("alert_count") or 0,
+            "issues": sentry.get("issues") or [],
+        },
+        "datadog": {
+            "ok": bool(datadog.get("ok")),
+            "configured": bool(datadog.get("configured")),
+            "error": datadog.get("error"),
+            "stale": bool(datadog.get("stale")),
+            "site": datadog.get("site"),
+            "alert_count": datadog.get("alert_count") or 0,
+            "warn_count": datadog.get("warn_count") or 0,
+            "monitors": datadog.get("monitors") or [],
+        },
+        "axiom": {
+            "ok": bool(axiom.get("ok")),
+            "configured": bool(axiom.get("configured")),
+            "error": axiom.get("error"),
+            "stale": bool(axiom.get("stale")),
+            "host": axiom.get("host"),
+            "org_id": axiom.get("org_id"),
+            "alert_count": axiom.get("alert_count") or 0,
+            "alerts": axiom.get("alerts") or [],
+        },
         "claude_status": {
             "ok": bool(claude_status_payload.get("ok")),
             "configured": bool(claude_status_payload.get("configured", True)),
@@ -903,12 +1006,15 @@ def _compute_doc():
             "error": local.get("error"),
             "stale": bool(local.get("stale")),
             "servers": local.get("servers") or [],
+            "builds": local.get("builds") or [],
         },
         "sources": _sources_payload(state),
         # The providers the compact surfaces show, already picked. Menu bar,
         # widget and the board's three slots read this instead of each slicing
         # their own top-N.
         "focus": sources_config.focus_ids(),
+        # Integrations catalog order (Activity blocks + Settings list).
+        "integrations_order": sources_config.integrations_order_ids(),
     }
     doc["attention"] = _build_attention(doc)
     # Last, because it summarizes everything above it.
@@ -1117,6 +1223,45 @@ def _build_attention(doc):
             20 + min(20, deploy_errors * 8),
         )
 
+    sentry = doc.get("sentry") or {}
+    sentry_alerts_n = int(sentry.get("alert_count") or 0)
+    if sentry.get("configured") and sentry_alerts_n > 0:
+        add(
+            "critical" if sentry_alerts_n >= 3 else "warn",
+            "sentry",
+            f"{sentry_alerts_n} Sentry issue"
+            + ("" if sentry_alerts_n == 1 else "s"),
+            28 + min(24, sentry_alerts_n * 4),
+        )
+
+    datadog = doc.get("datadog") or {}
+    dd_alerts = int(datadog.get("alert_count") or 0)
+    dd_warns = int(datadog.get("warn_count") or 0)
+    if datadog.get("configured") and dd_alerts > 0:
+        add(
+            "critical" if dd_alerts >= 2 else "warn",
+            "datadog",
+            f"{dd_alerts} Datadog alert" + ("" if dd_alerts == 1 else "s"),
+            30 + min(25, dd_alerts * 5),
+        )
+    elif datadog.get("configured") and dd_warns > 0:
+        add(
+            "warn",
+            "datadog",
+            f"{dd_warns} Datadog warn" + ("" if dd_warns == 1 else "s"),
+            16 + min(16, dd_warns * 3),
+        )
+
+    axiom = doc.get("axiom") or {}
+    axiom_alerts = int(axiom.get("alert_count") or 0)
+    if axiom.get("configured") and axiom_alerts > 0:
+        add(
+            "critical" if axiom_alerts >= 2 else "warn",
+            "axiom",
+            f"{axiom_alerts} Axiom alert" + ("" if axiom_alerts == 1 else "s"),
+            28 + min(24, axiom_alerts * 5),
+        )
+
     # Quota % lives on the rings — don't nag Attention for a drained meter.
     # Only call out time-sensitive / hard-limit events.
     codex = doc.get("codex") or {}
@@ -1210,6 +1355,25 @@ def _build_attention(doc):
     }
 
 
+def _login_email_for(source):
+    """Best-effort signed-in email for a quota source. Additive, Mac-local.
+
+    Codex reads the ChatGPT id_token; Cursor reads the IDE's cached profile.
+    Claude's OAuth token is opaque, so it stays unset until we have another
+    source. Never invents an address.
+    """
+    account = getattr(source, "account", None)
+    base = source.id.split(":", 1)[0]
+    try:
+        if base == "codex":
+            return codex_usage.login_email(account)
+        if base == "cursor":
+            return cursor_usage.login_email(account)
+    except Exception:
+        return None
+    return None
+
+
 def _sources_payload(state):
     enabled = sources_config.enabled_map()
     dismissed = sources_config.dismissed_map()
@@ -1224,7 +1388,8 @@ def _sources_payload(state):
         fetched_age = _age_seconds(payload, now)
         row = {
             "id": source.id,
-            "title": source.title,
+            "title": sources_config.title_for(source.id),
+            "title_default": sources_config.default_title(source.id),
             "hint": source.hint,
             "kind": source.kind,
             "group": source.group,
@@ -1237,6 +1402,8 @@ def _sources_payload(state):
             # own answer, which is also how a client tells an override apart
             # from the shipped color.
             "accent_default": source.accent,
+            **({"accent_derived": sources_config.derived_accent_for(source.id)}
+               if source.account is not None else {}),
             "enabled": bool(enabled.get(source.id, True)),
             # Library vs Active membership. Off-but-not-dismissed is paused:
             # the row stays in Active, dimmed, and nothing polls it.
@@ -1271,6 +1438,9 @@ def _sources_payload(state):
         # obvious.
         if source.account is not None:
             row["label"] = source.account.label
+        email = _login_email_for(source)
+        if email:
+            row["email"] = email
         rows.append(row)
     return rows
 
@@ -1348,7 +1518,8 @@ def _providers_payload(state, burndowns=None):
             age = _age_seconds(payload)
         row = {
             "id": source.id,
-            "title": source.title,
+            "title": sources_config.title_for(source.id),
+            "title_default": sources_config.default_title(source.id),
             "kind": "quota",
             "rank": rank,
             "enabled": bool(enabled.get(source.id, True)),
@@ -1380,6 +1551,8 @@ def _providers_payload(state, burndowns=None):
             "error": payload.get("error"),
             "accent": sources_config.accent_for(source.id),
             "accent_default": source.accent,
+            **({"accent_derived": sources_config.derived_accent_for(source.id)}
+               if source.account is not None else {}),
             "headline": source.headline[0] if source.headline else None,
             "reset_note_url": source.reset_note_url,
             # Subscription prices are registry metadata, not account usage.
@@ -1388,9 +1561,17 @@ def _providers_payload(state, burndowns=None):
             "subscription_pricing": source.subscription_pricing_payload(),
             "pools": pools,
         }
+        # Prepaid balance leaf: observed daily spend / runway / models.
+        # Additive and absent on window providers — see docs/metering.md.
+        spend = payload.get("spend")
+        if isinstance(spend, dict) and spend:
+            row["spend"] = spend
         # See `_sources_payload`: brand mark + user label, not "Brand · Label".
         if source.account is not None:
             row["label"] = source.account.label
+        email = _login_email_for(source)
+        if email:
+            row["email"] = email
         rows.append(row)
     return rows
 
@@ -1496,9 +1677,17 @@ def _plausible_config_payload():
     return {
         "ok": listing.get("error") is None,
         "configured": bool(plausible_usage.has_token()),
+        "host": app_config.plausible_host(),
         "sites": list(app_config.plausible_sites()),
         "available": listing.get("sites") or [],
         "error": listing.get("error"),
+    }
+
+
+def _timezone_config_payload():
+    return {
+        "ok": True,
+        "timezone": app_config.timezone_name(),
     }
 
 
@@ -1511,6 +1700,31 @@ def _posthog_config_payload():
         "projects": list(app_config.posthog_projects()),
         "available": listing.get("projects") or [],
         "error": listing.get("error"),
+    }
+
+
+def _sentry_config_payload():
+    return {
+        "ok": True,
+        "configured": bool(sentry_alerts.has_token()),
+        "org": app_config.sentry_org(),
+    }
+
+
+def _datadog_config_payload():
+    return {
+        "ok": True,
+        "configured": bool(datadog_monitors.has_keys()),
+        "site": app_config.datadog_site(),
+    }
+
+
+def _axiom_config_payload():
+    return {
+        "ok": True,
+        "configured": bool(axiom_monitors.has_token()),
+        "host": app_config.axiom_host(),
+        "org_id": app_config.axiom_org_id(),
     }
 
 
@@ -1612,9 +1826,52 @@ class Handler(BaseHTTPRequestHandler):
         mapped = getattr(address, "ipv4_mapped", None)
         return mapped or address
 
+    def _header_host(self):
+        """The hostname the client asked for, lowercased, without the port."""
+        raw = (self.headers.get("Host") or "").strip()
+        if not raw:
+            return ""
+        if raw.startswith("["):            # [::1]:8737
+            end = raw.find("]")
+            return raw[1:end].lower() if end > 0 else ""
+        return (raw.rsplit(":", 1)[0] if ":" in raw else raw).lower()
+
     def _is_loopback(self):
+        """Trusted-because-local, checked at both ends of the request.
+
+        The socket check alone is not enough. A page on `evil.tld` whose DNS
+        answer flips to 127.0.0.1 — classic rebinding, and this host is a
+        fixed port advertised over mDNS — reaches us on a loopback socket
+        like any local process, and would inherit the whole Mac-local class:
+        starting an agent task, reading `/config/git`, restarting the host.
+        What it cannot do is change the name in `Host`, because that is the
+        name it had to resolve to get here. So the header has to agree.
+        """
         address = self._client_ip()
-        return bool(address and address.is_loopback)
+        if not (address and address.is_loopback):
+            return False
+        return self._header_host() in ("", "127.0.0.1", "localhost", "::1")
+
+    def _is_browser_cross_origin(self):
+        """A cross-site request from a browser, which no real client makes.
+
+        The Mac app, the phone, the board and curl never send `Origin` or
+        `Sec-Fetch-Site`; browsers always do. Treating their presence as
+        disqualifying costs nothing and closes drive-by CSRF against every
+        route, including the ones loopback waves through without a token.
+        """
+        origin = (self.headers.get("Origin") or "").strip().lower()
+        if origin and origin not in ("null",):
+            host = origin.split("://", 1)[-1]
+            if host.startswith("["):
+                end = host.find("]")
+                host = host[1:end] if end > 0 else host
+            else:
+                host = host.rsplit(":", 1)[0] if ":" in host else host
+            if host not in ("127.0.0.1", "localhost", "::1"):
+                return True
+        return (self.headers.get("Sec-Fetch-Site") or "").strip().lower() \
+            in ("cross-site", "same-site")
 
     def _is_private(self):
         """Loopback, private LAN, or Tailscale CGNAT space."""
@@ -1652,11 +1909,17 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_GET(self):
+        if self._is_browser_cross_origin():
+            self._send_json(403, {"ok": False, "error": "cross-site request"})
+            return
         split = urllib.parse.urlsplit(self.path)
         path = split.path.rstrip("/")
         if path not in ("", "/usage", "/health", "/setup", "/accounts",
                         "/mobile/permissions", "/github/watch",
                         "/config/git", "/config/vercel", "/config/supabase",
+                        "/config/plausible", "/config/posthog",
+                        "/config/sentry", "/config/datadog", "/config/axiom",
+                        "/config/timezone",
                         "/agents/capabilities", "/agents/config",
                         "/agents/claude/config", "/agents/codex/task",
                         "/agents/tasks",
@@ -1675,7 +1938,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, _github_watch_payload())
             return
         if path in ("/config/git", "/config/vercel", "/config/supabase",
-                    "/config/plausible", "/config/posthog"):
+                    "/config/plausible", "/config/posthog",
+                    "/config/sentry", "/config/datadog", "/config/axiom",
+                    "/config/timezone"):
             # Names folders on this disk and the teams / projects / sites a
             # login can reach — Mac-local, same class as /github/watch.
             if not self._is_loopback():
@@ -1689,8 +1954,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _supabase_config_payload())
             elif path == "/config/plausible":
                 self._send_json(200, _plausible_config_payload())
-            else:
+            elif path == "/config/posthog":
                 self._send_json(200, _posthog_config_payload())
+            elif path == "/config/sentry":
+                self._send_json(200, _sentry_config_payload())
+            elif path == "/config/datadog":
+                self._send_json(200, _datadog_config_payload())
+            elif path == "/config/timezone":
+                self._send_json(200, _timezone_config_payload())
+            else:
+                self._send_json(200, _axiom_config_payload())
             return
         if path == "/accounts":
             # Names folders holding live credentials — Mac-local, like the
@@ -1802,6 +2075,9 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(200, device if view == "device" else usage)
 
     def do_POST(self):
+        if self._is_browser_cross_origin():
+            self._send_json(403, {"ok": False, "error": "cross-site request"})
+            return
         path = urllib.parse.urlsplit(self.path).path.rstrip("/")
         claude_permission = path == "/agents/hooks/claude/permission"
         claude_question = path == "/agents/hooks/claude/question"
@@ -1828,6 +2104,10 @@ class Handler(BaseHTTPRequestHandler):
             "/config/supabase",
             "/config/plausible",
             "/config/posthog",
+            "/config/sentry",
+            "/config/datadog",
+            "/config/axiom",
+            "/config/timezone",
             "/accounts",
             "/agents/config",
             "/agents/claude/config",
@@ -2026,11 +2306,19 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/agents/config":
             try:
-                app_config.set_agent_gateway(
-                    enabled=payload.get("enabled"),
-                    codex_binary_value=payload.get("codex_binary"),
+                if "alerts" in payload:
+                    app_config.set_agent_alerts(payload["alerts"])
+                has_gateway_update = (
+                    "enabled" in payload or "codex_binary" in payload
                 )
-                result = agent_gateway.get().reconfigure()
+                if has_gateway_update:
+                    app_config.set_agent_gateway(
+                        enabled=payload.get("enabled"),
+                        codex_binary_value=payload.get("codex_binary"),
+                    )
+                    result = agent_gateway.get().reconfigure()
+                else:
+                    result = agent_gateway.get().configuration()
             except ValueError as error:
                 self._send_json(400, {"ok": False, "error": str(error)})
                 return
@@ -2169,12 +2457,26 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/config/plausible":
             try:
+                if "host" in payload:
+                    app_config.set_plausible_host(payload.get("host"))
                 app_config.set_plausible_sites(sites=payload.get("sites"))
             except ValueError as error:
                 self._send_json(400, {"ok": False, "error": str(error)})
                 return
             plausible_usage.invalidate()
             self._send_json(200, _plausible_config_payload())
+            return
+
+        if path == "/config/timezone":
+            try:
+                app_config.set_timezone(payload.get("timezone"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            # Day boundaries move, so every by-day bucket in the cached
+            # document is answering the old question until it is rebuilt.
+            publish()
+            self._send_json(200, _timezone_config_payload())
             return
 
         if path == "/config/posthog":
@@ -2187,6 +2489,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
             posthog_usage.invalidate()
             self._send_json(200, _posthog_config_payload())
+            return
+
+        if path == "/config/sentry":
+            try:
+                if "org" in payload:
+                    app_config.set_sentry_org(payload.get("org"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            sentry_alerts.invalidate()
+            self._send_json(200, _sentry_config_payload())
+            return
+
+        if path == "/config/datadog":
+            try:
+                if "site" in payload:
+                    app_config.set_datadog_site(payload.get("site"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            datadog_monitors.invalidate()
+            self._send_json(200, _datadog_config_payload())
+            return
+
+        if path == "/config/axiom":
+            try:
+                if "host" in payload:
+                    app_config.set_axiom_host(payload.get("host"))
+                if "org_id" in payload:
+                    app_config.set_axiom_org_id(payload.get("org_id"))
+            except ValueError as error:
+                self._send_json(400, {"ok": False, "error": str(error)})
+                return
+            axiom_monitors.invalidate()
+            self._send_json(200, _axiom_config_payload())
             return
 
         if path == "/accounts":
@@ -2241,8 +2578,28 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sources":
             enabled = payload.get("enabled")
             order = payload.get("order")
+            integrations_order = payload.get("integrations_order")
+            if integrations_order is None:
+                # One-release alias from the Activity-only pin.
+                integrations_order = payload.get("services_order")
             accents = payload.get("accents")
+            titles = payload.get("titles")
             dismissed = payload.get("dismissed")
+
+            def _sources_reply(**extra):
+                body = {
+                    "ok": True,
+                    "enabled": sources_config.enabled_map(),
+                    "dismissed": sources_config.dismissed_map(),
+                    "order": sources_config.order_ids(),
+                    "integrations_order": sources_config.integrations_order_ids(),
+                    "focus": sources_config.focus_ids(),
+                    "accents": sources_config.accent_overrides(),
+                    "titles": sources_config.title_overrides(),
+                }
+                body.update(extra)
+                self._send_json(200, body)
+
             if dismissed is not None:
                 if not isinstance(dismissed, dict):
                     self._send_json(
@@ -2254,15 +2611,24 @@ class Handler(BaseHTTPRequestHandler):
                 # by a later dismiss write in the same request.
                 sources_config.set_dismissed(dismissed)
                 publish()
-                if enabled is None and order is None and accents is None:
-                    self._send_json(200, {
-                        "ok": True,
-                        "enabled": sources_config.enabled_map(),
-                        "dismissed": sources_config.dismissed_map(),
-                        "order": sources_config.order_ids(),
-                        "focus": sources_config.focus_ids(),
-                        "accents": sources_config.accent_overrides(),
-                    })
+                if (enabled is None and order is None and accents is None
+                        and titles is None and integrations_order is None):
+                    _sources_reply()
+                    return
+            if titles is not None:
+                if not isinstance(titles, dict):
+                    self._send_json(
+                        400, {"ok": False, "error": "titles map required"})
+                    return
+                try:
+                    stored = sources_config.set_titles(titles)
+                except ValueError as error:
+                    self._send_json(400, {"ok": False, "error": str(error)})
+                    return
+                publish()
+                if (enabled is None and order is None and accents is None
+                        and integrations_order is None):
+                    _sources_reply(titles=stored)
                     return
             if accents is not None:
                 if not isinstance(accents, dict):
@@ -2277,32 +2643,28 @@ class Handler(BaseHTTPRequestHandler):
                 # Colors are presentation only — no source needs refetching,
                 # but the cached document holds the old ones.
                 publish()
-                if enabled is None and order is None:
-                    self._send_json(200, {
-                        "ok": True,
-                        "accents": stored,
-                        "enabled": sources_config.enabled_map(),
-                        "dismissed": sources_config.dismissed_map(),
-                        "order": sources_config.order_ids(),
-                        "focus": sources_config.focus_ids(),
-                    })
+                if (enabled is None and order is None and titles is None
+                        and integrations_order is None):
+                    _sources_reply(accents=stored)
                     return
+            if (enabled is None and isinstance(integrations_order, list)
+                    and order is None):
+                result_integrations = sources_config.set_integrations_order(
+                    integrations_order)
+                publish()
+                _sources_reply(integrations_order=result_integrations)
+                return
             if enabled is None and isinstance(order, list):
                 # Reorder-only write: don't force clients to resend the map.
                 result_order = sources_config.set_order(order)
+                if isinstance(integrations_order, list):
+                    sources_config.set_integrations_order(integrations_order)
                 # The cached document still names the old first three, and
                 # `focus` is what the menu bar, the widget and the board's
                 # three slots are cut from — a reorder nobody can see for a
                 # poll tick reads as one that didn't take.
                 publish()
-                self._send_json(200, {
-                    "ok": True,
-                    "enabled": sources_config.enabled_map(),
-                    "dismissed": sources_config.dismissed_map(),
-                    "order": result_order,
-                    "focus": sources_config.focus_ids(),
-                    "accents": sources_config.accent_overrides(),
-                })
+                _sources_reply(order=result_order)
                 return
             if not isinstance(enabled, dict):
                 self._send_json(400, {"ok": False, "error": "enabled map required"})
@@ -2310,17 +2672,12 @@ class Handler(BaseHTTPRequestHandler):
             result = sources_config.set_enabled(enabled)
             if isinstance(order, list):
                 sources_config.set_order(order)
+            if isinstance(integrations_order, list):
+                sources_config.set_integrations_order(integrations_order)
             publish()
             # Kick a refresh so ESP32/Mac see the change quickly.
             _refresh_async([sid for sid, on in result.items() if on])
-            self._send_json(200, {
-                "ok": True,
-                "enabled": result,
-                "dismissed": sources_config.dismissed_map(),
-                "order": sources_config.order_ids(),
-                "focus": sources_config.focus_ids(),
-                "accents": sources_config.accent_overrides(),
-            })
+            _sources_reply(enabled=result)
             return
 
         if path in ("/supabase/refresh", "/plausible/refresh",
@@ -2389,6 +2746,8 @@ class Handler(BaseHTTPRequestHandler):
                     source = sources_config.BY_ID.get(sid)
                     oauth_usage.rearm_keychain(
                         None if source is None else source.account)
+                elif sid == "zed":
+                    zed_usage.rearm_keychain()
             _refresh_async(wanted, require_enabled=not explicit)
             self._send_json(202, {"ok": True, "sources": wanted})
             return
@@ -2618,6 +2977,10 @@ def main():
     ap.add_argument("--port", type=int, default=8737)
     ap.add_argument("--interval", type=int, default=15,
                     help="seconds between log rescans")
+    ap.add_argument("--exit-with-pid", type=int, default=0,
+                    help="exit when this pid goes away; 0 disables. Set by "
+                         "Headroom.app when it owns the host lifecycle "
+                         "instead of launchd (see parent_watch.py)")
     args = ap.parse_args()
 
     # Unbuffered logs under LaunchAgent redirects.
@@ -2626,6 +2989,22 @@ def main():
         sys.stderr.reconfigure(line_buffering=True)
     except Exception:
         pass
+
+    # Before the scan, not after. Bootstrapping a large ~/.claude tree takes
+    # long enough that an app quitting during it would leave the orphan this
+    # flag exists to prevent. Same skip-finalize reasoning as _shutdown below.
+    if args.exit_with_pid > 0:
+        def _exit_with_parent():
+            print(f"parent {args.exit_with_pid} is gone — exiting", flush=True)
+            try:
+                if _bonjour is not None:
+                    _bonjour.terminate()
+            except Exception:
+                pass
+            os._exit(0)
+
+        parent_watch.start(args.exit_with_pid, _exit_with_parent)
+        print(f"Lifecycle owned by pid {args.exit_with_pid}", flush=True)
 
     _rotate_logs()
     print(f"Bootstrapping from {LOG_ROOT} ...", flush=True)
@@ -2698,8 +3077,14 @@ def main():
             sys.exit(1)
         raise
 
+    # Gateway before any printing daemon threads. A raise here under threads
+    # that already write stdout aborts inside Py_FinalizeEx (LaunchAgent loop).
+    try:
+        agent_gateway.get().start()
+    except Exception as exc:
+        print(f"agent gateway failed to start: {exc}", flush=True)
+
     threading.Thread(target=_backfill_history, daemon=True).start()
-    agent_gateway.get().start()
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_poller, args=(args.interval,), daemon=True).start()
     threading.Thread(target=_sync_loop, daemon=True).start()
@@ -2711,15 +3096,23 @@ def main():
     def _usb_sync_refresh():
         _refresh_async(sources_config.SOURCE_IDS)
 
-    threading.Thread(
-        target=usb_bridge.run,
-        kwargs={
-            "get_usage": _usb_get_usage,
-            "on_sync_refresh": _usb_sync_refresh,
-            "on_device": lambda query: _note_device(query, "usb"),
-        },
-        daemon=True,
-    ).start()
+    if usb_bridge.enabled():
+        threading.Thread(
+            target=usb_bridge.run,
+            kwargs={
+                "get_usage": _usb_get_usage,
+                "on_sync_refresh": _usb_sync_refresh,
+                "on_device": lambda query: _note_device(query, "usb"),
+            },
+            daemon=True,
+        ).start()
+        print("USB CDC fallback enabled — /dev/cu.usbmodem*", flush=True)
+    else:
+        print(
+            "USB CDC fallback disabled — Wi-Fi is the default "
+            f"(set {usb_bridge.ENABLE_ENV}=1 to enable)",
+            flush=True,
+        )
 
     global _bonjour
     bonjour = _bonjour = _advertise_bonjour(args.port)
@@ -2727,10 +3120,16 @@ def main():
     auth.mobile_token()
 
     def _shutdown(_signum, _frame):
-        agent_gateway.get().stop()
-        if bonjour is not None:
-            bonjour.terminate()
-        raise SystemExit
+        # launchd SIGTERM. Do not call srv.shutdown() here: that waits for
+        # serve_forever on this same thread and deadlocks. Do not raise
+        # SystemExit either — daemon threads keep printing into stdout and
+        # Py_FinalizeEx aborts (LaunchAgent crash loop). Skip finalize.
+        try:
+            if bonjour is not None:
+                bonjour.terminate()
+        except Exception:
+            pass
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, _shutdown)
     print(f"Serving usage JSON on http://0.0.0.0:{args.port}/usage", flush=True)
@@ -2749,8 +3148,6 @@ def main():
     else:
         print("require_auth is off — /usage is open to the whole network",
               flush=True)
-    print("USB CDC fallback: HR protocol on /dev/cu.usbmodem* (best-effort)",
-          flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

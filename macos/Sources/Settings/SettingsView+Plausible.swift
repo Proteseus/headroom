@@ -16,10 +16,32 @@ extension SettingsView {
             if plausibleTokenStored {
                 LabeledContent("Credential", value: HeadroomCopy.inKeychain)
             }
-            SecureField("Stats API key", text: $plausibleToken)
+            SecureField(
+                "Stats API key",
+                text: $plausibleToken,
+                prompt: keyFieldPrompt(stored: plausibleTokenStored)
+            )
                 .onSubmit {
                     if !plausibleTokenDraft.isEmpty { savePlausibleToken() }
                 }
+            // Self-hosted Plausible was unreachable from Settings: the key
+            // was synced between Macs and read by the host, but had no
+            // field, no payload and no setter — while PostHog, the same
+            // shape of value, had all three.
+            TextField(
+                "Host",
+                text: $plausibleHostDraft,
+                prompt: Text("https://plausible.io")
+            )
+            .onSubmit { Task { await savePlausibleHost() } }
+            HStack {
+                Button(HeadroomCopy.settingsSave) {
+                    Task { await savePlausibleHost() }
+                }
+                .disabled(isSyncing || plausibleHostDraft
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Spacer()
+            }
             Picker("Window", selection: Binding(
                 get: { plausibleRange },
                 set: { newValue in
@@ -66,7 +88,7 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("API key stays in Keychain.")
+            Text("API key stays in Keychain (stats:read). A Stats API key is enough for counts; listing sites below also needs sites:read.")
         }
 
         Section {
@@ -79,7 +101,7 @@ extension SettingsView {
             } else if let error = plausibleConfig.error {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             } else if plausibleConfig.available.isEmpty {
                 Text(plausibleTokenStored
                       ? "0 sites this key can see."
@@ -221,6 +243,24 @@ extension SettingsView {
     func applyPlausibleConfiguration(_ config: PlausibleConfiguration) {
         plausibleConfig = config
         plausibleSitesDraft = config.sites.joined(separator: ", ")
+        if let host = config.host, !host.isEmpty {
+            plausibleHostDraft = host
+        }
+    }
+
+    func savePlausibleHost() async {
+        let host = plausibleHostDraft
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else { return }
+        do {
+            applyPlausibleConfiguration(
+                try await client.setPlausibleConfiguration(
+                    sites: splitList(plausibleSitesDraft), host: host))
+            plausibleMessage = "Saved."
+            await refreshPlausible()
+        } catch {
+            plausibleMessage = error.localizedDescription
+        }
     }
 
     func setPlausibleSite(_ domain: String, enabled: Bool) async {

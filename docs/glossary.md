@@ -96,47 +96,53 @@ surface-specific (see the end of this file), but the shape does not.
 | **Coding quotas** | Section title above the rings | macOS, iOS |
 | **Attention** | The queue: agent questions, rollup reasons, failed rows | macOS mode, iOS tab |
 | **Activity** | Merged deploys / commits / Actions feed, over the service panels | macOS mode, iOS tab, ESP32 detail pages |
-| **Recent** | Legacy name for the feed; the iOS Activity tab now groups rows by function | iOS |
+| **Recent** | Chronological mixed activity feed (commits, Actions, deploys, resets); provider identity is on each row | iOS, macOS |
 | **GitHub Actions** | GitHub workflow activity | iOS, macOS |
 | **Vercel deployments** | Deployment activity from Vercel | iOS, macOS |
 | **Git commits** | Local commit activity | iOS, macOS |
 | **Quota resets** | Coding quota reset events | iOS, macOS |
 | **Claude status** | Claude service status events | iOS, macOS |
 | **Other activity** | Fallback group for activity kinds added by a newer host | iOS, macOS |
-| **Services** | Supabase, Plausible, PostHog, local servers | Sections on the iOS Activity tab and macOS Activity mode |
+| **Services** | Supabase, Plausible, PostHog panels on Activity (local servers and Xcode builds are catalog rows too) | macOS Activity, iOS Activity |
 | **Local servers** | Listening ports panel | macOS, iOS |
+| **Xcode builds** | Active `xcodebuild` / IDE compiles on this Mac | macOS, iOS |
 | **Settings** | Preferences | macOS window, iOS tab |
-| **General** | Host endpoint, Open at Login, dashboard density, welcome, Other Macs, App updates | macOS Settings |
+| **General** | Host endpoint and runtime details, host lifecycle, Open at Login, welcome, App updates | macOS Settings |
+| **Keep the host running when Headroom is closed** | Who supervises the host. On, launchd owns it and it serves the board, iPhone and Watch whether or not the app is open. Off, the app owns it and quitting Headroom stops it. On by default. See [host.md](host.md) | macOS Settings |
+| **Remove background service…** | Stops the host, removes its LaunchAgent for both the current and legacy label, and quits. Shown only while a plist exists. The way to leave cleanly before deleting the app | macOS Settings |
 | **Open at Login** | Start the menu bar app when you log in to this Mac | macOS Settings |
 | **App updates** | Whether a newer Headroom.app exists, and installing it | macOS Settings |
-| **Sources** | What to watch — AI providers and their extra accounts, i.e. everything Headroom reads a meter for. A dev tool has no meter, so it is not listed here; its on/off lives on its Integrations leaf. Claude, Codex, OpenRouter and AI Gateway appear on both pages on purpose: Sources owns their on/off and order, Integrations owns their credential | macOS Settings, iOS Settings, Welcome |
-| **What to watch** | Welcome rail title for the Sources step | macOS Welcome |
-| **Integrations** | What Headroom is connected to: Claude Code, Codex, Git, GitHub Actions, Vercel, Supabase, Plausible, PostHog, OpenRouter, AI Gateway. The Mac gives each a leaf with its credential and config; the phone lists the same set on/off with status only | macOS Settings, iOS Settings |
+| **Providers** | AI coding-quota meters Headroom draws rings for. Order and focus live here. Claude Code / Codex connection settings live under Agents. OpenRouter and AI Gateway are prepaid balances under Integrations → Activity, not here | macOS Settings, iOS Settings, Welcome |
+| **What to watch** | Welcome rail title for the Providers step | macOS Welcome |
+| **Integrations** | Catalog of what you watch on Activity (and connect): Git, GitHub Actions, Vercel, OpenRouter, AI Gateway, Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers, Xcode builds. One reorderable list — enable, status, open leaf. Activity follows the same order for rows that paint a block (including OpenRouter / AI Gateway account use). Activity row count lives here; Local servers density on the Local leaf; projects and sites on each other Integration page. Claude Code and Codex live under **Agents**, not here | macOS Settings, iOS Settings |
 | **Show in Headroom** | The dev-tool on/off on its Integrations leaf. Off stops polling and hides the rows; the key stays in the Keychain, which is what **Disconnect** clears | macOS Settings |
-| **Code and deploys** | Integrations group: **Git** (local commits on this Mac), **GitHub Actions** (CI via PAT), **Vercel** (CLI login) — three leaves because they use three different credentials | macOS Settings |
-| **Services** | Integrations group: Supabase, Plausible, PostHog — also the Activity section for those panels | macOS Settings, Activity |
-| **Dashboard** | How many rows this Mac draws — Activity and Local servers under General; projects and sites on each Integration page | macOS Settings |
+| **Code and deploys** | Integrations leaves: **Git** (local commits on this Mac), **GitHub Actions** (CI via PAT), **Vercel** (CLI login) — three leaves because they use three different credentials | macOS Settings |
 | **Status** | Integration detail caption: connected, Keychain, hooks state, signed-in | macOS Settings |
 | **Connect** / **Replace** / **Disconnect** | Paste, overwrite, or clear a Keychain credential | macOS Settings |
-| **Keychain** | Detail Status when a token is stored on this Mac | macOS Settings |
+| **Keychain** | Detail Status when a token is stored on this Mac. The SecureField shows `••••••••••••` so the row does not look empty | macOS Settings |
 | **Not connected** | Hub / detail when nothing is pasted yet | macOS Settings |
-| **Hooks installed** / **Hooks off** | Integrations hub trailing caption for Claude Code | macOS Settings |
-| **Gateway on** / **Gateway off** | Integrations hub trailing caption for Codex | macOS Settings |
+| **Hooks installed** / **Hooks off** | Agents caption for Claude Code hooks | macOS Settings |
+| **Gateway on** / **Gateway off** | Agents caption for Codex | macOS Settings |
 | **Dev root** | Folder scanned for local git repos, one level deep. Stays on this Mac | macOS Settings |
 | **Commit authors** | Names or emails whose commits count as yours; blank counts everyone | macOS Settings |
 | **Teams** | Vercel team filter; blank reads every team the login can see | macOS Settings |
 | **Connection** | Which Mac the phone talks to | iOS Settings |
 | **Permissions** | Mac-granted phone capabilities (read-only on iOS) | iOS Settings |
-| **iPhone** | Pairing + grants on Mac; notifications on iOS | macOS Settings, iOS Settings, Welcome |
+| **Sync** | iPhone pairing and settings sync with Other Macs | macOS Settings |
+| **iPhone** | Pairing + grants on Mac; notifications on iOS | Sync on macOS, iOS Settings, Welcome |
 | **Open the TestFlight invite** | Install link on Welcome’s phone step and Settings → iPhone | macOS Welcome, macOS Settings |
 | **On your phone** | Welcome rail title for the iPhone step | macOS Welcome |
-| **About** | Product credit in Settings: icon, version, creator | macOS, iOS |
+| **About** | Product credit in Settings: icon, version, creator, Changelog, GitHub source link, live star count, Community Pulse | macOS, iOS |
 | **Created by Michell Zappa** | Personal credit on About (LICENSE copyright) | macOS, iOS |
 | **Centaur Labs** | Publisher line on About (App Store entity) | macOS, iOS |
+| **Changelog** | Readable release notes from the bundled `CHANGELOG.md`, opened from About | macOS, iOS |
+| **Source on GitHub** | Link to the public repository from About | macOS, iOS |
+| **GitHub stars** | Live star count under the source link on About | macOS, iOS |
 | **Attention** | Warning / status card on the Mac, and the iOS tab it became (scoring policy: `docs/attention.md`) | macOS, iOS |
 | **Answer coding agents** | Mac-granted iPhone permission to answer an agent approval request | macOS, iOS |
 | **Using Codex at** | Path to the Codex executable Headroom discovered and is supervising | macOS |
-| **Coding agents** | Starting a task, and links to the two agent Integrations. Connection settings live under Integrations | macOS |
+| **Agents** | Claude Code hooks and the Codex attention gateway — install, test, and connection status. Not part of the Integrations catalog | macOS Settings |
+| **Agent alerts** | Whether passive agent notices appear; questions, choices, and approvals remain visible when it is off | macOS Settings |
 | **Your agents, wherever you are** | Headroom's companion promise: see and safely answer agent requests from iPhone while the computer keeps its full context | macOS, iOS |
 | **Claude questions** | Whether Claude questions appear on both Mac and iPhone, can wait for an iPhone answer, or stay Mac-only | macOS |
 | **Claude Code hooks** | Managed Claude lifecycle and permission integration | macOS |
@@ -153,7 +159,8 @@ surface-specific (see the end of this file), but the shape does not.
 | **Start task** | Give an agent a folder and a prompt | macOS, iOS |
 | **Reply to the agent…** | Free-text answer to a request | iOS |
 | **Answer in the terminal** | This question is showing in both places; answer it where it was asked | iOS |
-| **Other Macs** | iCloud settings sync between Macs (under General) | macOS Settings |
+| **Other Macs** | iCloud settings sync between Macs (under Sync) | macOS Settings |
+| **Telemetry** | Local payload preview plus thresholded Community Pulse (weekly growth, builds, CPU, macOS, countries, services, models, features), shown only while anonymous diagnostics is enabled | macOS Settings |
 | **Computers** | Macs paired to this iPhone; each token stays in the iPhone Keychain | iOS Settings |
 | **Add computer** | Pair another Mac without replacing the saved pairing | iOS Settings |
 
@@ -171,9 +178,9 @@ feed still reads in greyscale. Host status string → word, mapped once in
 | `error`, `failure` | **Failed** | Red, and sorted above the rest under **N need attention**. Tinted per row — the feed is one list of equal items, not a box stacked on a list |
 | `building`, `initializing` | **Building** | Amber. In flight |
 | `running` | **Running** | Amber. In flight |
-| `review_request` | **Review** | Amber, and sorted under **Needs attention**. A PR on a watched repo wants your review. Caption carries repo leaf, opener `@login`, and `#number` |
-| `assigned` | **Assigned** | Amber, same group. An issue or PR on a watched repo is assigned to you. Same caption shape |
-| `mention` | **Mention** | Amber, same group. An open issue or PR on a watched repo @mentions you. Same caption shape |
+| `review_request` | **Review** | Orange, and sorted under **Needs attention**. A PR on a watched repo wants your review. Caption carries repo leaf, opener `@login`, and `#number` |
+| `assigned` | **Assigned** | Orange, same group. An issue or PR on a watched repo is assigned to you. Same caption shape |
+| `mention` | **Mention** | Orange, same group. An open issue or PR on a watched repo @mentions you. Same caption shape |
 | `queued`, `pending` | **Queued** | Amber. In flight |
 | `ready` | **Deployed** | Green. Finished well |
 | `success`, `completed` | **Passed** | Green. Finished well |
@@ -253,7 +260,16 @@ N% back**. Percent even here: Codex genuinely grants credits, but the number
 in this caption is a share of the window the chart draws, not a credit count.
 Scheduled rolls get no mark; the axis already ends on those. The
 host detects them in the sample log (`burndown[].resets`), so the mark and the
-history agree by construction.
+history agree by construction. **Recent resets** under the chart is a calendar
+heatmap of those grants — a day is lit or not (resets are binary; `% back`
+lives in the day detail). Provider tint = **global** grant (codex-resets.com,
+optionally matched to what this Mac saw); amber = a **banked credit you
+spent**. Weekly auto-resets stay off the grid — the chart axis already ends
+on those. For Codex week the host also merges the public feed at
+[codex-resets.com](https://codex-resets.com) (every verified @thsottiaux
+announcement), matched to local detections within a few hours when both exist,
+so the grid reaches backward past what this Mac observed and keeps filling as
+new announcements land.
 
 A banked Codex reset credit has its own deadline, shown on the Codex quota card
 as **N reset credits** with expiry labels — not as a renewal mark on Usage.
@@ -270,30 +286,33 @@ blank axis.
 |---|---|
 | **Connected** | iOS link health when the Mac host is reachable. Token-backed Integrations hub rows prefer the live poll caption (**3 projects**, **Supabase token rejected**) over Connected-from-Keychain alone |
 | **Not connected** | Integrations hub / detail when nothing is pasted yet |
-| **Keychain** | Integration detail Credential row: a token is stored on this Mac. Status beside it says whether the last poll accepted it |
+| **Keychain** | Integration detail Credential row: a token is stored on this Mac. Status beside it says whether the last poll accepted it. The empty SecureField shows `••••••••••••` as a prompt — paste replaces |
 | **Mac unavailable** | iOS cannot reach the host |
+| **Host not answering** | Mac popover header and setup body while the local host is down — same fact as the menu-bar tooltip. Not a Foundation URLError |
+| **Starting the host…** | Setup card while Start host / auto-start is in flight |
+| **Local LaunchAgent** | Settings → Host → Process, when launchd owns the host |
+| **Local process · with Headroom** | Same row, when the app owns the host and quitting stops it |
 | **Reconnecting…** | Host answered again; forcing a source sync |
 | **Refreshing…** | In-flight poll / sync while already connected |
 | **All clear** | Healthy summary — host default, Attention card, and the Activity feed with nothing failing |
 | **Needs attention** | Warning fallback when a reason has no summary; the iPhone Attention section header, and counted as **N need attention** above the Mac's Activity feed |
 | **Collecting history** | Burndown empty / early verdict |
 | **Not updating** | The host is replaying a source's last good numbers; the age travels with it (**Not updating · 2 hours ago**) |
-| **Paused** | The host is deliberately not refreshing — usually a provider rate limit (`stale_cause: rate_limited`). Carries the wait when known (**Paused · retries in 5m**). Secondary, not amber |
+| **Paused** | The host is deliberately not refreshing — usually a provider rate limit (`stale_cause: rate_limited`). Carries the wait when known (**Paused · retries in 5m**). Secondary, not orange |
 | **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way |
-| **Clear** | Dismiss attention on every surface |
 | **Dismiss** | Swipe one row out of the iPhone Attention queue — a passive coding-agent notice, a rollup reason, or a failed feed row |
-| **Dismiss all** | Bulk version of the same, per section: every passive coding-agent notice (answer-required requests stay), or every warning in **Needs attention** |
+| **Dismiss all** | Hide every row in an Attention section and ack the rollup so the menu-bar pip goes out too. iPhone: per section (passive agent notices, or **Needs attention**). Mac: the one Attention control (no per-row swipe) |
 | **Refresh all** | Force-sync every source |
-| **Active** | Mac Settings → Sources: the services you track, rich reorderable rows with live usage. A switched-off row stays here as **Off** — paused, configured, not polled |
-| **Library** | Mac Settings → Sources: the **AI providers** you don't track, as compact chips |
+| **Active** | Mac Settings → Providers: the services you track, rich reorderable rows with live usage. A switched-off row stays here as **Off** — paused, configured, not polled |
+| **Library** | Mac Settings → Providers: the **AI providers** you don't track, as compact chips |
 | **Move to Library** | The Active row's ✕: stop tracking a service. Never touches credentials — Headroom has no sign-ins to revoke, so wording must not imply signing out |
-| **Add account…** | Inline link under a multi-account-capable service; opens the add sheet that carries the credential-path prose |
+| **Add account…** | Library chip / **Add account** section button for a multi-account-capable provider; opens the add sheet that carries the credential-path prose. Not nested under Active meter rows |
 | **not detected** | A Library chip whose credential has no local trace to import — dimmed, never a dead toggle. On a service that takes accounts the chip stays live and opens **Add account…** instead |
 
 **Needs sign-in** outranks **Paused** and **Not updating** wherever both are
 true — a dead login also freezes the numbers. **Paused** outranks **Not
 updating** when the freeze is a rate limit the host is already backing off
-from. Only Needs sign-in ambers a meter; the other two stay secondary so a
+from. Only Needs sign-in paints a meter orange; the other two stay secondary so a
 backoff does not read as something to go and fix. `QuotaProviderInfo.statusNote`
 picks between them so no surface has to.
 
@@ -330,8 +349,10 @@ Keep these short; don’t explain the pipeline.
 | **No coding sources** | No quota providers enabled |
 | **No activity yet** | Activity feed empty |
 | **No local servers** | Local servers empty |
+| **No Xcode builds** | Xcode builds empty |
 | **Waiting for Mac sync** | iOS before first payload |
 | **Open Headroom on iPhone** | Watch before first payload — it cannot reach the Mac itself |
+| **Open** | Permalink glyph (`link`) on Activity rows and detail chrome — opens the source URL. Row body drills into the leaf; only this glyph opens the browser | macOS, iOS |
 | **Searching…** | Bonjour discovery in progress |
 
 ## Welcome (macOS first run)
@@ -350,7 +371,7 @@ macOS-only and stays in `macos/Sources/WelcomeView.swift`.
 | **Start using Headroom** | Final pane's button; closes the window and opens the dashboard |
 | **Show welcome** | Settings row that reopens the window |
 
-## Sources (host registry titles)
+## Providers (host registry titles)
 
 Ids stay lowercase; titles are user-facing. `group` is the Settings /
 onboarding section the row lands in — never mix the two lists in one
@@ -375,10 +396,14 @@ undifferentiated pile of toggles:
 | `supabase` | Supabase | `devtools` |
 | `plausible` | Plausible | `devtools` |
 | `posthog` | PostHog | `devtools` |
+| `sentry` | Sentry | `devtools` |
+| `datadog` | Datadog | `devtools` |
+| `axiom` | Axiom | `devtools` |
 | `local` | Local | `devtools` |
 
-**Extra accounts** is the user-facing name (macOS Settings section header);
-"logins" and "identities" are not used. An extra account (`claude:work`) keeps
+**Extra accounts** is the concept; the chrome is **Add account** under
+Settings → Providers → Library (not a separate Settings root). "Logins" and
+"identities" are not used. An extra account (`claude:work`) keeps
 a full `title` of `Claude · Work` for
 text-only surfaces (Settings, menu bar, the board). The host also ships
 `label` (`Work`). Anywhere a brand mark or accent already names the tool —
@@ -400,20 +425,34 @@ served as `sources[].group`). Section titles are chrome and live in
 | Term | Meaning | Surfaces |
 |---|---|---|
 | **AI coding tools** | Claude / Codex / Cursor / Copilot / … — plan left; OpenRouter and AI Gateway are prepaid balances with a pasted key; Claude Status watches status.claude.com | macOS Settings + onboarding, iOS Settings |
-| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, local servers | onboarding; **not** Sources — they live under Integrations on both platforms |
-| **API balances** (Integrations hub) | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac | macOS Settings → Integrations |
+| **Dev tools** | Vercel, Git, Actions, Supabase, Plausible, PostHog, Sentry, Datadog, Axiom, local servers / builds | Integrations catalog on both platforms |
+| **API balances** | OpenRouter and Vercel AI Gateway prepaid credits — paste a key on the Mac; account use paints on Activity | Integrations catalog · Activity |
 
-Don't call the first group **Sources** on its own, and don't call the second
-**Activity** — that word belongs to the merged feed.
+Don't call the first group **Sources** on its own in the UI; call it
+**Providers**. Activity is the ordered stack of Integration watches that paint
+blocks — not a separate Settings list.
 
 ## Focus (the top 3)
 
-The providers the compact surfaces draw: menu-bar tanks, the iOS widget, and
+The providers the compact surfaces draw: menu-bar icon, the iOS widget, and
 the ESP32 glance slots. Picked host-side from the pinned order (enabled only,
 `sources_config.FOCUS_LIMIT`) and served as `focus` in `/usage`, so no surface
-computes its own top-N. Drag to reorder under Mac Settings → AI coding tools.
+computes its own top-N. Drag to reorder under Mac Settings → Providers.
 
 Say **top 3** in user-facing copy, not "focus" — that word is API vocabulary.
+
+### Menu bar icon
+
+Mac Settings → General → **Menu bar icon** picks the glyph’s reading. Same
+three slots either way; only the mark changes.
+
+| Option | Family | What each slot shows |
+|---|---|---|
+| **Remaining** | Fuel | Fill height = quota left (today’s tanks) |
+| **Pace** | Pace | Dot above/below even-spend midline; `tanh((used − pace) / 8)` so small gaps move more than big ones |
+
+Do not name the Pace option after the game metaphor in chrome — **Pace** is
+the glossary word; the midline-and-dot shape is just how it draws.
 
 Pool titles (`Session`, `Weekly`, `Total`, `API`, …) come from the host
 `PoolSpec` and should not be re-hardcoded in UI chrome when the API supplies them.
@@ -424,9 +463,14 @@ Colour carries one meaning per surface. Don't borrow it for emphasis.
 
 | Where | Rule |
 |---|---|
-| **Quota meters, burndown** | Provider accent only. Exhaustion desaturates (`tint.drained()`); nothing turns red or orange |
-| **Attention card, source health dots, Activity rows** | Green / amber / red — this is the *only* place alarm colour belongs, and never alone: the row carries a glyph and a word too |
+| **Quota meters, burndown** | Provider accent only. Exhaustion desaturates (`tint.drained()`); nothing turns red or orange. Needs-sign-in is the one meter exception — it oranges, because that is actionable |
+| **Attention card, source health dots, Activity rows** | Green / orange / red for alarm; soft amber only for in-flight (building, syncing) and soft stale. Never colour alone: the row carries a glyph and a word too |
 | **Provider accent** | `sources_config.Source.accent` → `providers[].accent` / `sources[].accent`, mirrored by firmware `COL_*` and `UsageProvider.tint` |
+
+**Soft amber is not a warning.** It means something is happening or not fresh.
+**Orange is the warn stop** — Attention `warn`, review/mention/assigned, connection
+trouble, needs-sign-in. **Red is critical / failed.** The two used to share amber,
+which flattened warn into "stuff is happening."
 
 **The burndown card never alarms.** "Runs out tomorrow 04:18" is a reading, and
 the words already deliver it; painting it red says the same thing a second

@@ -18,3 +18,11 @@ enum WidePhoneLayout {
         #endif
     }
 }
+
+/// Shared chrome for the three tab roots. Overview is a ScrollView of cards;
+/// Attention and Activity are `.insetGrouped` lists. The system list inset is
+/// 20pt on compact iPhone — keep the ScrollView on the same number so
+/// switching tabs does not shift the gutters.
+enum MobileHomeChrome {
+    static let pageInset: CGFloat = 20
+}

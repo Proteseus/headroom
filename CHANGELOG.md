@@ -7,6 +7,482 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.0 — 2026-08-07
+
+### Changed
+
+- **Versioning:** after `1.9.9` the next release is `2.0.0`. Minor and patch
+  stay single digits — never `1.10.0`. That number already shipped as an
+  overshoot (same Plausible histograms); this tag is the roll it was owed, and
+  the feed points here. `AGENTS.md`, `ship-inventory.sh`, and `version-env.sh`
+  enforce the rule going forward. Same pattern as the old `1.0.10` / `1.0.11`
+  tags.
+
+## 1.10.0 — 2026-08-07
+
+### Added
+
+- **Plausible visitor histograms** on Activity rows and site detail — daily
+  for 7d/30d windows, hourly for day/24h, same role as OpenRouter spend
+  charts.
+
+### Fixed
+
+- **AI Gateway Create token** opens the API keys page, not the gateway home.
+
+## 1.9.9 — 2026-08-07
+
+### Fixed
+
+- **Activity no longer shows forever-fresh grants from a frozen clock.** The
+  live roll journal refuses and hides grants stamped ahead of now, so a
+  burndown test leak cannot leave an `0s` Granted row on the desk.
+
+## 1.9.8 — 2026-08-07
+
+### Added
+
+- **Changelog in About** — opens the same `CHANGELOG.md` the release pipeline
+  already ships, readable offline. The Release build fails if the bundled
+  file is missing.
+
+## 1.9.7 — 2026-08-07
+
+### Added
+
+- **Menu bar icon Remaining or Pace** in Settings → General. Remaining keeps
+  the fuel tanks; Pace places a mark above or below even spend so small gaps
+  move more than big ones. Tooltips follow the same reading.
+
+## 1.9.6 — 2026-08-07
+
+### Added
+
+- **Remove background service** in Settings → General → Host — stops the host,
+  removes its login item for both the current and the legacy label, and quits.
+  It shows only while there is one to remove, and it is the way to leave
+  cleanly before deleting the app. Your settings, tokens and history stay in
+  `~/.headroom`.
+
+### Fixed
+
+- **Deleting Headroom no longer leaves a service behind** — the login item
+  names a script inside the app bundle, so removing the app left launchd
+  running a job whose target was gone, respawning it every few seconds with
+  nothing left to clean it up. Reported by @leolobato.
+
+## 1.9.5 — 2026-08-07
+
+### Added
+
+- **Choose who runs the host** — Settings → General → Host gains *Keep the
+  host running when Headroom is closed*. On, launchd owns the host and it
+  serves the board, iPhone and Watch whether or not the app is open. Off,
+  Headroom owns it: quitting the app stops the host, and `kill` sticks
+  instead of being undone by launchd seconds later. On by default, so nothing
+  changes unless you ask for it. Suggested by @leolobato.
+
+### Changed
+
+- **The host can exit with its parent** — a new `--exit-with-pid` makes the
+  host watch the process that spawned it and stop when that process goes. A
+  crash or a force quit can no longer leave a child holding port 8737, which
+  the next launch would see as a foreign host it cannot stop.
+- **App-owned host restarts have a budget** — four, with a widening delay,
+  and never after a clean exit. A clean exit means someone stopped the host on
+  purpose, or it stood down from a port something else owns. Restarting into
+  either is the crash loop 1.9.3 shipped.
+- **Docs: the host merges into the app** — `docs/host-merge.md` replaces the
+  Swift host study. It records the decision to move the server into
+  `Headroom.app` and retire the Python host, corrects the study's reason for
+  ruling that out, and sets the phases.
+
+## 1.9.4 — 2026-08-06
+
+### Fixed
+
+- **LaunchAgent host crash loop** — 1.9.3 called `usb_bridge.enabled()`
+  without defining it, so startup died after daemon threads began and Python
+  aborted in `Py_FinalizeEx` under KeepAlive. The USB bridge is opt-in again
+  (`HEADROOM_ENABLE_USB=1`), `/dev/null` stays off the board, and SIGTERM
+  exits without finalize so launchd restarts stay clean.
+
+## 1.9.3 — 2026-08-06
+
+### Fixed
+
+- **Fewer Keychain password prompts on macOS** — first-run source detection
+  and Zed quota polling no longer shell out to `/usr/bin/security`; reads go
+  through `SecItemCopyMatching` with fail-closed auth UI so background polls
+  do not loop SecurityAgent. Zed Deny sticks until you refresh the source in
+  Settings, same as Claude.
+
+## 1.9.2 — 2026-08-06
+
+### Added
+
+- **Per-account color picker** in Settings → Providers — each login under a
+  provider gets its own swatch; "Derived shade" restores the auto tint that
+  follows the provider base.
+- **Renamable provider names** — click a provider title in Settings to edit;
+  account rows pick up the new brand everywhere.
+
+### Fixed
+
+- **Provider color changes now reach every account** — stale per-account accent
+  keys left by older Settings builds are cleared when the provider swatch
+  moves, so sibling logins follow the new base instead of keeping the old hex.
+  Thanks @leolobato for the report.
+
+## 1.9.1 — 2026-08-05
+
+### Fixed
+
+- **Provider account colors now use distinct same-service shades** in Settings
+  and across the usage surfaces, while preserving explicit account overrides.
+  Thanks @leolobato for reporting the bug.
+
+## 1.9.0 — 2026-08-05
+
+### Changed
+
+- **Update chrome shows installed > latest** in the popover footer and General
+  settings (for example `1.8.9 > 1.9.0`), with a spoken accessibility label.
+- **Community Pulse publishes smaller groups** (floor drops from five Macs to
+  one) and only marketing `X.Y.Z` builds at or below the update-feed release.
+- **README and marketing screenshots** refresh the Mac/iPhone shots, pair the
+  ESP32 glance next to the menu bar, and shape demo burndown curves for the
+  screenshot pipeline.
+
+## 1.8.9 — 2026-08-05
+
+### Added
+
+- **`scripts/ship-inventory.sh`** prints the ship queue: unshipped commits since
+  the last tag, dirty paths, next patch number, and recent Release runs.
+
+### Changed
+
+- **Release workflow queues** instead of running in parallel, so duplicate
+  TestFlight uploads for the same version are less likely.
+
+## 1.8.8 — 2026-08-05
+
+### Added
+
+- **Agent alerts toggle** in Coding agents settings. Passive notices such as
+  “Ready for your next instruction” can be hidden; questions, choices, and
+  approvals always stay visible.
+
+### Changed
+
+- **Choice requests render as pills** on the agent request sheet instead of
+  expecting free-text only.
+
+## 1.8.7 — 2026-08-05
+
+### Fixed
+
+- **Row tap opens the leaf; only the `link` glyph opens the browser.** Attention
+  leftover reasons no longer treat the whole row as a permalink; Integrations
+  catalog rows open their settings leaf from the title/status, not just the
+  chevron; permalink control keeps a tight hit target so it cannot steal the
+  drill-in.
+
+### Changed
+
+- **Mac Attention Dismiss all matches iPhone.** Hides every queued failure /
+  reason on this surface and acks the rollup, instead of only clearing the
+  menu-bar pip while the rows stayed put. Label is **Dismiss all**, not Clear.
+
+## 1.8.6 — 2026-08-05
+
+### Fixed
+
+- **Host refuses rebound and cross-site control requests.** Origin checks block
+  browser-driven POSTs that are not same-site; synced API host allowlists are
+  validated on write.
+
+## 1.8.5 — 2026-08-05
+
+### Fixed
+
+- **Widget cache from another build no longer blanks the watch face.** Lossy
+  decode skips bad keys instead of failing the whole snapshot; contract tests
+  cover cross-build widget payloads.
+- **Demo fixture numbers no longer masquerade as yours** on widget and watch
+  when the snapshot is clearly sample data.
+
+## 1.8.4 — 2026-08-05
+
+### Fixed
+
+- **Settings edits no longer vanish silently.** Host config POST failures surface
+  in the pane; iPhone settings appear in the Mac app when the companion is
+  paired.
+
+### Changed
+
+- **Timezone is settable** in General settings (host persists `timezone`).
+- **Self-hosted Plausible** accepts a custom API base URL, not just the cloud
+  host.
+- **Poll interval and repo discovery cap** are product constants again — not
+  exposed as tunables that drifted between surfaces.
+
+## 1.8.3 — 2026-08-04
+
+### Changed
+
+- **Recent resets heatmap uses a denser, shorter window.** Cap drops from
+  ~400 days to ~200 so Mac popover cells stay readable; cell size roughly
+  doubles and the grid height follows the computed cell size.
+
+## 1.8.2 — 2026-08-04
+
+### Changed
+
+- **OpenRouter and AI Gateway live on Activity, not Usage.** Account-use
+  panels sit in the Integrations Activity stack; Usage rings and tabs are
+  coding quotas only.
+- **Five macOS/iOS drift points move into Shared.** Drained quota tint,
+  `/health` models, subscription pricing chrome, poll backoff, and clearer
+  iPhone HTTP error prose — one implementation each instead of diverging
+  copies.
+
+### Fixed
+
+- **A bad subscription plan row no longer deletes its provider.** Malformed
+  `subscription_pricing.plans` entries are skipped lossily so one typo cannot
+  blank the ring, meter, and Activity leaf.
+- **Ten provider fetchers stamp and disk-cache successes through
+  `cache_util.store`.** Age and last-good replay work for OpenRouter, AI
+  Gateway, and the other alert/balance sources the way Claude/Codex already
+  did.
+
+### Added
+
+- **Contract tests require every Swift-required `/usage` field in the demo
+  fixture**, and mirrored-constant / firmware label checks cover four more
+  pairs plus positive LABEL_* values.
+
+## 1.8.1 — 2026-08-04
+
+### Changed
+
+- **OpenRouter and AI Gateway show account use history, not depletion.**
+  Overview is a daily-spend sparkline; the provider leaf leads with the full
+  trailing-window day chart, then totals / models / keys. Remaining credits
+  stay a figure, not a bar.
+
+## 1.8.0 — 2026-08-04
+
+### Changed
+
+- **OpenRouter refuses inference keys even when `/credits` answers.** Status
+  names the wrong key type and points at
+  [management-keys](https://openrouter.ai/settings/management-keys) so a quiet
+  wrong pot cannot replace the account balance.
+- **OpenRouter and AI Gateway provider leaves show observed spend.** Daily
+  bars, runway, top models, and (OpenRouter) per-key usage — no ring, no
+  Attention rows. Spend is billed credits from each provider's own API;
+  AI Gateway Hobby notes when the report endpoint needs Pro.
+- **Telemetry schema 2 week-scopes a dedupe key.** Each Mac keeps a local
+  install secret and sends `HMAC-SHA256(secret, ISO week)` so Debug/Release
+  copies cannot inflate weekly active Macs — without a stable install id on
+  the server. Existing D1 needs `telemetry/migrations/002_dedupe_key.sql`
+  and `003_country.sql`.
+- **Community Pulse shows version distribution and latest release.** Histogram
+  against the update feed; country mix from the Worker edge (no IPs stored).
+- **Supabase Attention lint badge is a compact count + shield.** Plain
+  HStack instead of a Label so the row chrome matches neighbouring service
+  rows.
+
+
+## 1.7.9 — 2026-08-04
+
+### Changed
+
+- **README and setup match Usage · Attention · Activity.** Surface table,
+  Settings paths (Providers / Add account / Agents), iPhone and App Store
+  feature lists, and the docs index (Telemetry, Updater) follow the current
+  chrome rather than the old Services peer tab. Screenshots refreshed to
+  match.
+
+### Added
+
+- **`docs/orgs.md`** — standing design for an optional org / multiplayer
+  window layer (spec only; not shipped in the product yet).
+
+## 1.7.8 — 2026-08-04
+
+### Fixed
+
+- **OpenRouter Create-token opens Management keys.** The link was
+  `/settings/keys` (inference keys); it now goes to
+  `/settings/management-keys`. An inference key in Keychain is rejected with
+  a Status error instead of quietly reading `/credits`.
+- **Community Pulse meters stay neutral grey.** Custom capsule bars replace
+  `ProgressView` + `.tint`, which on macOS often fell back to the system
+  accent and painted the mix rows coral.
+
+## 1.7.7 — 2026-08-04
+
+### Changed
+
+- **About links the public repo and Community Pulse.** Settings → About on
+  Mac and iPhone show Source on GitHub with a live star count, plus a link
+  to the public community page. Open-source footer under the About block.
+
+## 1.7.6 — 2026-08-04
+
+### Changed
+
+- **Community Pulse shows architecture, macOS major, and week-over-week.**
+  The Worker pads empty weeks on the growth chart, publishes CPU and macOS
+  mix from batch columns, and splits service mix into enabled / used /
+  healthy. Settings → Telemetry and the public community page both draw the
+  richer aggregate.
+
+## 1.7.5 — 2026-08-04
+
+### Changed
+
+- **Activity row limit sits on every Activity source leaf.** Git, Actions,
+  Vercel, Supabase, Sentry, Datadog, and Axiom each show the same
+  Recent-rows stepper (3–24) that the Integrations hub already had — Local
+  keeps its own servers stepper.
+
+## 1.7.4 — 2026-08-04
+
+### Changed
+
+- **Host-down popover is a wait, not an error stack.** Header says **Host
+  not answering** (same fact as the menu-bar tooltip) with a soft amber pip
+  instead of Foundation’s “Could not connect…”. Sources and Done stay
+  hidden until `/health` answers; orange is reserved for a failed Start.
+
+## 1.7.3 — 2026-08-04
+
+### Changed
+
+- **Recent resets is a calendar heatmap.** Granted resets under a burndown
+  card are a day grid (on/off; provider tint = global grant, amber = credit
+  you spent; weekly auto-resets stay off) instead of a six-row list, sized
+  from the oldest grant on hand. Codex week merges the public
+  [codex-resets.com](https://codex-resets.com) announcement feed with locally
+  observed sample grants — so the grid reaches back through every verified
+  global reset and keeps filling forward as new ones are announced or
+  detected. Still live data, never a fixture.
+- **Activity and Attention rows share one layout on Mac and iPhone.** Feed
+  rows and the Attention list live in `Shared/` so both surfaces draw the
+  same chrome.
+
+## 1.7.2 — 2026-08-04
+
+### Changed
+
+- **Integration Settings name the scopes each key needs.** PostHog asks for
+  `project:read` and `query:read`; Plausible, GitHub, Supabase, Datadog,
+  OpenRouter, and AI Gateway footers spell out their matching permissions too
+  (Sentry and Axiom already did). PostHog's cloud region is a US / EU
+  dropdown; Custom still takes a self-hosted URL. Saved keys show
+  `••••••••••••` in the empty SecureField so the row does not look unused.
+
+## 1.7.1 — 2026-08-04
+
+### Fixed
+
+- **Connect no longer fails to save a GitHub token when iCloud Keychain
+  refuses the write.** Synced PAT saves wiped both keyspaces before the local
+  fallback ran, so a refused synchronizable write could show "Could not save
+  GitHub token" and drop a working local copy. Each half is update-or-add on
+  its own now; the other half is dropped only after the write that should win
+  has succeeded. Thanks to [@pm](https://x.com/pm/status/2084287614115328004)
+  for reporting it.
+
+## 1.6.6 — 2026-08-03
+
+### Added
+
+- **Sentry, Datadog, and Axiom as Attention sources.** Integrations leaves
+  that surface fresh unresolved Sentry issues, Datadog Alert/Warn monitors,
+  and open Axiom monitor alerts into Activity and the Attention pip — break
+  signals only, not dashboards. Keys stay in Keychain; org/site/host in
+  config.
+
+## 1.7.0 — 2026-08-03
+
+### Added
+
+- **Anonymous product diagnostics on the Mac.** Settings → Telemetry shares
+  one aggregate batch per week (app/host versions, normalized provider ids,
+  model-family shares, three coarse feature flags) when left on. No prompts,
+  paths, tokens, or install id. First-party Worker under `telemetry/`; see
+  [`docs/telemetry.md`](docs/telemetry.md).
+
+## 1.6.7 — 2026-08-03
+
+### Changed
+
+- **Warn is orange, not soft amber.** Soft amber stays for in-flight (building,
+  syncing) and soft stale. Attention `warn`, review/mention/assigned, connection
+  trouble, and needs-sign-in use a hotter orange (`#D98A3C`) so warn no longer
+  reads as "stuff is happening." Critical stays dusty red.
+
+- **Sources: Add account lives under Library.** The Active meter rows no longer
+  carry an inline “Add account…” link. Multi-account providers get chip buttons
+  in an **Add account** section under Library. Active rows show the signed-in
+  email when the host can read it (Codex ChatGPT id_token, Cursor’s cached
+  profile); Claude’s OAuth token is opaque so it may stay blank.
+
+- **Integrations drops Coding agents.** Claude Code and Codex stay under the
+  Coding agents tab; the Integrations catalog is watches and connections only.
+
+- **Dashboard density leaves General.** Activity row count sits on Integrations;
+  Local servers count, stop confirmation, and show/hide sit on the Local leaf.
+
+### Added
+
+- **Provider pages show today’s quota burn.** Same `Today N%` reading as the
+  Daily burn card, scoped to that provider’s headline meter — on the ESP32
+  detail page (opposite Updated), and on Mac / iPhone provider cards.
+
+- **Menubar Activity drills into the same detail pages as iPhone.** Plausible,
+  PostHog, Supabase, local servers, Xcode builds, and feed/Attention rows open
+  a Back-stack detail inside the popover. A shared `link` permalink glyph on
+  each row and detail chrome opens the source; Supabase pin is gone.
+
+- **One Integrations catalog.** Settings → Integrations is a single Sources-style
+  list (drag, toggle, status, open leaf) — not a separate “Activity services”
+  reorderer plus connection groups. Host pin is `integrations_order` (migrates
+  from the short-lived `services_order`). Activity on Mac and iPhone lays out
+  git / Actions / Vercel / service panels / local servers / builds in that
+  order; API balances stay on the list for enable/open but skip the Activity
+  stack. Claude Code and Codex are under Coding agents only.
+
+- **Settings sidebar selection no longer races the detail.** A `TapGesture` on
+  each root was fighting `List(selection:)` and often left the highlight and
+  the pane disagreeing.
+- **Local Xcode builds next to local servers.** Activity on Mac and iPhone
+  lists live `xcodebuild` / `swift build` (agents, CLI) and IDE compiles that
+  are actually running compilers under XCBuildService / SWBBuildService —
+  labeled by scheme or DerivedData project. Idle Xcode with a warm build
+  service stays quiet. No stop action; Reveal in Finder only.
+
+- **ESP32 glance dims with the sun.** Amsterdam lat/lon by default (override
+  in `config.h`): full brightness until 30 minutes after sunset, then ~30%,
+  then ~10% at a fixed bedtime (22:00). Back to full 30 minutes before
+  sunrise. Late summer sunsets that would put the evening step after bedtime
+  skip evening and go day→night at bedtime, so winter dusk plateaus stay
+  long without August going haywire. Clock from SNTP when Wi-Fi is up, else
+  the host's `updated` stamp. Board setup lives in [`docs/esp32.md`](docs/esp32.md)
+  beside the iPhone and Watch guides.
+
+- **Root README is the product front door.** Setup detail, host reference,
+  troubleshooting, and Mac build/signing moved to [`docs/setup.md`](docs/setup.md),
+  [`docs/host.md`](docs/host.md), [`docs/troubleshooting.md`](docs/troubleshooting.md),
+  and [`macos/README.md`](macos/README.md).
+
 ## 1.6.5 — 2026-08-02
 
 ### Changed
@@ -557,7 +1033,6 @@ here; this fixes that too.
   append-only record of your own history and the wrong place to discover a
   mistake months later.
 
-
 ## 1.3.6 — 2026-07-31
 
 ### Changed
@@ -726,7 +1201,6 @@ here; this fixes that too.
 - `rolls()` looked back seven days while the sample store keeps fourteen, and
   capped at eight — enough to drop grants off a list that had room for them.
 
-
 - **A rate limit from Claude no longer feeds itself.** The usage endpoint
   answers 429 when it has had enough, and the host's only response was to keep
   its poll cadence and let every forced refresh past the cache on top of that.
@@ -869,7 +1343,6 @@ whole class of silent breakage from reaching you in the next one.
   eight.
 
 ### Fixed
-
 
 ### Changed
 
@@ -1184,7 +1657,6 @@ whole class of silent breakage from reaching you in the next one.
   Keychain Deny stays denied until you refresh the source in Settings, instead
   of retrying every 20 seconds and re-prompting. Named Claude accounts each get
   their own Headroom file, same as before.
-
 
 ### Added
 

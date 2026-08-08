@@ -7,6 +7,10 @@ import SwiftUI
 /// First run is no longer this view's job. It moved to `WelcomeView` in its own
 /// window, because a `.transient` popover cannot hold a screen someone reads
 /// once and cannot point at the menu bar icon it hangs from.
+///
+/// While the host is quiet this is one calm waiting panel — not a stack of
+/// error chrome over an empty Sources card. Sources and Done appear once
+/// `/health` answers.
 struct SetupView: View {
     @ObservedObject var store: UsageStore
     var onFinished: () -> Void
@@ -16,44 +20,61 @@ struct SetupView: View {
     @State private var hostReady = false
     @State private var setupRows: [SetupSourceRow] = []
     @State private var loadError: String?
+    /// True after Start host returned something other than quiet success —
+    /// failed install, foreign process, or /health still silent. That is when
+    /// the detail line earns orange; "not up yet" on first open does not.
+    @State private var hostStartFailed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
-            hostCard
-            sourcesCard
-            footer
+            hostPanel
+            if hostReady {
+                sourcesCard
+                footer
+            }
         }
-        .padding(16)
         .task { await bootstrap() }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Start the host")
-                .font(.title3.weight(.semibold))
-            Text("Needs the local host on :8737. Starts at login.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+    /// Waiting / starting / ready — one panel, no nested section title that
+    /// repeats the same fact the header already named.
+    private var hostPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                Group {
+                    if hostBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: hostReady
+                              ? "checkmark.circle.fill"
+                              : "server.rack")
+                            .font(.title2)
+                            .foregroundStyle(hostGlyphColor)
+                    }
+                }
+                .frame(width: 28, height: 28)
 
-    private var hostCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: hostReady ? "checkmark.circle.fill" : "server.rack")
-                    .foregroundStyle(hostReady ? HeadroomPalette.green : HeadroomPalette.amber)
-                Text(hostReady ? "Host is running" : "Host isn’t running")
-                    .font(.headline)
-                Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hostTitle)
+                        .font(.headline)
+                    Text(hostSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            if let hostMessage {
+
+            if let hostMessage, shouldShowHostMessage {
                 Text(hostMessage)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(hostStartFailed
+                                     ? HeadroomPalette.orange
+                                     : .secondary)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
             HStack(spacing: 8) {
                 Button {
                     Task { await startHost() }
@@ -61,14 +82,16 @@ struct SetupView: View {
                     if hostBusy {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text(hostReady ? "Restart host" : "Start host")
+                        Text(hostReady
+                             ? HeadroomCopy.restartHost
+                             : HeadroomCopy.startHost)
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(hostBusy)
 
-                Button("Retry check") {
+                Button(HeadroomCopy.retryCheck) {
                     Task { await refreshHostStatus() }
                 }
                 .buttonStyle(.bordered)
@@ -77,6 +100,7 @@ struct SetupView: View {
 
                 Spacer()
             }
+
             if let skew = store.hostSkew {
                 // The store already reinstalls on sight, so this reports what
                 // is happening rather than asking for a restart that ran.
@@ -84,16 +108,18 @@ struct SetupView: View {
                      ? "\(skew.title). \(skew.summary). Quit and reopen Headroom."
                      : "\(skew.title). \(skew.summary). Replacing it now.")
                     .font(.caption2)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
                     .fixedSize(horizontal: false, vertical: true)
             } else if hostReady, let version = store.hostVersionLabel {
                 Text(version)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+
             Text(appVersionLabel)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+
             if !HostController.isBundled {
                 Text("No bundled host. Run ./scripts/install-host.sh or use a Release .app.")
                     .font(.caption2)
@@ -103,26 +129,54 @@ struct SetupView: View {
         .cardStyle()
     }
 
+    private var hostTitle: String {
+        if hostBusy { return HeadroomCopy.startingHost }
+        if hostReady { return HeadroomCopy.hostIsRunning }
+        return HeadroomCopy.hostNotAnswering
+    }
+
+    private var hostSubtitle: String {
+        if hostReady {
+            return "http://127.0.0.1:8737"
+        }
+        return HeadroomCopy.hostStartHint
+    }
+
+    private var hostGlyphColor: Color {
+        if hostReady { return HeadroomPalette.green }
+        if hostStartFailed { return HeadroomPalette.orange }
+        return .secondary
+    }
+
+    /// Drop the default "nothing on :8737" line — the title + hint already
+    /// cover it. Keep real install / foreign / log-path detail.
+    private var shouldShowHostMessage: Bool {
+        guard let hostMessage else { return false }
+        if hostMessage == HeadroomCopy.hostNothingOnPort { return false }
+        if hostReady, hostMessage.hasPrefix("Host is up") { return false }
+        return true
+    }
+
     private var sourcesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("What to track")
+            Text(HeadroomCopy.whatToTrack)
                 .font(.headline)
-            Text("From local sign-in. Change either list later in Settings.")
+            Text(HeadroomCopy.whatToTrackHint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let loadError {
                 Text(loadError)
                     .font(.caption)
-                    .foregroundStyle(HeadroomPalette.amber)
+                    .foregroundStyle(HeadroomPalette.orange)
             }
             if setupRows.isEmpty {
-                Text(hostReady ? "Loading…" : "Start the host to detect sources.")
+                Text("Loading…")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
                 SetupSourcesList(
                     rows: $setupRows,
-                    enabled: hostReady && !hostBusy
+                    enabled: !hostBusy
                 )
             }
         }
@@ -168,10 +222,11 @@ struct SetupView: View {
         hostReady = ready
         guard ready else {
             hostMessage = HostController.isBundled
-                ? "Nothing is answering on :8737 yet."
+                ? HeadroomCopy.hostNothingOnPort
                 : store.errorMessage
             return
         }
+        hostStartFailed = false
         hostMessage = "Host is up on http://127.0.0.1:8737"
         // The sources list costs a fetch; only re-read it when the host came
         // back, or when we never got one.
@@ -186,21 +241,25 @@ struct SetupView: View {
     /// be running — both end up awaiting the same install.
     private func startHost() async {
         hostBusy = true
+        hostStartFailed = false
         defer { hostBusy = false }
         guard HostController.isBundled else {
             hostMessage = HostController.HostError.notBundled.errorDescription
             hostReady = false
+            hostStartFailed = true
             return
         }
         switch await store.updateHost() {
         case .ready:
             hostReady = true
+            hostStartFailed = false
             hostMessage = "Host is up on http://127.0.0.1:8737"
             await loadSetup()
         case let .foreign(build):
             // Ours started and stood down: something else owns the port. Saying
             // "up" here is how the card ends up contradicting itself.
             hostReady = true
+            hostStartFailed = true
             hostMessage = """
                 Another host already owns :8737\(build.map { " (\($0))" } ?? "").
                 Quit it, or run ./scripts/uninstall-host.sh, then try again.
@@ -208,6 +267,7 @@ struct SetupView: View {
             await loadSetup()
         case .silent:
             hostReady = false
+            hostStartFailed = true
             hostMessage = store.errorMessage
                 ?? "Started, but /health didn’t answer yet. Check ~/.headroom/logs/headroom.err"
         }

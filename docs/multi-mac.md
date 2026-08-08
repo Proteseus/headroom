@@ -246,6 +246,7 @@ into one keyspace:
 | `sources.enabled.<id>` | bool |
 | `sources.accent.<id>` | `#RRGGBB`, or null for the registry colour |
 | `sources.order` | pinned provider ids |
+| `sources.integrations_order` | pinned Integrations catalog ids |
 | `config.<key>` | whitelisted config.json keys |
 
 Every key is always present, with an explicit null for "unset" — a missing key
@@ -302,6 +303,9 @@ encrypted with the user's own keys, never through the record above:
 | `com.centaur-labs.headroom.github` | yes |
 | `com.centaur-labs.headroom.plausible` | yes |
 | `com.centaur-labs.headroom.posthog` | yes |
+| `com.centaur-labs.headroom.sentry` | yes |
+| `com.centaur-labs.headroom.datadog` (`api-key` / `app-key`) | yes |
+| `com.centaur-labs.headroom.axiom` | yes |
 | `com.centaur-labs.headroom.supabase` | yes |
 | `com.centaur-labs.headroom.host` | **no** — authorizes one Mac's host, and the phone pairs to one Mac |
 
@@ -318,9 +322,10 @@ found* for an item that is plainly in Keychain Access. This is the whole trap:
   working. `KeychainScope` in `macos/Sources/Keychain.swift` names the three
   cases; `keychain.read_token()` is the host's side.
 - `/usr/bin/security find-generic-password` is the legacy SecKeychain API and
-  cannot be relied on to see synced items. The three sources that shelled out
-  to it now go through `host/keychain.py`, which was already there for the
-  argv-leak reason and is the only credential read path left.
+  cannot be relied on to see synced items. Every host credential read —
+  source pollers, first-run `detect_sources` probes, and Zed's internet
+  password — goes through `host/keychain.py` (`SecItemCopyMatching`). Probes
+  pass `allow_ui=False` so seeding never pops SecurityAgent.
 - `TokenStore.adoptSync()` migrates an old local-only token at launch, ordered
   **add-then-delete**. The local copy is the only copy until the synced one is
   confirmed written. Reversing that order loses a token the user pasted in
@@ -330,6 +335,10 @@ found* for an item that is plainly in Keychain Access. This is the whole trap:
   being off both refuse `kSecAttrSynchronizable`; without the fallback,
   Settings → Supabase/GitHub/Plausible/PostHog Connect hard-fails with
   "Could not save … token" even though a this-Mac-only item would work.
+  Each half is update-or-add on its own; the other half is dropped only
+  after the write that should win has succeeded. Deleting both first was
+  how a refused sync write used to erase a working local copy before the
+  fallback could run.
 - The accessible class cannot be a `…ThisDeviceOnly` variant; those are refused
   outright for a synchronizable item.
 

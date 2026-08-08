@@ -140,11 +140,7 @@ struct MobileSettingsScreen: View {
         }
     }
 
-    /// AI providers only, matching the Mac. This screen used to carry a
-    /// second section headed "Integrations" — the word, inside Sources —
-    /// which is the muddle the split fixes: every integration is also a
-    /// source, so one page appeared to list the other. Sources answers "what
-    /// do I watch"; `integrationsPane` answers "what is connected".
+    /// AI meters only. Dev tools and local watches live under Integrations.
     private var sourcesPane: some View {
         Form {
             Section {
@@ -157,20 +153,87 @@ struct MobileSettingsScreen: View {
         }
     }
 
-    /// The phone's half of Integrations: on/off and status, no credential
-    /// fields. Keys are typed on the Mac and the phone never sees them, so
-    /// there is nothing here worth a leaf per integration the way the Mac
-    /// has one.
+    /// One Integrations catalog: order, enable, status. Credentials stay on
+    /// the Mac; the phone only toggles and reorders what Activity watches.
     private var integrationsPane: some View {
         Form {
             Section {
-                ForEach(sources(in: .devtools)) { source in
-                    sourceRow(source)
+                ForEach(integrationWatches) { watch in
+                    catalogRow(watch)
                 }
+                .onMove(perform: moveIntegration)
+                .disabled(!store.mobilePermissions.sources)
             } footer: {
-                Text("\(HeadroomCopy.devToolsHint) Add keys on the Mac under Settings → \(HeadroomCopy.settingsIntegrations).")
+                Text(store.mobilePermissions.sources
+                     ? HeadroomCopy.integrationsOrderHint
+                     : "Reordering needs the Mac’s Manage sources permission. Add keys on the Mac under Settings → \(HeadroomCopy.settingsIntegrations).")
             }
         }
+        .environment(\.editMode, .constant(
+            store.mobilePermissions.sources ? .active : .inactive))
+    }
+
+    private var integrationWatches: [IntegrationWatch] {
+        IntegrationWatch.ordered(
+            from: store.snapshot.integrationsOrder ?? store.snapshot.servicesOrder
+        )
+    }
+
+    private func catalogRow(_ watch: IntegrationWatch) -> some View {
+        let sourceID = watch.sourceID
+        let source = (store.snapshot.sources ?? []).first { $0.id == sourceID }
+        let enabled = source?.enabled ?? true
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(watch.title)
+                Text(catalogSubtitle(watch, source: source))
+                    .font(.caption)
+                    .foregroundStyle(
+                        source?.ok == false
+                            ? AnyShapeStyle(HeadroomPalette.orange)
+                            : AnyShapeStyle(.secondary)
+                    )
+                    .lineLimit(1)
+            }
+            Spacer()
+            if store.changingSourceID == sourceID {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Toggle(
+                    "Enabled",
+                    isOn: Binding(
+                        get: { enabled },
+                        set: { on in
+                            Task { await store.setSource(sourceID, enabled: on) }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .disabled(!store.mobilePermissions.sources)
+            }
+        }
+        .opacity(enabled ? 1 : 0.55)
+    }
+
+    private func catalogSubtitle(
+        _ watch: IntegrationWatch, source: SyncSource?
+    ) -> String {
+        if let source {
+            return sourceStatus(source)
+        }
+        switch watch {
+        case .servers, .builds:
+            return HeadroomCopy.local
+        default:
+            return ""
+        }
+    }
+
+    private func moveIntegration(from source: IndexSet, to destination: Int) {
+        var order = integrationWatches.map(\.rawValue)
+        order.move(fromOffsets: source, toOffset: destination)
+        Task { await store.setServicesOrder(order) }
     }
 
     private func sources(in group: SourceGroup) -> [SyncSource] {
@@ -199,6 +262,8 @@ struct MobileSettingsScreen: View {
         Form {
             Section {
                 AboutHeadroomView()
+            } footer: {
+                Text(HeadroomCopy.aboutOpenSourceFooter)
             }
         }
     }
@@ -243,7 +308,7 @@ struct MobileSettingsScreen: View {
                     .font(.caption)
                     .foregroundStyle(
                         source.ok == false
-                            ? AnyShapeStyle(HeadroomPalette.amber)
+                            ? AnyShapeStyle(HeadroomPalette.orange)
                             : AnyShapeStyle(.secondary)
                     )
             }

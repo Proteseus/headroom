@@ -2,49 +2,77 @@ import SwiftUI
 
 extension SettingsView {
     var sourcesPane: some View {
-        SettingsSourcesPane(
-            sources: sources,
-            usage: usageProviders,
-            accountProviders: accountProviders,
-            detected: detectedSources,
-            busyID: togglingSourceID,
-            isSyncing: isSyncing,
-            message: sourcesMessage,
-            dropTargetID: dropTargetID,
-            onToggleRows: { ids, enabled in
-                Task { await setSourceRows(ids, enabled: enabled) }
-            },
-            onDismissRows: { ids in
-                Task { await dismissSourceRows(ids) }
-            },
-            onRemoveAccount: { id in
-                Task { await removeAccount(id) }
-            },
-            onAddAccount: { provider in
-                addingAccountProvider = provider
-            },
-            onRefresh: { ids in
-                Task { await refreshSources(ids) }
-            },
-            onMoveService: { dragged, target in
-                dropTargetID = nil
-                Task { await moveService(dragged, before: target) }
-            },
-            onNudgeService: { id, offset in
-                Task { await nudgeService(id, by: offset) }
-            },
-            onDropTarget: { id, targeted in
-                dropTargetID = targeted ? id : nil
-            },
-            onAccent: { ids, hex in
-                Task { await setAccents(ids, hex: hex) }
-            }
-        )
+        VStack(spacing: 0) {
+            quotaResetProviderBar
+            SettingsSourcesPane(
+                sources: sources,
+                usage: usageProviders,
+                accountProviders: accountProviders,
+                detected: detectedSources,
+                busyID: togglingSourceID,
+                isSyncing: isSyncing,
+                message: sourcesMessage,
+                dropTargetID: dropTargetID,
+                onToggleRows: { ids, enabled in
+                    Task { await setSourceRows(ids, enabled: enabled) }
+                },
+                onDismissRows: { ids in
+                    Task { await dismissSourceRows(ids) }
+                },
+                onRemoveAccount: { id in
+                    Task { await removeAccount(id) }
+                },
+                onAddAccount: { provider in
+                    addingAccountProvider = provider
+                },
+                onRefresh: { ids in
+                    Task { await refreshSources(ids) }
+                },
+                onMoveService: { dragged, target in
+                    dropTargetID = nil
+                    Task { await moveService(dragged, before: target) }
+                },
+                onNudgeService: { id, offset in
+                    Task { await nudgeService(id, by: offset) }
+                },
+                onDropTarget: { id, targeted in
+                    dropTargetID = targeted ? id : nil
+                },
+                onAccent: { ids, hex in
+                    Task { await setAccents(ids, hex: hex) }
+                },
+                onTitle: { id, name in
+                    Task { await setTitle(id, name: name) }
+                }
+            )
+        }
         .sheet(item: $addingAccountProvider) { provider in
             AddAccountSheet(provider: provider, endpoint: endpoint) {
                 await reloadSources()
             }
         }
+    }
+
+    var quotaResetProviderBar: some View {
+        HStack(spacing: 12) {
+            Toggle(
+                HeadroomCopy.notifyOnQuotaReset,
+                isOn: $notifyOnQuotaReset
+            )
+            .onChange(of: notifyOnQuotaReset) { _, enabled in
+                if enabled {
+                    Task { await ResetNotifications.requestAuthorization() }
+                }
+            }
+            Spacer()
+            Text("Ask macOS before showing a reset notification.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     /// Mirrors `sources_config.FOCUS_LIMIT`.
@@ -88,8 +116,10 @@ extension SettingsView {
         await commitOrder(blocks.flatMap(\.rowIDs), movedID: id)
     }
 
-    /// Repaint a service everywhere — every account of it, one POST each,
-    /// then one reload. `nil` restores the shipped color.
+    /// Store an accent for each requested source row, then reload. The
+    /// Sources pane sends only the base row for a multi-account service;
+    /// account shades are derived host-side, while explicit account colors
+    /// remain independent.
     func setAccents(_ ids: [String], hex: String?) async {
         togglingSourceID = ids.first
         defer { togglingSourceID = nil }
@@ -103,6 +133,20 @@ extension SettingsView {
             sourcesMessage = hex == nil
                 ? "Restored the default color."
                 : "Color updated — menu bar, rings and iPhone follow."
+        } catch {
+            sourcesMessage = error.localizedDescription
+        }
+    }
+
+    func setTitle(_ id: String, name: String?) async {
+        togglingSourceID = id
+        defer { togglingSourceID = nil }
+        do {
+            _ = try await client.setSourceTitle(id, name: name)
+            await reloadSources()
+            sourcesMessage = name == nil
+                ? "Restored the default name."
+                : "Renamed — menu bar, rings and iPhone follow."
         } catch {
             sourcesMessage = error.localizedDescription
         }
@@ -251,6 +295,12 @@ extension SettingsView {
             if let range = snapshot.posthog?.range {
                 posthogRange = range
             }
+            servicesOrder = IntegrationWatch.activityBlocks(
+                from: snapshot.integrationsOrder ?? snapshot.servicesOrder
+            ).map(\.rawValue)
+            integrationsOrder = IntegrationWatch.ordered(
+                from: snapshot.integrationsOrder ?? snapshot.servicesOrder
+            ).map(\.rawValue)
             if sources.isEmpty {
                 sourcesMessage = "Host has no sources payload — restart com.centaur-labs.headroom."
             }

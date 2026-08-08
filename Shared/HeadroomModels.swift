@@ -1,38 +1,8 @@
 import Foundation
 
-/// An element that decodes to nil instead of throwing.
-///
-/// Decoding it always succeeds, which is the point: the outer array's index
-/// advances even for a row that failed, so the sequence cannot stall.
-private struct Failable<Wrapped: Decodable>: Decodable {
-    let value: Wrapped?
-
-    init(from decoder: Decoder) throws {
-        value = try? Wrapped(from: decoder)
-    }
-}
-
-extension KeyedDecodingContainer {
-    /// Decode a list, dropping rows that fail rather than failing the document.
-    ///
-    /// `/usage` is decoded whole, under one `try`, by every client. A single
-    /// required key missing from a single row of `by_day` would otherwise
-    /// throw past the chart, past the snapshot, and blank the entire popover —
-    /// over one row of one list. Losing the row loses a bar in a chart, which
-    /// is the proportionate failure. See docs/contract.md.
-    ///
-    /// A row that fails is dropped silently on purpose: the host is the only
-    /// thing that can produce one, this is the client's last line of defence,
-    /// and there is no screen on which "row 4 of by_day was malformed" is
-    /// something to say to the person holding the phone.
-    func decodeLossyArrayIfPresent<Element: Decodable>(
-        _ type: Element.Type, forKey key: Key
-    ) throws -> [Element]? {
-        guard let rows = try decodeIfPresent(
-            [Failable<Element>].self, forKey: key) else { return nil }
-        return rows.compactMap(\.value)
-    }
-}
+// `Failable` and `decodeLossyArrayIfPresent` live in Shared/LossyDecode.swift
+// so the widget and watch targets — which deliberately do not compile this
+// file — can decode their own cache the same tolerant way.
 
 struct UsageSnapshot: Decodable, Sendable {
     var updated: String?
@@ -71,12 +41,19 @@ struct UsageSnapshot: Decodable, Sendable {
     var supabase: SupabaseUsage?
     var plausible: PlausibleUsage?
     var posthog: PostHogUsage?
+    var sentry: SentryUsage?
+    var datadog: DatadogUsage?
+    var axiom: AxiomUsage?
     var claudeStatus: ClaudeStatus?
     var sources: [SyncSource]?
     var attention: Attention?
     /// Provider ids the compact surfaces show, picked host-side so the menu
     /// bar, the widget, and the board never disagree about which three.
     var focus: [String]?
+    /// Activity service panel order (Supabase / local servers / …).
+    var servicesOrder: [String]?
+    /// Integrations catalog order (Settings list + Activity blocks).
+    var integrationsOrder: [String]?
     /// Per-provider, per-pool burndown keyed as ["claude": ["week": …]].
     var burndown: [String: [String: Burndown]]?
     var burndownPrimary: Burndown?
@@ -131,9 +108,15 @@ struct UsageSnapshot: Decodable, Sendable {
         supabase: SupabaseUsage? = nil,
         plausible: PlausibleUsage? = nil,
         posthog: PostHogUsage? = nil,
+        sentry: SentryUsage? = nil,
+        datadog: DatadogUsage? = nil,
+        axiom: AxiomUsage? = nil,
         claudeStatus: ClaudeStatus? = nil,
         sources: [SyncSource]? = nil,
         attention: Attention? = nil,
+        focus: [String]? = nil,
+        servicesOrder: [String]? = nil,
+        integrationsOrder: [String]? = nil,
         burndown: [String: [String: Burndown]]? = nil,
         burndownPrimary: Burndown? = nil,
         machines: [MachineSummary]? = nil
@@ -163,9 +146,15 @@ struct UsageSnapshot: Decodable, Sendable {
         self.supabase = supabase
         self.plausible = plausible
         self.posthog = posthog
+        self.sentry = sentry
+        self.datadog = datadog
+        self.axiom = axiom
         self.claudeStatus = claudeStatus
         self.sources = sources
         self.attention = attention
+        self.focus = focus
+        self.servicesOrder = servicesOrder
+        self.integrationsOrder = integrationsOrder
         self.burndown = burndown
         self.burndownPrimary = burndownPrimary
         self.machines = machines
@@ -173,7 +162,9 @@ struct UsageSnapshot: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case updated, contract, plan, today, codex, cursor, providers, vercel, git, github, activity, local
-        case supabase, plausible, posthog, sources, attention, focus, burndown, machines
+        case supabase, plausible, posthog, sentry, datadog, axiom, sources, attention, focus, burndown, machines
+        case servicesOrder = "services_order"
+        case integrationsOrder = "integrations_order"
         case claudeStatus = "claude_status"
         case burndownPrimary = "burndown_primary"
         case byDay = "by_day"
@@ -220,9 +211,14 @@ struct UsageSnapshot: Decodable, Sendable {
         supabase = try value(.supabase)
         plausible = try value(.plausible)
         posthog = try value(.posthog)
+        sentry = try value(.sentry)
+        datadog = try value(.datadog)
+        axiom = try value(.axiom)
         claudeStatus = try value(.claudeStatus)
         attention = try value(.attention)
         focus = try value(.focus)
+        servicesOrder = try value(.servicesOrder)
+        integrationsOrder = try value(.integrationsOrder)
         burndown = try value(.burndown)
         burndownPrimary = try value(.burndownPrimary)
 
@@ -243,6 +239,10 @@ struct UsageSnapshot: Decodable, Sendable {
     /// CodexBar-style: Settings → Sources is the subset. Prefer `providers[]`
     /// intersected with enabled quota `sources[]`. Empty when the host has not
     /// advertised any — never invent Claude/Codex/Cursor.
+    ///
+    /// Prepaid balances (OpenRouter, AI Gateway) stay in `providers[]` for
+    /// their Activity leaf but are not coding quotas — see
+    /// `codingQuotaProviders` / `balanceProviders`.
     var visibleQuotaProviders: [QuotaProviderInfo] {
         let sourcesList = sources ?? []
         let hasKind = sourcesList.contains { $0.kind != nil }
@@ -279,10 +279,22 @@ struct UsageSnapshot: Decodable, Sendable {
                 id: row.id,
                 title: row.title,
                 label: row.label,
+                email: row.email,
                 kind: row.kind ?? "quota",
                 enabled: true
             )
         }
+    }
+
+    /// Window / grant meters that belong on Usage rings and the menu-bar tanks.
+    /// Excludes prepaid balances — those paint under Activity.
+    var codingQuotaProviders: [QuotaProviderInfo] {
+        visibleQuotaProviders.filter { !$0.isBalanceOnly }
+    }
+
+    /// OpenRouter / AI Gateway — account-use panels on Activity, not Usage.
+    var balanceProviders: [QuotaProviderInfo] {
+        visibleQuotaProviders.filter(\.isBalanceOnly)
     }
 
     /// The providers a compact surface shows: menu-bar tanks and the iOS
@@ -292,8 +304,9 @@ struct UsageSnapshot: Decodable, Sendable {
     /// `focus`, so every surface shows the same providers even when one of
     /// them is a poll behind. Falls back to the first `limit` visible
     /// providers when talking to a host that predates the field.
+    /// Balance-only ids in `focus` are skipped — they are not tanks.
     func focusProviders(limit: Int = 3) -> [QuotaProviderInfo] {
-        let visible = visibleQuotaProviders
+        let visible = codingQuotaProviders
         guard let focus, !focus.isEmpty else {
             return Array(visible.prefix(limit))
         }
@@ -305,13 +318,13 @@ struct UsageSnapshot: Decodable, Sendable {
                               : Array(picked.prefix(limit))
     }
 
-    /// Known-enum view of `visibleQuotaProviders` for Mac chrome still typed
+    /// Known-enum view of `codingQuotaProviders` for Mac chrome still typed
     /// on `UsageProvider`. Unknown registry ids are skipped until those
-    /// surfaces take string ids.
+    /// surfaces take string ids. Balance-only providers never appear here.
     var activeQuotaProviders: [UsageProvider] {
         var seen = Set<String>()
         var out: [UsageProvider] = []
-        for row in visibleQuotaProviders {
+        for row in codingQuotaProviders {
             guard let provider = UsageProvider(rawValue: row.id),
                   seen.insert(row.id).inserted
             else { continue }
@@ -468,6 +481,7 @@ struct UsageSnapshot: Decodable, Sendable {
             costLabel: costLabel,
             balanceLabel: balanceLabel,
             balanceLevel: balanceLevel,
+            spend: info.spend,
             headlinePoolID: info.headline,
             statusNote: info.statusNote,
             needsSignIn: info.needsSignIn,
@@ -777,22 +791,34 @@ enum BurndownStatus: String, Sendable {
 /// Without this the grant is invisible: the burn curve simply restarts, which
 /// reads as the chart having forgotten the week rather than the week having
 /// been forgiven.
-struct BurndownReset: Decodable, Sendable, Identifiable {
+struct BurndownReset: Decodable, Sendable, Identifiable, Equatable {
     /// When the pool came back, epoch seconds.
     var t: Double?
     /// "granted" today. Present so scheduled rolls could join later without
     /// changing the shape.
     var kind: String?
-    /// Percentage points the grant handed back.
+    /// Percentage points the grant handed back. Nil for announcement-only
+    /// rows that this Mac never observed in the sample log.
     var forgivenPct: Double?
+    /// `observed` (local sample), `announced` (codex-resets.com), or `both`.
+    var source: String?
+    /// Permalink on the announcement, when the grant matched a public reset.
+    var tweetURL: String?
+    var tweetID: String?
 
     var id: Double { t ?? 0 }
 
     var date: Date? { t.map { Date(timeIntervalSince1970: $0) } }
 
+    var announcementURL: URL? {
+        tweetURL.flatMap(URL.init(string:))
+    }
+
     enum CodingKeys: String, CodingKey {
-        case t, kind
+        case t, kind, source
         case forgivenPct = "forgiven_pct"
+        case tweetURL = "tweet_url"
+        case tweetID = "tweet_id"
     }
 }
 
@@ -830,6 +856,8 @@ struct ProviderMeter: Sendable {
     var balanceLabel: String?
     /// Fraction of the pot still there, 0…1. Nil when there is no denominator.
     var balanceLevel: Double?
+    /// Observed spend leaf for prepaid balance providers (OpenRouter / AI Gateway).
+    var spend: BalanceSpend?
     /// Host registry headline pool id (`week`, `total`, …) for menu-bar tanks.
     var headlinePoolID: String?
     /// Set when the host cannot refresh this meter — a dead login or frozen
@@ -863,6 +891,7 @@ struct ProviderMeter: Sendable {
         costLabel: String? = nil,
         balanceLabel: String? = nil,
         balanceLevel: Double? = nil,
+        spend: BalanceSpend? = nil,
         headlinePoolID: String? = nil,
         statusNote: String? = nil,
         needsSignIn: Bool = false,
@@ -884,6 +913,7 @@ struct ProviderMeter: Sendable {
         self.costLabel = costLabel
         self.balanceLabel = balanceLabel
         self.balanceLevel = balanceLevel
+        self.spend = spend
         self.headlinePoolID = headlinePoolID
         self.statusNote = statusNote
         self.needsSignIn = needsSignIn
@@ -1047,8 +1077,11 @@ struct DailyBurnDay: Decodable, Sendable, Identifiable {
 /// Prices are informational list prices, not what Headroom estimates from
 /// local token logs and not a user's tax, regional, or employer-adjusted bill.
 struct SubscriptionPlanPrice: Decodable, Identifiable, Sendable {
-    var id: String
-    var title: String
+    /// Optional on purpose: a registry row missing its id or title must cost
+    /// that row a name, not the provider that carries the catalog. Matching
+    /// in `currentPrice(for:)` already skips rows with neither.
+    var id: String?
+    var title: String?
     var monthlyUSD: Double?
     var annualUSD: Double?
     var unit: String?
@@ -1081,7 +1114,7 @@ struct SubscriptionPricing: Decodable, Sendable {
     var currency: String?
     var checked: String?
     var url: String?
-    var plans: [SubscriptionPlanPrice]
+    var plans: [SubscriptionPlanPrice]?
 
     /// Resolve the one published price for the plan the provider reported.
     /// Exact matching is deliberate: "Team" must not silently choose between
@@ -1089,9 +1122,9 @@ struct SubscriptionPricing: Decodable, Sendable {
     func currentPrice(for plan: String?) -> SubscriptionPlanPrice? {
         guard let plan else { return nil }
         let normalizedPlan = Self.normalized(plan)
-        return plans.first {
-            Self.normalized($0.id) == normalizedPlan
-                || Self.normalized($0.title) == normalizedPlan
+        return plans?.first {
+            $0.id.map(Self.normalized) == normalizedPlan
+                || $0.title.map(Self.normalized) == normalizedPlan
         }
     }
 
@@ -1101,6 +1134,15 @@ struct SubscriptionPricing: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case currency, checked, url, plans
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        currency = try container.decodeIfPresent(String.self, forKey: .currency)
+        checked = try container.decodeIfPresent(String.self, forKey: .checked)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        plans = try container.decodeLossyArrayIfPresent(
+            SubscriptionPlanPrice.self, forKey: .plans)
     }
 }
 
@@ -1120,6 +1162,10 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// the default provider row. Drawn next to the brand mark so the mark
     /// names the tool and this names the account.
     var label: String?
+    /// Signed-in email when the host can read it from local credentials
+    /// (Codex id_token, Cursor cached profile). Nil when unknown — Claude's
+    /// OAuth token is opaque, so it often stays blank.
+    var email: String?
     var kind: String?
     /// Position in the user's pinned order. The host already sorted
     /// `providers[]`; this is here so a client that re-sorts can't drift.
@@ -1152,6 +1198,11 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// The registry's own color, before any Settings override. Settings marks
     /// this swatch "Default"; everything else just paints `accent`.
     var accentDefault: String?
+    /// The registry's own name, before any Settings override.
+    var titleDefault: String?
+    /// The same-hue shade this account would get from its provider, before
+    /// any explicit account override. Absent on the default provider row.
+    var accentDerived: String?
     var headline: String?
     /// Where this provider's granted resets get explained, when it explains
     /// them anywhere. A permalink the app only ever opens — nothing fetches
@@ -1161,11 +1212,15 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
     /// on hosts that predate the registry's price metadata.
     var subscriptionPricing: SubscriptionPricing?
     var pools: [String: QuotaPoolInfo]?
+    /// Observed prepaid spend leaf — OpenRouter / AI Gateway. Absent on
+    /// window providers and on hosts that only ship the balance pot.
+    var spend: BalanceSpend?
 
     init(
         id: String,
         title: String? = nil,
         label: String? = nil,
+        email: String? = nil,
         kind: String? = nil,
         rank: Int? = nil,
         enabled: Bool? = nil,
@@ -1179,14 +1234,18 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         error: String? = nil,
         accent: String? = nil,
         accentDefault: String? = nil,
+        titleDefault: String? = nil,
+        accentDerived: String? = nil,
         headline: String? = nil,
         resetNoteURL: String? = nil,
         subscriptionPricing: SubscriptionPricing? = nil,
-        pools: [String: QuotaPoolInfo]? = nil
+        pools: [String: QuotaPoolInfo]? = nil,
+        spend: BalanceSpend? = nil
     ) {
         self.id = id
         self.title = title
         self.label = label
+        self.email = email
         self.kind = kind
         self.rank = rank
         self.enabled = enabled
@@ -1200,20 +1259,25 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
         self.error = error
         self.accent = accent
         self.accentDefault = accentDefault
+        self.titleDefault = titleDefault
+        self.accentDerived = accentDerived
         self.headline = headline
         self.resetNoteURL = resetNoteURL
         self.subscriptionPricing = subscriptionPricing
         self.pools = pools
+        self.spend = spend
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, label, kind, rank, enabled, ok, plan, error, accent, stale
-        case headline, pools
+        case id, title, label, email, kind, rank, enabled, ok, plan, error, accent, stale
+        case headline, pools, spend
         case staleForS = "stale_for_s"
         case authRequired = "auth_required"
         case staleCause = "stale_cause"
         case retryInS = "retry_in_s"
         case accentDefault = "accent_default"
+        case titleDefault = "title_default"
+        case accentDerived = "accent_derived"
         case resetNoteURL = "reset_note_url"
         case subscriptionPricing = "subscription_pricing"
     }
@@ -1365,6 +1429,12 @@ struct QuotaProviderInfo: Decodable, Identifiable, Sendable {
 
     var primaryBalance: QuotaPoolInfo? { balancePools.first?.pool }
 
+    /// True when this provider has only prepaid balance meters — no window
+    /// rings to draw. Usage hides these; Activity paints account use instead.
+    var isBalanceOnly: Bool {
+        !balancePools.isEmpty && visiblePools.isEmpty
+    }
+
     /// This provider's burndown pools in exactly the selection and order of
     /// `displayablePools`, so a provider's charts line up one-for-one with the
     /// progress bars above them. Pools the host hid from the rings get no
@@ -1415,6 +1485,76 @@ struct UsageHistory: Decodable, Sendable {
         case cacheHitPct = "cache_hit_pct"
         case topModels = "top_models"
         case unpricedModels = "unpriced_models"
+    }
+}
+
+/// Observed prepaid spend for a balance provider (OpenRouter, AI Gateway).
+///
+/// Dollars here are **billed** by the provider's own credits API — not a local
+/// estimate. Additive on `providers[]`; absent when the account only has a
+/// pot reading or the report endpoint is unavailable (Hobby AI Gateway).
+struct BalanceSpend: Decodable, Sendable, Equatable {
+    var todayUSD: Double?
+    var periodDays: Int?
+    var periodUSD: Double?
+    var avgDailyUSD: Double?
+    var runwayDays: Double?
+    var byDay: [BalanceSpendDay]?
+    var byModel: [BalanceSpendModel]?
+    var byKey: [BalanceSpendKey]?
+    /// Soft failure for the spend series (e.g. report needs Pro). Balance
+    /// itself can still be healthy.
+    var reportError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case todayUSD = "today_usd"
+        case periodDays = "period_days"
+        case periodUSD = "period_usd"
+        case avgDailyUSD = "avg_daily_usd"
+        case runwayDays = "runway_days"
+        case byDay = "by_day"
+        case byModel = "by_model"
+        case byKey = "by_key"
+        case reportError = "report_error"
+    }
+
+    var hasFigures: Bool {
+        (todayUSD ?? 0) > 0
+            || (periodUSD ?? 0) > 0
+            || !(byModel ?? []).isEmpty
+            || !(byKey ?? []).isEmpty
+            || reportError != nil
+    }
+}
+
+struct BalanceSpendDay: Decodable, Sendable, Equatable, Identifiable {
+    var day: String?
+    var usd: Double?
+    var id: String { day ?? "\(usd ?? 0)" }
+}
+
+struct BalanceSpendModel: Decodable, Sendable, Equatable, Identifiable {
+    var id: String?
+    var title: String?
+    var usd: Double?
+    var requests: Int?
+
+    var displayName: String { title ?? id ?? "—" }
+}
+
+struct BalanceSpendKey: Decodable, Sendable, Equatable, Identifiable {
+    var name: String?
+    var usdDaily: Double?
+    var usdWeekly: Double?
+    var usdMonthly: Double?
+
+    var id: String { name ?? "key" }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case usdDaily = "usd_daily"
+        case usdWeekly = "usd_weekly"
+        case usdMonthly = "usd_monthly"
     }
 }
 
@@ -1972,6 +2112,8 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     /// Settings keeps the full `title` ("Claude · Work"); surfaces that draw
     /// a brand mark use this instead — see `QuotaProviderInfo.markTitle`.
     var label: String?
+    /// Signed-in email when the host can read it locally. Nil when unknown.
+    var email: String?
     var hint: String?
     /// "quota" or "activity" — from the host registry.
     var kind: String?
@@ -1983,6 +2125,11 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     /// The registry's own color, so the picker can offer "Default" and tell
     /// an overridden row from a shipped one.
     var accentDefault: String?
+    /// The registry's own name, so Settings can offer "Reset" and tell an
+    /// overridden row from a shipped one.
+    var titleDefault: String?
+    /// Same-hue shade from the provider, before an explicit account override.
+    var accentDerived: String?
     var enabled: Bool?
     /// Settings' Library vs Active membership. Off-but-not-dismissed is
     /// paused: the row stays in Active, dimmed, and nothing polls it. Nil
@@ -2014,11 +2161,13 @@ struct SyncSource: Decodable, Identifiable, Sendable {
     var isDismissed: Bool { dismissed ?? !(enabled ?? true) }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, label, hint, kind, group, accent, enabled, ok, stale
+        case id, title, label, email, hint, kind, group, accent, enabled, ok, stale
         case configured, error, detail, dismissed
         case authRequired = "auth_required"
         case staleCause = "stale_cause"
         case accentDefault = "accent_default"
+        case titleDefault = "title_default"
+        case accentDerived = "accent_derived"
         case ageS = "age_s"
     }
 
@@ -2270,6 +2419,9 @@ struct PlausibleSite: Decodable, Identifiable, Sendable {
     var bounceRate7d: Double?
     var visitDuration7d: Int?
     var realtime: Int?
+    /// Visitor histogram for the configured window — daily for 7d/30d,
+    /// hourly for day/24h. Same visual role as OpenRouter `spend.by_day`.
+    var byDay: [PlausibleTrafficDay]?
     var dashboardURL: String?
     var error: String?
     var range: String?
@@ -2289,9 +2441,17 @@ struct PlausibleSite: Decodable, Identifiable, Sendable {
         case pageviews7d = "pageviews_7d"
         case bounceRate7d = "bounce_rate_7d"
         case visitDuration7d = "visit_duration_7d"
+        case byDay = "by_day"
         case dashboardURL = "dashboard_url"
         case rangeLabel = "range_label"
     }
+}
+
+/// One bar in a Plausible site histogram (`by_day`).
+struct PlausibleTrafficDay: Decodable, Sendable, Equatable, Identifiable {
+    var day: String?
+    var visitors: Int?
+    var id: String { day ?? "\(visitors ?? 0)" }
 }
 
 struct PostHogUsage: Decodable, Sendable {
@@ -2342,6 +2502,142 @@ struct PostHogUsage: Decodable, Sendable {
     }
 }
 
+struct SentryUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var org: String?
+    var alertCount: Int?
+    var issues: [SentryIssue]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, org, issues
+        case alertCount = "alert_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        org = try value(.org)
+        alertCount = try value(.alertCount)
+        issues = try container.decodeLossyArrayIfPresent(
+            SentryIssue.self, forKey: .issues)
+    }
+}
+
+struct SentryIssue: Decodable, Identifiable, Sendable {
+    var id: String
+    var title: String?
+    var project: String?
+    var shortId: String?
+    var level: String?
+    var status: String?
+    var ago: String?
+    var url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, project, level, status, ago, url
+        case shortId = "short_id"
+    }
+}
+
+struct DatadogUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var site: String?
+    var alertCount: Int?
+    var warnCount: Int?
+    var monitors: [DatadogMonitor]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, site, monitors
+        case alertCount = "alert_count"
+        case warnCount = "warn_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        site = try value(.site)
+        alertCount = try value(.alertCount)
+        warnCount = try value(.warnCount)
+        monitors = try container.decodeLossyArrayIfPresent(
+            DatadogMonitor.self, forKey: .monitors)
+    }
+}
+
+struct DatadogMonitor: Decodable, Identifiable, Sendable {
+    var id: String
+    var name: String?
+    var overallState: String?
+    var status: String?
+    var ago: String?
+    var url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, ago, url
+        case overallState = "overall_state"
+    }
+}
+
+struct AxiomUsage: Decodable, Sendable {
+    var ok: Bool?
+    var configured: Bool?
+    var error: String?
+    var stale: Bool?
+    var host: String?
+    var orgId: String?
+    var alertCount: Int?
+    var alerts: [AxiomAlert]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, configured, error, stale, host, alerts
+        case orgId = "org_id"
+        case alertCount = "alert_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys) throws -> T? {
+            try container.decodeIfPresent(T.self, forKey: key)
+        }
+        ok = try value(.ok)
+        configured = try value(.configured)
+        error = try value(.error)
+        stale = try value(.stale)
+        host = try value(.host)
+        orgId = try value(.orgId)
+        alertCount = try value(.alertCount)
+        alerts = try container.decodeLossyArrayIfPresent(
+            AxiomAlert.self, forKey: .alerts)
+    }
+}
+
+struct AxiomAlert: Decodable, Identifiable, Sendable {
+    var id: String
+    var name: String?
+    var type: String?
+    var status: String?
+    var ago: String?
+    var url: String?
+    var description: String?
+}
+
 struct PostHogProject: Decodable, Identifiable, Sendable {
     var id: String
     var name: String?
@@ -2381,6 +2677,7 @@ struct LocalUsage: Decodable, Sendable {
     var error: String?
     var stale: Bool?
     var servers: [LocalServer]?
+    var builds: [LocalBuild]?
 }
 
 struct LocalServer: Decodable, Identifiable, Sendable {
@@ -2398,6 +2695,28 @@ struct LocalServer: Decodable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case name, port, pid, cmd, cwd, bind, reachable
         case latencyMS = "latency_ms"
+    }
+}
+
+/// One active `xcodebuild` / `swift build` / Xcode IDE compile on this Mac.
+struct LocalBuild: Decodable, Identifiable, Sendable {
+    var name: String?
+    var kind: String?
+    var action: String?
+    var scheme: String?
+    var target: String?
+    var pid: Int?
+    var cmd: String?
+    var cwd: String?
+    var ageS: Int?
+
+    var id: String {
+        "\(kind ?? "build"):\(pid ?? 0):\(name ?? "")"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, kind, action, scheme, target, pid, cmd, cwd
+        case ageS = "age_s"
     }
 }
 

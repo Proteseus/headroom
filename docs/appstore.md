@@ -54,9 +54,10 @@ toggles, and stopping local servers.
 Features:
 - Coding quota rings for Claude, Codex, and Cursor — remaining %, pace, resets
 - Burndown and daily burn across providers
-- Activity feed: deploys, commits, and GitHub Actions
-- Services: Supabase health, Plausible / PostHog traffic, local listening ports
-- Attention summary with optional notifications when something needs you
+- Attention queue with optional notifications — including answering agent
+  requests when the Mac grants it
+- Activity: deploys, commits, Actions, plus Supabase / Plausible / PostHog and
+  local servers on the same tab
 - Home Screen widgets backed by an on-device cache
 - Bonjour discovery of nearby Macs (Tailscale / LAN fallback)
 - Face ID before stopping a development server on your Mac
@@ -75,7 +76,23 @@ quotas,claude,codex,cursor,developer,ci,vercel,supabase,menubar,local,burn
 
 ### What's New
 
-Take the `CHANGELOG.md` section for the version being submitted.
+Paste the `CHANGELOG.md` section for the version being submitted into ASC.
+Ready copy for **1.7.3** (trim if ASC’s field is tight):
+
+```
+Recent resets is a calendar heatmap under each burndown — day grid for
+granted resets; Codex week merges codex-resets.com with local grants.
+
+Activity and Attention rows share one layout on Mac and iPhone.
+
+Vercel failed deploys no longer fall off Attention — ERROR/BLOCKED from the
+last 24h stay visible even on a busy team.
+
+Activity row limit (3–24) sits on every Activity source leaf.
+
+README and setup match Usage · Attention · Activity (Providers, Agents,
+Telemetry).
+```
 
 ### Promotional Text (170 chars max, can be updated without review)
 

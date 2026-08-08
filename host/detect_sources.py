@@ -2,6 +2,10 @@
 
 No network. Used to seed ~/.headroom/sources.json so a Claude-only machine
 doesn't poll empty Codex/Cursor (and vice versa). Stdlib only.
+
+Keychain presence checks go through `keychain.read_token(..., allow_ui=False)`
+so first-run seeding never pops SecurityAgent — the old `/usr/bin/security`
+probes could, and they also missed iCloud Keychain–synced PATs.
 """
 
 from __future__ import annotations
@@ -9,16 +13,21 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import subprocess
 
 import app_config
 import gemini_usage
 import grok_usage
 import jetbrains_usage
+import keychain
 import oauth_usage
 import opencode_usage
 import windsurf_usage
 import zed_usage
+
+
+def _headroom_token(service, account):
+    """True when Headroom has a Keychain PAT — never prompts."""
+    return bool(keychain.read_token(service, account, allow_ui=False))
 
 
 def claude_signed_in():
@@ -92,16 +101,9 @@ def git_available():
 def github_signed_in():
     if os.environ.get("HEADROOM_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN"):
         return True
-    try:
-        raw = subprocess.check_output(
-            ["/usr/bin/security", "find-generic-password",
-             "-s", "com.centaur-labs.headroom.github", "-a", "access-token", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        if raw:
-            return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
+    if _headroom_token(
+            "com.centaur-labs.headroom.github", "access-token"):
+        return True
     hosts = os.path.expanduser("~/.config/gh/hosts.yml")
     return os.path.isfile(hosts)
 
@@ -109,16 +111,9 @@ def github_signed_in():
 def supabase_signed_in():
     if os.environ.get("SUPABASE_ACCESS_TOKEN"):
         return True
-    try:
-        raw = subprocess.check_output(
-            ["/usr/bin/security", "find-generic-password",
-             "-s", "com.centaur-labs.headroom.supabase", "-a", "access-token", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        if raw:
-            return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
+    if _headroom_token(
+            "com.centaur-labs.headroom.supabase", "access-token"):
+        return True
     path = os.path.expanduser("~/.supabase/access-token")
     try:
         with open(path) as handle:
@@ -131,46 +126,65 @@ def plausible_signed_in():
     if (os.environ.get("PLAUSIBLE_API_KEY")
             or os.environ.get("HEADROOM_PLAUSIBLE_TOKEN")):
         return True
-    try:
-        raw = subprocess.check_output(
-            ["/usr/bin/security", "find-generic-password",
-             "-s", "com.centaur-labs.headroom.plausible", "-a", "access-token", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        return bool(raw)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+    return _headroom_token(
+        "com.centaur-labs.headroom.plausible", "access-token")
 
 
 def posthog_signed_in():
     if (os.environ.get("POSTHOG_PERSONAL_API_KEY")
             or os.environ.get("HEADROOM_POSTHOG_TOKEN")):
         return True
-    try:
-        raw = subprocess.check_output(
-            ["/usr/bin/security", "find-generic-password",
-             "-s", "com.centaur-labs.headroom.posthog", "-a", "access-token", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        return bool(raw)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+    return _headroom_token(
+        "com.centaur-labs.headroom.posthog", "access-token")
+
+
+def sentry_signed_in():
+    if (os.environ.get("SENTRY_AUTH_TOKEN")
+            or os.environ.get("HEADROOM_SENTRY_TOKEN")):
+        return True
+    return _headroom_token(
+        "com.centaur-labs.headroom.sentry", "access-token")
+
+
+def datadog_signed_in():
+    if ((os.environ.get("DD_API_KEY") or os.environ.get("HEADROOM_DATADOG_API_KEY"))
+            and (os.environ.get("DD_APP_KEY")
+                 or os.environ.get("DD_APPLICATION_KEY")
+                 or os.environ.get("HEADROOM_DATADOG_APP_KEY"))):
+        return True
+    return (
+        _headroom_token("com.centaur-labs.headroom.datadog", "api-key")
+        and _headroom_token("com.centaur-labs.headroom.datadog", "app-key")
+    )
+
+
+def axiom_signed_in():
+    if (os.environ.get("AXIOM_TOKEN")
+            or os.environ.get("AXIOM_API_TOKEN")
+            or os.environ.get("HEADROOM_AXIOM_TOKEN")):
+        return True
+    if _headroom_token(
+            "com.centaur-labs.headroom.axiom", "access-token"):
+        return True
+    for path in (
+        os.path.join(os.getcwd(), ".axiom.toml"),
+        os.path.expanduser("~/.axiom.toml"),
+    ):
+        try:
+            with open(path) as handle:
+                if "token" in handle.read():
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def openrouter_signed_in():
     if (os.environ.get("OPENROUTER_API_KEY")
             or os.environ.get("HEADROOM_OPENROUTER_TOKEN")):
         return True
-    try:
-        raw = subprocess.check_output(
-            ["/usr/bin/security", "find-generic-password",
-             "-s", "com.centaur-labs.headroom.openrouter",
-             "-a", "access-token", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        return bool(raw)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+    return _headroom_token(
+        "com.centaur-labs.headroom.openrouter", "access-token")
 
 
 def ai_gateway_signed_in():
@@ -178,16 +192,8 @@ def ai_gateway_signed_in():
             or os.environ.get("HEADROOM_AI_GATEWAY_TOKEN")
             or os.environ.get("VERCEL_OIDC_TOKEN")):
         return True
-    try:
-        raw = subprocess.check_output(
-            ["/usr/bin/security", "find-generic-password",
-             "-s", "com.centaur-labs.headroom.ai-gateway",
-             "-a", "access-token", "-w"],
-            stderr=subprocess.DEVNULL, text=True,
-        ).strip()
-        return bool(raw)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+    return _headroom_token(
+        "com.centaur-labs.headroom.ai-gateway", "access-token")
 
 
 def local_available():
@@ -217,6 +223,9 @@ PROBES = {
     "supabase": supabase_signed_in,
     "plausible": plausible_signed_in,
     "posthog": posthog_signed_in,
+    "sentry": sentry_signed_in,
+    "datadog": datadog_signed_in,
+    "axiom": axiom_signed_in,
     "openrouter": openrouter_signed_in,
     "ai-gateway": ai_gateway_signed_in,
 }

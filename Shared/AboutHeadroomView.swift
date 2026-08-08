@@ -8,9 +8,23 @@ import UIKit
 #endif
 
 /// Compact About block for Settings on Mac and iPhone: icon, name, version,
-/// and who made it. Keeps the credit line in one place so the two surfaces
+/// who made it, and a light open-source / community touch (GitHub source +
+/// live star count). Keeps the credit line in one place so the two surfaces
 /// cannot drift.
 struct AboutHeadroomView: View {
+    @State private var starCount: Int?
+    @State private var showingChangelog = false
+
+    private static let githubURL = URL(
+        string: "https://github.com/michellzappa/headroom"
+    )!
+    private static let communityURL = URL(
+        string: "https://headroom-telemetry.mz-508.workers.dev/community"
+    )!
+    private static let starsAPIURL = URL(
+        string: "https://api.github.com/repos/michellzappa/headroom"
+    )!
+
     var body: some View {
         VStack(spacing: 6) {
             appIcon
@@ -36,10 +50,52 @@ struct AboutHeadroomView: View {
             Text(HeadroomCopy.publisher)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+
+            VStack(spacing: 4) {
+                Button(HeadroomCopy.changelog) {
+                    showingChangelog = true
+                }
+                .font(.caption.weight(.medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+
+                Link(destination: Self.githubURL) {
+                    Text(HeadroomCopy.aboutSourceOnGitHub)
+                        .font(.caption.weight(.medium))
+                }
+                if let starCount {
+                    Text(HeadroomCopy.aboutGitHubStars(starCount))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel(HeadroomCopy.aboutGitHubStars(starCount))
+                }
+                Link(destination: Self.communityURL) {
+                    Text(HeadroomCopy.aboutCommunityPulse)
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
+        .task { await loadStarCount() }
+        .sheet(isPresented: $showingChangelog) {
+            NavigationStack {
+                ChangelogView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(HeadroomCopy.done) {
+                                showingChangelog = false
+                            }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 480, minHeight: 420)
+            #endif
+        }
     }
 
     private var versionLabel: String {
@@ -72,5 +128,35 @@ struct AboutHeadroomView: View {
         #else
         Image(systemName: "app.fill")
         #endif
+    }
+
+    private func loadStarCount() async {
+        var request = URLRequest(url: Self.starsAPIURL)
+        request.timeoutInterval = 8
+        request.cachePolicy = .returnCacheDataElseLoad
+        request.setValue(
+            "application/vnd.github+json",
+            forHTTPHeaderField: "Accept"
+        )
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let payload = try? JSONDecoder().decode(
+                    GitHubRepoStars.self, from: data
+                  )
+            else { return }
+            starCount = payload.stargazersCount
+        } catch {
+            // About stays useful offline; stars are a niceness, not a requirement.
+        }
+    }
+}
+
+private struct GitHubRepoStars: Decodable {
+    let stargazersCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case stargazersCount = "stargazers_count"
     }
 }

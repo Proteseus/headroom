@@ -1,9 +1,16 @@
 import SwiftUI
 
-/// Nested under General — see docs/multi-mac.md for the sync design.
+/// A sidebar root — see docs/multi-mac.md for the sync design.
 extension SettingsView {
     var otherMacsPane: some View {
         Form {
+            otherMacsSection
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    var otherMacsSection: some View {
             Section {
                 Toggle(
                     "Share settings between my Macs",
@@ -53,7 +60,7 @@ extension SettingsView {
                             systemImage: "exclamationmark.triangle"
                         )
                         .font(.caption)
-                        .foregroundStyle(HeadroomPalette.amber)
+                        .foregroundStyle(HeadroomPalette.orange)
                     } else if let failure = MachineCloudSync.lastFailure {
                         // Ahead of the host's trouble_detail because that field
                         // only ever describes the folder transport. A CloudKit
@@ -62,11 +69,11 @@ extension SettingsView {
                         // that nobody else has joined.
                         Label(failure, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(HeadroomPalette.amber)
+                            .foregroundStyle(HeadroomPalette.orange)
                     } else if let detail = multiMac.troubleDetail {
                         Label(detail, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(HeadroomPalette.amber)
+                            .foregroundStyle(HeadroomPalette.orange)
                     } else if multiMac.peers.isEmpty {
                         Text("No other Macs yet. Turn this on over there too.")
                             .font(.caption)
@@ -98,8 +105,6 @@ extension SettingsView {
                      ? "Multi-Mac settings must be changed on the Mac running the Headroom host."
                      : "Enabled sources, provider order, and accent colours follow you between Macs over iCloud. Credentials, file paths, and this Mac's local servers and commits are never shared. Quota percentages already match everywhere, because your provider counts the account rather than the machine.")
             }
-        }
-        .formStyle(.grouped)
     }
 
     func reloadMultiMac() async {

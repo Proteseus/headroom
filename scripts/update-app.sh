@@ -203,6 +203,11 @@ note "Verified $NEW_VERSION, notarized, team $GOT_TEAM."
 # the host is a KeepAlive LaunchAgent detached from the app (PPID 1), so
 # launchd puts it back within seconds and it goes on holding the old bundle's
 # files and the board's serial port.
+#
+# Under the app-owned lifecycle (docs/host.md) there is no job to find, so this
+# block does nothing and every launchctl call below stays skipped. The quit
+# above is what stopped the host in that mode, and the `open` at the end starts
+# a fresh child from the new bundle.
 AGENT_WAS_LOADED=0
 if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
   AGENT_WAS_LOADED=1

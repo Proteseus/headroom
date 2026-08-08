@@ -74,6 +74,7 @@ class AgentGateway:
             "ok": True,
             "enabled": app_config.agent_gateway_enabled(),
             "codex_binary": app_config.codex_binary(),
+            "alerts": app_config.agent_alerts(),
             "provider": provider,
         }
 
@@ -156,6 +157,11 @@ class AgentGateway:
     def events(self, state="open", limit=50, after_ms=None):
         rows = self.store.list(
             state=state, limit=limit, after_ms=after_ms)
+        if not app_config.agent_alerts():
+            # Questions and approvals can still need a person even when the
+            # passive "ready / stopped" stream is quiet. All passive notices
+            # use this kind, while structured questions deliberately do not.
+            rows = [row for row in rows if row.get("kind") != "agent_waiting"]
         return {
             "ok": True,
             "events": [self._public_event(row) for row in rows],

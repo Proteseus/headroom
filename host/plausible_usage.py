@@ -29,6 +29,7 @@ KEYCHAIN_SERVICE = "com.centaur-labs.headroom.plausible"
 KEYCHAIN_ACCOUNT = "access-token"
 LIST_PAGE_LIMIT = 100
 LIST_MAX_PAGES = 20
+DISK = "plausible_stats"
 
 _cache = {"t": 0.0, "data": None}
 _EMPTY = {
@@ -150,6 +151,89 @@ def _query(token, site_id, metrics, date_range, timeout=12):
     return _metric_map(payload, metrics)
 
 
+def _series_spec(range_id):
+    """Date range + time dimension for the menubar histogram.
+
+    Multi-day windows stay daily (OpenRouter-shaped). day / 24h use hourly
+    buckets so a short primary window still has a readable bar strip.
+    """
+    if range_id in ("7d", "30d"):
+        return range_id, "time:day"
+    return range_id, "time:hour"
+
+
+def _as_int(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bucket_key(label, dimension):
+    text = str(label or "").strip()
+    if not text:
+        return None
+    if dimension == "time:day":
+        return text[:10]
+    # Hour labels arrive as "YYYY-MM-DD HH:MM:SS" — keep through the hour.
+    if "T" in text:
+        return text[:13]
+    if " " in text:
+        return text[:13]
+    return text[:10]
+
+
+def _fetch_series(token, site_id, range_id, timeout=12):
+    """Visitor histogram for one site — filled zeros via time_labels."""
+    date_range, dimension = _series_spec(range_id)
+    payload = _request(
+        "POST",
+        "/api/v2/query",
+        token,
+        body={
+            "site_id": site_id,
+            "metrics": ["visitors"],
+            "date_range": date_range,
+            "dimensions": [dimension],
+            "include": {"time_labels": True},
+        },
+        timeout=timeout,
+    )
+    results = (payload or {}).get("results") or []
+    by_bucket = {}
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        dims = row.get("dimensions") or []
+        metrics = row.get("metrics") or []
+        if not dims:
+            continue
+        key = _bucket_key(dims[0], dimension)
+        visitors = _as_int(metrics[0] if metrics else None)
+        if key is None or visitors is None:
+            continue
+        by_bucket[key] = by_bucket.get(key, 0) + max(0, visitors)
+
+    labels = ((payload or {}).get("meta") or {}).get("time_labels") or []
+    keys = []
+    seen = set()
+    for label in labels:
+        key = _bucket_key(label, dimension)
+        if key is None or key in seen:
+            continue
+        seen.add(key)
+        keys.append(key)
+    if not keys:
+        keys = sorted(by_bucket.keys())
+
+    return [
+        {"day": key, "visitors": int(by_bucket.get(key, 0))}
+        for key in keys
+    ]
+
+
 def _realtime(token, site_id, timeout=8):
     """Current visitors — legacy v1 endpoint still works with Stats keys."""
     payload = _request(
@@ -255,6 +339,24 @@ def _dashboard_url(domain):
     return f"{host}/{urllib.parse.quote(domain)}"
 
 
+def _site_stub(domain, range_id, error=None):
+    return {
+        "domain": domain,
+        "range": range_id,
+        "range_label": app_config.plausible_range_label(range_id),
+        "visitors_today": None,
+        "pageviews_today": None,
+        "visitors_7d": None,
+        "pageviews_7d": None,
+        "bounce_rate_7d": None,
+        "visit_duration_7d": None,
+        "realtime": 0,
+        "by_day": [],
+        "dashboard_url": _dashboard_url(domain),
+        "error": error,
+    }
+
+
 def _fetch_site(token, domain, range_id):
     """Primary window is configurable; 7d stays as secondary context."""
     primary_metrics = ("visitors", "pageviews")
@@ -263,6 +365,7 @@ def _fetch_site(token, domain, range_id):
     primary = {name: None for name in primary_metrics}
     week = {name: None for name in rich_metrics}
     realtime = 0
+    by_day = []
     try:
         if range_id == "7d":
             week = _query(token, domain, rich_metrics, "7d")
@@ -275,6 +378,13 @@ def _fetch_site(token, domain, range_id):
             primary = _query(token, domain, primary_metrics, range_id)
             week = _query(token, domain, rich_metrics, "7d")
         realtime = _realtime(token, domain)
+        try:
+            by_day = _fetch_series(token, domain, range_id)
+        except (urllib.error.URLError, OSError, ValueError, TypeError,
+                urllib.error.HTTPError):
+            # Totals still stand without the strip — same posture as OpenRouter
+            # when analytics is partial.
+            by_day = []
     except urllib.error.HTTPError as err:
         if err.code in (401, 403):
             raise
@@ -292,6 +402,7 @@ def _fetch_site(token, domain, range_id):
         "bounce_rate_7d": week.get("bounce_rate"),
         "visit_duration_7d": week.get("visit_duration"),
         "realtime": realtime,
+        "by_day": by_day,
         "dashboard_url": _dashboard_url(domain),
         "error": error,
     }
@@ -371,35 +482,11 @@ def fetch_stats(force=False):
                 except urllib.error.HTTPError as err:
                     if err.code in (401, 403):
                         raise
-                    by_domain[domain] = {
-                        "domain": domain,
-                        "range": range_id,
-                        "range_label": app_config.plausible_range_label(range_id),
-                        "visitors_today": None,
-                        "pageviews_today": None,
-                        "visitors_7d": None,
-                        "pageviews_7d": None,
-                        "bounce_rate_7d": None,
-                        "visit_duration_7d": None,
-                        "realtime": 0,
-                        "dashboard_url": _dashboard_url(domain),
-                        "error": f"HTTP {err.code}",
-                    }
+                    by_domain[domain] = _site_stub(
+                        domain, range_id, error=f"HTTP {err.code}")
                 except Exception as err:
-                    by_domain[domain] = {
-                        "domain": domain,
-                        "range": range_id,
-                        "range_label": app_config.plausible_range_label(range_id),
-                        "visitors_today": None,
-                        "pageviews_today": None,
-                        "visitors_7d": None,
-                        "pageviews_7d": None,
-                        "bounce_rate_7d": None,
-                        "visit_duration_7d": None,
-                        "realtime": 0,
-                        "dashboard_url": _dashboard_url(domain),
-                        "error": str(err) or "fetch failed",
-                    }
+                    by_domain[domain] = _site_stub(
+                        domain, range_id, error=str(err) or "fetch failed")
             rows = [by_domain[domain] for domain in sites if domain in by_domain]
 
         # Live traffic first, then busiest in the primary window.
@@ -422,8 +509,7 @@ def fetch_stats(force=False):
             "sites_source": source,
             "updated_at": int(now),
         }
-        _cache.update(t=now, data=result, err=None)
-        return result
+        return cache_util.store(_cache, now, result, disk_name=DISK)
     except urllib.error.HTTPError as error:
         message = "Plausible token rejected" if error.code in (401, 403) else (
             f"Plausible HTTP {error.code}")
@@ -439,8 +525,8 @@ def fetch_stats(force=False):
             return result
         return cache_util.keep_stale(_cache, now, message, {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)
     except Exception as error:
         return cache_util.keep_stale(_cache, now, str(error), {
             **_EMPTY, "configured": True,
-        })
+        }, disk_name=DISK)

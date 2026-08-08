@@ -19,6 +19,9 @@ Policy that already lives next to the code (do not turn these into prefs):
 
 - Quota % never pages Attention — rings own that reading.
 - Supabase lints: ERROR only; WARN/INFO stay in the app without lighting the pip.
+- Sentry: unresolved issues with `lastSeen` inside 24h only — aged debt stays out of the pip.
+- Datadog: monitors in Alert (critical/warn by count); Warn-only is a quieter reason. Not APM or host maps.
+- Axiom: open monitor alerts only — not ingest volume.
 - Stale quotas alert after `STALE_ALERT_S`, not on every timeout.
 - GitHub Actions failures age out; Codex spend/time events are the only quota
   path into Attention.
@@ -26,16 +29,18 @@ Policy that already lives next to the code (do not turn these into prefs):
   @mentions (warn). Mentions stay scoped to the watch list — not every
   @you on GitHub — so the pip stays useful for CI and review oversight.
 
-**Clear** dismisses the current fingerprint until reasons change. That is ack
-state (`attention_ack_fingerprint` in local config), not a preference, and it
-does not sync across Macs.
+**Dismiss all** clears the queue on this surface and acks the current
+fingerprint until reasons change. Ack state (`attention_ack_fingerprint` in
+local config) is not a preference, and it does not sync across Macs. Local
+row dismissals (iPhone swipe, Mac **Dismiss all**) are per-surface — the ack
+is what turns the menu-bar pip off everywhere on this host.
 
 ## What is already configurable
 
 | Knob | Surface |
 |------|---------|
-| Codex attention gateway on/off + binary | Mac Settings → Coding agents |
-| Claude hooks install / test | Mac Settings → Coding agents |
+| Codex attention gateway on/off + binary | Mac Settings → Agents |
+| Claude hooks install / test | Mac Settings → Agents |
 | Answer coding agents | Mac Settings → iPhone (`agents` permission, default off) |
 | Attention notifications | iOS Settings → iPhone (`@AppStorage`) |
 | Disable a source | Sources — stops that source's stale/derived reasons |
@@ -49,7 +54,7 @@ severity thresholds. Ack fingerprint and the event ledger stay off
 If a specific kind becomes chronic noise in real use (stuck amber forever), add
 **mute-by-kind**: a local boolean map in `config.json`, same locality as
 `agent_gateway_enabled`, gated inside the scorer. Place the toggle next to the
-source that feeds it (Coding agents or Integrations) — still not a scoring UI.
+source that feeds it (Agents or Integrations) — still not a scoring UI.
 
 Do not invent threshold pickers, weight sliders, or a synced attention-prefs
 blob. Revisit only when mute-by-kind is clearly needed.

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import threading
+from zoneinfo import ZoneInfo
 
 STORE_PATH = os.path.expanduser("~/.headroom/config.json")
 
@@ -32,6 +33,11 @@ DEFAULTS = {
     "posthog_projects": [],
     "posthog_host": "https://us.posthog.com",
     "posthog_range": "24h",
+    # Attention/Activity alert sources — org/site only; tokens stay in Keychain.
+    "sentry_org": "",
+    "datadog_site": "datadoghq.com",
+    "axiom_host": "https://api.axiom.co",
+    "axiom_org_id": "",
     # Authenticated iOS clients may use only these capabilities, and only from
     # a private/Tailscale address. Credential management remains Mac-local.
     "mobile_permissions": ["read", "refresh", "sources", "servers"],
@@ -40,6 +46,9 @@ DEFAULTS = {
     # never launch a coding agent behind the user's back.
     "agent_gateway_enabled": False,
     "codex_binary": "codex",
+    # Passive agent notices are useful when coordinating several sessions, but
+    # questions and approvals remain visible when this is off.
+    "agent_alerts": True,
     # Escape hatch for a Gemini CLI install the host cannot find, or a future
     # layout it cannot read. The equivalent env vars are documented but do not
     # survive: the app rewrites the LaunchAgent plist on every host install.
@@ -63,6 +72,11 @@ DEFAULTS = {
 # and two of those absences are load-bearing: `auth_token` is a credential,
 # and `dev_root` / `codex_binary` are paths that describe one machine's disk.
 SHARED_CONFIG_KEYS = (
+    # One person has one notion of "today", and burndown history merges
+    # across Macs (docs/metering.md decision 9) — two machines disagreeing
+    # about where the day boundary falls would thin one curve against
+    # another's buckets. Unlike dev_root, this is not a fact about a disk.
+    "timezone",
     "git_authors",
     "vercel_team_slugs",
     "supabase_project_refs",
@@ -75,6 +89,10 @@ SHARED_CONFIG_KEYS = (
     "posthog_projects",
     "posthog_host",
     "posthog_range",
+    "sentry_org",
+    "datadog_site",
+    "axiom_host",
+    "axiom_org_id",
 )
 
 _lock = threading.Lock()
@@ -144,6 +162,25 @@ def get(key, default=None):
 def timezone_name():
     value = get("timezone") or DEFAULTS["timezone"]
     return str(value)
+
+
+def set_timezone(value):
+    """Persist the zone every day boundary is drawn in.
+
+    Validated against the system tz database here rather than at read time:
+    `timezone_name()` feeds `ZoneInfo(...)` on the request path, and an
+    unknown name there would raise once per document instead of once at the
+    moment somebody typed it.
+    """
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("timezone must be a zone name, e.g. Europe/Berlin")
+    try:
+        ZoneInfo(name)
+    except Exception as exc:
+        raise ValueError(f"unknown timezone {name!r}") from exc
+    _persist(timezone=name)
+    return name
 
 
 def dev_root():
@@ -360,6 +397,38 @@ def plausible_host():
     return str(value).rstrip("/") or DEFAULTS["plausible_host"]
 
 
+def _api_host(value, key):
+    """An http(s) base URL a provider key will be sent to, or ValueError.
+
+    The scheme is checked rather than merely tested for, because these hosts
+    are the destination of an `Authorization: Bearer` header — a value like
+    `file:///etc/passwd` contains `://` and would otherwise sail through to
+    `urlopen`. Anything without a scheme is assumed https; anything with a
+    scheme we do not speak is refused rather than quietly rewritten.
+    """
+    host = str(value or "").strip().rstrip("/")
+    if not host:
+        raise ValueError(f"{key} must be a URL")
+    if "://" not in host:
+        return "https://" + host
+    if not host.startswith(("http://", "https://")):
+        raise ValueError(f"{key} must be an http or https URL")
+    return host
+
+
+def set_plausible_host(value):
+    """Persist the Plausible API host (cloud or self-hosted).
+
+    Same shape as `set_posthog_host`. The key was in SHARED_CONFIG_KEYS and
+    readable from the start, but had no setter and no payload field, so a
+    self-hosted Plausible could only be reached by hand-editing config.json
+    while the identical PostHog case had a picker.
+    """
+    host = _api_host(value, "plausible_host")
+    _persist(plausible_host=host)
+    return host
+
+
 PLAUSIBLE_RANGES = ("day", "24h", "7d", "30d")
 PLAUSIBLE_RANGE_LABELS = {
     "day": "today",
@@ -418,11 +487,7 @@ def posthog_host():
 
 def set_posthog_host(value):
     """Persist the PostHog API host (US / EU / self-hosted)."""
-    host = str(value or "").strip().rstrip("/")
-    if not host:
-        raise ValueError("posthog_host must be a URL")
-    if "://" not in host:
-        host = "https://" + host
+    host = _api_host(value, "posthog_host")
     _persist(posthog_host=host)
     return host
 
@@ -454,6 +519,65 @@ def set_posthog_range(value):
             f"posthog_range must be one of {', '.join(POSTHOG_RANGES)}")
     _persist(posthog_range=rid)
     return rid
+
+
+def sentry_org():
+    value = get("sentry_org") or DEFAULTS["sentry_org"]
+    return str(value).strip()
+
+
+def set_sentry_org(value):
+    org = str(value or "").strip()
+    _persist(sentry_org=org)
+    return org
+
+
+def datadog_site():
+    value = get("datadog_site") or DEFAULTS["datadog_site"]
+    site = str(value).strip().lstrip(".")
+    site = site.removeprefix("https://").removeprefix("http://")
+    site = site.removeprefix("api.").removeprefix("app.")
+    site = site.split("/")[0].strip() or DEFAULTS["datadog_site"]
+    return site
+
+
+def set_datadog_site(value):
+    site = str(value or "").strip()
+    if not site:
+        raise ValueError("datadog_site must be a site like datadoghq.com")
+    site = site.removeprefix("https://").removeprefix("http://")
+    site = site.removeprefix("api.").removeprefix("app.")
+    site = site.split("/")[0].strip().lstrip(".")
+    if not site or " " in site:
+        raise ValueError("datadog_site must be a site like datadoghq.com")
+    _persist(datadog_site=site)
+    return site
+
+
+def axiom_host():
+    value = get("axiom_host") or DEFAULTS["axiom_host"]
+    return str(value).rstrip("/") or DEFAULTS["axiom_host"]
+
+
+def set_axiom_host(value):
+    host = str(value or "").strip().rstrip("/")
+    if not host:
+        raise ValueError("axiom_host must be a URL")
+    if not (host.startswith("http://") or host.startswith("https://")):
+        host = "https://" + host
+    _persist(axiom_host=host)
+    return host
+
+
+def axiom_org_id():
+    value = get("axiom_org_id") or DEFAULTS["axiom_org_id"]
+    return str(value).strip()
+
+
+def set_axiom_org_id(value):
+    org = str(value or "").strip()
+    _persist(axiom_org_id=org)
+    return org
 
 
 MOBILE_PERMISSION_ORDER = ("read", "refresh", "sources", "servers", "agents")
@@ -545,6 +669,18 @@ def codex_binary():
     return os.path.expanduser(value or DEFAULTS["codex_binary"])
 
 
+def agent_alerts():
+    """Whether passive coding-agent notices appear in the attention feed."""
+    return get("agent_alerts") is True
+
+
+def set_agent_alerts(enabled):
+    if not isinstance(enabled, bool):
+        raise ValueError("alerts must be true or false")
+    _persist(agent_alerts=enabled)
+    return agent_alerts()
+
+
 def gemini_oauth_client():
     """Return (client_id, client_secret) overrides, empty strings if unset."""
     cid = str(get("gemini_oauth_client_id") or "").strip()
@@ -625,6 +761,17 @@ def set_shared_config(updates):
     clean = {
         k: v for k, v in (updates or {}).items() if k in SHARED_CONFIG_KEYS
     }
+    # Three of these keys are the base URL a provider key gets sent to, so a
+    # peer record that sets one is an exfiltration primitive for the matching
+    # Keychain secret: point `plausible_host` at a host you control and every
+    # Mac in the folder ships its token there on the next poll. The whitelist
+    # was reasoned about as "no credentials"; a *destination* for a
+    # credential is the same problem wearing a different key. The folder
+    # transport is explicitly allowed to be Dropbox or Syncthing
+    # (docs/multi-mac.md), which can have other participants.
+    for key in ("plausible_host", "posthog_host", "axiom_host"):
+        if key in clean:
+            clean[key] = _api_host(clean[key], key)
     if clean:
         _persist(**clean)
     return clean

@@ -51,14 +51,34 @@ enum KeychainPassword {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Replaces whatever is stored under this service/account, in **both**
-    /// halves of the keychain. Deleting `.any` first is what keeps a stale
-    /// local copy from shadowing a freshly synced one on the next read.
-    static func save(
+    /// Create or replace the item in **one** half of the keychain.
+    ///
+    /// Update-or-add, never delete-both-then-add. The old `save` wiped
+    /// `.any` before writing, so a refused synchronizable write destroyed a
+    /// working local copy before the local fallback could run — and if that
+    /// fallback also failed, the token the user just pasted was gone. Scope
+    /// hygiene (dropping the other half so `.any` reads cannot flip-flop)
+    /// belongs to `TokenStore.save`, after this write has succeeded.
+    static func replace(
         _ token: String, service: String, account: String,
-        scope: KeychainScope = .local, failure: String
+        scope: KeychainScope, failure: String
     ) throws {
-        delete(service: service, account: account, scope: .any)
+        precondition(scope != .any, "cannot write with KeychainScope.any")
+        let data = Data(token.utf8)
+        let query = baseQuery(service: service, account: account, scope: scope)
+        let status = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if status == errSecSuccess { return }
+        if status == errSecItemNotFound {
+            try add(token, service: service, account: account,
+                    scope: scope, failure: failure)
+            return
+        }
+        // Update refused for a reason other than a miss (ACL, locked
+        // keychain, …). Delete this scope only and re-add.
+        delete(service: service, account: account, scope: scope)
         try add(token, service: service, account: account,
                 scope: scope, failure: failure)
     }
@@ -74,6 +94,7 @@ enum KeychainPassword {
         _ token: String, service: String, account: String,
         scope: KeychainScope, failure: String
     ) throws {
+        precondition(scope != .any, "cannot write with KeychainScope.any")
         var attributes = baseQuery(service: service, account: account, scope: scope)
         attributes[kSecValueData as String] = Data(token.utf8)
         // Not a `…ThisDeviceOnly` class: those are refused outright for a
@@ -81,15 +102,24 @@ enum KeychainPassword {
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else {
-            throw NSError(
-                domain: NSOSStatusErrorDomain,
-                code: Int(status),
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                        "\(failure) (OSStatus \(status))",
-                ]
-            )
+            throw keychainError(failure, status: status)
         }
+    }
+
+    private static func keychainError(
+        _ failure: String, status: OSStatus
+    ) -> NSError {
+        // Own domain so the message we put in NSLocalizedDescriptionKey is
+        // always what Settings shows. NSOSStatusErrorDomain is fine for most
+        // codes but is the wrong place to hang product copy.
+        NSError(
+            domain: "HeadroomKeychain",
+            code: Int(status),
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "\(failure) (OSStatus \(status))",
+            ]
+        )
     }
 
     private static func baseQuery(
@@ -130,7 +160,7 @@ struct TokenStore: Sendable {
 
     func save(_ token: String) throws {
         guard synced else {
-            try KeychainPassword.save(
+            try KeychainPassword.replace(
                 token, service: service, account: account,
                 scope: .local, failure: failureMessage)
             return
@@ -140,14 +170,25 @@ struct TokenStore: Sendable {
         // refuses a synchronizable write — either way Connect must still
         // work on this Mac, so fall back to local. Same tolerance adoptSync
         // already has; save was the path that surfaced it as a hard error.
+        //
+        // Write one half, then drop the other. Never delete both first: a
+        // refused sync write used to wipe a working local copy before the
+        // fallback ran ("Could not save GitHub token.").
         do {
-            try KeychainPassword.save(
+            try KeychainPassword.replace(
                 token, service: service, account: account,
                 scope: .synced, failure: failureMessage)
+            KeychainPassword.delete(
+                service: service, account: account, scope: .local)
         } catch {
-            try KeychainPassword.save(
+            try KeychainPassword.replace(
                 token, service: service, account: account,
                 scope: .local, failure: failureMessage)
+            // Best-effort. A leftover synced copy would win an `.any` read
+            // at random; the same conditions that refused the sync write
+            // may refuse this delete too.
+            KeychainPassword.delete(
+                service: service, account: account, scope: .synced)
         }
     }
 
@@ -217,6 +258,28 @@ struct TokenStore: Sendable {
         failureMessage: "Could not save AI Gateway key.",
         synced: true
     )
+    static let sentry = TokenStore(
+        service: "com.centaur-labs.headroom.sentry",
+        failureMessage: "Could not save Sentry token.",
+        synced: true
+    )
+    static let datadogAPI = TokenStore(
+        service: "com.centaur-labs.headroom.datadog",
+        failureMessage: "Could not save Datadog API key.",
+        account: "api-key",
+        synced: true
+    )
+    static let datadogApp = TokenStore(
+        service: "com.centaur-labs.headroom.datadog",
+        failureMessage: "Could not save Datadog App key.",
+        account: "app-key",
+        synced: true
+    )
+    static let axiom = TokenStore(
+        service: "com.centaur-labs.headroom.axiom",
+        failureMessage: "Could not save Axiom token.",
+        synced: true
+    )
     /// Only needed when the endpoint is not loopback — the host lets local
     /// callers through without one.
     ///
@@ -231,6 +294,7 @@ struct TokenStore: Sendable {
     /// Every store whose token travels.
     static let syncedStores: [TokenStore] = [
         .supabase, .plausible, .posthog, .github, .openrouter, .aiGateway,
+        .sentry, .datadogAPI, .datadogApp, .axiom,
     ]
 
     /// Migrate pre-existing local tokens into the synced keyspace. Cheap, and

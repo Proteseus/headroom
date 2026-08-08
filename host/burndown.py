@@ -69,6 +69,23 @@ def _round(value, digits=1):
     return None if value is None else round(value, digits)
 
 
+def _wire_reset(event):
+    """Burndown `resets[]` row — additive fields only when present."""
+    out = {
+        "t": int(event["t"]),
+        "kind": event.get("kind") or "granted",
+    }
+    if event.get("forgiven_pct") is not None:
+        out["forgiven_pct"] = round(float(event["forgiven_pct"]), 2)
+    if event.get("source"):
+        out["source"] = event["source"]
+    if event.get("tweet_url"):
+        out["tweet_url"] = event["tweet_url"]
+    if event.get("tweet_id"):
+        out["tweet_id"] = str(event["tweet_id"])
+    return out
+
+
 def _rate_unit(window_s):
     """Points-per-hour reads sensibly for a 5h window; per-day does not."""
     return "hour" if window_s <= 24 * 3600 else "day"
@@ -305,9 +322,19 @@ def compute(provider, pool, payload, *, now=None, points=DEFAULT_POINTS,
 
     # Resets granted out of band, oldest first. A scheduled roll is already
     # drawn by the axis; these are the ones that would otherwise look like the
-    # chart forgetting yesterday.
-    resets = quota_samples.rolls(
-        rows, since=now - quota_samples.ROLL_LOOKBACK_S)
+    # chart forgetting yesterday. `rolls_for` also keeps them in a durable
+    # journal so the heatmap outlives the sample window. Codex week additionally
+    # merges the public announcement feed so history reaches past what this Mac
+    # happened to observe.
+    announced = None
+    if provider == "codex" and pool == "week":
+        import codex_resets
+        announced = codex_resets.events()
+    resets = quota_samples.rolls_for(
+        provider, pool, rows, now=now, announced=announced)
+    # Wire shape stays additive: drop null forgiven_pct rather than sending it,
+    # and only include tweet fields when present so older clients ignore them.
+    resets = [_wire_reset(event) for event in resets]
 
     # Clipped to the window, so the curve can never span a reset. Samples from
     # the other side of one describe a budget that no longer exists.

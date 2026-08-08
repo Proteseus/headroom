@@ -53,14 +53,22 @@ import cache_util
 import sources_config
 
 STORE_PATH = os.path.expanduser("~/.headroom/quota_samples.jsonl")
+# Compact grant log — survives sample compaction so the heatmap can reach
+# further back than the burndown curve's two-week samples.
+ROLLS_PATH = os.path.expanduser("~/.headroom/quota_resets.jsonl")
 
 # One row per pool per bucket. Fine enough to regress a 5h session window,
 # coarse enough that a week of samples stays small.
 BUCKET_S = 5 * 60
-RETENTION_S = 14 * 24 * 3600
+# Keep enough samples that a mid-window grant can still be re-detected weeks
+# later if the journal write failed, and that `history` / burndown still have
+# something to draw. Grants themselves live in `ROLLS_PATH` for longer.
+RETENTION_S = 90 * 24 * 3600
 # Rewrite the file once it grows past this many lines (~2x a full retention
-# window), dropping rows older than the cutoff.
-COMPACT_AT_LINES = 60_000
+# window), dropping rows older than the cutoff. At 5-minute buckets × ~7 pools
+# × 90 days that is ~180k rows; the threshold sits above one full window so a
+# quiet install does not rewrite every tick.
+COMPACT_AT_LINES = 400_000
 # Slack on "a full window later", so a reset observed slightly early still
 # reads as a roll rather than jitter.
 WINDOW_TOLERANCE_S = 15 * 60
@@ -68,15 +76,16 @@ WINDOW_TOLERANCE_S = 15 * 60
 # `rolled_window` for why either alone is ambiguous.
 RESET_MIN_DROP_PCT = 1.0
 RESET_MIN_GAIN_S = 15 * 60
-# How far back `rolls` looks, and how many it hands to a caller. The span is
-# the whole retention window rather than the overview chart's week: a grant is
-# also a log entry, and the reset list answers "when did I last spend a credit"
-# over as much history as the store actually kept. Charts clip to their own
-# domain anyway, so widening this costs them nothing.
+# How far back sample-derived `rolls` looks when seeding the grant journal.
+# Charts clip to their own domain; the journal is what keeps history past the
+# sample retention window.
 ROLL_LOOKBACK_S = RETENTION_S
-# Codex grants cluster — four in six days on a normal week of use — so a cap of
-# 8 would drop the oldest off a two-week list.
-MAX_ROLLS = 24
+# Grant journal retention — long enough to hold the full public Codex
+# announcement feed (codex-resets.com goes back ~a year) plus local detections.
+ROLL_RETENTION_S = 400 * 24 * 3600
+# Codex grants cluster — four in six days on a normal week of use. Cap is a
+# safety net on the journal read, not the real retention bound.
+MAX_ROLLS = 400
 # How far ahead of its held reset a window has to roll before `rolls` calls it
 # a grant, as a fraction of the window. Flat minutes are the wrong bar: a 5h
 # session that rolls 18 minutes early is the source rounding, while a weekly
@@ -216,7 +225,9 @@ def rolls(rows, *, since=None, limit=MAX_ROLLS):
     what the chart marks and what the log says can never disagree: a relabelled
     row moves both at once.
 
-    Returns [{t, kind, forgiven_pct}, …], oldest first.
+    Returns [{t, kind, forgiven_pct}, …], oldest first. Prefer `rolls_for` at
+    the burndown boundary — that merges these detections into the durable
+    grant journal so the heatmap outlives sample compaction.
     """
     out = []
     previous = None
@@ -245,6 +256,241 @@ def rolls(rows, *, since=None, limit=MAX_ROLLS):
     if since is not None:
         out = [roll for roll in out if roll["t"] >= since]
     return out[-limit:] if limit else out
+
+
+def rolls_for(provider, pool, rows, *, now=None, since=None, limit=MAX_ROLLS,
+              announced=None):
+    """Granted resets for one pool, including history past sample retention.
+
+    Detects grants in `rows`, optionally merges a canonical announcement feed
+    (`announced`: [{t, tweet_id, tweet_url, …}]), appends any new ones to the
+    durable journal, and returns the union — observed, announced, or both.
+    Charts still clip to their own domain; the heatmap reads the full lookback.
+    """
+    now = time.time() if now is None else float(now)
+    if since is None:
+        since = now - ROLL_RETENTION_S
+    detected = rolls(rows, since=min(since, now - ROLL_LOOKBACK_S), limit=None)
+
+    if announced:
+        # Late import keeps the samples module free of the network fetcher for
+        # callers that never pass announcements (every non-Codex pool).
+        import codex_resets
+        matched, unmatched = codex_resets.match(detected, announced)
+        to_remember = list(matched)
+        for ann in unmatched:
+            if ann["t"] < since:
+                continue
+            to_remember.append({
+                "t": int(ann["t"]),
+                "kind": "granted",
+                "forgiven_pct": None,
+                "source": "announced",
+                "tweet_id": ann.get("tweet_id"),
+                "tweet_url": ann.get("tweet_url"),
+            })
+    else:
+        to_remember = [
+            {
+                "t": int(event["t"]),
+                "kind": event.get("kind") or "granted",
+                "forgiven_pct": event.get("forgiven_pct"),
+                "source": "observed",
+                "tweet_id": None,
+                "tweet_url": None,
+            }
+            for event in detected
+        ]
+
+    _remember_rolls(provider, pool, to_remember, now=now)
+    return remembered_rolls(
+        provider, pool, since=since, limit=limit, now=now)
+
+
+def remembered_rolls(provider, pool, *, since=None, limit=MAX_ROLLS, now=None):
+    """Grants already written to the durable journal for one pool."""
+    now = time.time() if now is None else float(now)
+    if since is None:
+        since = now - ROLL_RETENTION_S
+    out = []
+    try:
+        with open(ROLLS_PATH) as handle:
+            for row in _iter_rows(handle):
+                if row.get("provider") != provider or row.get("pool") != pool:
+                    continue
+                t = _num(row.get("t"))
+                # A grant stamped ahead of `now` is not news — it is usually a
+                # frozen test clock that leaked into the desk journal. Serving
+                # it makes Activity say "0s" forever (`fmt_ago` clamps futures).
+                if t is None or t < since or t > now:
+                    continue
+                event = {
+                    "t": int(t),
+                    "kind": row.get("kind") or "granted",
+                    "forgiven_pct": (
+                        None if row.get("forgiven_pct") is None
+                        else round(_num(row.get("forgiven_pct")) or 0.0, 2)
+                    ),
+                    "source": row.get("source") or "observed",
+                }
+                if row.get("tweet_id"):
+                    event["tweet_id"] = str(row["tweet_id"])
+                if row.get("tweet_url"):
+                    event["tweet_url"] = row["tweet_url"]
+                out.append(event)
+    except OSError:
+        return []
+    out.sort(key=lambda roll: roll["t"])
+    # Dedup: prefer tweet_id when present, else the sample instant. A later
+    # poll that upgrades observed → both replaces the weaker row.
+    by_key = {}
+    order = []
+    for roll in out:
+        key = roll.get("tweet_id") or f"t:{roll['t']}"
+        prev = by_key.get(key)
+        if prev is None:
+            by_key[key] = roll
+            order.append(key)
+            continue
+        by_key[key] = _prefer_roll(prev, roll)
+    deduped = [by_key[key] for key in order]
+    # Two keys can still name one event (obs before match, then tweet_id).
+    # Collapse by time within a bucket after the tweet-id pass.
+    collapsed = []
+    for roll in deduped:
+        if (collapsed
+                and abs(collapsed[-1]["t"] - roll["t"]) <= 5 * 60
+                and (collapsed[-1].get("tweet_id") or roll.get("tweet_id"))):
+            collapsed[-1] = _prefer_roll(collapsed[-1], roll)
+            continue
+        collapsed.append(roll)
+    return collapsed[-limit:] if limit else collapsed
+
+
+def _prefer_roll(left, right):
+    """Keep the richer of two journal rows for the same grant."""
+    rank = {"announced": 0, "observed": 1, "both": 2}
+    if rank.get(right.get("source"), 0) > rank.get(left.get("source"), 0):
+        winner, other = dict(right), left
+    else:
+        winner, other = dict(left), right
+    if winner.get("forgiven_pct") is None and other.get("forgiven_pct") is not None:
+        winner["forgiven_pct"] = other["forgiven_pct"]
+    if not winner.get("tweet_id") and other.get("tweet_id"):
+        winner["tweet_id"] = other["tweet_id"]
+        winner["tweet_url"] = other.get("tweet_url")
+    # Observed sample time outranks a pure announcement clock so the chart
+    # rule still meets the curve.
+    if (other.get("source") in ("observed", "both")
+            and winner.get("source") == "announced"):
+        winner["t"] = other["t"]
+    return winner
+
+
+def _rolls_path_is_live():
+    """True when the journal is the desk owner's `~/.headroom` file.
+
+    Unit tests redirect `ROLLS_PATH` (or `HOME`) so they can freeze `now`
+    years ahead and still persist. The live path must not accept those
+    futures — one unpatched burndown fixture already stamped a Jan 2027
+    "18% back" grant that Activity then showed as `0s` forever.
+    """
+    live = os.path.expanduser("~/.headroom/quota_resets.jsonl")
+    try:
+        return os.path.samefile(ROLLS_PATH, live)
+    except OSError:
+        return os.path.abspath(ROLLS_PATH) == os.path.abspath(live)
+
+
+def _remember_rolls(provider, pool, events, *, now=None):
+    """Append newly seen grants to the journal. Idempotent per stable key."""
+    if not events:
+        return
+    now = time.time() if now is None else float(now)
+    # On the live journal, also refuse wall-clock futures. Tests may pass a
+    # frozen `now` years ahead; those only write when ROLLS_PATH is redirected.
+    wall = time.time()
+    live = _rolls_path_is_live()
+    known_ids = set()
+    known_t = set()
+    for roll in remembered_rolls(provider, pool, since=0, limit=None, now=now):
+        if roll.get("tweet_id"):
+            known_ids.add(str(roll["tweet_id"]))
+        known_t.add(int(roll["t"]))
+    fresh = []
+    for event in events:
+        t = _num(event.get("t"))
+        if t is None:
+            continue
+        if t > now + WINDOW_TOLERANCE_S:
+            continue
+        if live and t > wall + WINDOW_TOLERANCE_S:
+            continue
+        tweet_id = event.get("tweet_id")
+        tweet_id = str(tweet_id) if tweet_id else None
+        if tweet_id and tweet_id in known_ids:
+            continue
+        if not tweet_id and int(t) in known_t:
+            continue
+        # Observed row already stored; a later match with a tweet_id still
+        # appends so readers can upgrade to `both` via `_prefer_roll`.
+        if tweet_id:
+            known_ids.add(tweet_id)
+        known_t.add(int(t))
+        row = {
+            "t": int(t),
+            "provider": provider,
+            "pool": pool,
+            "kind": event.get("kind") or "granted",
+            "source": event.get("source") or "observed",
+        }
+        if event.get("forgiven_pct") is not None:
+            row["forgiven_pct"] = round(
+                _num(event.get("forgiven_pct")) or 0.0, 2)
+        if tweet_id:
+            row["tweet_id"] = tweet_id
+        if event.get("tweet_url"):
+            row["tweet_url"] = event["tweet_url"]
+        fresh.append(row)
+    if not fresh:
+        return
+    folder = os.path.dirname(ROLLS_PATH)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    try:
+        with open(ROLLS_PATH, "a") as handle:
+            for row in fresh:
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+    except OSError as exc:
+        print("quota_resets write error:", exc)
+        return
+    _maybe_compact_rolls()
+
+
+def _maybe_compact_rolls(now=None):
+    """Drop journal rows older than ROLL_RETENTION_S, only when any age out."""
+    now = time.time() if now is None else float(now)
+    cutoff = now - ROLL_RETENTION_S
+    try:
+        with open(ROLLS_PATH) as handle:
+            rows = list(_iter_rows(handle))
+    except OSError:
+        return
+    kept = [row for row in rows if (_num(row.get("t")) or 0) >= cutoff]
+    if len(kept) == len(rows):
+        return
+    tmp = ROLLS_PATH + ".tmp"
+    try:
+        with open(tmp, "w") as handle:
+            for row in kept:
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+        os.replace(tmp, ROLLS_PATH)
+    except OSError as exc:
+        print("quota_resets compact error:", exc)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def boundaries(rows, *, since=None):
