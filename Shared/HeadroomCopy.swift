@@ -673,6 +673,10 @@ enum HeadroomCopy {
     /// App updates. The host has its own version skew story and its own words
     /// (`HostSkew`); these are only ever about the .app.
     static let appUpdates = "App updates"
+    /// This copy's `CFBundleShortVersionString`. Always shown in Settings.
+    static let appUpdatesCurrent = "Current"
+    /// What the update feed last reported. Always shown once a check has run.
+    static let appUpdatesLatest = "Latest"
     static let automaticUpdateChecks = "Check automatically"
     static let checkForUpdates = "Check for updates"
     static let checkingForUpdates = "Checking…"

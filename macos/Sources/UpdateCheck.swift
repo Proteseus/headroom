@@ -229,6 +229,10 @@ final class UpdateChecker: ObservableObject {
     static let automaticKey = "automaticUpdateChecks"
 
     @Published private(set) var available: AvailableUpdate?
+    /// Version string from the last successful feed fetch, whether or not it
+    /// is newer than this copy. Settings always shows it next to Current;
+    /// `available` is only set when that version is worth installing.
+    @Published private(set) var latestVersion: String?
     @Published private(set) var lastChecked: Date?
     @Published private(set) var lastError: String?
     @Published private(set) var isChecking = false
@@ -292,6 +296,12 @@ final class UpdateChecker: ObservableObject {
             let feed = try UpdateCheck.decode(data)
             lastChecked = Date()
             lastError = nil
+            // Keep whatever the feed named even when evaluate declines to
+            // offer it — Settings lists Current and Latest side by side, and
+            // "Up to date" alone used to hide both numbers.
+            if let version = feed.version, !version.isEmpty {
+                latestVersion = version
+            }
             available = UpdateCheck.evaluate(
                 feed: feed,
                 installed: UpdateCheck.installedVersion,

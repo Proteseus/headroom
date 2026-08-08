@@ -144,9 +144,15 @@ extension SettingsView {
 
     var updatesSection: some View {
         Section {
-            LabeledContent(HeadroomCopy.appUpdates) {
-                Text(updateStatus)
+            LabeledContent(HeadroomCopy.appUpdatesCurrent) {
+                Text(UpdateCheck.installedVersion)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            LabeledContent(HeadroomCopy.appUpdatesLatest) {
+                Text(updatesLatestLabel)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             Toggle(HeadroomCopy.automaticUpdateChecks, isOn: $automaticUpdateChecks)
             Button(
@@ -168,6 +174,8 @@ extension SettingsView {
                 }
                 .buttonStyle(.borderedProminent)
             }
+        } header: {
+            Text(HeadroomCopy.appUpdates)
         } footer: {
             // A manual check still runs from a copy that cannot install what
             // it finds, so say why the result will not turn into a button
@@ -178,21 +186,18 @@ extension SettingsView {
                 Text(HeadroomCopy.updatesNotFromHere)
             } else if updates.lastError != nil {
                 Text(HeadroomCopy.updateCheckFailed)
+            } else if updates.available == nil, updates.lastChecked != nil {
+                Text(HeadroomCopy.upToDate)
             } else {
                 Text("Headroom looks weekly for a newer notarized build, and asks before installing one.")
             }
         }
     }
 
-    var updateStatus: String {
-        if let found = updates.available {
-            return HeadroomCopy.newVersionAvailable(
-                from: UpdateCheck.installedVersion,
-                to: found.version
-            )
-        }
-        if updates.lastChecked != nil { return HeadroomCopy.upToDate }
-        return UpdateCheck.installedVersion
+    /// Feed version when known; otherwise the same "Not available" the host
+    /// rows use for a field that has not been filled yet.
+    var updatesLatestLabel: String {
+        updates.latestVersion ?? HeadroomCopy.notAvailable
     }
 
     var hostSection: some View {
