@@ -133,7 +133,10 @@ struct AboutHeadroomView: View {
     private func loadStarCount() async {
         var request = URLRequest(url: Self.starsAPIURL)
         request.timeoutInterval = 8
-        request.cachePolicy = .returnCacheDataElseLoad
+        // Not returnCacheDataElseLoad: that ignores expiry and freezes the
+        // first count forever (Mac + iPhone About both stuck on a stale
+        // number). Protocol policy honours GitHub's max-age=60.
+        request.cachePolicy = .useProtocolCachePolicy
         request.setValue(
             "application/vnd.github+json",
             forHTTPHeaderField: "Accept"

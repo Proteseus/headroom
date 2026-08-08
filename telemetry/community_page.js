@@ -431,6 +431,7 @@ const COMMUNITY_PAGE = `<!doctype html>
       });
 
     fetch('https://api.github.com/repos/michellzappa/headroom', {
+      cache: 'no-store',
       headers: { Accept: 'application/vnd.github+json' },
     })
       .then((response) => response.ok ? response.json() : Promise.reject())
