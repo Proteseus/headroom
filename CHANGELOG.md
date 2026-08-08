@@ -7,6 +7,20 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.2 — 2026-08-08
+
+### Fixed
+
+- **Grok source stops logging its own users out.** `_acp_billing()` spawned
+  `grok agent stdio` and SIGKILLed it the instant the billing answer arrived.
+  The CLI rotates `~/.grok/auth.json` during startup — lock, then rewrite —
+  and a kill landing inside that window deleted the login file outright,
+  leaving `auth.json.lock` orphaned and the source reporting "not signed in to
+  Grok CLI" until someone ran `grok login` again. Observed twice in five days
+  of production polling. Shutdown now closes stdin so the agent sees EOF and
+  exits cleanly, escalating to `terminate` then `kill` only if it lingers past
+  two 3s timeouts; poll cost is unchanged. (#26)
+
 ## 2.0.1 — 2026-08-08
 
 ### Fixed
