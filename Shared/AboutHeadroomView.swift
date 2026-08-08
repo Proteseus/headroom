@@ -71,9 +71,10 @@ struct AboutHeadroomView: View {
                 }
                 Link(destination: Self.communityURL) {
                     Text(HeadroomCopy.aboutCommunityPulse)
-                        .font(.caption2)
                 }
-                .foregroundStyle(.secondary)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.top, 4)
             }
             .padding(.top, 6)
         }
