@@ -7,6 +7,24 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.3 — 2026-08-09
+
+### Added
+
+- **Menu bar Invert.** Settings → General → Invert flips whichever glyph style
+  is active: Remaining fills by used instead of left, Pace swaps over/under.
+  Tooltip wording follows so the hover still matches the mark.
+
+### Changed
+
+- **Needs sign-in names the command.** Attention (and the meter error) now say
+  what to run when a coding provider is installed but not authed — `claude
+  /login`, `codex login`, `gh auth login`, `grok login`, or “sign in to Cursor”
+  for IDE-only tools — instead of the generic “log in with the tool again”.
+  Missing credentials also set `auth_required` for Codex, Cursor, Gemini,
+  Copilot, Grok, Zed and Windsurf so the orange Needs sign-in path fires for
+  them the way it already did for Claude.
+
 ## 2.0.2 — 2026-08-08
 
 ### Fixed
