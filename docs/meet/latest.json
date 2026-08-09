@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "version": "0.1.2",
+  "published": "2026-08-09T17:35:36Z",
+  "url": "https://github.com/envisioning/meet/releases/download/v0.1.2/Meet-macOS.zip",
+  "sha256": "f08898d8e53d0cfad49516bfb7e46b3ea25a2bc2a613bd6b68bdd2ca44f1d8fd",
+  "size": 28153006,
+  "min_macos": "14.0",
+  "notes_md": "- In-app updates: Settings → About shows update status, auto-check, and Install and restart.\n- Bundled `update-app.sh` + feed at `envisioning.github.io/meet/updates/latest.json`.\n- Fix Developer ID signing of nested LiveKit frameworks so notarized releases can ship."
+}
