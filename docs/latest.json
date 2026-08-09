@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "2.0.2",
-  "published": "2026-08-08T16:07:08Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.2/Headroom-macOS.zip",
-  "sha256": "96604b6e8a46f01400a3925c43d0f5a8e9e633def3fb02db024241682ed92179",
-  "size": 6107708,
+  "version": "2.0.3",
+  "published": "2026-08-09T16:22:11Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.3/Headroom-macOS.zip",
+  "sha256": "264c29cdfc3f69ac34df97335df298708aeb7a99ccd31cf72f86a40bd88a96e0",
+  "size": 6111790,
   "min_macos": "14.0",
-  "notes_md": "### Fixed\n\n- **Grok source stops logging its own users out.** `_acp_billing()` spawned\n  `grok agent stdio` and SIGKILLed it the instant the billing answer arrived.\n  The CLI rotates `~/.grok/auth.json` during startup — lock, then rewrite —\n  and a kill landing inside that window deleted the login file outright,\n  leaving `auth.json.lock` orphaned and the source reporting \"not signed in to\n  Grok CLI\" until someone ran `grok login` again. Observed twice in five days\n  of production polling. Shutdown now closes stdin so the agent sees EOF and\n  exits cleanly, escalating to `terminate` then `kill` only if it lingers past\n  two 3s timeouts; poll cost is unchanged. (#26)"
+  "notes_md": "### Added\n\n- **Menu bar Invert.** Settings → General → Invert flips whichever glyph style\n  is active: Remaining fills by used instead of left, Pace swaps over/under.\n  Tooltip wording follows so the hover still matches the mark.\n\n### Changed\n\n- **Needs sign-in names the command.** Attention (and the meter error) now say\n  what to run when a coding provider is installed but not authed — `claude\n  /login`, `codex login`, `gh auth login`, `grok login`, or “sign in to Cursor”\n  for IDE-only tools — instead of the generic “log in with the tool again”.\n  Missing credentials also set `auth_required` for Codex, Cursor, Gemini,\n  Copilot, Grok, Zed and Windsurf so the orange Needs sign-in path fires for\n  them the way it already did for Claude."
 }
