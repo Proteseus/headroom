@@ -445,8 +445,9 @@ def fetch_quota(force=False, account=None):
     blob = _read_creds(account)
     if not blob or not blob.get("access_token"):
         return cache_util.keep_stale(
-            cache, now, "not signed in to Gemini CLI", _EMPTY,
-            disk_name=disk_name)
+            cache, now,
+            "not signed in to Gemini CLI — run `gemini` and sign in",
+            _EMPTY, disk_name=disk_name, auth_required=True)
 
     try:
         plan, blob = _tier_label(blob, account)

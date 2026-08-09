@@ -185,6 +185,8 @@ struct SettingsView: View {
     @AppStorage(UpdateChecker.automaticKey) var automaticUpdateChecks = true
     @AppStorage(MenuBarIconStyle.defaultsKey)
     var menuBarIconStyle = MenuBarIconStyle.remaining.rawValue
+    @AppStorage(MenuBarIconStyle.invertDefaultsKey)
+    var menuBarIconInvert = false
     @State var updateInstallMessage: String?
 
     var client: HeadroomClient { HeadroomClient(endpoint: endpoint) }

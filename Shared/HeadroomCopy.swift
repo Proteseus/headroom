@@ -107,8 +107,9 @@ enum HeadroomCopy {
     static let menuBarIcon = "Menu bar icon"
     static let menuBarIconRemaining = "Remaining"
     static let menuBarIconPace = "Pace"
+    static let menuBarIconInvert = "Invert"
     static let menuBarIconHint =
-        "①②③ follow Providers order. Remaining fills each slot by what’s left. Pace places a mark above or below even spend — small gaps move more than big ones."
+        "①②③ follow Providers order. Remaining fills each slot by what’s left. Pace places a mark above or below even spend — small gaps move more than big ones. Invert flips either reading (used instead of left, under instead of over)."
 
     /// Welcome rail / first-run heading for the Sources step.
     static let welcomeWhatToWatch = "What to watch"

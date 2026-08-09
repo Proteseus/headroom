@@ -460,16 +460,22 @@ def fetch_quota(force=False, account=None):
         "spend": None, "error": None,
     }
 
-    def _keep_stale(err):
+    def _keep_stale(err, auth_required=False):
         return cache_util.keep_stale(
-            cache, now, err, empty, disk_name=disk_name)
+            cache, now, err, empty, disk_name=disk_name,
+            auth_required=auth_required)
 
     try:
         blob = _read_auth(account)
         if not blob:
-            return _keep_stale(f"no Codex credentials at {_auth_path(account)}")
+            return _keep_stale(
+                f"no Codex credentials at {_auth_path(account)} "
+                "— run `codex login`",
+                auth_required=True)
         if not _tokens(blob):
-            return _keep_stale("auth.json missing tokens.access_token")
+            return _keep_stale(
+                "auth.json missing tokens.access_token — run `codex login`",
+                auth_required=True)
 
         status, body = _http_get_authed(USAGE_URL, blob, account)
         if status != 200:

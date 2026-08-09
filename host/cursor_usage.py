@@ -335,15 +335,18 @@ def fetch_quota(force=False, account=None):
         "error": None,
     }
 
-    def _keep_stale(err):
+    def _keep_stale(err, auth_required=False):
         return cache_util.keep_stale(
-            cache, now, err, empty, disk_name=disk_name)
+            cache, now, err, empty, disk_name=disk_name,
+            auth_required=auth_required)
 
     try:
         token = _read_token(account)
         if not token:
             return _keep_stale(
-                f"no Cursor accessToken in {_state_db(account)}")
+                f"no Cursor accessToken in {_state_db(account)} "
+                "— sign in to Cursor",
+                auth_required=True)
 
         plan = _read_plan(account)
         status, body = _http_usage(token)

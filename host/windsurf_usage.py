@@ -161,8 +161,8 @@ def fetch_quota(force=False, account=None):
     if blob is None:
         return cache_util.keep_stale(
             cache, now,
-            "no Windsurf plan cache — open Windsurf once",
-            _EMPTY, disk_name=disk_name)
+            "no Windsurf plan cache — sign in to Windsurf",
+            _EMPTY, disk_name=disk_name, auth_required=True)
 
     try:
         out = _map(blob)

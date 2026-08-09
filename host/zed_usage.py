@@ -198,7 +198,8 @@ def fetch_quota(force=False):
     user_id, token = _keychain_creds(allow_ui=True)
     if not token:
         return cache_util.keep_stale(
-            _cache, now, "not signed in to Zed", _EMPTY, disk_name=DISK)
+            _cache, now, "not signed in to Zed — sign in to Zed",
+            _EMPTY, disk_name=DISK, auth_required=True)
 
     try:
         blob = _fetch_me(user_id, token)

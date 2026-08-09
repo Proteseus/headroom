@@ -84,8 +84,8 @@ def fetch_quota(force=False):
     if not token:
         return cache_util.keep_stale(
             _cache, now,
-            "Connect GitHub in Headroom Settings (or `gh auth login`)",
-            _EMPTY, disk_name=DISK)
+            "Connect GitHub in Headroom Settings (or run `gh auth login`)",
+            _EMPTY, disk_name=DISK, auth_required=True)
 
     try:
         blob = _fetch(token)

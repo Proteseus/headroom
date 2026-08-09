@@ -82,11 +82,13 @@ final class StatusItemController: NSObject {
         let attention = snapshot.attention
         let showPip = attention?.isWarning == true
         let style = MenuBarIconStyle.current
+        let invert = MenuBarIconStyle.invert
         statusItem.button?.image = MeterIconRenderer.render(
             snapshot: snapshot,
             healthy: healthy,
             attentionLevel: showPip ? attention?.level : nil,
-            style: style
+            style: style,
+            invert: invert
         )
         if !healthy {
             // "Backend" is not a word this product uses anywhere else, and
@@ -105,14 +107,16 @@ final class StatusItemController: NSObject {
                     guard let used = window.percent else {
                         return "\(provider.displayTitle) —"
                     }
-                    let remaining = 100 - used
-                    let pct = Int(max(0, min(remaining, 100)).rounded())
-                    return "\(provider.displayTitle) \(pct)% left"
+                    let value = invert ? used : (100 - used)
+                    let pct = Int(max(0, min(value, 100)).rounded())
+                    let unit = invert ? "used" : "left"
+                    return "\(provider.displayTitle) \(pct)% \(unit)"
                 case .pace:
                     return Self.paceTooltip(
                         title: provider.displayTitle,
                         used: window.percent,
-                        pace: window.pacePercent
+                        pace: window.pacePercent,
+                        invert: invert
                     )
                 }
             }
@@ -123,16 +127,19 @@ final class StatusItemController: NSObject {
     }
 
     /// Raw delta in the tooltip — the glyph compresses; the hover does not.
+    /// `invert` swaps over/under so the words match the flipped glyph.
     private static func paceTooltip(
         title: String,
         used: Double?,
-        pace: Double?
+        pace: Double?,
+        invert: Bool = false
     ) -> String {
         guard let used, let pace else { return "\(title) —" }
         let delta = used - pace
         let pts = Int(abs(delta).rounded())
         if pts < 2 { return "\(title) on pace" }
-        if delta > 0 { return "\(title) \(pts)% over" }
+        let over = invert ? delta < 0 : delta > 0
+        if over { return "\(title) \(pts)% over" }
         return "\(title) \(pts)% under"
     }
 
@@ -187,7 +194,8 @@ enum MeterIconRenderer {
         snapshot: UsageSnapshot,
         healthy: Bool,
         attentionLevel: String? = nil,
-        style: MenuBarIconStyle = .current
+        style: MenuBarIconStyle = .current,
+        invert: Bool = MenuBarIconStyle.invert
     ) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let warning = attentionLevel == "warn" || attentionLevel == "critical"
@@ -242,11 +250,12 @@ enum MeterIconRenderer {
                         rect: rect,
                         used: window?.percent,
                         healthy: healthy,
-                        unavailable: window?.percent == nil
+                        unavailable: window?.percent == nil,
+                        invert: invert
                     )
                 }
             case .pace:
-                drawPaceGlyph(slots: slots, healthy: healthy)
+                drawPaceGlyph(slots: slots, healthy: healthy, invert: invert)
             }
 
             if warning {
@@ -266,8 +275,9 @@ enum MeterIconRenderer {
             let labels = active.map(\.displayTitle).joined(separator: ", ")
             switch style {
             case .remaining:
+                let reading = invert ? "used" : "remaining"
                 image.accessibilityDescription =
-                    "\(labels) long-window quota remaining"
+                    "\(labels) long-window quota \(reading)"
             case .pace:
                 image.accessibilityDescription =
                     "\(labels) long-window pace"
@@ -278,7 +288,8 @@ enum MeterIconRenderer {
 
     private static func drawPaceGlyph(
         slots: [(PixelRect, MeterWindow?)],
-        healthy: Bool
+        healthy: Bool,
+        invert: Bool
     ) {
         guard let first = slots.first, let last = slots.last else { return }
         for (rect, window) in slots {
@@ -306,7 +317,8 @@ enum MeterIconRenderer {
         for (rect, window) in slots {
             guard let used = window?.percent, let pace = window?.pacePercent
             else { continue }
-            let t = MenuBarIconStyle.paceOffset(used: used, pace: pace)
+            let t = MenuBarIconStyle.paceOffset(
+                used: used, pace: pace, invert: invert)
             let halfTravel = max(
                 0,
                 (rect.height / 2) - padPixels - (dotPixels / 2)
@@ -368,7 +380,8 @@ enum MeterIconRenderer {
         rect pixelRect: PixelRect,
         used: Double?,
         healthy: Bool,
-        unavailable: Bool = false
+        unavailable: Bool = false,
+        invert: Bool = false
     ) {
         let base = NSColor.labelColor
         let alpha: CGFloat = unavailable ? 0.45 : 1
@@ -405,9 +418,11 @@ enum MeterIconRenderer {
         stroke.stroke()
 
         guard let used else { return }
-        let remaining = 1 - max(0, min(used / 100, 1))
+        let fraction = max(0, min(used / 100, 1))
+        // Default Remaining = fuel left; Invert = used (the other reading).
+        let fillFraction = invert ? fraction : (1 - fraction)
         let fillPixels = Int(
-            (CGFloat(pixelRect.height) * CGFloat(remaining)).rounded()
+            (CGFloat(pixelRect.height) * CGFloat(fillFraction)).rounded()
         )
         guard fillPixels > 0 else { return }
 

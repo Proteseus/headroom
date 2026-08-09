@@ -34,6 +34,7 @@ import plausible_usage
 import posthog_usage
 import quota_samples
 import sentry_alerts
+import sources_config
 import supabase_usage
 
 NOW = 1_800_000_000.0
@@ -513,7 +514,29 @@ class AuthRequiredTests(unittest.TestCase):
         self.assertNotIn("stale", kinds)
         summary = next(r["summary"] for r in reasons if r["kind"] == "signin")
         self.assertEqual(
-            summary, "Claude needs sign-in — log in with the tool again")
+            summary, "Claude needs sign-in — run `claude /login`")
+
+    def test_signin_attention_uses_each_provider_login_hint(self):
+        # Installed-but-not-authed is the case this line exists for — name
+        # the command (or the IDE) rather than a generic "tool again".
+        for source_id, needle in (
+            ("claude", "`claude /login`"),
+            ("codex", "`codex login`"),
+            ("cursor", "sign in to Cursor"),
+            ("gemini", "`gemini`"),
+        ):
+            doc = {"providers": [{
+                "id": source_id,
+                "title": sources_config.title_for(source_id),
+                "kind": "quota", "enabled": True, "ok": False,
+                "auth_required": True,
+            }]}
+            summary = next(
+                r["summary"]
+                for r in headroom_server._build_attention(doc)["reasons"]
+                if r["kind"] == "signin"
+            )
+            self.assertIn(needle, summary, source_id)
 
     def test_stale_attention_names_the_cause(self):
         # "Stuck at 17h old" alone reads the same whether the fix is patience

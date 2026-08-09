@@ -197,7 +197,9 @@ def fetch_quota(force=False):
     binary = _binary()
     if binary is None or not signed_in():
         return cache_util.keep_stale(
-            _cache, now, "not signed in to Grok CLI", _EMPTY, disk_name=DISK)
+            _cache, now,
+            "not signed in to Grok CLI — run `grok login`",
+            _EMPTY, disk_name=DISK, auth_required=True)
 
     try:
         blob = _acp_billing(binary)
