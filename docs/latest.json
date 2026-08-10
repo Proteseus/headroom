@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "2.0.3",
-  "published": "2026-08-09T16:22:11Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.3/Headroom-macOS.zip",
-  "sha256": "264c29cdfc3f69ac34df97335df298708aeb7a99ccd31cf72f86a40bd88a96e0",
-  "size": 6111790,
+  "version": "2.0.4",
+  "published": "2026-08-10T06:19:20Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.4/Headroom-macOS.zip",
+  "sha256": "7bdc54a198ce5fdbe71a02da366d30911222b03d7a1eddb1580994c9ed6d059c",
+  "size": 6111904,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Menu bar Invert.** Settings → General → Invert flips whichever glyph style\n  is active: Remaining fills by used instead of left, Pace swaps over/under.\n  Tooltip wording follows so the hover still matches the mark.\n\n### Changed\n\n- **Needs sign-in names the command.** Attention (and the meter error) now say\n  what to run when a coding provider is installed but not authed — `claude\n  /login`, `codex login`, `gh auth login`, `grok login`, or “sign in to Cursor”\n  for IDE-only tools — instead of the generic “log in with the tool again”.\n  Missing credentials also set `auth_required` for Codex, Cursor, Gemini,\n  Copilot, Grok, Zed and Windsurf so the orange Needs sign-in path fires for\n  them the way it already did for Claude."
+  "notes_md": "### Fixed\n\n- **Watch complications follow background refresh.** iPhone background fetch\n  already wrote the home-screen widget cache but never forwarded it over\n  WatchConnectivity, so the wrist could sit half a day on the last open of\n  the phone app. The same push path foreground refresh uses now runs after\n  a successful background fetch."
 }
