@@ -7,6 +7,16 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.4 — 2026-08-10
+
+### Fixed
+
+- **Watch complications follow background refresh.** iPhone background fetch
+  already wrote the home-screen widget cache but never forwarded it over
+  WatchConnectivity, so the wrist could sit half a day on the last open of
+  the phone app. The same push path foreground refresh uses now runs after
+  a successful background fetch.
+
 ## 2.0.3 — 2026-08-09
 
 ### Added
