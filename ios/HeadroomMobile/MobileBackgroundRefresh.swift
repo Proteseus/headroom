@@ -30,6 +30,12 @@ enum MobileBackgroundRefresh {
         let boxedTask = SendableRefreshTask(task)
         let work = Task {
             do {
+                // Before the fetches, so WCSession can finish activating while
+                // we wait on the Mac — same reason the foreground path
+                // activates before `store.refresh()`. Without this, a cold
+                // background wake never forwards and the wrist stays on
+                // whatever the last open of the phone app pushed.
+                await MainActor.run { WatchBridge.shared.activate() }
                 let client = MobileHeadroomClient(
                     endpoint: MobileConnection.endpoint,
                     token: MobileTokenStore.read() ?? ""
@@ -42,7 +48,8 @@ enum MobileBackgroundRefresh {
                     await MobileNotifications.notifyIfNeeded(events)
                 }
                 let snapshot = try await client.fetchAndArchiveUsage()
-                HeadroomWidgetCache.save(snapshot)
+                let widgetSnapshot = HeadroomWidgetCache.save(snapshot)
+                await MainActor.run { WatchBridge.shared.push(widgetSnapshot) }
                 await MobileNotifications.notifyIfNeeded(snapshot.attention)
                 await MobileNotifications.notifyIfNeeded(resets: snapshot)
                 boxedTask.value.setTaskCompleted(success: true)
