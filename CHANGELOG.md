@@ -7,6 +7,50 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.6 — 2026-08-11
+
+### Added
+
+- **Edit Widget picks the provider a tile draws.** Right-click a widget on the
+  Mac, touch and hold on iPhone, and the picker lists the providers your Mac
+  reports. A new tile starts on the one closest to running out — whichever
+  forecast runs dry first, which is the one the menu bar and the watch already
+  lead with — and it stays on that provider rather than following whichever is
+  emptying fastest today. "All providers" is one item down and draws the
+  combined burndown. Widgets already on a screen keep drawing every provider,
+  as they did before. Thanks @paulmars for the report (#27).
+- **`build-app.sh --release --sign`** signs a local build with Developer ID and
+  stops before notarization. The widget's app group is `TEAMID.group.…`, read
+  off its own signature, so an ad-hoc build can never reach the cache the app
+  writes — testing a widget locally used to mean a full notarized release.
+
+### Changed
+
+- **Every widget family names every provider it has before it draws a chart.**
+  The small size drew the first provider alone, so a second one was invisible
+  rather than absent; it now gives one provider the whole tile and shares it
+  between several. The wide size leads with a row naming each provider and what
+  it has left, and adds the chart under it.
+- `docs/telemetry.md` records that `wrangler d1 execute` needs `--yes` in a
+  non-interactive shell, and how to verify the migration landed. A repo-root
+  `.wrangler` cache is now ignored.
+
+### Fixed
+
+- **The medium widget drew a blank box** (#27). Two causes, both able to empty
+  the tile on their own. It asked whether a provider carried a burndown *key*
+  rather than whether the key held a *stroke*, so a cache written by an older
+  build sent it down the chart branch with nothing to draw and no words to fall
+  back on. And it read the last sample as `actual.last[0]`, which is an index
+  out of range on a row that is not a `[time, remaining]` pair — in a widget
+  extension that is not a wrong number, it is an empty tile with nothing to say
+  why. The same unguarded read is gone from the Mac's burndown card and from
+  the cache writer, where it could take the app down instead.
+- **`install-local-release.sh` no longer ad-hoc re-signs what it installs.** It
+  replaced the signature on both the staging copy and the installed one, which
+  threw away the team a signed build had just earned — and the failure reads as
+  a broken widget rather than as a lost entitlement.
+
 ## 2.0.5 — 2026-08-11
 
 ### Added
