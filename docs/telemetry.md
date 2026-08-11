@@ -127,6 +127,17 @@ against an un-migrated D1 throws on every `/v1/community` request and the
 Community Pulse goes blank on the page, in Settings, and on the board. The
 reverse order is safe: an older Worker ignores columns it does not select.
 
+**`wrangler d1 execute --remote` asks before it writes, and a piped run
+answers no.** Send the output through a pipe — `| tail`, `| grep` — and the
+confirmation prompt goes with it, so the command exits looking successful
+while the schema is untouched. Pass `--yes`, and check the columns rather
+than the exit code:
+
+```bash
+npx wrangler d1 execute headroom-telemetry --remote --json \
+  --command="SELECT name FROM pragma_table_info('telemetry_periods');"
+```
+
 ## Community Pulse
 
 The public Community Pulse is a read-only aggregate view at the Worker’s
