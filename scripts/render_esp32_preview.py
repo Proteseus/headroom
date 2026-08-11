@@ -175,7 +175,7 @@ def pace_layer(layers):
 
 
 def draw_pace_track(draw, cx, cy, layers, accent, label):
-    """Pill track + label. Mirror of drawPaceTrack() in main.cpp."""
+    """Pill, even-spend line, label. Mirror of drawPaceTrack() in main.cpp."""
     layer = pace_layer(layers)
     x = cx - PACE_COL_W // 2
     y = cy - PACE_COL_H // 2
@@ -185,6 +185,12 @@ def draw_pace_track(draw, cx, cy, layers, accent, label):
         fill=dim(accent, 0.20 if layer else 0.10),
         outline=dim(accent, 0.45 if layer else 0.22),
     )
+    if layer:
+        draw.rectangle(
+            [x, cy - PACE_RAIL_H // 2,
+             x + PACE_COL_W - 1, cy - PACE_RAIL_H // 2 + PACE_RAIL_H - 1],
+            fill=COL_DIM,
+        )
     tw = text_w(draw, label, FONT2)
     draw_text(draw, label, cx - tw // 2, cy + PACE_COL_H // 2 + 6, FONT2, accent)
 
@@ -206,7 +212,7 @@ def draw_pace_mark(draw, cx, cy, layers, accent):
 
 
 def draw_pace_glyph(draw, pad_x, span, cy, columns):
-    """Tracks, rail, then marks. Mirror of drawPaceGlyph() in main.cpp."""
+    """Tracks, then marks. Mirror of drawPaceGlyph() in main.cpp."""
     if not columns:
         return
     slot = span // len(columns)
@@ -214,13 +220,6 @@ def draw_pace_glyph(draw, pad_x, span, cy, columns):
         draw_pace_track(
             draw, pad_x + index * slot + slot // 2, cy, layers, accent, label
         )
-    rail_x0 = pad_x + slot // 2 - PACE_COL_W // 2
-    rail_x1 = pad_x + (len(columns) - 1) * slot + slot // 2 + PACE_COL_W // 2
-    draw.rectangle(
-        [rail_x0, cy - PACE_RAIL_H // 2,
-         rail_x1 - 1, cy - PACE_RAIL_H // 2 + PACE_RAIL_H - 1],
-        fill=COL_DIM,
-    )
     for index, (layers, accent, _) in enumerate(columns):
         draw_pace_mark(draw, pad_x + index * slot + slot // 2, cy, layers, accent)
 

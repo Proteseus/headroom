@@ -12,9 +12,9 @@ tag a version that has no entry.
 ### Added
 
 - **The desk display can read pace instead of rings.** Hold a glance slot and
-  the upper half switches to the macOS menu bar's other glyph: one rail across
-  the three providers at even spend, one accent mark riding above it when that
-  provider is over pace and below when it is under, on the same
+  the upper half switches to the macOS menu bar's other glyph: one pill per
+  provider with a line at even spend, and an accent mark riding above the line
+  when that provider is over pace and below when it is under, on the same
   `tanh((used − pace) / 8)` curve the Mac uses. It drops the arc, so it answers
   whether the burn is ahead or behind and nothing else. Rings stay the default,
   the board keeps its own choice in NVS, and a tap still opens the detail page.

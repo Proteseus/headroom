@@ -61,8 +61,9 @@ complications go monochrome.
 `Shared/HeadroomRings.swift` is the Swift implementation. The constants beside
 `drawPaceRing` in `firmware/src/main.cpp` mirror it for the embedded display.
 
-The desk display can also drop the rings for the menu bar's Pace glyph — a rail
-at even spend and one mark per provider, no arc ([docs/esp32.md](esp32.md)).
+The desk display can also drop the rings for the menu bar's Pace glyph — one
+pill per provider, a line at even spend, a mark, no arc
+([docs/esp32.md](esp32.md)).
 That is a different indicator, not a ring variant: it spends the whole glyph on
 the arc-to-dot distance and says nothing about how much is gone. Nothing above
 applies to it, and `Shared/MenuBarIconStyle.swift` owns its curve.

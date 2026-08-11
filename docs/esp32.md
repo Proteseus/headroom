@@ -87,13 +87,18 @@ travel here.
 | Style | What each slot shows |
 |---|---|
 | **Rings** (default) | Concentric bands, arc = used, white dot = even spend ([docs/rings.md](rings.md)) |
-| **Pace** | One rail across the three slots at even spend, one accent mark per provider riding `tanh((used − pace) / 8)` above it when over, below when under |
+| **Pace** | One pill per provider with a line at even spend, and an accent mark riding `tanh((used − pace) / 8)` above the line when over, below when under |
 
 Pace drops the arc, so it answers only whether the burn is ahead or behind —
 the same trade the menu bar makes, and the same curve, so a gap of 8 points
 lands near halfway to the end of the pill either way. It reads the provider's
 longer window, which is the pool the menu bar takes too. A provider with no
-pace draws a dimmer pill and no mark rather than a mark at zero.
+pace draws a dimmer pill, no line and no mark, rather than a mark at zero.
+
+The even-spend line stops at each pill. The menu bar carries one rail across
+all three slots, which it can afford at 18pt; at 448px the same rail read as a
+shared scale, and the three slots do not share one — each pill is its own
+provider against its own window.
 
 Preview both without a reflash:
 

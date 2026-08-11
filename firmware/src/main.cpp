@@ -3086,6 +3086,7 @@ static const int16_t PACE_COL_W = 14;
 static const int16_t PACE_COL_H = 68;
 static const int16_t PACE_DOT_R = 5;
 static const int16_t PACE_PAD = 7;
+// The even-spend line, drawn across one pill and no further.
 static const int16_t PACE_RAIL_H = 3;
 
 // The pool this reads is layer 0 — the longer window, which is the same pool
@@ -3098,8 +3099,10 @@ static bool paceLayerFor(const ProviderQuota &q, PaceLayer *out) {
   return true;
 }
 
-// Pill track + label. Same 20% accent tint the ring bands use for their track,
-// dropped further when there is nothing to place on it.
+// Pill track, even-spend line, label. Same 20% accent tint the ring bands use
+// for their track, dropped further when there is nothing to place on it.
+// The line stops at the pill: it belongs to that provider, and carried across
+// the gaps it read as one shared scale the three slots do not have.
 static void drawPaceTrack(int16_t cx, int16_t cy, const ProviderQuota &q,
                           uint16_t accent, const char *label) {
   PaceLayer layer;
@@ -3111,6 +3114,10 @@ static void drawPaceTrack(int16_t cx, int16_t cy, const ProviderQuota &q,
                      dimToward(accent, COL_BG, have ? 0.20f : 0.10f));
   gfx->drawRoundRect(x, y, PACE_COL_W, PACE_COL_H, radius,
                      dimToward(accent, COL_BG, have ? 0.45f : 0.22f));
+  if (have) {
+    gfx->fillRect(x, (int16_t)(cy - PACE_RAIL_H / 2), PACE_COL_W, PACE_RAIL_H,
+                  COL_DIM);
+  }
   gfx->setTextSize(2);
   int16_t x1, y1; uint16_t tw, th;
   gfx->getTextBounds(label, 0, 0, &x1, &y1, &tw, &th);
@@ -3133,8 +3140,8 @@ static void drawPaceMark(int16_t cx, int16_t cy, const ProviderQuota &q,
   gfx->fillCircle(cx, (int16_t)(cy + dy), PACE_DOT_R, accent);
 }
 
-// Tracks, then one rail over them, then the marks — the paint order in
-// MeterIconRenderer.drawPaceGlyph, so the rail never hides a mark.
+// Every track first, then every mark — the paint order in
+// MeterIconRenderer.drawPaceGlyph, so no line can land on a mark.
 static void drawPaceGlyph(int16_t padX, int16_t span, int16_t cy) {
   if (slotN == 0) return;
   const int16_t slot = (int16_t)(span / slotN);
@@ -3143,11 +3150,6 @@ static void drawPaceGlyph(int16_t padX, int16_t span, int16_t cy) {
     drawPaceTrack(cx, cy, slots[i].q, slots[i].accent,
                   slots[i].title.c_str());
   }
-  const int16_t railX0 = (int16_t)(padX + slot / 2 - PACE_COL_W / 2);
-  const int16_t railX1 =
-      (int16_t)(padX + (int16_t)(slotN - 1) * slot + slot / 2 + PACE_COL_W / 2);
-  gfx->fillRect(railX0, (int16_t)(cy - PACE_RAIL_H / 2),
-                (int16_t)(railX1 - railX0), PACE_RAIL_H, COL_DIM);
   for (uint8_t i = 0; i < slotN; i++) {
     drawPaceMark((int16_t)(padX + (int16_t)i * slot + slot / 2), cy,
                  slots[i].q, slots[i].accent);
