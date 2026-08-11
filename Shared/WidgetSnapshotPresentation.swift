@@ -86,6 +86,25 @@ extension HeadroomWidgetSnapshot {
         return emptying?.1 ?? providers.max { $0.percent < $1.percent }
     }
 
+    /// The same reading, narrowed to the provider a tile was configured for.
+    /// Nil draws everything, which is the default and what every widget placed
+    /// before the configuration existed does.
+    ///
+    /// An id that matches nothing draws everything too. A provider leaves the
+    /// top 3 whenever someone reorders the pane or turns it off, and a tile
+    /// that answered that by going empty would read as a broken widget rather
+    /// than as a provider that is no longer there. Every figure it draws is
+    /// labelled with whose it is, so showing more than was asked for is
+    /// legible; showing nothing is not.
+    func showing(_ providerID: String?) -> HeadroomWidgetSnapshot {
+        guard let providerID,
+              providers.contains(where: { $0.id == providerID })
+        else { return self }
+        var narrowed = self
+        narrowed.providers = providers.filter { $0.id == providerID }
+        return narrowed
+    }
+
     /// Providers with enough history to draw a line.
     ///
     /// The test is the stroke, not the key. A `burndown` object whose curve is

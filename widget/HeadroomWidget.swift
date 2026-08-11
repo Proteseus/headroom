@@ -6,31 +6,62 @@ struct HeadroomWidgetEntry: TimelineEntry {
     let snapshot: HeadroomWidgetSnapshot
 }
 
-struct HeadroomWidgetProvider: TimelineProvider {
+struct HeadroomWidgetProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> HeadroomWidgetEntry {
         HeadroomWidgetEntry(date: .now, snapshot: .placeholder)
     }
 
-    func getSnapshot(
-        in context: Context,
-        completion: @escaping (HeadroomWidgetEntry) -> Void
-    ) {
+    func snapshot(
+        for configuration: HeadroomWidgetConfiguration,
+        in context: Context
+    ) async -> HeadroomWidgetEntry {
         // The gallery is the one place invented numbers are the right
         // answer — it is showing what the widget looks like, not what your
         // quota is. Everywhere else, no cache means say so.
         let snapshot = context.isPreview ? .placeholder : load()
-        completion(HeadroomWidgetEntry(date: .now, snapshot: snapshot))
+        return entry(snapshot, configuration)
     }
 
-    func getTimeline(
-        in context: Context,
-        completion: @escaping (Timeline<HeadroomWidgetEntry>) -> Void
-    ) {
-        let entry = HeadroomWidgetEntry(date: .now, snapshot: load())
-        completion(Timeline(
-            entries: [entry],
+    func timeline(
+        for configuration: HeadroomWidgetConfiguration,
+        in context: Context
+    ) async -> Timeline<HeadroomWidgetEntry> {
+        Timeline(
+            entries: [entry(load(), configuration)],
             policy: .after(Date(timeIntervalSinceNow: 15 * 60))
-        ))
+        )
+    }
+
+    /// The gallery's own list: the default, then one tile per provider the
+    /// cache knows. A picker that only ever offers "Headroom" is how someone
+    /// ends up believing the widget can show one provider and no others.
+    func recommendations() -> [AppIntentRecommendation<HeadroomWidgetConfiguration>] {
+        let providers = HeadroomWidgetSnapshot.cached()?.providers ?? []
+        return [
+            AppIntentRecommendation(
+                intent: HeadroomWidgetConfiguration(provider: .everyProvider),
+                description: HeadroomProviderEntity.everyProvider.name
+            ),
+        ] + providers.map { provider in
+            AppIntentRecommendation(
+                intent: HeadroomWidgetConfiguration(
+                    provider: HeadroomProviderEntity(
+                        id: provider.id, name: provider.spokenTitle
+                    )
+                ),
+                description: provider.spokenTitle
+            )
+        }
+    }
+
+    private func entry(
+        _ snapshot: HeadroomWidgetSnapshot,
+        _ configuration: HeadroomWidgetConfiguration
+    ) -> HeadroomWidgetEntry {
+        HeadroomWidgetEntry(
+            date: .now,
+            snapshot: snapshot.showing(configuration.chosenProviderID)
+        )
     }
 
     private func load() -> HeadroomWidgetSnapshot {
@@ -335,8 +366,13 @@ struct HeadroomStatusWidget: Widget {
     }
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(
+        // The kind is the identity of every already-placed tile, so it stays
+        // what it has always been. Widgets placed before this was
+        // configurable get the default configuration, which is the behaviour
+        // they already had: every provider the host sent.
+        AppIntentConfiguration(
             kind: "HeadroomWidget",
+            intent: HeadroomWidgetConfiguration.self,
             provider: HeadroomWidgetProvider()
         ) { entry in
             HeadroomWidgetView(entry: entry)

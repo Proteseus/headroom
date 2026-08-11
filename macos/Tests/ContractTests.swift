@@ -901,6 +901,32 @@ final class WidgetSnapshotSkewTests: XCTestCase {
         XCTAssertNil(OverallBurndownChartMath.latestSampleTime(nil))
     }
 
+    func testATileDrawsTheProviderItWasConfiguredFor() throws {
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "claude", "title": "Claude", "percent": 30},
+            {"id": "codex", "title": "Codex", "percent": 60}
+        ]}
+        """)
+        XCTAssertEqual(snapshot.showing("codex").providers.map(\.id), ["codex"])
+        // The default, and every widget placed before the picker existed.
+        XCTAssertEqual(
+            snapshot.showing(nil).providers.map(\.id), ["claude", "codex"])
+    }
+
+    func testAConfiguredProviderThatLeftDrawsTheRestRatherThanNothing() throws {
+        // Turning a provider off, or reordering it out of the top 3, must not
+        // turn a tile into an empty box. Every figure a widget draws is
+        // labelled with whose it is, so more than was asked for still reads.
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "claude", "title": "Claude", "percent": 30}
+        ]}
+        """)
+        XCTAssertEqual(
+            snapshot.showing("cursor").providers.map(\.id), ["claude"])
+    }
+
     func testWhatThisBuildWritesIsWhatThisBuildReads() throws {
         // The tolerance above must not have cost the round trip.
         let written = HeadroomWidgetSnapshot(

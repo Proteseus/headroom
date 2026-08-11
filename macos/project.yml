@@ -144,6 +144,7 @@ targets:
       Release: Version.xcconfig
     sources:
       - path: ../widget/HeadroomWidget.swift
+      - path: ../widget/HeadroomWidgetIntent.swift
       - path: ../Shared/WidgetSnapshot.swift
       - path: ../Shared/LossyDecode.swift
       - path: ../Shared/HeadroomRings.swift
@@ -175,6 +176,7 @@ targets:
       Release: Version.xcconfig
     sources:
       - path: ../widget/HeadroomWidget.swift
+      - path: ../widget/HeadroomWidgetIntent.swift
       - path: ../Shared/WidgetSnapshot.swift
       - path: ../Shared/LossyDecode.swift
       - path: ../Shared/HeadroomRings.swift
