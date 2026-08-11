@@ -17,6 +17,13 @@ final class MenuBarIconStyleTests: XCTestCase {
         XCTAssertGreaterThan(over, 0)
     }
 
+    func testPaceOffsetInvertFlipsSign() {
+        let over = MenuBarIconStyle.paceOffset(used: 48, pace: 40)
+        let flipped = MenuBarIconStyle.paceOffset(
+            used: 48, pace: 40, invert: true)
+        XCTAssertEqual(flipped, -over, accuracy: 1e-9)
+    }
+
     func testSmallGapsMoveMoreThanLinearClipWould() {
         // ±3 pts should already leave the rail; with scale 8, tanh(3/8) ≈ 0.36.
         let small = MenuBarIconStyle.paceOffset(used: 43, pace: 40)

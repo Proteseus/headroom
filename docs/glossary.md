@@ -301,7 +301,7 @@ blank axis.
 | **Collecting history** | Burndown empty / early verdict |
 | **Not updating** | The host is replaying a source's last good numbers; the age travels with it (**Not updating · 2 hours ago**) |
 | **Paused** | The host is deliberately not refreshing — usually a provider rate limit (`stale_cause: rate_limited`). Carries the wait when known (**Paused · retries in 5m**). Secondary, not orange |
-| **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way |
+| **Needs sign-in** | That source's credential is missing or was rejected — `auth_required` on `providers[]` / `sources[]`. Ages the same way. Attention names the fix (`claude /login`, `codex login`, sign in to Cursor, …) |
 | **Dismiss** | Swipe one row out of the iPhone Attention queue — a passive coding-agent notice, a rollup reason, or a failed feed row |
 | **Dismiss all** | Hide every row in an Attention section and ack the rollup so the menu-bar pip goes out too. iPhone: per section (passive agent notices, or **Needs attention**). Mac: the one Attention control (no per-row swipe) |
 | **Refresh all** | Force-sync every source |
@@ -446,12 +446,14 @@ Say **top 3** in user-facing copy, not "focus" — that word is API vocabulary.
 ### Menu bar icon
 
 Mac Settings → General → **Menu bar icon** picks the glyph’s reading. Same
-three slots either way; only the mark changes.
+three slots either way; only the mark changes. **Invert** is a separate
+toggle that flips whichever style is active.
 
 | Option | Family | What each slot shows |
 |---|---|---|
 | **Remaining** | Fuel | Fill height = quota left (today’s tanks) |
 | **Pace** | Pace | Dot above/below even-spend midline; `tanh((used − pace) / 8)` so small gaps move more than big ones |
+| **Invert** | — | Remaining fills by used instead of left; Pace flips over/under |
 
 Do not name the Pace option after the game metaphor in chrome — **Pace** is
 the glossary word; the midline-and-dot shape is just how it draws.

@@ -1291,7 +1291,8 @@ def _build_attention(doc):
             add(
                 "warn",
                 "signin",
-                f"{title} needs sign-in — log in with the tool again",
+                f"{title} needs sign-in — "
+                f"{sources_config.login_remedy(provider.get('id'))}",
                 45,
             )
             continue

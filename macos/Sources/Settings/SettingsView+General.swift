@@ -15,6 +15,7 @@ extension SettingsView {
                         .tag(MenuBarIconStyle.pace.rawValue)
                 }
                 .pickerStyle(.segmented)
+                Toggle(HeadroomCopy.menuBarIconInvert, isOn: $menuBarIconInvert)
             } footer: {
                 Text(HeadroomCopy.menuBarIconHint)
             }

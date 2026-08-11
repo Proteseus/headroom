@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "1.10.0",
-  "published": "2026-08-07T11:02:47Z",
-  "url": "https://github.com/michellzappa/headroom/releases/download/v1.10.0/Headroom-macOS.zip",
-  "sha256": "51b5cbbf1fa39db89d5d1c1c7ee013a9539b0cba32d0dd311f1e32af852cc86d",
-  "size": 6104794,
+  "version": "2.0.4",
+  "published": "2026-08-10T06:19:20Z",
+  "url": "https://github.com/michellzappa/headroom/releases/download/v2.0.4/Headroom-macOS.zip",
+  "sha256": "7bdc54a198ce5fdbe71a02da366d30911222b03d7a1eddb1580994c9ed6d059c",
+  "size": 6111904,
   "min_macos": "14.0",
-  "notes_md": "### Added\n\n- **Plausible visitor histograms** on Activity rows and site detail — daily\n  for 7d/30d windows, hourly for day/24h, same role as OpenRouter spend\n  charts.\n\n### Fixed\n\n- **AI Gateway Create token** opens the API keys page, not the gateway home."
+  "notes_md": "### Fixed\n\n- **Watch complications follow background refresh.** iPhone background fetch\n  already wrote the home-screen widget cache but never forwarded it over\n  WatchConnectivity, so the wrist could sit half a day on the last open of\n  the phone app. The same push path foreground refresh uses now runs after\n  a successful background fetch."
 }

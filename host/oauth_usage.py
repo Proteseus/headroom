@@ -1,17 +1,20 @@
 """Anthropic OAuth plan-usage fetcher (CodexBar-equivalent).
 
-Owns Claude OAuth material under `~/.headroom/oauth/`, importing once from
-Claude Code's Keychain or `~/.claude/.credentials.json` when Headroom has
-nothing yet. Refreshed tokens are written only to Headroom's store — never
-back into Claude Code's Keychain item, which races that app's own refresh.
+Owns Claude OAuth material under `~/.headroom/oauth/`, importing from Claude
+Code's Keychain or `~/.claude/.credentials.json` whenever Headroom has nothing
+it can still renew. Refreshed tokens are written only to Headroom's store —
+never back into Claude Code's Keychain item, which races that app's own
+refresh.
 
 Claude Code's Keychain services remain an *import* source only:
 
     Claude Code-credentials-<sha256(config dir)[:8]>
 
 The old unqualified `Claude Code-credentials` service and credential files
-remain import fallbacks. After a successful import (or any refresh), the
-LaunchAgent never needs to touch a foreign Keychain item again.
+remain import fallbacks. While the imported grant is renewable the LaunchAgent
+never touches a foreign Keychain item; once it is not, re-import is the only
+way back, so "import once and never again" is exactly the bug to avoid — it
+strands the daemon on a dead login that no `claude /login` can reach.
 
 Keychain reads go through SecItemCopyMatching (see keychain.py). A user Deny
 is sticky until Settings refresh re-arms it — collapsing Deny into a miss
@@ -36,9 +39,14 @@ import cache_util
 import keychain
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+# `console.anthropic.com/v1/oauth/token` used to be the second of these and is
+# now a 404 — the route is gone for everyone, not for one account. Left in the
+# list it answered every refresh after the first host declined, and because the
+# loop reported its *last* error, a dead route's 404 became the message shown
+# for a perfectly diagnosable `invalid_grant`.
 TOKEN_URLS = (
     "https://platform.claude.com/v1/oauth/token",
-    "https://console.anthropic.com/v1/oauth/token",
+    "https://api.anthropic.com/v1/oauth/token",
 )
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA = "oauth-2025-04-20"
@@ -299,10 +307,17 @@ def _read_creds_blob(account=None, allow_keychain=True):
     answer, so the search goes on rather than stopping at it. Claude Code also
     keeps per-MCP-server OAuth in its Keychain item, and a blob left holding
     only `mcpOAuth` used to end the search there.
+
+    Neither is a store whose refresh token has expired. Importing *once* made
+    that a trap: Headroom's copy went stale the moment Claude Code rotated the
+    grant, kept an accessToken string that satisfied every check, and pinned
+    the daemon to a login it could not renew. `claude /login` wrote a good token
+    to the Keychain every time and this function never looked, so the only
+    visible symptom was a refresh that failed forever.
     """
     headroom_path = _headroom_path(account)
     headroom_blob = _read_file_blob(headroom_path)
-    if _oauth_block(headroom_blob):
+    if _live_oauth(headroom_blob):
         return _headroom_store(account), headroom_blob
 
     refused = None
@@ -332,13 +347,21 @@ def _read_creds_blob(account=None, allow_keychain=True):
     if headroom_blob is not None:
         candidates.insert(0, (_headroom_store(account), headroom_blob))
 
-    for store, blob in candidates:
-        if _oauth_block(blob):
-            # Claim ownership so the daemon never needs the foreign item again.
-            if not (isinstance(store, str)
-                    and store.startswith(HEADROOM_STORE_PREFIX)):
-                store, blob = _import_to_headroom(account, blob)
-            return store, blob
+    # Two passes, and the order matters more than the store order does: a
+    # renewable login anywhere beats a dead one in the preferred place. The
+    # second pass is the legacy shape — blobs with no stated refresh expiry,
+    # where `_live_oauth` and `_oauth_block` agree — so nothing regresses for
+    # installs that predate the field.
+    for usable in (_live_oauth, _oauth_block):
+        for store, blob in candidates:
+            if usable(blob):
+                # Claim ownership so the daemon need not touch the foreign
+                # item again — until this one expires too, and re-import is
+                # how it recovers rather than a thing that never happens.
+                if not (isinstance(store, str)
+                        and store.startswith(HEADROOM_STORE_PREFIX)):
+                    store, blob = _import_to_headroom(account, blob)
+                return store, blob
 
     if refused is not None and not candidates:
         raise refused
@@ -375,6 +398,37 @@ def _write_creds_blob(store, blob, account=None):
 def _oauth_block(blob):
     o = (blob or {}).get("claudeAiOauth") or {}
     if not o.get("accessToken"):
+        return None
+    return o
+
+
+def _refresh_expires_at_s(oauth):
+    ms = oauth.get("refreshTokenExpiresAt")
+    if not isinstance(ms, (int, float)):
+        return None
+    return ms / 1000.0 if ms > 1e12 else float(ms)
+
+
+def _refresh_dead(oauth):
+    """True when this blob's refresh token is past the expiry it states.
+
+    Absence is not death: older Claude Code blobs carry no
+    `refreshTokenExpiresAt`, and treating unknown as expired would throw away
+    the only credentials those installs have.
+    """
+    exp = _refresh_expires_at_s(oauth)
+    return exp is not None and exp <= time.time()
+
+
+def _live_oauth(blob):
+    """`_oauth_block`, minus the blobs nothing can ever renew.
+
+    An access token outlives its usefulness the moment the refresh token
+    behind it expires, but it stays a non-empty string forever — so
+    `_oauth_block` alone keeps saying yes to a login that is already over.
+    """
+    o = _oauth_block(blob)
+    if o is None or _refresh_dead(o):
         return None
     return o
 
@@ -418,7 +472,7 @@ def _shape_hint(store, blob):
     else:
         found = f"a bare {type(blob).__name__}"
     return (f"{store} has no claudeAiOauth.accessToken (found: {found}) — "
-            "run `claude login` if this followed an update")
+            "run `claude /login` if this followed an update")
 
 
 def _expires_at_s(oauth):
@@ -435,11 +489,41 @@ def _needs_refresh(oauth):
     return exp - time.time() <= EXPIRY_SKEW_S
 
 
+class OAuthLoginRequired(RuntimeError):
+    """The stored grant is gone. Only a new `claude /login` replaces it."""
+
+
+# Error ranks, lowest wins. Reporting whichever error came *last* let a host
+# that no longer serves the route speak over the one that answered with a
+# reason, so the UI named the only URL that was not the problem.
+_ERR_ACTIONABLE = 0     # the server said what is wrong
+_ERR_GENERIC = 1        # a status or a transport failure
+_ERR_ROUTE_GONE = 2     # 404: this host has no such endpoint, for anyone
+
+
+def _oauth_error_body(exc):
+    """`(error, error_description)` from an OAuth error response."""
+    try:
+        body = json.loads(exc.read().decode() or "{}")
+    except Exception:
+        return None, None
+    if not isinstance(body, dict):
+        return None, None
+    return body.get("error"), body.get("error_description")
+
+
 def _refresh(oauth, store, blob, account=None):
     refresh = oauth.get("refreshToken")
     if not refresh:
-        raise RuntimeError("no refreshToken")
-    last_err = None
+        raise OAuthLoginRequired(
+            "no refreshToken — run `claude /login`")
+    best = None
+
+    def note(rank, msg):
+        nonlocal best
+        if best is None or rank < best[0]:
+            best = (rank, msg)
+
     for url in TOKEN_URLS:
         try:
             data = http_util.request_json(
@@ -453,14 +537,25 @@ def _refresh(oauth, store, blob, account=None):
                 user_agent=UA,
             )
         except urllib.error.HTTPError as e:
-            last_err = f"HTTP {e.code} from {url}"
+            kind, detail = _oauth_error_body(e)
+            if kind == "invalid_grant":
+                # Definitive, and true of every host: this grant is gone. The
+                # next URL can only replace a clear answer with a worse one.
+                raise OAuthLoginRequired(
+                    detail or "Claude sign-in expired — run `claude /login`")
+            if e.code == 404:
+                note(_ERR_ROUTE_GONE, f"HTTP 404 from {url}")
+            elif detail:
+                note(_ERR_ACTIONABLE, detail)
+            else:
+                note(_ERR_GENERIC, f"HTTP {e.code} from {url}")
             continue
         except Exception as e:
-            last_err = str(e)
+            note(_ERR_GENERIC, str(e))
             continue
         access = data.get("access_token")
         if not access:
-            last_err = "refresh response missing access_token"
+            note(_ERR_GENERIC, "refresh response missing access_token")
             continue
         oauth["accessToken"] = access
         if data.get("refresh_token"):
@@ -478,7 +573,7 @@ def _refresh(oauth, store, blob, account=None):
             print("oauth: could not persist refreshed token:", exc)
         _store_oauth_mem(account, store, blob, oauth)
         return oauth
-    raise RuntimeError(last_err or "token refresh failed")
+    raise RuntimeError(best[1] if best else "token refresh failed")
 
 
 def _http_get_usage(token):
@@ -644,10 +739,11 @@ def fetch_quota(force=False, account=None):
         except KeychainRefused as exc:
             return _keep_stale(str(exc))
         # Nothing to authenticate with, and nothing here gets better on a
-        # retry: both want a `claude login`, not patience.
+        # retry: both want a `claude /login`, not patience.
         if not store:
             return _keep_stale(
-                f"no Claude credentials in {_credentials_hint(account)}",
+                f"no Claude credentials in {_credentials_hint(account)} "
+                "— run `claude /login`",
                 auth_required=True)
         if not oauth:
             return _keep_stale(_shape_hint(store, blob), auth_required=True)
@@ -657,6 +753,14 @@ def fetch_quota(force=False, account=None):
                 oauth = _refresh(oauth, store, blob, account=account)
                 store = _headroom_store(account)
                 blob = _read_file_blob(_headroom_path(account)) or blob
+            except OAuthLoginRequired as exc:
+                # The access token is already past its expiry — that is why we
+                # are here — and the grant behind it is gone. Calling the usage
+                # API now can only turn one clear answer into a 401. Drop the
+                # memoised blob so the next poll re-reads, which is how a fresh
+                # `claude /login` gets picked up without a restart.
+                _invalidate_oauth_mem(account)
+                return _keep_stale(str(exc), auth_required=True)
             except Exception:
                 # still try the current token; it might work
                 pass
@@ -707,6 +811,10 @@ def fetch_quota(force=False, account=None):
         return cache_util.store(cache, now, data, disk_name=disk_name)
     except KeychainRefused as e:
         return _keep_stale(str(e))
+    except OAuthLoginRequired as e:
+        # Reaching the generic arm would drop `auth_required`, and the one
+        # failure a person can actually fix would render as a plain outage.
+        return _keep_stale(str(e), auth_required=True)
     except Exception as e:
         return _keep_stale(str(e))
 

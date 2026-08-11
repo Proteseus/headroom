@@ -7,6 +7,72 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.4 — 2026-08-10
+
+### Fixed
+
+- **Watch complications follow background refresh.** iPhone background fetch
+  already wrote the home-screen widget cache but never forwarded it over
+  WatchConnectivity, so the wrist could sit half a day on the last open of
+  the phone app. The same push path foreground refresh uses now runs after
+  a successful background fetch.
+
+## 2.0.3 — 2026-08-09
+
+### Added
+
+- **Menu bar Invert.** Settings → General → Invert flips whichever glyph style
+  is active: Remaining fills by used instead of left, Pace swaps over/under.
+  Tooltip wording follows so the hover still matches the mark.
+
+### Changed
+
+- **Needs sign-in names the command.** Attention (and the meter error) now say
+  what to run when a coding provider is installed but not authed — `claude
+  /login`, `codex login`, `gh auth login`, `grok login`, or “sign in to Cursor”
+  for IDE-only tools — instead of the generic “log in with the tool again”.
+  Missing credentials also set `auth_required` for Codex, Cursor, Gemini,
+  Copilot, Grok, Zed and Windsurf so the orange Needs sign-in path fires for
+  them the way it already did for Claude.
+
+## 2.0.2 — 2026-08-08
+
+### Fixed
+
+- **Grok source stops logging its own users out.** `_acp_billing()` spawned
+  `grok agent stdio` and SIGKILLed it the instant the billing answer arrived.
+  The CLI rotates `~/.grok/auth.json` during startup — lock, then rewrite —
+  and a kill landing inside that window deleted the login file outright,
+  leaving `auth.json.lock` orphaned and the source reporting "not signed in to
+  Grok CLI" until someone ran `grok login` again. Observed twice in five days
+  of production polling. Shutdown now closes stdin so the agent sees EOF and
+  exits cleanly, escalating to `terminate` then `kill` only if it lingers past
+  two 3s timeouts; poll cost is unchanged. (#26)
+
+## 2.0.1 — 2026-08-08
+
+### Fixed
+
+- **Claude stops asking for a sign-in it already has.** Headroom imported
+  Claude Code's credentials once and then preferred its own copy forever. When
+  that copy's refresh token expired the copy still looked valid — an access
+  token stays a non-empty string long after it stops working — so every poll
+  tried to renew a dead grant, and the good token each `claude login` wrote to
+  the Keychain was never read. A stored login whose refresh token has expired
+  no longer counts as credentials, so re-import is how the daemon recovers
+  rather than something that only ever happened once. Logins from before the
+  expiry field existed are unaffected.
+- **The sign-in error names the reason instead of a dead URL.** Refresh also
+  tried a fallback host whose route now 404s, and reported whichever error
+  came last — so `invalid_grant: Refresh token not found or invalid` reached
+  the menu bar as `HTTP 404 from console.anthropic.com`. That host is out of
+  the list, a definitive `invalid_grant` stops the search instead of falling
+  through to it, and a 404 can no longer outrank an answer that says what is
+  actually wrong.
+- **An expired grant reads as "needs sign-in" on every path.** One route
+  raised it through a generic handler, which dropped the flag separating the
+  single failure a person can fix from an outage they can only wait out.
+
 ## 2.0.0 — 2026-08-07
 
 ### Changed

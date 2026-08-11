@@ -104,7 +104,9 @@ The extension builds twelve timeline entries twenty minutes apart and asks for
 a reload after four hours. Nothing in the payload changes between phone pushes,
 but the now rule and the snapshot's age do, and stepping them locally keeps the
 face honest without spending the day's complication budget by lunchtime. Real
-freshness comes from the phone's pushes.
+freshness comes from the phone's pushes — both the foreground refresh and the
+background one (`MobileBackgroundRefresh`), which used to update only the
+home-screen widget and leave the wrist on the last open of the phone app.
 
 A watch that has never heard from the phone shows **Open Headroom on iPhone**.
 

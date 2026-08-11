@@ -111,8 +111,24 @@ def _acp_billing(binary):
                         err.get("message") or "billing call failed")
         raise RuntimeError("Grok CLI did not answer in time")
     finally:
+        # Never SIGKILL the CLI outright: `grok agent stdio` rotates
+        # ~/.grok/auth.json during startup, and a kill that lands mid-write
+        # deletes the login — observed twice in the wild as a vanished
+        # auth.json with its .lock file left behind, forcing a fresh
+        # `grok login`. Closing stdin signals EOF, which the agent treats
+        # as a clean shutdown; escalate only if it lingers.
         try:
-            proc.kill()
+            proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         except OSError:
             pass
 
@@ -181,7 +197,9 @@ def fetch_quota(force=False):
     binary = _binary()
     if binary is None or not signed_in():
         return cache_util.keep_stale(
-            _cache, now, "not signed in to Grok CLI", _EMPTY, disk_name=DISK)
+            _cache, now,
+            "not signed in to Grok CLI — run `grok login`",
+            _EMPTY, disk_name=DISK, auth_required=True)
 
     try:
         blob = _acp_billing(binary)

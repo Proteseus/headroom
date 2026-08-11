@@ -221,6 +221,10 @@ class Source(NamedTuple):
     subscription_prices: tuple = ()
     subscription_pricing_url: Optional[str] = None
     subscription_prices_checked: Optional[str] = None
+    # What Attention / meter errors say after "needs sign-in — …". A CLI
+    # command in backticks when one exists; plain prose for IDE-only tools.
+    # Installed-but-not-authed is the common case this exists for.
+    login_hint: Optional[str] = None
 
     def subscription_pricing_payload(self):
         """Provider-owned plan catalog for the additive /usage payload."""
@@ -823,7 +827,8 @@ BASE_SOURCES = (
            account_hint="~/.claude-work (a second CLAUDE_CONFIG_DIR)",
            account_probe=oauth_usage.credentials_present,
            subscription_prices=_CLAUDE_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://www.anthropic.com/pricing"),
+           subscription_pricing_url="https://www.anthropic.com/pricing",
+           login_hint="run `claude /login`"),
     Source("codex", "Codex", "~/.codex/auth.json", 60,
            codex_usage.fetch_quota, summary_fn=_summary_codex,
            kind="quota", group=GROUP_AI, pools=_CODEX_POOLS,
@@ -835,7 +840,8 @@ BASE_SOURCES = (
            account_file=codex_usage.AUTH_NAME,
            account_hint="~/.codex-work (a second CODEX_HOME)",
            subscription_prices=_CODEX_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://chatgpt.com/pricing"),
+           subscription_pricing_url="https://chatgpt.com/pricing",
+           login_hint="run `codex login`"),
     Source("cursor", "Cursor", "Cursor IDE signed-in JWT", 60,
            cursor_usage.fetch_quota, summary_fn=_summary_cursor,
            kind="quota", group=GROUP_AI, pools=_CURSOR_POOLS,
@@ -844,13 +850,15 @@ BASE_SOURCES = (
            account_kind=accounts.KIND_FILE,
            account_hint="another profile's state.vscdb",
            subscription_prices=_CURSOR_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://cursor.com/pricing"),
+           subscription_pricing_url="https://cursor.com/pricing",
+           login_hint="sign in to Cursor"),
     Source("copilot", "Copilot", "GitHub token / `gh auth`", 60,
            copilot_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_COPILOT_POOLS,
            headline=("premium", "chat"), accent="#A371F7",
            subscription_prices=_COPILOT_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://github.com/features/copilot/plans"),
+           subscription_pricing_url="https://github.com/features/copilot/plans",
+           login_hint="run `gh auth login`"),
     Source("gemini", "Gemini", "~/.gemini OAuth (Gemini CLI)", 60,
            gemini_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_GEMINI_POOLS,
@@ -859,29 +867,34 @@ BASE_SOURCES = (
            account_file=gemini_usage.CREDS_NAME,
            account_hint="~/.gemini-work",
            subscription_prices=_GEMINI_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://gemini.google.com/advanced"),
+           subscription_pricing_url="https://gemini.google.com/advanced",
+           login_hint="run `gemini` and sign in"),
     Source("windsurf", "Windsurf", "Windsurf IDE plan cache", 60,
            windsurf_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_WINDSURF_POOLS,
            headline=("week", "session"), accent="#00C2A8",
            subscription_pricing_url="https://windsurf.com/pricing",
            account_kind=accounts.KIND_FILE,
-           account_hint="another profile's state.vscdb"),
+           account_hint="another profile's state.vscdb",
+           login_hint="sign in to Windsurf"),
     Source("jetbrains", "JetBrains AI", "Local AI Assistant quota XML", 60,
            jetbrains_usage.fetch_quota,
            kind="quota", group=GROUP_AI,
            pools=_JETBRAINS_POOLS, headline=("month",), accent="#FE315D",
-           subscription_pricing_url="https://www.jetbrains.com/ai/"),
+           subscription_pricing_url="https://www.jetbrains.com/ai/",
+           login_hint="sign in to JetBrains AI"),
     Source("zed", "Zed", "Zed Keychain session", 60,
            zed_usage.fetch_quota,
            kind="quota", group=GROUP_AI, pools=_ZED_POOLS,
            headline=("predictions",), accent="#084CCF",
            subscription_prices=_ZED_SUBSCRIPTION_PRICES,
-           subscription_pricing_url="https://zed.dev/pricing"),
+           subscription_pricing_url="https://zed.dev/pricing",
+           login_hint="sign in to Zed"),
     Source("grok", "Grok", "~/.grok/auth.json (Grok CLI)", 300,
            grok_usage.fetch_quota, detail_fn=_detail_grok,
            kind="quota", group=GROUP_AI, pools=_GROK_POOLS,
-           accent="#8E8E93"),
+           accent="#8E8E93",
+           login_hint="run `grok login`"),
     Source("openrouter", "OpenRouter", "Management API key in Keychain",
            openrouter_usage.CACHE_TTL_S,
            openrouter_usage.fetch_quota,
@@ -901,13 +914,13 @@ BASE_SOURCES = (
            _blank_claude_status, kind="activity", group=GROUP_AI),
     Source("vercel", "Vercel", "Vercel CLI login", 60,
            vercel_builds.fetch_deployments, _detail_vercel, _summary_vercel,
-           _blank_vercel),
+           _blank_vercel, login_hint="run `vercel login`"),
     Source("git", "Git", "Local commits under configured Dev root", 60,
            git_activity.fetch_commits, _detail_git, _summary_git,
            _blank_git),
     Source("github", "GitHub Actions", "Failed / running workflows", 90,
            github_actions.fetch_actions, _detail_github, _summary_github,
-           _blank_github),
+           _blank_github, login_hint="run `gh auth login`"),
     Source("local", "Local", "Listening servers and Xcode builds",
            min(local_servers.CACHE_TTL_S, xcode_builds.CACHE_TTL_S),
            _fetch_local, _detail_local, _summary_local, _blank_local),
@@ -1522,6 +1535,19 @@ def title_for(source_id):
     if source is not None and source.account is not None:
         return f"{brand} · {source.account.label}"
     return brand
+
+
+def login_remedy(source_id):
+    """Phrase after "needs sign-in — …" for Attention and meter errors.
+
+    Extra-account ids inherit the base provider's hint. Key/PAT sources with
+    no CLI leave the generic fallback — Settings already names where to paste.
+    """
+    provider, _slug = accounts.split_id(source_id or "")
+    base = BASE_BY_ID.get(provider) or BY_ID.get(source_id)
+    hint = (base.login_hint if base is not None else None) or ""
+    hint = hint.strip()
+    return hint or "log in with the tool again"
 
 
 def _purge_duplicate_account_accents(accents, provider_id, previous_base, new_base):
