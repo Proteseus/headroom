@@ -7,6 +7,56 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## 2.0.5 — 2026-08-11
+
+### Added
+
+- **New vs returning Macs** in Community Pulse. The weekly dedupe key rotates
+  by design, so nothing could tell a returning Mac from a new one and
+  retention was invisible. Each Mac now answers locally: it compares the
+  period it last submitted against the one it is reporting and sends a single
+  word — `new`, `returning`, or `reactivated`. The word carries no identity
+  and cannot be joined across weeks, so the intake learns that some Mac came
+  back, never which one. Settings and the public page both draw the split, and
+  a line reading what share of the previous week returned.
+- **Reset celebration on the board.** An additive `device_effect` envelope lets
+  the host queue a celebration for the ESP32's next poll, either when an
+  observed burndown window rolls or from a private-network `/device/effect`
+  trigger. Firmware stores the last consumed effect id, so a reboot does not
+  replay it. See [`docs/esp32.md`](docs/esp32.md).
+- **`scripts/install-local-release.sh`**, a one-shot install of a local release
+  build over `/Applications`.
+
+### Changed
+
+- **Community Pulse compares weeks that finished.** A Mac reports once per ISO
+  week at its first launch inside it, so the newest count fills over seven
+  days. Both clients differenced that partial week against a complete one,
+  which printed a large negative week-over-week figure every Monday and
+  Tuesday — 36 hours into a week it read −37 against a launch week that had
+  had all seven days. The payload now marks the newest week `in_progress`, the
+  app and page difference the last two weeks that closed, the filling bar is
+  faded, and every breakdown under `latest` says once that it is week to date.
+  Weeks before the first report are trimmed rather than drawn as zeroes.
+- **Weekly counts are kept, and raw batches expire at 180 days** instead of 30.
+  Pruning `telemetry_periods` on the batch schedule capped the growth chart at
+  about five bars forever. That table holds a period, a Mac count, and the
+  cohort counts; no column describes a Mac, so it is now kept. Existing D1
+  needs [`telemetry/migrations/004_growth_cohorts.sql`](telemetry/migrations/004_growth_cohorts.sql),
+  applied **before** deploying the Worker. See
+  [`docs/telemetry.md`](docs/telemetry.md).
+- **App updates list Current beside Latest.** One row used to collapse to the
+  installed version, so a copy that could not install hid the version the feed
+  reported. `UpdateChecker` now tracks the last successful fetch independent of
+  whether an update is available.
+- **Community Pulse link** in About reads as a button rather than caption text.
+
+### Fixed
+
+- **GitHub star counts stop freezing.** The About view used
+  `returnCacheDataElseLoad` and the community page cached its fetch, so both
+  served the first response forever instead of honouring GitHub's `max-age=60`.
+
 ## 2.0.4 — 2026-08-10
 
 ### Fixed
