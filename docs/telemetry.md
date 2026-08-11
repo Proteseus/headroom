@@ -121,6 +121,12 @@ npx wrangler d1 execute headroom-telemetry --remote \
   --file=telemetry/migrations/004_growth_cohorts.sql
 ```
 
+**Run a migration before deploying the Worker that needs it, never after.**
+`communityStats` selects the cohort columns by name, so a Worker deployed
+against an un-migrated D1 throws on every `/v1/community` request and the
+Community Pulse goes blank on the page, in Settings, and on the board. The
+reverse order is safe: an older Worker ignores columns it does not select.
+
 ## Community Pulse
 
 The public Community Pulse is a read-only aggregate view at the Worker’s
