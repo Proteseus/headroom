@@ -52,7 +52,11 @@ macos/Version.xcconfig
 # #include?d by the generated Version.xcconfig. See README, "Signing as
 # yourself". Per-machine by design, so never committed.
 macos/Local.xcconfig
+# wrangler writes its cache next to wherever it was invoked, and the repo root
+# is the easy mistake — the telemetry commands in docs/telemetry.md are run
+# from there as often as from telemetry/.
 telemetry/.wrangler/
+.wrangler/
 
 # Backups left by `patch` when applying hunks by hand.
 *.orig
