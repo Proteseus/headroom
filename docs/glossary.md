@@ -162,7 +162,7 @@ surface-specific (see the end of this file), but the shape does not.
 | **Reply to the agent…** | Free-text answer to a request | iOS |
 | **Answer in the terminal** | This question is showing in both places; answer it where it was asked | iOS |
 | **Other Macs** | iCloud settings sync between Macs (under Sync) | macOS Settings |
-| **Telemetry** | Local payload preview plus thresholded Community Pulse (weekly growth, builds, CPU, macOS, countries, services, models, features), shown only while anonymous diagnostics is enabled | macOS Settings |
+| **Telemetry** | Local payload preview plus thresholded Community Pulse (weekly growth, new vs returning, builds, CPU, macOS, countries, services, models, features), shown only while anonymous diagnostics is enabled. The newest week is marked as still filling and never differenced against a finished one | macOS Settings |
 | **Computers** | Macs paired to this iPhone; each token stays in the iPhone Keychain | iOS Settings |
 | **Add computer** | Pair another Mac without replacing the saved pairing | iOS Settings |
 

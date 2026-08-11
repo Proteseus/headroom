@@ -24,9 +24,16 @@ CREATE INDEX IF NOT EXISTS telemetry_batches_version
 -- rows. `sample_count` is the number of batches contributing the item;
 -- `value_total` is used for percentages such as model shares and feature
 -- adoption.
+-- The growth series. Unlike every other table here this one is never pruned:
+-- a row is a week, a count of Macs, and how those Macs split between first
+-- report, back from last week, and back after a gap. No column describes a
+-- Mac, so retention costs nothing and the chart can show a year.
 CREATE TABLE IF NOT EXISTS telemetry_periods (
   period TEXT PRIMARY KEY,
   batch_count INTEGER NOT NULL DEFAULT 0,
+  new_macs INTEGER NOT NULL DEFAULT 0,
+  returning_macs INTEGER NOT NULL DEFAULT 0,
+  reactivated_macs INTEGER NOT NULL DEFAULT 0,
   last_received_at TEXT NOT NULL
 );
 

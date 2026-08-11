@@ -151,6 +151,7 @@ const COMMUNITY_PAGE = `<!doctype html>
       background: var(--fill);
     }
     .bar-empty { background: var(--empty); }
+    .bar-partial { background: var(--fill); opacity: 0.45; }
     .bar-current {
       background: var(--ink);
     }
@@ -304,26 +305,71 @@ const COMMUNITY_PAGE = `<!doctype html>
       ).join('');
     }
 
+    // A Mac reports once per ISO week, at its first launch inside it, so the
+    // newest bar fills over seven days. Differencing it against a week that
+    // closed printed a large drop every Monday. Complete weeks only.
+    function completeWeeks(weeks) {
+      return (weeks || []).filter((item) => item.count != null && !item.in_progress);
+    }
+
     function weekDelta(weeks) {
-      const published = (weeks || []).filter((item) => item.count != null);
-      if (published.length < 2) return null;
-      const latest = published[published.length - 1].count;
-      const previous = published[published.length - 2].count;
-      return latest - previous;
+      const complete = completeWeeks(weeks);
+      if (complete.length < 2) return null;
+      return complete[complete.length - 1].count - complete[complete.length - 2].count;
+    }
+
+    function cohortSplit(weeks) {
+      const complete = completeWeeks(weeks);
+      for (let index = complete.length - 1; index >= 0; index -= 1) {
+        const week = complete[index];
+        if (week.new_macs == null && week.returning_macs == null && week.reactivated_macs == null) {
+          continue;
+        }
+        return { week, prior: index > 0 ? complete[index - 1].count : null };
+      }
+      return null;
+    }
+
+    function cohortPanel(weeks) {
+      const split = cohortSplit(weeks);
+      if (!split) return empty('The split appears once a full week has closed');
+      const total = Math.max(1, split.week.count || 1);
+      const rows = countRows([
+        { name: 'New', count: split.week.new_macs || 0 },
+        { name: 'Returning', count: split.week.returning_macs || 0 },
+        { name: 'Reactivated', count: split.week.reactivated_macs || 0 },
+      ], total);
+      let note = '';
+      if (split.week.returning_macs != null && split.prior) {
+        const kept = Math.round(split.week.returning_macs / split.prior * 100);
+        note = '<div class="version-note">' + esc(split.week.period) + ' · <strong>' +
+          esc(kept) + '%</strong> of the week before came back</div>';
+      }
+      return rows + note;
     }
 
     function weeklyChart(weeks) {
       if (!weeks.length) return empty('No weekly history yet');
       const max = Math.max(1, ...weeks.map((item) => item.count || 0));
-      return '<div class="bars">' + weeks.map((item) => {
+      const bars = '<div class="bars">' + weeks.map((item) => {
         const height = Math.max(3, ((item.count || 0) / max) * 128);
         const label = item.count == null ? '·' : String(item.count);
-        return '<div class="bar-wrap" title="' + esc(item.period) + (item.count == null ? ' · withheld or empty' : '') + '">' +
+        const note = item.count == null
+          ? ' · withheld or empty'
+          : (item.in_progress ? ' · still filling' : '');
+        const cls = item.count == null
+          ? ' bar-empty'
+          : (item.in_progress ? ' bar-partial' : '');
+        return '<div class="bar-wrap" title="' + esc(item.period) + note + '">' +
           '<div class="bar-value">' + esc(label) + '</div>' +
-          '<div class="bar' + (item.count == null ? ' bar-empty' : '') + '" style="height:' + height + 'px"></div>' +
+          '<div class="bar' + cls + '" style="height:' + height + 'px"></div>' +
           '<div class="bar-label">' + esc(item.period.slice(6)) + '</div>' +
         '</div>';
       }).join('') + '</div>';
+      const partial = weeks.some((item) => item.in_progress);
+      return bars + (partial
+        ? '<div class="version-note">Faded bar is the week in progress. It fills over seven days.</div>'
+        : '');
     }
 
     function versionParts(value) {
@@ -388,33 +434,38 @@ const COMMUNITY_PAGE = `<!doctype html>
       const floor = data.privacy.minimum_group_size;
       const release = data.latest_release;
       document.querySelector('#meta').textContent = latest
-        ? 'Snapshot ' + latest.period + ' · published ' + data.generated_on + ' · groups smaller than ' + floor + ' withheld'
+        ? 'Snapshot ' + latest.period + (latest.in_progress ? ' (still filling)' : '') +
+          ' · published ' + data.generated_on + ' · groups smaller than ' + floor + ' withheld'
         : 'Waiting for at least ' + floor + ' reporting Macs in a week.';
 
       if (!latest) {
         document.querySelector('#stats').innerHTML =
           '<div class="panel stat"><div class="label">Weekly active Macs</div><div class="value">—</div><div class="sub">Below privacy floor</div></div>';
         document.querySelector('#body').innerHTML =
-          panel('Weekly active Macs', 'ISO weeks in retention window', weeklyChart(data.weekly_active_macs || []), 3);
+          panel('Weekly active Macs', 'ISO weeks since the first report', weeklyChart(data.weekly_active_macs || []), 3);
         return;
       }
 
       const total = latest.reporting_macs;
       const delta = weekDelta(data.weekly_active_macs);
-      const deltaLabel = delta == null ? 'Need two published weeks' : (delta > 0 ? '+' + delta : String(delta)) + ' vs prior week';
+      const deltaLabel = delta == null
+        ? 'Need two complete weeks'
+        : (delta > 0 ? '+' + delta : String(delta)) + ' vs the week before';
       const topBuild = latest.versions?.[0];
       const topArch = latest.architectures?.[0];
       const releaseLabel = release?.version || '—';
+      const periodLabel = latest.in_progress ? latest.period + ' so far' : latest.period;
 
       document.querySelector('#stats').innerHTML =
-        '<div class="panel stat"><div class="label">Weekly active Macs</div><div class="value">' + esc(number(total)) + '</div><div class="sub">' + esc(latest.period) + '</div></div>' +
+        '<div class="panel stat"><div class="label">Weekly active Macs</div><div class="value">' + esc(number(total)) + '</div><div class="sub">' + esc(periodLabel) + '</div></div>' +
         '<div class="panel stat"><div class="label">Week-over-week</div><div class="value">' + esc(delta == null ? '—' : (delta > 0 ? '+' + delta : String(delta))) + '</div><div class="sub">' + esc(deltaLabel) + '</div></div>' +
         '<div class="panel stat"><div class="label">Latest release</div><div class="value">' + esc(releaseLabel) + '</div><div class="sub">' + esc(release?.published ? release.published.slice(0, 10) : 'update feed') + '</div></div>' +
         '<div class="panel stat"><div class="label">Top architecture</div><div class="value">' + esc(topArch?.name || '—') + '</div><div class="sub">' + esc(topArch ? topArch.count + ' Macs' : 'Below privacy floor') + '</div></div>';
 
       document.querySelector('#body').innerHTML =
         panel('Weekly active Macs', 'ISO weeks · empty or withheld weeks stay on the axis', weeklyChart(data.weekly_active_macs || []), 3) +
-        panel('Version distribution', release?.version ? ('histogram · latest ' + release.version + ' marked') : 'histogram · app version', versionHistogram(latest.versions || [], total, release), 3) +
+        panel('New vs returning', 'last complete week · derived on each Mac, never joined across weeks', cohortPanel(data.weekly_active_macs || []), 3) +
+        panel('Version distribution', (release?.version ? ('histogram · latest ' + release.version + ' marked') : 'histogram · app version') + (latest.in_progress ? ' · week to date' : ''), versionHistogram(latest.versions || [], total, release), 3) +
         panel('Architecture', 'CPU family', countRows(latest.architectures || [], total), 1) +
         panel('macOS major', 'major version', countRows((latest.macos_majors || []).map((item) => ({ name: 'macOS ' + item.name, count: item.count })), total), 1) +
         panel('Countries', 'Cloudflare edge geo · ISO code only, never an IP', countRows((latest.countries || []).map((item) => ({ name: countryName(item.name), count: item.count })), total), 1) +

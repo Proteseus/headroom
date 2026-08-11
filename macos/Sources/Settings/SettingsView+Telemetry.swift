@@ -112,7 +112,9 @@ extension SettingsView {
                     HeadroomCopy.telemetryWeeklyActive,
                     value: latest.reportingMacs.map(String.init)
                         ?? HeadroomCopy.telemetryCommunityGrowing,
-                    detail: latest.period
+                    detail: latestIsPartial(latest)
+                        ? "\(latest.period) \(HeadroomCopy.telemetryWeekToDate)"
+                        : latest.period
                 )
                 telemetryMetric(
                     HeadroomCopy.telemetryWeekOverWeek,
@@ -136,7 +138,14 @@ extension SettingsView {
                 )
             }
 
+            if latestIsPartial(latest) {
+                Text(HeadroomCopy.telemetryWeekToDateNote)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             communityWeeklyChart(stats.weeklyActiveMacs)
+            communityCohortChart(stats.weeklyActiveMacs)
             communityVersionHistogram(
                 latest.versions,
                 release: stats.latestRelease?.version
@@ -187,6 +196,13 @@ extension SettingsView {
         }
     }
 
+    /// Whether every breakdown under `latest` covers a week still filling.
+    /// Trusts the server flag, and falls back to the Mac's own ISO week so the
+    /// caveat still shows against a Worker that predates the flag.
+    func latestIsPartial(_ latest: HeadroomCommunityStats.Latest) -> Bool {
+        latest.inProgress || latest.period == HeadroomTelemetry.currentPeriod()
+    }
+
     @ViewBuilder
     func communityWeeklyChart(
         _ weeks: [HeadroomCommunityStats.WeeklyActive]
@@ -197,6 +213,7 @@ extension SettingsView {
             let maximum = max(1, weeks.compactMap(\.count).max() ?? 1)
             HStack(alignment: .bottom, spacing: 5) {
                 ForEach(weeks) { week in
+                    let partial = communityWeekInProgress(week)
                     VStack(spacing: 4) {
                         Text(
                             week.count.map(String.init)
@@ -208,7 +225,7 @@ extension SettingsView {
                             .fill(
                                 week.count == nil
                                     ? Color.primary.opacity(0.12)
-                                    : Color.primary.opacity(0.55)
+                                    : Color.primary.opacity(partial ? 0.26 : 0.55)
                             )
                             .frame(
                                 maxWidth: .infinity,
@@ -219,11 +236,62 @@ extension SettingsView {
                             )
                         Text(String(week.period.suffix(2)))
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(partial ? .tertiary : .secondary)
                     }
                 }
             }
             .frame(height: 118, alignment: .bottom)
+            if weeks.contains(where: { communityWeekInProgress($0) }) {
+                Text(HeadroomCopy.telemetryWeekInProgressKey)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    func communityCohortChart(
+        _ weeks: [HeadroomCommunityStats.WeeklyActive]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(HeadroomCopy.telemetryGrowthHeader)
+                .font(.callout.weight(.medium))
+            if let split = communityCohortWeek(weeks) {
+                let total = max(1, split.week.count ?? 1)
+                let rows: [(String, Int?)] = [
+                    (HeadroomCopy.telemetryCohortNew, split.week.newMacs),
+                    (HeadroomCopy.telemetryCohortReturning, split.week.returningMacs),
+                    (HeadroomCopy.telemetryCohortReactivated, split.week.reactivatedMacs),
+                ]
+                ForEach(rows, id: \.0) { label, value in
+                    HStack(spacing: 8) {
+                        Text(label)
+                            .font(.caption)
+                            .frame(width: 90, alignment: .leading)
+                            .lineLimit(1)
+                        telemetryBar(
+                            value: Double(value ?? 0),
+                            total: Double(total)
+                        )
+                        Text(value.map(String.init) ?? "·")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, alignment: .trailing)
+                    }
+                }
+                if let returning = split.week.returningMacs,
+                   let prior = split.prior, prior > 0 {
+                    let kept = Int(
+                        (Double(returning) / Double(prior) * 100).rounded())
+                    Text("\(split.week.period) · \(kept)% \(HeadroomCopy.telemetryRetentionSuffix)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text(HeadroomCopy.telemetryCohortPending)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -482,12 +550,30 @@ extension SettingsView {
         .frame(height: 6)
     }
 
+    /// A week is still filling until it ends. The server says so, and this
+    /// falls back to the Mac's own ISO week so an app running ahead of the
+    /// Worker still reads the newest bar correctly.
+    func communityWeekInProgress(
+        _ week: HeadroomCommunityStats.WeeklyActive
+    ) -> Bool {
+        week.inProgress || week.period == HeadroomTelemetry.currentPeriod()
+    }
+
+    /// Weeks that closed and published a count. Differencing anything else
+    /// against them prints a large negative number every Monday and Tuesday,
+    /// which is what "week over week" used to do.
+    func communityCompleteWeeks(
+        _ weeks: [HeadroomCommunityStats.WeeklyActive]
+    ) -> [HeadroomCommunityStats.WeeklyActive] {
+        weeks.filter { !communityWeekInProgress($0) && $0.count != nil }
+    }
+
     func communityWeekDelta(
         _ weeks: [HeadroomCommunityStats.WeeklyActive]
     ) -> Int? {
-        let published = weeks.compactMap(\.count)
-        guard published.count >= 2 else { return nil }
-        return published[published.count - 1] - published[published.count - 2]
+        let complete = communityCompleteWeeks(weeks).compactMap(\.count)
+        guard complete.count >= 2 else { return nil }
+        return complete[complete.count - 1] - complete[complete.count - 2]
     }
 
     func communityWeekDeltaLabel(
@@ -501,8 +587,23 @@ extension SettingsView {
         _ weeks: [HeadroomCommunityStats.WeeklyActive]
     ) -> String {
         communityWeekDelta(weeks) == nil
-            ? HeadroomCopy.telemetryNeedPriorWeek
-            : HeadroomCopy.telemetryLatestWeek
+            ? HeadroomCopy.telemetryNeedCompleteWeeks
+            : HeadroomCopy.telemetryLastCompleteWeek
+    }
+
+    /// Newest closed week that carries a cohort split, with the week before it
+    /// so returning can be read as a share of who was there to return.
+    func communityCohortWeek(
+        _ weeks: [HeadroomCommunityStats.WeeklyActive]
+    ) -> (week: HeadroomCommunityStats.WeeklyActive, prior: Int?)? {
+        let complete = communityCompleteWeeks(weeks)
+        guard let index = complete.lastIndex(where: \.hasCohorts) else {
+            return nil
+        }
+        let prior = index > complete.startIndex
+            ? complete[complete.index(before: index)].count
+            : nil
+        return (complete[index], prior)
     }
 
     @ViewBuilder

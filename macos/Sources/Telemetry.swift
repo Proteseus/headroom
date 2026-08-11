@@ -36,6 +36,11 @@ struct HeadroomTelemetryBatch: Codable, Equatable, Sendable {
     /// receiving a stable install id.
     let dedupeKey: String
     let period: String
+    /// `new`, `returning`, or `reactivated`, derived on the Mac from the last
+    /// period it submitted. This is the retention signal, and it deliberately
+    /// carries no identity: the intake learns that some Mac came back, never
+    /// which one. Nil on a build that predates the field.
+    let cohort: String?
     let app: App
     let providers: Providers
     /// Percent shares by normalized family, never raw model identifiers.
@@ -46,7 +51,7 @@ struct HeadroomTelemetryBatch: Codable, Equatable, Sendable {
         case schema
         case batchID = "batch_id"
         case dedupeKey = "dedupe_key"
-        case period, app, providers, models, features
+        case period, cohort, app, providers, models, features
     }
 }
 
@@ -65,8 +70,59 @@ struct HeadroomCommunityStats: Decodable, Sendable {
     struct WeeklyActive: Decodable, Identifiable, Sendable {
         let period: String
         let count: Int?
+        /// The week is still filling. A Mac reports once per ISO week at its
+        /// first launch inside it, so this count keeps rising until Sunday and
+        /// must not be differenced against a week that closed.
+        let inProgress: Bool
+        let newMacs: Int?
+        let returningMacs: Int?
+        let reactivatedMacs: Int?
 
         var id: String { period }
+
+        var hasCohorts: Bool {
+            newMacs != nil || returningMacs != nil || reactivatedMacs != nil
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case period, count
+            case inProgress = "in_progress"
+            case newMacs = "new_macs"
+            case returningMacs = "returning_macs"
+            case reactivatedMacs = "reactivated_macs"
+        }
+
+        init(
+            period: String,
+            count: Int?,
+            inProgress: Bool = false,
+            newMacs: Int? = nil,
+            returningMacs: Int? = nil,
+            reactivatedMacs: Int? = nil
+        ) {
+            self.period = period
+            self.count = count
+            self.inProgress = inProgress
+            self.newMacs = newMacs
+            self.returningMacs = returningMacs
+            self.reactivatedMacs = reactivatedMacs
+        }
+
+        /// Every field past `period` is optional so a Mac running ahead of the
+        /// Worker still decodes. `inProgress` then reads false, and the app
+        /// falls back to comparing the period against its own ISO week.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            period = try container.decode(String.self, forKey: .period)
+            count = try container.decodeIfPresent(Int.self, forKey: .count)
+            inProgress = try container.decodeIfPresent(
+                Bool.self, forKey: .inProgress) ?? false
+            newMacs = try container.decodeIfPresent(Int.self, forKey: .newMacs)
+            returningMacs = try container.decodeIfPresent(
+                Int.self, forKey: .returningMacs)
+            reactivatedMacs = try container.decodeIfPresent(
+                Int.self, forKey: .reactivatedMacs)
+        }
     }
 
     struct CountedItem: Decodable, Identifiable, Sendable {
@@ -103,6 +159,8 @@ struct HeadroomCommunityStats: Decodable, Sendable {
 
     struct Latest: Decodable, Sendable {
         let period: String
+        /// Every breakdown below is week to date while this is true.
+        let inProgress: Bool
         let reportingMacs: Int?
         let versions: [CountedItem]
         let architectures: [CountedItem]
@@ -114,6 +172,7 @@ struct HeadroomCommunityStats: Decodable, Sendable {
 
         enum CodingKeys: String, CodingKey {
             case period
+            case inProgress = "in_progress"
             case reportingMacs = "reporting_macs"
             case versions
             case architectures
@@ -127,6 +186,8 @@ struct HeadroomCommunityStats: Decodable, Sendable {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             period = try container.decode(String.self, forKey: .period)
+            inProgress = try container.decodeIfPresent(
+                Bool.self, forKey: .inProgress) ?? false
             reportingMacs = try container.decodeIfPresent(Int.self, forKey: .reportingMacs)
             versions = try container.decodeIfPresent([CountedItem].self, forKey: .versions) ?? []
             architectures = try container.decodeIfPresent([CountedItem].self, forKey: .architectures) ?? []
@@ -261,6 +322,49 @@ enum HeadroomTelemetry {
         let year = calendar.component(.yearForWeekOfYear, from: date)
         let week = calendar.component(.weekOfYear, from: date)
         return String(format: "%04d-W%02d", year, week)
+    }
+
+    /// The ISO week before `period`, or nil if the label does not parse.
+    /// Goes through the calendar rather than subtracting from the week number,
+    /// so the last week of a year resolves to W52 or W53 of the year before.
+    static func previousPeriod(of period: String) -> String? {
+        guard period.count == 8,
+              let year = Int(period.prefix(4)),
+              let week = Int(period.suffix(2))
+        else { return nil }
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var components = DateComponents()
+        components.yearForWeekOfYear = year
+        components.weekOfYear = week
+        components.weekday = calendar.firstWeekday
+        guard let monday = calendar.date(from: components),
+              let earlier = calendar.date(byAdding: .day, value: -7, to: monday)
+        else { return nil }
+        return currentPeriod(earlier)
+    }
+
+    /// How this Mac counts toward retention, read off the period it last
+    /// submitted. Nothing about it is sent to the server beyond the word, and
+    /// the word cannot be joined across weeks, so it buys a returning-vs-new
+    /// split without giving the intake an install id.
+    ///
+    /// A Mac that had diagnostics off and turns them on reports `new`, because
+    /// locally that is all it can know. Documented in docs/telemetry.md.
+    static func cohort(for period: String, lastSubmitted: String?) -> String {
+        guard let lastSubmitted, !lastSubmitted.isEmpty else { return "new" }
+        if lastSubmitted == period { return "returning" }
+        return lastSubmitted == previousPeriod(of: period)
+            ? "returning"
+            : "reactivated"
+    }
+
+    static func currentCohort(for period: String) -> String {
+        cohort(
+            for: period,
+            lastSubmitted: UserDefaults.standard.string(
+                forKey: lastSubmittedPeriodKey)
+        )
     }
 
     /// Opaque week key for server-side uniqueness. Not an install id: it
@@ -532,6 +636,7 @@ final class TelemetryCoordinator {
             batchID: UUID().uuidString.lowercased(),
             dedupeKey: HeadroomTelemetry.weekDedupeKey(period: period),
             period: period,
+            cohort: HeadroomTelemetry.currentCohort(for: period),
             app: .init(
                 version: appVersion,
                 build: appBuild,

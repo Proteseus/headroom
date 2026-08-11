@@ -738,6 +738,19 @@ enum HeadroomCopy {
     static let telemetryLatestWeek = "latest week"
     static let telemetryMacs = "Macs"
     static let telemetryNeedPriorWeek = "Need two published weeks"
+    static let telemetryLastCompleteWeek = "last complete week"
+    static let telemetryNeedCompleteWeeks = "Need two complete weeks"
+    static let telemetryWeekToDate = "so far"
+    static let telemetryWeekToDateNote =
+        "The newest week is still filling. Every count below covers it so far, not a full seven days."
+    static let telemetryWeekInProgressKey = "Faded bar is the week in progress."
+    static let telemetryGrowthHeader = "New vs returning"
+    static let telemetryCohortNew = "New"
+    static let telemetryCohortReturning = "Returning"
+    static let telemetryCohortReactivated = "Reactivated"
+    static let telemetryCohortPending =
+        "The split appears once a full week has closed."
+    static let telemetryRetentionSuffix = "of the week before came back"
     static let telemetryCommunityFooter =
         "A public aggregate of other opted-in Macs. Small groups stay hidden; weekly counts are reports, not user identities. This Mac’s payload is shown above."
     static let telemetryFooter =

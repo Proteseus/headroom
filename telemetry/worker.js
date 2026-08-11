@@ -14,8 +14,26 @@ const ALLOWED_FEATURES = new Set([
   "phone_paired", "agent_gateway_enabled", "multi_mac_enabled",
 ]);
 
+// Week-over-week retention, without a cross-week identifier. The Mac derives
+// this from its own last submitted period, so the intake learns that *a* Mac
+// came back, never which one. Columns, not dimensions: these outlive the raw
+// retention window because they are the growth series.
+const ALLOWED_COHORTS = new Set(["new", "returning", "reactivated"]);
+const COHORT_COLUMNS = {
+  new: "new_macs",
+  returning: "returning_macs",
+  reactivated: "reactivated_macs",
+};
+
 const COMMUNITY_MINIMUM_GROUP_SIZE = 1;
-const COMMUNITY_WINDOW_DAYS = 30;
+// Raw batches and per-week dimension rollups expire on this window.
+// `telemetry_periods` does not — see the `scheduled` handler. Six months so a
+// breakdown can be compared against the same week two quarters back; the rows
+// it keeps are already whitelisted aggregates with no IP and no install id.
+const COMMUNITY_WINDOW_DAYS = 180;
+// How many weekly bars the public payload carries. Weekly counts are kept
+// indefinitely, so this is a display limit rather than a retention one.
+const COMMUNITY_HISTORY_WEEKS = 52;
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -69,6 +87,10 @@ function sanitize(payload) {
       && /^[0-9a-f]{64}$/.test(payload.dedupe_key)
     ? payload.dedupe_key
     : null;
+  const cohort = typeof payload.cohort === "string"
+      && ALLOWED_COHORTS.has(payload.cohort)
+    ? payload.cohort
+    : null;
   const app = payload.app;
   const providers = payload.providers;
   // Schema 2 requires a week-scoped HMAC dedupe key so one install cannot
@@ -99,6 +121,7 @@ function sanitize(payload) {
     batch_id: batchID,
     dedupe_key: dedupeKey,
     period,
+    cohort,
     app: {
       version,
       build,
@@ -180,14 +203,19 @@ function isoWeekPeriod(date) {
 }
 
 /**
- * Every ISO week that overlaps the retention window, oldest first. Weeks with
- * no batches, or batches below the privacy floor, publish as count: null so
- * the growth chart keeps a continuous axis.
+ * Every ISO week from the first reporting week to now, oldest first. Weeks
+ * with no batches, or batches below the privacy floor, publish as count: null
+ * so the growth chart keeps a continuous axis.
+ *
+ * The newest entry carries `in_progress: true`. A Mac reports once per ISO
+ * week, at its first launch inside that week, so the newest bar fills over
+ * seven days. Read against a finished week it looks like a collapse every
+ * Monday; clients use the flag to compare complete weeks instead.
  */
-function paddedWeeklyActive(observed, windowDays = COMMUNITY_WINDOW_DAYS) {
-  const byPeriod = new Map(observed.map((row) => [row.period, row.count]));
+function paddedWeeklyActive(observed, weeks = COMMUNITY_HISTORY_WEEKS) {
+  const byPeriod = new Map(observed.map((row) => [row.period, row]));
   const end = new Date();
-  const start = new Date(end.getTime() - windowDays * 86400000);
+  const start = new Date(end.getTime() - weeks * 7 * 86400000);
   const periods = [];
   const cursor = new Date(Date.UTC(
     start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
@@ -200,10 +228,23 @@ function paddedWeeklyActive(observed, windowDays = COMMUNITY_WINDOW_DAYS) {
     }
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
-  return periods.map((period) => ({
-    period,
-    count: byPeriod.has(period) ? publicCount(byPeriod.get(period)) : null,
-  }));
+  // Weeks before the first report are not a decline to zero, they are the time
+  // before anything reported. Trim that head so the axis starts where the data
+  // does and the first real week is not read as growth from nothing.
+  const first = periods.findIndex((period) => byPeriod.has(period));
+  const axis = first < 0 ? periods.slice(-1) : periods.slice(first);
+  const current = isoWeekPeriod(end);
+  return axis.map((period) => {
+    const row = byPeriod.get(period) ?? null;
+    return {
+      period,
+      count: row ? publicCount(row.count) : null,
+      in_progress: period === current,
+      new_macs: row ? publicCount(row.new) : null,
+      returning_macs: row ? publicCount(row.returning) : null,
+      reactivated_macs: row ? publicCount(row.reactivated) : null,
+    };
+  });
 }
 
 async function batchColumnCounts(env, period, column) {
@@ -252,14 +293,17 @@ async function latestRelease() {
 
 async function communityStats(env) {
   const periodsResult = await env.DB.prepare(
-    `SELECT period, batch_count
+    `SELECT period, batch_count, new_macs, returning_macs, reactivated_macs
      FROM telemetry_periods
-     WHERE last_received_at >= datetime('now', ?)
-     ORDER BY period DESC`
-  ).bind(`-${COMMUNITY_WINDOW_DAYS} days`).all();
+     ORDER BY period DESC
+     LIMIT ?`
+  ).bind(COMMUNITY_HISTORY_WEEKS).all();
   const periods = (periodsResult.results ?? []).map((row) => ({
     period: row.period,
     count: Number(row.batch_count),
+    new: Number(row.new_macs ?? 0),
+    returning: Number(row.returning_macs ?? 0),
+    reactivated: Number(row.reactivated_macs ?? 0),
   }));
   const weeklyActiveMacs = paddedWeeklyActive(periods);
   const release = await latestRelease();
@@ -275,11 +319,13 @@ async function communityStats(env) {
     };
   }
 
+  // Only the newest week is published as a breakdown, so only that week is
+  // read. Older dimension rows expire with the raw batches anyway.
   const dimensionsResult = await env.DB.prepare(
     `SELECT period, dimension, item, sample_count, value_total
      FROM telemetry_dimensions
-     WHERE period IN (${periods.map(() => "?").join(",")})`
-  ).bind(...periods.map((row) => row.period)).all();
+     WHERE period = ?`
+  ).bind(latest.period).all();
   const rows = dimensionsResult.results ?? [];
   const versions = publishableAppVersions(
     countedItems(dimensionRows(rows, "version", latest.period)),
@@ -327,6 +373,8 @@ async function communityStats(env) {
     latest_release: release,
     latest: {
       period: latest.period,
+      // Everything under `latest` is week to date while this is true.
+      in_progress: latest.period === isoWeekPeriod(new Date()),
       reporting_macs: publicCount(latest.count),
       versions,
       architectures,
@@ -361,13 +409,18 @@ function upsertDimension(env, period, dimension, item, valueTotal = 0) {
 }
 
 async function recordRollups(env, safe, receivedAt, country) {
+  // Fixed map, never the client string, so the column name cannot be steered.
+  const cohortColumn = safe.cohort ? COHORT_COLUMNS[safe.cohort] : null;
   const statements = [
     env.DB.prepare(
-      `INSERT INTO telemetry_periods (period, batch_count, last_received_at)
-       VALUES (?, 1, ?)
+      `INSERT INTO telemetry_periods
+         (period, batch_count, last_received_at${
+           cohortColumn ? `, ${cohortColumn}` : ""})
+       VALUES (?, 1, ?${cohortColumn ? ", 1" : ""})
        ON CONFLICT(period) DO UPDATE SET
          batch_count = batch_count + 1,
-         last_received_at = excluded.last_received_at`
+         last_received_at = excluded.last_received_at${
+           cohortColumn ? `, ${cohortColumn} = ${cohortColumn} + 1` : ""}`
     ).bind(safe.period, receivedAt),
     upsertDimension(env, safe.period, "version", safe.app.version),
     upsertDimension(env, safe.period, "architecture", safe.app.architecture),
@@ -456,6 +509,14 @@ export default {
     return json({ ok: true });
   },
 
+  /**
+   * Raw batches and per-week breakdowns expire on the retention window.
+   * `telemetry_periods` does not, and that is the point: it holds a period, a
+   * count of Macs, and three cohort counts. Nothing in it describes a Mac, so
+   * keeping it costs no privacy and is the only way growth stays visible past
+   * a month. Deleting it was why the chart could never show more than five
+   * weeks.
+   */
   async scheduled(_event, env) {
     const expired = await env.DB.prepare(
       `SELECT period FROM telemetry_periods
@@ -463,16 +524,10 @@ export default {
     ).bind(`-${COMMUNITY_WINDOW_DAYS} days`).all();
     const periods = (expired.results ?? []).map((row) => row.period);
     if (periods.length > 0) {
-      await env.DB.batch([
-        env.DB.prepare(
-          `DELETE FROM telemetry_dimensions
-           WHERE period IN (${periods.map(() => "?").join(",")})`
-        ).bind(...periods),
-        env.DB.prepare(
-          `DELETE FROM telemetry_periods
-           WHERE period IN (${periods.map(() => "?").join(",")})`
-        ).bind(...periods),
-      ]);
+      await env.DB.prepare(
+        `DELETE FROM telemetry_dimensions
+         WHERE period IN (${periods.map(() => "?").join(",")})`
+      ).bind(...periods).run();
     }
     await env.DB.prepare(
       "DELETE FROM telemetry_batches WHERE received_at < datetime('now', ?)"
