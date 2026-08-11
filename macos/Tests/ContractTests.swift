@@ -863,6 +863,44 @@ final class WidgetSnapshotSkewTests: XCTestCase {
         XCTAssertFalse(HeadroomWidgetSnapshot.placeholder.isStale)
     }
 
+    func testABurndownKeyWithNoCurveIsNotSomethingToChart() throws {
+        // What made the wide widget a blank box: `charted` asked whether the
+        // provider had a `burndown` key, not whether that key held a stroke.
+        // A cache from an older build, or one a lossy decode emptied, sent the
+        // widget down the chart branch — which then had nothing to draw and no
+        // words to fall back to.
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "empty", "title": "Empty", "percent": 10,
+             "burndown": {"windowEnd": 12}},
+            {"id": "onesample", "title": "One", "percent": 20,
+             "burndown": {"actual": [[1, 90]]}},
+            {"id": "claude", "title": "Claude", "percent": 30,
+             "burndown": {"actual": [[1, 90], [2, 70]]}}
+        ]}
+        """)
+        XCTAssertEqual(snapshot.charted.map(\.id), ["claude"])
+        XCTAssertEqual(snapshot.providers.count, 3, "none of them is dropped")
+    }
+
+    func testAShortRowCostsItsSampleRatherThanTheWidget() throws {
+        // A widget extension has no error path: an index out of range is not a
+        // wrong number on screen, it is an empty tile that never says why. Row
+        // width is not validated on the way into the cache, so it is validated
+        // on the way out.
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "claude", "title": "Claude", "percent": 30,
+             "burndown": {"actual": [[1, 90], [], [3, 70], [4]]}}
+        ]}
+        """)
+        let series = try XCTUnwrap(snapshot.providers.first?.burndown)
+        XCTAssertEqual(series.latestSampleTime, 3)
+        XCTAssertTrue(series.isDrawable)
+        XCTAssertNil(OverallBurndownChartMath.latestSampleTime([[], [7]]))
+        XCTAssertNil(OverallBurndownChartMath.latestSampleTime(nil))
+    }
+
     func testWhatThisBuildWritesIsWhatThisBuildReads() throws {
         // The tolerance above must not have cost the round trip.
         let written = HeadroomWidgetSnapshot(

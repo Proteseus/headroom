@@ -24,7 +24,9 @@ enum HeadroomWidgetCache {
         // shifts "now" relative to the strokes it holds.
         let sampleNow = snapshot.focusProviders()
             .compactMap {
-                snapshot.overviewBurndown(forProviderID: $0.id)?.actual?.last?[0]
+                OverallBurndownChartMath.latestSampleTime(
+                    snapshot.overviewBurndown(forProviderID: $0.id)?.actual
+                )
             }
             .max() ?? Date().timeIntervalSince1970
         let domain = OverallBurndownChartMath.domain(

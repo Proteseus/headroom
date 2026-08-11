@@ -118,8 +118,11 @@ struct OverviewBurndownCard: View {
             }
             .cardStyle()
         } else {
-            let now = all.compactMap { $0.pool.actual?.last?[0] }.max()
-                ?? Date().timeIntervalSince1970
+            let now = all
+                .compactMap {
+                    OverallBurndownChartMath.latestSampleTime($0.pool.actual)
+                }
+                .max() ?? Date().timeIntervalSince1970
             let domain = OverallBurndownChartMath.domain(
                 now: Date(timeIntervalSince1970: now)
             )

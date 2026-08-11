@@ -71,6 +71,19 @@ enum OverallBurndownChartMath {
         return Domain(start: start, end: safeEnd, now: now)
     }
 
+    /// The most recent sample time in a compact `[[t, remaining], …]` series.
+    ///
+    /// Every surface that anchors a domain to data rather than to the wall
+    /// clock asks this. It reads the pairs rather than the last row because a
+    /// row is only a sample when it has both numbers: the series arrives from
+    /// the host on one path and from a cache another build wrote on the other,
+    /// and `rows.last![0]` on a short row is a crash — which in a widget
+    /// extension is not a wrong number, it is a blank box with nothing to say
+    /// why. A malformed row costs that sample and nothing else.
+    static func latestSampleTime(_ pairs: [[Double]]?) -> Double? {
+        pairs?.compactMap { $0.count >= 2 ? $0[0] : nil }.max()
+    }
+
     /// Clip [[t, remaining], …] to `[start, end]`, interpolating at the edges.
     static func clipPolyline(
         _ pairs: [[Double]],

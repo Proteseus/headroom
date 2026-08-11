@@ -41,12 +41,28 @@ struct HeadroomWidgetProvider: TimelineProvider {
 /// No product name, no status dot. A widget the user chose to place already
 /// says which app it belongs to, and the chart says the rest — both of them
 /// were spending the small size's only real currency, which is height.
+///
+/// **Every family names every source it has, in words, before it draws
+/// anything.** The wide family used to be a chart and a legend of names, which
+/// meant two states rendered as an empty box: a cache holding `burndown` keys
+/// with no curve in them, and any failure inside the canvas. A widget that
+/// cannot draw its chart still knows the numbers, so the numbers go first and
+/// the chart is what is added to them.
 struct HeadroomWidgetView: View {
     let entry: HeadroomWidgetEntry
     @Environment(\.widgetFamily) private var family
 
+    /// The host already picked these — `FOCUS_LIMIT` sources, pinned order.
+    /// Capped again here because a widget is not the place to discover that
+    /// the number moved.
+    private static let maximumProviders = 3
+
+    private var providers: [HeadroomWidgetSnapshot.Provider] {
+        Array(entry.snapshot.providers.prefix(Self.maximumProviders))
+    }
+
     private var charted: [HeadroomWidgetSnapshot.Provider] {
-        entry.snapshot.charted
+        Array(entry.snapshot.charted.prefix(Self.maximumProviders))
     }
 
     var body: some View {
@@ -60,22 +76,25 @@ struct HeadroomWidgetView: View {
         .containerBackground(.background, for: .widget)
     }
 
-    /// One provider's rings — the small size has no room for a week of chart.
+    /// Rings — the small size has no room for a week of chart. One source gets
+    /// the whole tile; several share it rather than one of them standing in
+    /// for the rest, which is what showing `providers.first` alone did.
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let provider = entry.snapshot.providers.first {
-                HeadroomRings(layers: provider.ringLayers, tint: provider.tint)
-                .frame(width: 62, height: 62)
+            if providers.count == 1, let solo = providers.first {
+                HeadroomRings(layers: solo.ringLayers, tint: solo.tint)
+                    .frame(width: 62, height: 62)
                 Spacer(minLength: 8)
-                Text(provider.title)
+                Text(solo.title)
                     .font(.caption.weight(.semibold))
-                Text(HeadroomCopy.percentUsed(provider.percent))
+                    .lineLimit(1)
+                Text(HeadroomCopy.percentUsed(solo.percent))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+            } else if providers.isEmpty {
+                emptyLine
             } else {
-                Text(entry.snapshot.attentionSummary ?? HeadroomCopy.openHeadroom)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                ringRow(diameter: providers.count > 2 ? 38 : 50)
             }
             staleNote
         }
@@ -83,52 +102,67 @@ struct HeadroomWidgetView: View {
     }
 
     /// The combined burndown, every provider on one axis — the same chart the
-    /// Mac's Overview leads with. Rings stand in until there is history.
+    /// Mac's Overview leads with, under a line naming each source and what it
+    /// has left. Rings stand in until there is history.
     @ViewBuilder
     private var wide: some View {
-        if charted.isEmpty {
-            ringRow
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                CombinedBurndownChart(providers: charted)
-                legend
-            }
-        }
-    }
-
-    private var ringRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 18) {
-                ForEach(entry.snapshot.providers.prefix(3)) { provider in
-                    VStack(spacing: 5) {
-                        HeadroomRings(
-                            layers: provider.ringLayers, tint: provider.tint
-                        )
-                        .frame(width: 54, height: 54)
-                        Text(provider.title)
-                            .font(.caption2)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            if entry.snapshot.providers.isEmpty {
-                Text(entry.snapshot.attentionSummary ?? HeadroomCopy.openHeadroom)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
+        if providers.isEmpty {
+            VStack(alignment: .leading, spacing: 0) { emptyLine }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        } else if charted.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ringRow(diameter: 54)
                 Text(HeadroomCopy.noHistoryYet)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                staleNote
             }
-            staleNote
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                legend
+                CombinedBurndownChart(providers: charted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
+    /// One cell per source: its rings, its name, its reading. Used by the small
+    /// family whenever there is more than one source, and by both families when
+    /// there is no history to chart yet.
+    private func ringRow(diameter: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(providers) { provider in
+                VStack(spacing: 5) {
+                    HeadroomRings(
+                        layers: provider.ringLayers, tint: provider.tint
+                    )
+                    .frame(width: diameter, height: diameter)
+                    Text(provider.title)
+                        .font(.caption2)
+                        .lineLimit(1)
+                    Text(HeadroomCopy.percentUsed(provider.percent))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Names the chart's lines and reads them at once.
+    ///
+    /// The swatch is the line's own colour, so this is the chart's key; the
+    /// figure is what is **left**, because that is the axis the line is drawn
+    /// against. Rings say "used" on the same surfaces — both words stay
+    /// attached to their number wherever the two glyphs meet (docs/glossary.md).
+    /// A source with no line still gets its row: it is one of your sources, and
+    /// a widget that quietly drops it reads as a widget that lost it.
     private var legend: some View {
         HStack(spacing: 10) {
-            ForEach(charted) { provider in
+            ForEach(providers) { provider in
                 HStack(spacing: 4) {
                     Capsule()
                         .fill(provider.burndownTint)
@@ -136,7 +170,12 @@ struct HeadroomWidgetView: View {
                     Text(provider.title)
                         .font(.caption2)
                         .lineLimit(1)
+                    Text(HeadroomCopy.percentLeft(100 - provider.percent))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                .layoutPriority(1)
             }
             Spacer(minLength: 0)
             if entry.snapshot.isStale {
@@ -145,6 +184,13 @@ struct HeadroomWidgetView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .minimumScaleFactor(0.75)
+    }
+
+    private var emptyLine: some View {
+        Text(entry.snapshot.attentionSummary ?? HeadroomCopy.openHeadroom)
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -152,7 +198,7 @@ struct HeadroomWidgetView: View {
         // With no providers there is nothing to be stale about, and the
         // empty-state line already explains itself — an age beside it would
         // be measuring a reading that was never taken.
-        if entry.snapshot.isStale, !entry.snapshot.providers.isEmpty {
+        if entry.snapshot.isStale, !providers.isEmpty {
             Text(HeadroomCopy.ago(entry.snapshot.age))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -177,7 +223,7 @@ private struct CombinedBurndownChart: View {
             // overview uses — so a stale cache does not walk "now" past the
             // strokes it still holds.
             let sampleNow = providers
-                .compactMap { $0.burndown?.actual.last?[0] }
+                .compactMap { $0.burndown?.latestSampleTime }
                 .max() ?? Date().timeIntervalSince1970
             let plot = BurndownGeometry(
                 rect: burndownPlotRect(in: size, axis: true, gutter: 0),

@@ -5,6 +5,24 @@ import SwiftUI
 // the cache rather than the model layer — so a provider's tint, its ring
 // layers, and which of them is the one worth naming are decided once.
 
+extension HeadroomWidgetSnapshot.Provider.Series {
+    /// Rows that really are a `[time, remaining]` pair.
+    ///
+    /// The three surfaces here read a cache they did not write, and may not
+    /// have been the build that wrote it. Nothing validates row width on the
+    /// way in, so it is validated on the way out.
+    var samples: [[Double]] { actual.filter { $0.count >= 2 } }
+
+    /// Whether this series has a stroke in it. Two samples is the floor —
+    /// one is a dot, not a line, and a `burndown` key holding neither is a
+    /// provider the chart cannot say anything about.
+    var isDrawable: Bool { samples.count >= 2 }
+
+    var latestSampleTime: Double? {
+        OverallBurndownChartMath.latestSampleTime(actual)
+    }
+}
+
 extension HeadroomWidgetSnapshot.Provider {
     /// What VoiceOver calls this provider: the full title where the cache
     /// carries one, and the mark title otherwise — which is what an app older
@@ -69,7 +87,12 @@ extension HeadroomWidgetSnapshot {
     }
 
     /// Providers with enough history to draw a line.
+    ///
+    /// The test is the stroke, not the key. A `burndown` object whose curve is
+    /// empty — what an older build wrote, and what a lossy decode leaves behind
+    /// — used to count as charted, so the wide widget committed its whole
+    /// surface to a chart with nothing in it instead of falling back to rings.
     var charted: [Provider] {
-        providers.filter { $0.burndown != nil }
+        providers.filter { $0.burndown?.isDrawable == true }
     }
 }
