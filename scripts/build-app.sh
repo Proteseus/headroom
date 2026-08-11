@@ -3,6 +3,10 @@
 #
 #   ./scripts/build-app.sh                 # Debug → dist/ (ad-hoc sign)
 #   ./scripts/build-app.sh --release       # Release config, ad-hoc sign
+#   ./scripts/build-app.sh --release --sign
+#       Developer ID sign, no notarization — a local build whose widget can
+#       read the app group, because the group id is the signing team and
+#       ad-hoc has none. Gatekeeper still warns; it is for this Mac.
 #   ./scripts/build-app.sh --release --notarize
 #       Developer ID sign + notarytool + staple (CI / local with certs)
 #
@@ -24,10 +28,12 @@ source "$ROOT/scripts/version-env.sh"
 
 CONFIG=Debug
 NOTARIZE=0
+SIGN=0
 for arg in "$@"; do
   case "$arg" in
     --release) CONFIG=Release ;;
     --debug) CONFIG=Debug ;;
+    --sign) SIGN=1 ;;
     --notarize) NOTARIZE=1 ;;
     -h|--help)
       cat <<'EOF'
@@ -35,6 +41,7 @@ Build Headroom.app with the Python host embedded.
 
   ./scripts/build-app.sh                    # Debug (default)
   ./scripts/build-app.sh --release          # Release, ad-hoc sign
+  ./scripts/build-app.sh --release --sign   # Developer ID sign, no notarize
   ./scripts/build-app.sh --release --notarize
                                             # Developer ID + notarize + staple
 
@@ -243,7 +250,7 @@ sign_adhoc() {
 sign_developer_id() {
   local identity="${HEADROOM_SIGN_IDENTITY:-}"
   if [[ -z "$identity" ]]; then
-    echo "error: HEADROOM_SIGN_IDENTITY required for --notarize" >&2
+    echo "error: HEADROOM_SIGN_IDENTITY required for --sign / --notarize" >&2
     echo "  e.g. export HEADROOM_SIGN_IDENTITY='Developer ID Application: Name (TEAMID)'" >&2
     exit 1
   fi
@@ -338,6 +345,12 @@ notarize_and_staple() {
 if [[ "$NOTARIZE" -eq 1 ]]; then
   sign_developer_id
   notarize_and_staple
+elif [[ "$SIGN" -eq 1 ]]; then
+  # Same signature as a release, without asking Apple about it. The app group
+  # is the reason to want this locally: it is `TEAMID.group.…`, read off the
+  # widget's own signature at runtime, so an ad-hoc build can never see the
+  # cache the app writes and the widget draws its empty state for ever.
+  sign_developer_id
 else
   sign_adhoc
 fi
@@ -362,6 +375,8 @@ echo "  $ZIP"
 echo "  bundled host: $HOST_PY ($HOST_COUNT modules)"
 if [[ "$NOTARIZE" -eq 1 ]]; then
   echo "  notarized + stapled"
+elif [[ "$SIGN" -eq 1 ]]; then
+  echo "  Developer ID signed, not notarized (Gatekeeper will warn)"
 else
   echo "  signed ad-hoc (Gatekeeper will warn until --notarize)"
 fi

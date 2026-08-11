@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
-# One-shot: install the just-built 1.8.0 Release Headroom over /Applications
-# and repoint the LaunchAgent host at it.
+# One-shot: install a locally built Release Headroom over /Applications and
+# repoint the LaunchAgent host at it.
+#
+# Takes `dist/Headroom.app` when `build-app.sh` has already signed one, and
+# the raw build product otherwise. **A signature with a team is never
+# replaced.** The widget's app group is `TEAMID.group.…`, read off its own
+# signature at runtime, so ad-hoc re-signing a `--sign` build silently costs
+# it the container and the widget draws its empty state for ever. That is
+# also why `build-app.sh --release --sign` is the build to install when the
+# thing being tested is the widget.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$ROOT/macos/.build-release/Build/Products/Release/Headroom.app"
+BUILT="$ROOT/macos/.build-release/Build/Products/Release/Headroom.app"
 DIST="$ROOT/dist/Headroom.app"
 DEST="/Applications/Headroom.app"
 UID_NUM="$(id -u)"
 LABEL="gui/${UID_NUM}/com.centaur-labs.headroom"
 
-[[ -d "$SRC" ]] || { echo "missing $SRC — build Release first"; exit 1; }
+# The team on a bundle's signature, or empty for ad-hoc and unsigned.
+signing_team() {
+  codesign -dv --verbose=4 "$1" 2>&1 \
+    | sed -n 's/^TeamIdentifier=\(.*\)$/\1/p' \
+    | grep -v '^not set$' || true
+}
 
-echo "Preparing dist…"
-rm -rf "$DIST"
-ditto "$SRC" "$DIST"
-codesign --force --deep --sign - "$DIST" >/dev/null
+if [[ -d "$DIST" && -n "$(signing_team "$DIST")" ]]; then
+  echo "Using signed $DIST (team $(signing_team "$DIST"))"
+else
+  [[ -d "$BUILT" ]] || { echo "missing $BUILT — build Release first"; exit 1; }
+  echo "Preparing dist…"
+  rm -rf "$DIST"
+  ditto "$BUILT" "$DIST"
+  codesign --force --deep --sign - "$DIST" >/dev/null
+  echo "note: ad-hoc signed — no team, so the widget cannot read the app" >&2
+  echo "      group. Use build-app.sh --release --sign to test widgets." >&2
+fi
 
 echo "Quitting Headroom…"
 osascript -e 'tell application "Headroom" to quit' >/dev/null 2>&1 || true
@@ -28,8 +48,9 @@ sleep 2
 
 echo "Installing to $DEST…"
 rm -rf "$DEST"
+# ditto carries the signature across, so there is nothing to re-sign — and
+# re-signing here is what used to throw the team away.
 ditto "$DIST" "$DEST"
-codesign --force --deep --sign - "$DEST" >/dev/null
 
 echo "Repointing host…"
 "$ROOT/scripts/install-host.sh" --app="$DEST" || true

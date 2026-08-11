@@ -43,11 +43,20 @@ open dist/Headroom.app
 Version is `host/VERSION` + git commit count (`./scripts/version-env.sh`).
 
 **The widget needs a team on the signature.** App and extension share their
-cache through an app group, and on macOS a group id carries the team id — so an
-ad-hoc build (`build-app.sh` without `--notarize`) is denied the container and
-the widget draws its placeholder forever. Run from Xcode with your own team
-(automatic signing) or build `--release --notarize` for real numbers in
-Notification Center.
+cache through an app group, and on macOS a group id carries the team id — so a
+plain ad-hoc build is denied the container and the widget draws its empty state
+forever. Notarizing is not what fixes that, the signature is:
+
+```sh
+export HEADROOM_SIGN_IDENTITY='Developer ID Application: You (TEAMID)'
+./scripts/build-app.sh --release --sign     # signed, not notarized
+./scripts/install-local-release.sh          # → /Applications, host repointed
+```
+
+Running from Xcode with automatic signing works too. `install-local-release.sh`
+takes `dist/Headroom.app` whenever it carries a team and never re-signs it —
+ad-hoc re-signing an installed copy is the same bug arriving later, and it looks
+like a broken widget rather than a lost entitlement.
 
 ### Debug build (host from clone)
 
