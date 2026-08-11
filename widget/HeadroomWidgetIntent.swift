@@ -49,7 +49,20 @@ struct HeadroomProviderQuery: EntityQuery {
         Self.options()
     }
 
-    func defaultResult() async -> HeadroomProviderEntity? { .everyProvider }
+    /// A new tile starts on the provider closest to running out — the same
+    /// one every compact surface leads with, because it is the one that
+    /// changes what you do next. All three at once is a chart, and a chart is
+    /// something to choose rather than something to land on.
+    ///
+    /// This is resolved once, when the widget is added, and stored with it. A
+    /// tile does not quietly change which provider it draws because a
+    /// different one started emptying faster — that would make a widget
+    /// someone placed on purpose into a widget that wanders.
+    func defaultResult() async -> HeadroomProviderEntity? {
+        guard let binding = HeadroomWidgetSnapshot.cached()?.bindingProvider
+        else { return .everyProvider }
+        return HeadroomProviderEntity(id: binding.id, name: binding.spokenTitle)
+    }
 
     func entities(
         for identifiers: [String]
@@ -96,8 +109,13 @@ struct HeadroomWidgetConfiguration: WidgetConfigurationIntent {
         self.provider = provider
     }
 
-    /// Nil when the tile draws everything it is given, which is the default
-    /// and what every widget placed before this configuration existed does.
+    /// Nil when the tile draws everything it is given.
+    ///
+    /// Two paths reach that: the explicit "All providers" choice, and a tile
+    /// placed before this configuration existed, which carries no parameter at
+    /// all. Both drew every provider before and both keep drawing every
+    /// provider — the new single-provider default applies to tiles added from
+    /// here on, and never rewrites one already on a screen.
     var chosenProviderID: String? {
         guard let id = provider?.id,
               id != HeadroomProviderEntity.everyProviderID

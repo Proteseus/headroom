@@ -901,6 +901,31 @@ final class WidgetSnapshotSkewTests: XCTestCase {
         XCTAssertNil(OverallBurndownChartMath.latestSampleTime(nil))
     }
 
+    func testTheBindingProviderIsTheOneClosestToRunningOut() throws {
+        // A new widget starts on this provider, and the watch names it when it
+        // can only name one. Emptying first outranks most spent: a pool at 90%
+        // that renews tomorrow changes nothing about today.
+        let snapshot = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "spent", "title": "Spent", "percent": 90},
+            {"id": "emptying", "title": "Emptying", "percent": 40,
+             "burndown": {"actual": [[1, 60], [2, 40]],
+                          "projected": [[2, 40], [3, 0]]}}
+        ]}
+        """)
+        XCTAssertEqual(snapshot.bindingProvider?.id, "emptying")
+
+        // With nothing running dry it is the most spent, which is what the
+        // meters lead with everywhere else.
+        let steady = try decode("""
+        {"updatedAt": 0, "providers": [
+            {"id": "claude", "title": "Claude", "percent": 20},
+            {"id": "codex", "title": "Codex", "percent": 70}
+        ]}
+        """)
+        XCTAssertEqual(steady.bindingProvider?.id, "codex")
+    }
+
     func testATileDrawsTheProviderItWasConfiguredFor() throws {
         let snapshot = try decode("""
         {"updatedAt": 0, "providers": [

@@ -58,9 +58,13 @@ Mac on its own — the phone forwards what it fetched. See
     The Providers pane still decides which providers exist and in what order,
     and the host still serves the top 3; the tile decides which of those it
     spends its space on, which is a question two tiles on one screen answer
-    differently. The default draws all of them, which is what every widget
-    placed before the picker existed keeps doing. A provider that leaves the
-    top 3 leaves the tile drawing the rest, never an empty box. App Intents
+    differently. A new tile starts on the provider closest to running out —
+    the one every compact surface leads with — resolved once when the widget
+    is added and stored with it, so a tile never wanders to a different
+    provider on its own. "All providers" is a choice rather than the landing
+    place, and it is still what every widget placed before the picker existed
+    keeps doing. A provider that leaves the top 3 leaves the tile drawing the
+    rest, never an empty box. App Intents
     strings are literals in that file on purpose — the metadata extractor
     reads them out of the source at build time, so a `HeadroomCopy` constant
     would reach the picker as nothing.
