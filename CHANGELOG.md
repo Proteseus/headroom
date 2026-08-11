@@ -7,6 +7,18 @@ are not tracked here because they move on every commit.
 Add a section here before cutting a tag. `scripts/cut-release.sh` refuses to
 tag a version that has no entry.
 
+## Unreleased
+
+### Added
+
+- **The desk display can read pace instead of rings.** Hold a glance slot and
+  the upper half switches to the macOS menu bar's other glyph: one rail across
+  the three providers at even spend, one accent mark riding above it when that
+  provider is over pace and below when it is under, on the same
+  `tanh((used − pace) / 8)` curve the Mac uses. It drops the arc, so it answers
+  whether the burn is ahead or behind and nothing else. Rings stay the default,
+  the board keeps its own choice in NVS, and a tap still opens the detail page.
+
 ## 2.0.6 — 2026-08-11
 
 ### Added

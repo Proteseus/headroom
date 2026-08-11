@@ -153,6 +153,78 @@ def draw_quota_ring(draw, cx, cy, r, layers, accent, label):
     draw_text(draw, label, cx - tw // 2, cy + r + 8, FONT2, accent)
 
 
+# Mirror of the PACE_* constants in firmware/src/main.cpp, which in turn carry
+# the proportions of the macOS menu-bar Pace glyph. PACE_SCALE is the same 8
+# points MenuBarIconStyle.paceScale uses.
+PACE_SCALE = 8.0
+PACE_COL_W = 14
+PACE_COL_H = 68
+PACE_DOT_R = 5
+PACE_PAD = 7
+PACE_RAIL_H = 3
+
+
+def pace_layer(layers):
+    """Layer 0 — the longer window, the same pool the menu bar reads."""
+    if not layers:
+        return None
+    pct, pace = layers[0]
+    if pct is None or pace is None or pct < 0 or pace < 0:
+        return None
+    return float(pct), float(pace)
+
+
+def draw_pace_track(draw, cx, cy, layers, accent, label):
+    """Pill track + label. Mirror of drawPaceTrack() in main.cpp."""
+    layer = pace_layer(layers)
+    x = cx - PACE_COL_W // 2
+    y = cy - PACE_COL_H // 2
+    draw.rounded_rectangle(
+        [x, y, x + PACE_COL_W - 1, y + PACE_COL_H - 1],
+        radius=PACE_COL_W // 2,
+        fill=dim(accent, 0.20 if layer else 0.10),
+        outline=dim(accent, 0.45 if layer else 0.22),
+    )
+    tw = text_w(draw, label, FONT2)
+    draw_text(draw, label, cx - tw // 2, cy + PACE_COL_H // 2 + 6, FONT2, accent)
+
+
+def draw_pace_mark(draw, cx, cy, layers, accent):
+    """The mark. Mirror of drawPaceMark() in main.cpp."""
+    layer = pace_layer(layers)
+    if layer is None:
+        return
+    pct, pace = layer
+    t = math.tanh((pct - pace) / PACE_SCALE)
+    travel = PACE_COL_H // 2 - PACE_PAD - PACE_DOT_R
+    dy = round(-t * travel)
+    draw.ellipse(
+        [cx - PACE_DOT_R, cy + dy - PACE_DOT_R,
+         cx + PACE_DOT_R, cy + dy + PACE_DOT_R],
+        fill=accent,
+    )
+
+
+def draw_pace_glyph(draw, pad_x, span, cy, columns):
+    """Tracks, rail, then marks. Mirror of drawPaceGlyph() in main.cpp."""
+    if not columns:
+        return
+    slot = span // len(columns)
+    for index, (layers, accent, label) in enumerate(columns):
+        draw_pace_track(
+            draw, pad_x + index * slot + slot // 2, cy, layers, accent, label
+        )
+    rail_x0 = pad_x + slot // 2 - PACE_COL_W // 2
+    rail_x1 = pad_x + (len(columns) - 1) * slot + slot // 2 + PACE_COL_W // 2
+    draw.rectangle(
+        [rail_x0, cy - PACE_RAIL_H // 2,
+         rail_x1 - 1, cy - PACE_RAIL_H // 2 + PACE_RAIL_H - 1],
+        fill=COL_DIM,
+    )
+    for index, (layers, accent, _) in enumerate(columns):
+        draw_pace_mark(draw, pad_x + index * slot + slot // 2, cy, layers, accent)
+
+
 def parse_accent(value: str | None):
     if isinstance(value, str) and len(value) == 7 and value.startswith("#"):
         try:
@@ -713,6 +785,7 @@ def render_glance(
     power: str = "usb",
     battery_percent: int | None = None,
     home_mode: str = "daily",
+    glance_style: str = "rings",
 ) -> Image.Image:
     # Feed the same trimmed payload to the preview that the ESP32 receives.
     device = device_view.build(doc)
@@ -758,21 +831,32 @@ def render_glance(
     mid_y = ring_cy + ring_r + 38
     low_bottom = H - PAD - 15
 
-    for index, provider in enumerate(providers):
+    columns = []
+    for provider in providers:
         layers = [
             (pool.get("p"), pool.get("c"))
             for pool in (provider.get("pools") or [])[:2]
             if pool.get("p") is not None
         ] if provider.get("ok") else []
-        draw_quota_ring(
-            draw,
-            PAD + index * slot + slot // 2,
-            ring_cy,
-            ring_r,
+        columns.append((
             layers,
             parse_accent(provider.get("accent")),
             str(provider.get("title") or provider.get("id") or "?"),
-        )
+        ))
+
+    if glance_style == "pace":
+        draw_pace_glyph(draw, PAD, span, ring_cy, columns)
+    else:
+        for index, (layers, accent, label) in enumerate(columns):
+            draw_quota_ring(
+                draw,
+                PAD + index * slot + slot // 2,
+                ring_cy,
+                ring_r,
+                layers,
+                accent,
+                label,
+            )
 
     draw.line([(PAD, mid_y), (PAD + span - 1, mid_y)],
               fill=COL_DIM, width=1)
@@ -1067,6 +1151,12 @@ def main():
         default="daily",
         help="Home lower-pane mode to render",
     )
+    parser.add_argument(
+        "--glance-style",
+        choices=("rings", "pace"),
+        default="rings",
+        help="Home upper-half glyph: quota rings, or the menu bar's pace mark",
+    )
     parser.add_argument("--raw", action="store_true", help="Skip device bezel")
     parser.add_argument("--scale", type=int, default=3)
     args = parser.parse_args()
@@ -1099,6 +1189,7 @@ def main():
             power=args.power,
             battery_percent=args.battery_percent,
             home_mode=args.home_mode,
+            glance_style=args.glance_style,
         )
     out = panel if args.raw else frame_device(panel, scale=args.scale)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)

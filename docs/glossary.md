@@ -458,6 +458,11 @@ toggle that flips whichever style is active.
 Do not name the Pace option after the game metaphor in chrome — **Pace** is
 the glossary word; the midline-and-dot shape is just how it draws.
 
+The ESP32 glance takes the same two words for its upper half, with **Rings**
+in place of Remaining — the board's default paints used, not left, so calling
+it Remaining would be a second meaning for one word. Held on the board, not
+synced from the Mac ([docs/esp32.md](esp32.md)).
+
 Pool titles (`Session`, `Weekly`, `Total`, `API`, …) come from the host
 `PoolSpec` and should not be re-hardcoded in UI chrome when the API supplies them.
 

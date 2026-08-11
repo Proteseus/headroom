@@ -565,11 +565,24 @@ enum HomeMode : uint8_t {
   HOME_BURNDOWN = 3,
 };
 static HomeMode homeMode = HOME_DAILY_BURN;
+
+// Home's upper half has the same two readings the macOS menu-bar icon has.
+// Rings paint what each pool has used, with a dot at even spend. Pace drops
+// the arc and keeps only the distance from that dot — one rail across the
+// three slots, one mark per provider. Long-press the ring band to switch; the
+// choice survives reboots in NVS.
+enum GlanceStyle : uint8_t {
+  GLANCE_RINGS = 0,
+  GLANCE_PACE = 1,
+};
+static GlanceStyle glanceStyle = GLANCE_RINGS;
+
 static Preferences prefs;
 static const char *PREFS_NS = "headroom";
 // Versioned so the old Burndown/Activity/History ordering cannot silently
 // restore the wrong card after this dashboard reshuffle.
 static const char *PREF_HOME_MODE = "home_pane_v2";
+static const char *PREF_GLANCE_STYLE = "glance_style";
 static const char *PREF_EFFECT_ID = "effect_id";
 static uint32_t lastEffectId = 0;
 static bool pendingCelebration = false;
@@ -608,6 +621,19 @@ static void homeModeLoad() {
 static void homeModeSave() {
   if (!prefs.begin(PREFS_NS, false)) return;
   prefs.putUChar(PREF_HOME_MODE, (uint8_t)homeMode);
+  prefs.end();
+}
+
+static void glanceStyleLoad() {
+  if (!prefs.begin(PREFS_NS, true)) return;
+  const uint8_t saved = prefs.getUChar(PREF_GLANCE_STYLE, GLANCE_RINGS);
+  glanceStyle = saved <= GLANCE_PACE ? (GlanceStyle)saved : GLANCE_RINGS;
+  prefs.end();
+}
+
+static void glanceStyleSave() {
+  if (!prefs.begin(PREFS_NS, false)) return;
+  prefs.putUChar(PREF_GLANCE_STYLE, (uint8_t)glanceStyle);
   prefs.end();
 }
 
@@ -3044,6 +3070,90 @@ static void drawQuotaRing(int16_t cx, int16_t cy, int16_t r,
   gfx->print(label);
 }
 
+// ---- Pace glyph: the same reading the macOS menu-bar icon's Pace style has ----
+// Rings answer "how much is gone"; this answers "am I ahead or behind", and
+// nothing else. One rail across the group is even spend, and each provider's
+// mark rides above it when it is over pace, below when it is under.
+//
+// Softness of the curve. A gap of this many points lands near halfway to the
+// edge (tanh(1) ≈ 0.76), so small gaps stay readable and large ones asymptote
+// instead of clipping. Mirrors MenuBarIconStyle.paceScale in
+// Shared/MenuBarIconStyle.swift — change one, change the other.
+static const float PACE_SCALE = 8.0f;
+// Proportions carried over from the 18pt menu-bar glyph: a 1:5 pill, a dot
+// two-thirds of its width, and a rail thin enough to read as a line.
+static const int16_t PACE_COL_W = 14;
+static const int16_t PACE_COL_H = 68;
+static const int16_t PACE_DOT_R = 5;
+static const int16_t PACE_PAD = 7;
+static const int16_t PACE_RAIL_H = 3;
+
+// The pool this reads is layer 0 — the longer window, which is the same pool
+// the menu bar takes. Absent when the provider is down or reports no pace.
+static bool paceLayerFor(const ProviderQuota &q, PaceLayer *out) {
+  PaceLayer layers[2];
+  const uint8_t n = providerLayers(q, layers, 2);
+  if (n == 0 || layers[0].pct < 0 || layers[0].pace < 0) return false;
+  *out = layers[0];
+  return true;
+}
+
+// Pill track + label. Same 20% accent tint the ring bands use for their track,
+// dropped further when there is nothing to place on it.
+static void drawPaceTrack(int16_t cx, int16_t cy, const ProviderQuota &q,
+                          uint16_t accent, const char *label) {
+  PaceLayer layer;
+  const bool have = paceLayerFor(q, &layer);
+  const int16_t x = (int16_t)(cx - PACE_COL_W / 2);
+  const int16_t y = (int16_t)(cy - PACE_COL_H / 2);
+  const int16_t radius = PACE_COL_W / 2;
+  gfx->fillRoundRect(x, y, PACE_COL_W, PACE_COL_H, radius,
+                     dimToward(accent, COL_BG, have ? 0.20f : 0.10f));
+  gfx->drawRoundRect(x, y, PACE_COL_W, PACE_COL_H, radius,
+                     dimToward(accent, COL_BG, have ? 0.45f : 0.22f));
+  gfx->setTextSize(2);
+  int16_t x1, y1; uint16_t tw, th;
+  gfx->getTextBounds(label, 0, 0, &x1, &y1, &tw, &th);
+  gfx->setTextColor(accent);
+  // Same baseline the ring labels sit on, so the lower pane never moves.
+  gfx->setCursor(cx - (int16_t)tw / 2, cy + PACE_COL_H / 2 + 6);
+  gfx->print(label);
+}
+
+// The mark. It carries the whole reading here, so it takes the accent — on
+// the rings the accent is the arc and the dot stays white.
+static void drawPaceMark(int16_t cx, int16_t cy, const ProviderQuota &q,
+                         uint16_t accent) {
+  PaceLayer layer;
+  if (!paceLayerFor(q, &layer)) return;
+  const float t = tanhf((layer.pct - layer.pace) / PACE_SCALE);
+  const int16_t travel = (int16_t)(PACE_COL_H / 2 - PACE_PAD - PACE_DOT_R);
+  // Screen y grows downward, and over pace reads high, same as the Mac.
+  const int16_t dy = (int16_t)lroundf(-t * (float)travel);
+  gfx->fillCircle(cx, (int16_t)(cy + dy), PACE_DOT_R, accent);
+}
+
+// Tracks, then one rail over them, then the marks — the paint order in
+// MeterIconRenderer.drawPaceGlyph, so the rail never hides a mark.
+static void drawPaceGlyph(int16_t padX, int16_t span, int16_t cy) {
+  if (slotN == 0) return;
+  const int16_t slot = (int16_t)(span / slotN);
+  for (uint8_t i = 0; i < slotN; i++) {
+    const int16_t cx = (int16_t)(padX + (int16_t)i * slot + slot / 2);
+    drawPaceTrack(cx, cy, slots[i].q, slots[i].accent,
+                  slots[i].title.c_str());
+  }
+  const int16_t railX0 = (int16_t)(padX + slot / 2 - PACE_COL_W / 2);
+  const int16_t railX1 =
+      (int16_t)(padX + (int16_t)(slotN - 1) * slot + slot / 2 + PACE_COL_W / 2);
+  gfx->fillRect(railX0, (int16_t)(cy - PACE_RAIL_H / 2),
+                (int16_t)(railX1 - railX0), PACE_RAIL_H, COL_DIM);
+  for (uint8_t i = 0; i < slotN; i++) {
+    drawPaceMark((int16_t)(padX + (int16_t)i * slot + slot / 2), cy,
+                 slots[i].q, slots[i].accent);
+  }
+}
+
 // Host `updated` ends in ±HHMM — needed before drawBurndown for local day rules.
 static int32_t updatedTzOffsetS();
 
@@ -4053,12 +4163,21 @@ static void drawGlancePage() {
   // port can't run underneath.
   const int16_t lowBottom = (int16_t)(H - bot - LINK_GLYPH_H);
 
+  // Hits first and in both styles: a tap still opens the detail page, and a
+  // hold on the same band is what switches the style.
   for (uint8_t i = 0; i < slotN; i++) {
     int16_t colX = padX + (int16_t)i * slot;
     glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)),
                  slotPage(i));
-    drawQuotaRing(colX + slot / 2, ringCy, ringR, slots[i].q, slots[i].accent,
-                  slots[i].title.c_str());
+  }
+  if (glanceStyle == GLANCE_PACE) {
+    drawPaceGlyph(padX, span, ringCy);
+  } else {
+    for (uint8_t i = 0; i < slotN; i++) {
+      drawQuotaRing((int16_t)(padX + (int16_t)i * slot + slot / 2), ringCy,
+                    ringR, slots[i].q, slots[i].accent,
+                    slots[i].title.c_str());
+    }
   }
   if (slotN == 0) {
     drawTextAt(providersSeen ? "No coding providers enabled"
@@ -4388,7 +4507,8 @@ static const uint32_t LONG_PRESS_MS = 400;
 enum Gesture : uint8_t {
   GESTURE_NONE = 0,
   GESTURE_TAP,
-  GESTURE_HOME
+  GESTURE_HOME,
+  GESTURE_STYLE
 };
 
 // Set when GESTURE_TAP should open a glance slot (coords = touchStart*).
@@ -4523,14 +4643,27 @@ static Gesture consumeGesture() {
       return GESTURE_HOME;
     }
 
-    // Glance: wait for XY, then open the slot under the finger.
+    // Glance: wait for XY, then act on the slot under the finger.
     if (touchHaveXY) {
       GlanceHit hit;
       if (glanceHitAt(touchStartX, touchStartY, &hit)) {
-        touchCommitted = true;
-        lastGestureMs = now;
-        gestureTapHit = true;
-        return GESTURE_TAP;
+        // The mode band answers on the way down — it has nothing to hold for.
+        if (hit.kind == HIT_MODE) {
+          touchCommitted = true;
+          lastGestureMs = now;
+          gestureTapHit = true;
+          return GESTURE_TAP;
+        }
+        // A ring slot answers on release instead, so the same press can be
+        // held to switch how the upper half reads. A tap lifts in well under
+        // LONG_PRESS_MS, so the detail page still opens on the first touch.
+        if (!touchLongFired && (now - touchDownMs) >= LONG_PRESS_MS) {
+          touchLongFired = true;
+          touchCommitted = true;
+          lastGestureMs = now;
+          return GESTURE_STYLE;
+        }
+        return GESTURE_NONE;
       }
       // Missed slots — allow long-press sync on empty chrome.
       int16_t dHoriz = 0, dVert = 0;
@@ -4548,11 +4681,23 @@ static Gesture consumeGesture() {
   }
 
   if (!touchDown) return GESTURE_NONE;
+  // A ring slot pressed and let go without being held is the tap that opens
+  // its detail page. Anything already committed has had its answer.
+  const bool slotTap = page == PAGE_GLANCE && touchHaveXY && !touchIgnore &&
+                       !touchCommitted;
   touchDown = false;
   touchIgnore = false;
   touchCommitted = false;
   touchLongFired = false;
   touchHaveXY = false;
+  if (slotTap) {
+    GlanceHit hit;
+    if (glanceHitAt(touchStartX, touchStartY, &hit) && hit.kind == HIT_PAGE) {
+      lastGestureMs = now;
+      gestureTapHit = true;
+      return GESTURE_TAP;
+    }
+  }
   gestureTapHit = false;
   return GESTURE_NONE;
 }
@@ -4606,6 +4751,15 @@ static void toggleHomeMode() {
   }
   homeModeSave();
   Serial.printf("tap → home mode %s\n", homeModeName(homeMode));
+  if (haveData) drawDashboard();
+  else drawStatus("fetching...", COL_DIM);
+}
+
+static void toggleGlanceStyle() {
+  glanceStyle = glanceStyle == GLANCE_RINGS ? GLANCE_PACE : GLANCE_RINGS;
+  glanceStyleSave();
+  Serial.printf("hold → glance style %s\n",
+                glanceStyle == GLANCE_PACE ? "pace" : "rings");
   if (haveData) drawDashboard();
   else drawStatus("fetching...", COL_DIM);
 }
@@ -4730,6 +4884,8 @@ static void handleInput() {
   } else if (g == GESTURE_HOME) {
     if (page == PAGE_GLANCE) forceSyncFromDesk();
     else goHome();
+  } else if (g == GESTURE_STYLE) {
+    toggleGlanceStyle();
   }
 }
 
@@ -4776,6 +4932,7 @@ void setup() {
   pinMode(BTN_BOOT, INPUT_PULLUP);
   bool touchOk = touchInit();
   homeModeLoad();   // before the first home paint
+  glanceStyleLoad();
   effectLoad();
 
   bool pok = panel->begin();

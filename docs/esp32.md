@@ -65,14 +65,41 @@ send. A board that gets no providers says so on the glance rather than guessing.
 ## Using it
 
 Wi‑Fi first; USB CDC when LAN fails. **Tap** a glance slot for detail; tap the
-header to cycle the lower pane; **long-press** home → `POST /sync/refresh`.
+header to cycle the lower pane; **hold** a glance slot to switch the upper
+half between Rings and Pace; **long-press** empty chrome → `POST /sync/refresh`.
 BOOT returns home.
+
+A glance slot answers on release, not on the way down, because the same press
+is what holds. The gap is one fingertip lift — under a tenth of the 400ms hold.
 
 | Corner | Meaning |
 |---|---|
 | Top-right | Host `updated` clock |
 | Bottom-right | Link glyph — Wi‑Fi arcs or USB cable |
 | Bottom-left | Power — plug on VBUS; battery fill + % when a cell is present; bolt while charging |
+
+### Rings or Pace
+
+The upper half has the two readings the macOS menu-bar icon has, and the board
+keeps its own choice in NVS — the Mac's Settings → General picker does not
+travel here.
+
+| Style | What each slot shows |
+|---|---|
+| **Rings** (default) | Concentric bands, arc = used, white dot = even spend ([docs/rings.md](rings.md)) |
+| **Pace** | One rail across the three slots at even spend, one accent mark per provider riding `tanh((used − pace) / 8)` above it when over, below when under |
+
+Pace drops the arc, so it answers only whether the burn is ahead or behind —
+the same trade the menu bar makes, and the same curve, so a gap of 8 points
+lands near halfway to the end of the pill either way. It reads the provider's
+longer window, which is the pool the menu bar takes too. A provider with no
+pace draws a dimmer pill and no mark rather than a mark at zero.
+
+Preview both without a reflash:
+
+```bash
+.venv-shots/bin/python scripts/render_esp32_preview.py --input docs/demo_usage.json --glance-style pace --raw --out /tmp/pace.png
+```
 
 ## Reset celebration
 
