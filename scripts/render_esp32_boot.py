@@ -154,17 +154,18 @@ DIM = 0.55
 
 # --------------------------------------------------------------- geometry ---
 SCALE = 5
-HEAD_X = (W - SW * SCALE) // 2   # symmetric: logo above, scroller below
-HEAD_Y = 60
-# Vanishing point sits behind his head, so the rays fan out past him and open
-# up toward the left where the title sits.
-VP = (HEAD_X + SW * SCALE // 2, 150)
+HEAD_X = (W - SW * SCALE) // 2
+HEAD_Y = (H - SH * SCALE) // 2   # centred on the canvas (368→59, 480→115)
+# Vanishing point sits behind his head, so the rays fan out past him.
+VP = (HEAD_X + SW * SCALE // 2, HEAD_Y + SH * SCALE // 2)
 RAY_COUNT = 26
-RAY_R = 760
+RAY_R = int(math.hypot(W / 2, H / 2) * 1.15)
 RAY_DUTY = 0.22   # fraction of each slot that is lit; the rest stays black
-BAR_Y, BAR_H = 18, 52
+TITLE_Y = max(8, HEAD_Y - 40)
 SCROLL_Y = H - 44
-TEAR_BANDS = [(96, 22, 14), (168, 16, -22), (250, 12, 9)]
+# Tear bands as offsets from the head top — same relative cuts on any panel.
+TEAR_BANDS = [(HEAD_Y + 36, 22, 14), (HEAD_Y + 108, 16, -22),
+              (HEAD_Y + 190, 12, 9)]
 
 
 def dim(c):
@@ -300,7 +301,7 @@ def title(img, pal, stutter=False, phase=0) -> None:
     """
     word = "H-H-HEADROOM" if stutter else "HEADROOM"
     chrome_text(img, pal, word, (W - gfx_font.text_width(word, 4)) // 2,
-                BAR_Y + 6, 4)
+                TITLE_Y, 4)
     scroller(img, pal, phase, SCROLL_Y)
 
 
