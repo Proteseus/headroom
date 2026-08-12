@@ -1,12 +1,12 @@
 // headroom — Claude / Codex / Cursor / Vercel / Git desk gadget.
-// Waveshare ESP32-S3-Touch-AMOLED-1.8. Polls the host server's /usage endpoint
-// over Wi-Fi and renders dashboards on the AMOLED. Headroom is home: tap a
-// grid slot to open a detail page; tap (or BOOT / long-press) to return home.
+// Waveshare ESP32-S3-Touch-AMOLED-1.8 (368×448 SH8601) or -2.16 (480×480
+// CO5300). Polls the host server's /usage endpoint over Wi-Fi and renders
+// dashboards on the AMOLED. Headroom is home: tap a grid slot to open a
+// detail page; tap (or BOOT / long-press) to return home.
 //
-// Bring-up order matters on this board: own the I2C bus (one Wire.begin), bring
-// up the AXP2101 rails, release the panel reset via the TCA9554 expander, THEN
-// start the SH8601. Doing I2C ourselves avoids the XPowersLib/Adafruit
-// Wire.begin() conflict that leaves the panel black (repo issue #3).
+// Bring-up order matters: own the I2C bus (one Wire.begin), bring up the
+// AXP2101 rails, release panel/touch reset, THEN start the panel driver.
+// On the 1.8 the resets go through a TCA9554; on the 2.16 they are GPIOs.
 
 #include <Arduino.h>
 #include <math.h>
@@ -26,6 +26,10 @@
 #include <Arduino_GFX_Library.h>
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
+#if defined(BOARD_WS_AMOLED_216)
+// Waveshare Touch tutorial + 05_LVGL_Widgets: SensorLib ≥0.4.1, TouchDrv.hpp.
+#include <TouchDrv.hpp>
+#endif
 
 #include "pin_config.h"
 #include "boot_max.h"  // generated — see scripts/render_esp32_boot.py
@@ -79,6 +83,15 @@
 static const uint32_t WDT_TIMEOUT_S = 30;
 
 // ---------------- Display ----------------
+#if defined(BOARD_WS_AMOLED_216)
+// CO5300 480×480: panel is mounted 90° from native scan. Draw 1:1 into a
+// square PSRAM canvas; MADCTL 0xA0 after begin() corrects orientation.
+// Full-frame blit only — per-row QSPI writes leave this panel black.
+static Arduino_DataBus *bus = new Arduino_ESP32QSPI(
+    LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
+static Arduino_CO5300 *panel = new Arduino_CO5300(
+    bus, LCD_RST, 0 /* rotation */, LCD_WIDTH, LCD_HEIGHT);
+#else
 // SH8601 has no hardware rotation. Panel stays native portrait (368×448).
 // We draw into a logical landscape PSRAM canvas (448×368) with no per-pixel
 // rotate, then rotate once on flush → native. Use 1 for CW if you flip.
@@ -87,6 +100,7 @@ static Arduino_DataBus *bus = new Arduino_ESP32QSPI(
 static Arduino_SH8601 *panel = new Arduino_SH8601(
     bus, -1 /* RST via expander, not a GPIO */, 0 /* rotation */,
     LCD_WIDTH, LCD_HEIGHT);
+#endif
 
 // Shared palette (RGB565) — early so canvas flush can seal with COL_BG.
 static const uint16_t COL_BG     = RGB565(0, 0, 0);        // true OLED black
@@ -114,6 +128,77 @@ static const uint16_t COL_CRT_BG = RGB565(6, 4, 14);       // = the splash bg
 static const uint16_t COL_CRT_HDR= RGB565(22, 14, 44);     // boot header bar
 static const uint16_t COL_CRT_SCAN= RGB565(12, 8, 26);     // scanlines
 
+#if defined(BOARD_WS_AMOLED_216)
+// Square panel: logical == native. No software rotate, no edge seal.
+static const int16_t LOG_W = LCD_WIDTH;   // 480
+static const int16_t LOG_H = LCD_HEIGHT;  // 480
+
+static void sealNativeEdges(uint16_t color) { (void)color; }
+
+class LandscapeCanvas : public Arduino_Canvas {
+  uint16_t _bg = COL_BG;
+
+public:
+  LandscapeCanvas(Arduino_G *out)
+      : Arduino_Canvas(LOG_W, LOG_H, out, 0, 0, 0) {}
+
+  bool begin(int32_t speed = GFX_NOT_DEFINED) override {
+    if ((speed != GFX_SKIP_OUTPUT_BEGIN) && _output) {
+      if (!_output->begin(speed)) return false;
+    }
+    const size_t logBytes = (size_t)LOG_W * LOG_H * sizeof(uint16_t);
+    if (!_framebuffer) {
+      _framebuffer = (uint16_t *)ps_malloc(logBytes);
+      if (!_framebuffer) return false;
+      memset(_framebuffer, 0, logBytes);
+    }
+    return true;
+  }
+
+  void clear(uint16_t color) {
+    if (!_framebuffer) return;
+    _bg = color;
+    uint32_t c32 = ((uint32_t)color << 16) | color;
+    uint32_t *p = (uint32_t *)_framebuffer;
+    size_t n = ((size_t)LOG_W * LOG_H) / 2;
+    while (n--) *p++ = c32;
+  }
+
+  void flush(bool force_flush = false) override {
+    (void)force_flush;
+    if (!_framebuffer || !_output) return;
+    // One-shot full-frame blit — CO5300 goes black on per-row QSPI writes.
+    _output->draw16bitRGBBitmap(0, 0, _framebuffer, LCD_WIDTH, LCD_HEIGHT);
+  }
+
+  void tearRows(int16_t y, int16_t h, int16_t dx, uint16_t fill) {
+    if (!_framebuffer || dx == 0) return;
+    if (y < 0) { h = (int16_t)(h + y); y = 0; }
+    if (y + h > LOG_H) h = (int16_t)(LOG_H - y);
+    if (h <= 0) return;
+    const int16_t n = (int16_t)(dx < 0 ? -dx : dx);
+    if (n >= LOG_W) return;
+    const size_t keep = (size_t)(LOG_W - n) * sizeof(uint16_t);
+    for (int16_t row = y; row < y + h; row++) {
+      uint16_t *p = _framebuffer + (int32_t)row * LOG_W;
+      if (dx > 0) {
+        memmove(p + n, p, keep);
+        for (int16_t i = 0; i < n; i++) p[i] = fill;
+      } else {
+        memmove(p, p + n, keep);
+        for (int16_t i = (int16_t)(LOG_W - n); i < LOG_W; i++) p[i] = fill;
+      }
+    }
+  }
+
+  void flushLogicalRect(int16_t lx, int16_t ly, int16_t lw, int16_t lh) {
+    // CO5300: never stream partial rows — fall back to a full flush.
+    (void)lx; (void)ly; (void)lw; (void)lh;
+    flush();
+  }
+};
+static LandscapeCanvas *gfx = new LandscapeCanvas(panel);
+#else
 // Green fringe sits on the native right edge (logical bottom at rotation 3).
 // Paint over it in-panel after every blit. Also blank a few GRAM columns past
 // LCD_WIDTH in case the panel scans slightly beyond our framebuffer.
@@ -290,6 +375,7 @@ public:
   }
 };
 static LandscapeCanvas *gfx = new LandscapeCanvas(panel);
+#endif
 
 static void present() {
   gfx->flush();
@@ -699,7 +785,9 @@ static bool sourcesNeedSignIn() {
 }
 
 // ---------------- I2C helpers ----------------
+#if !defined(BOARD_WS_AMOLED_216)
 static uint8_t tcaAddr = TCA9554_ADDR;   // may be re-detected at boot
+#endif
 
 static bool i2cPresent(uint8_t addr) {
   Wire.beginTransmission(addr);
@@ -714,6 +802,7 @@ static void i2cScan() {
   Serial.println(n ? "" : "  (NONE — check SDA=15/SCL=14 wiring)");
 }
 
+#if !defined(BOARD_WS_AMOLED_216)
 // ---------------- TCA9554 (raw I2C) ----------------
 static void tcaWrite(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(tcaAddr);
@@ -732,6 +821,7 @@ static void panelReset() {
   tcaWrite(0x01, 0x07);   // high: release reset + enable DSI power
   delay(120);
 }
+#endif
 
 // ---------------- Power ----------------
 // Tracks whether begin() found the AXP2101. Rails and the power glyph both
@@ -744,10 +834,15 @@ static void powerInit() {
   delay(50);
   i2cScan();
 
+#if defined(BOARD_WS_AMOLED_216)
+  // 2.16: no TCA9554. LCD reset is handled by Arduino_CO5300::begin();
+  // touch reset is handled later by TouchDrvCST92xx::setPins/begin.
+#else
   // The TCA9554 straps at 0x20 on most units, 0x21 on some (repo issue #3).
   if (!i2cPresent(tcaAddr) && i2cPresent(0x21)) tcaAddr = 0x21;
   Serial.printf("TCA9554 @ 0x%02X %s\n", tcaAddr,
                 i2cPresent(tcaAddr) ? "(ack)" : "(NO ACK — panel stays dark!)");
+#endif
 
   pmuOk = PMU.begin(Wire, AXP2101_ADDR, IIC_SDA, IIC_SCL);
   Serial.printf("AXP2101 begin: %s\n", pmuOk ? "ok" : "FAIL (display rail off!)");
@@ -762,7 +857,9 @@ static void powerInit() {
     PMU.enableBattVoltageMeasure();
     delay(50);
   }
+#if !defined(BOARD_WS_AMOLED_216)
   panelReset();
+#endif
 }
 
 // ---------------- Auto brightness ----------------
@@ -2113,20 +2210,32 @@ static const uint16_t MX_RAY[4] = {
 };
 
 static const int16_t MX_SCALE = 5;
-static const int16_t MX_BAR_Y = 18;     // wordmark, clear of the corner radius
-static const int16_t MX_BAR_H = 52;
 static const uint8_t MX_RAY_COUNT = 26;
 static const float MX_RAY_DUTY = 0.22f;  // lit fraction of each slot
-// Far enough to clear every corner from the vanishing point, and no farther —
-// fillTriangle walks every scanline between its vertices, on-screen or not.
-static const float MX_RAY_R = 460.0f;
 // Backdrop rotation per frame — slow enough to read as a sweep, not a spin.
 static const float MX_RAY_STEP = 0.035f;
 // Copper scroll per frame, in scanlines.
 static const int16_t MX_COP_STEP = 5;
 
-static inline int16_t mxHeadX() { return (int16_t)((scrW() - MAX_W * MX_SCALE) / 2); }
-static inline int16_t mxHeadY() { return 60; }
+// Everything about Max's placement is relative to the canvas so the same
+// splash centres on 448×368 and 480×480 without a second set of constants.
+static inline int16_t mxHeadW() { return (int16_t)(MAX_W * MX_SCALE); }
+static inline int16_t mxHeadH() { return (int16_t)(MAX_H * MX_SCALE); }
+static inline int16_t mxHeadX() { return (int16_t)((scrW() - mxHeadW()) / 2); }
+static inline int16_t mxHeadY() { return (int16_t)((scrH() - mxHeadH()) / 2); }
+static inline int16_t mxHeadCX() { return (int16_t)(mxHeadX() + mxHeadW() / 2); }
+static inline int16_t mxHeadCY() { return (int16_t)(mxHeadY() + mxHeadH() / 2); }
+// Wordmark sits just above the silhouette; scroller hugs the bottom inset.
+static inline int16_t mxTitleY() {
+  const int16_t y = (int16_t)(mxHeadY() - 40);
+  return y < 8 ? (int16_t)8 : y;
+}
+static inline int16_t mxScrollY() { return (int16_t)(scrH() - 44); }
+static inline float mxRayR() {
+  const float hw = (float)scrW() * 0.5f;
+  const float hh = (float)scrH() * 0.5f;
+  return sqrtf(hw * hw + hh * hh) * 1.15f;
+}
 
 static inline uint8_t mxPixel(int16_t sx, int16_t sy) {
   const uint8_t b = pgm_read_byte(&MAX_PIX[(int32_t)sy * MAX_STRIDE + (sx >> 1)]);
@@ -2194,19 +2303,22 @@ static void mxHead(int16_t x0, int16_t y0, int16_t sy, int16_t shear,
 // standing backdrop. squeeze < 1 flattens them toward mid-screen for the roll.
 static void mxRays(float phase, float squeeze) {
   gfx->clear(COL_MX_BG);
-  const float vx = (float)(mxHeadX() + MAX_W * MX_SCALE / 2);
+  const float vx = (float)mxHeadCX();
   const float mid = (float)(scrH() / 2);
-  const float vy = mid + (150.0f - mid) * squeeze;
+  // Vanishing point sits on the head centre at full squeeze; collapses to
+  // mid-screen as the picture rolls shut.
+  const float vy = mid + ((float)mxHeadCY() - mid) * squeeze;
+  const float rayR = mxRayR();
   const float step = 6.2831853f / MX_RAY_COUNT;
   for (uint8_t i = 0; i < MX_RAY_COUNT; i++) {
     const float a0 = phase + i * step;
     const float a1 = a0 + step * MX_RAY_DUTY;
     gfx->fillTriangle(
         (int16_t)vx, (int16_t)vy,
-        (int16_t)(vx + MX_RAY_R * cosf(a0)),
-        (int16_t)(vy + MX_RAY_R * sinf(a0) * squeeze),
-        (int16_t)(vx + MX_RAY_R * cosf(a1)),
-        (int16_t)(vy + MX_RAY_R * sinf(a1) * squeeze),
+        (int16_t)(vx + rayR * cosf(a0)),
+        (int16_t)(vy + rayR * sinf(a0) * squeeze),
+        (int16_t)(vx + rayR * cosf(a1)),
+        (int16_t)(vy + rayR * sinf(a1) * squeeze),
         MX_RAY[i & 3]);
   }
 }
@@ -2257,8 +2369,8 @@ static void mxScroller(int16_t offset, int16_t y) {
 static void mxTitle(bool stutter, int16_t phase) {
   const char *word = stutter ? "H-H-HEADROOM" : "HEADROOM";
   mxChromeText(word, (int16_t)((scrW() - mxTextW(word, 4)) / 2),
-               (int16_t)(MX_BAR_Y + 6), 4);
-  mxScroller(phase, (int16_t)(scrH() - 44));
+               mxTitleY(), 4);
+  mxScroller(phase, mxScrollY());
 }
 
 // Hold for a target frame time measured from before the draw, so a slow flush
@@ -2316,9 +2428,10 @@ static void maxSplash() {
     mxHead((int16_t)(hx + 4), hy, MX_SCALE, -4, MAX_H, COL_MX_GHM, 0);
     mxHead(hx, hy, MX_SCALE, -4, MAX_H, 0, (int16_t)((13 + i) * MX_COP_STEP));
     mxTitle(true, (int16_t)(i * MX_SCROLL_STEP));
-    gfx->tearRows(96, 22, 14, COL_MX_BG);
-    gfx->tearRows(168, 16, -22, COL_MX_BG);
-    gfx->tearRows(250, 12, 9, COL_MX_BG);
+    // Tear bands ride the silhouette, not absolute panel rows.
+    gfx->tearRows((int16_t)(hy + 36), 22, 14, COL_MX_BG);
+    gfx->tearRows((int16_t)(hy + 108), 16, -22, COL_MX_BG);
+    gfx->tearRows((int16_t)(hy + 190), 12, 9, COL_MX_BG);
     mxFrame(t, 70);
   }
 
@@ -3555,8 +3668,14 @@ static void glanceAddModeHit(int16_t x, int16_t y, int16_t w, int16_t h) {
 }
 
 static void nativeToLogical(int16_t nx, int16_t ny, int16_t *lx, int16_t *ly) {
+#if defined(BOARD_WS_AMOLED_216)
+  // Touch is remapped in touchInit() to match MADCTL 0xA0 / canvas coords.
+  *lx = nx;
+  *ly = ny;
+#else
   *lx = (int16_t)((LOG_W - 1) - ny);
   *ly = nx;
+#endif
 }
 
 static bool glanceHitAt(int16_t nx, int16_t ny, GlanceHit *out) {
@@ -4484,14 +4603,25 @@ static void drawDashboard() {
   else drawQuotaPage();
 }
 
-// ---------------- Touch (FT3168 / CST816) ----------------
-// Waveshare brings the controller out of reset via TCA9554 P1, then the chip
-// still needs an explicit power-mode write before finger events appear.
-// Official demo also watches TP_INT (GPIO 21, active-low).
+// ---------------- Touch ----------------
+// 1.8: FT3168 / CST816 via TCA9554 reset + raw I2C.
+// 2.16: CST9220 via SensorLib (TouchDrvCST92xx), GPIO reset.
 //
 // Gestures: tap slot on Headroom → detail; tap on detail → home;
 // long-press → home; BOOT → next page (cycles through all, then home).
+#if defined(BOARD_WS_AMOLED_216)
+static TouchDrvCST92xx cstTouch;
+static bool touchReady = false;
+// CST92xx IRQs are edge pulses. Poll getPoint only on IRQ (or while a finger
+// is already down) — continuous idle polling ACKs empty reads and can leave
+// the chip silent. Waveshare's Touch tutorial uses the same gate.
+static bool cstFingerDown = false;
+static uint32_t cstSampleAt = 0;
+static uint8_t cstSampleN = 0;
+static int16_t cstSampleX = 0, cstSampleY = 0;
+#else
 static uint8_t touchAddr = 0;          // 0 = absent
+#endif
 static volatile bool touchIrq = false;
 static bool touchDown = false;
 static bool touchIgnore = false;
@@ -4506,7 +4636,8 @@ static const int16_t TAP_MAX_PX = 28;
 static const uint32_t GESTURE_DEBOUNCE_MS = 40;
 static const uint32_t LONG_PRESS_MS = 400;
 
-enum Gesture : uint8_t {
+// Named UiGesture — SensorLib 0.4+ also declares `enum class Gesture`.
+enum UiGesture : uint8_t {
   GESTURE_NONE = 0,
   GESTURE_TAP,
   GESTURE_HOME,
@@ -4518,6 +4649,34 @@ static bool gestureTapHit = false;
 
 static void IRAM_ATTR onTouchIrq() { touchIrq = true; }
 
+#if defined(BOARD_WS_AMOLED_216)
+static bool cstPollSample() {
+  const uint32_t now = millis();
+  if (cstSampleAt == now) return cstSampleN > 0;
+
+  const bool irq = touchIrq;
+  if (irq) touchIrq = false;
+  // No edge and no active finger → stay off the bus.
+  if (!irq && !cstFingerDown) {
+    cstSampleN = 0;
+    return false;
+  }
+
+  int16_t xs[2] = {0}, ys[2] = {0};
+  cstSampleN = cstTouch.getPoint(xs, ys, 2);
+  cstSampleAt = now;
+  if (cstSampleN > 0) {
+    cstFingerDown = true;
+    cstSampleX = xs[0];
+    cstSampleY = ys[0];
+    return true;
+  }
+  cstFingerDown = false;
+  return false;
+}
+#endif
+
+#if !defined(BOARD_WS_AMOLED_216)
 static bool touchWrite8(uint8_t addr, uint8_t reg, uint8_t val) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -4533,8 +4692,16 @@ static bool touchRead8(uint8_t addr, uint8_t reg, uint8_t *out) {
   *out = Wire.read();
   return true;
 }
+#endif
 
 static bool touchReadXY(int16_t *x, int16_t *y) {
+#if defined(BOARD_WS_AMOLED_216)
+  if (!touchReady) return false;
+  if (!cstPollSample()) return false;
+  *x = cstSampleX;
+  *y = cstSampleY;
+  return true;
+#else
   if (!touchAddr) return false;
   uint8_t n = 0;
   if (!touchRead8(touchAddr, 0x02, &n) || (n & 0x0F) == 0) return false;
@@ -4550,9 +4717,39 @@ static bool touchReadXY(int16_t *x, int16_t *y) {
   *x = (int16_t)(((uint16_t)(b0 & 0x0F) << 8) | b1);
   *y = (int16_t)(((uint16_t)(b2 & 0x0F) << 8) | b3);
   return true;
+#endif
 }
 
 static bool touchInit() {
+#if defined(BOARD_WS_AMOLED_216)
+  // Waveshare ESP32-S3-Touch-AMOLED-2.16 Touch tutorial + 05_LVGL_Widgets:
+  //   setPins → begin → setMax/Swap/Mirror → INPUT_PULLUP + FALLING IRQ
+  // begin()'s getAttribute() enters command mode and never leaves it.
+  // SensorLib's CST9217 example resets after begin so REG_READ reports points.
+  cstTouch.setPins(TP_RST, TP_INT);
+  if (!cstTouch.begin(Wire, CST92XX_SLAVE_ADDRESS, IIC_SDA, IIC_SCL)) {
+    Serial.println("touch: CST9220 @ 0x5A failed — gestures disabled");
+    touchReady = false;
+    Wire.setClock(400000);
+    return false;
+  }
+  cstTouch.reset();
+  delay(50);
+  Wire.setClock(400000);   // begin() may have re-init'd Wire without our clock
+
+  // Match Waveshare HelloWorld / MADCTL 0xA0 orientation.
+  cstTouch.setMaxCoordinates(LCD_WIDTH, LCD_HEIGHT);
+  cstTouch.setSwapXY(true);
+  cstTouch.setMirrorXY(true, false);
+  pinMode(TP_INT, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TP_INT), onTouchIrq, FALLING);
+  touchReady = true;
+  Serial.printf("touch %s @ 0x%02X irq=GPIO%d res=%ux%u\n",
+                cstTouch.getModelName(), CST92XX_SLAVE_ADDRESS, TP_INT,
+                (unsigned)cstTouch.getResolutionX(),
+                (unsigned)cstTouch.getResolutionY());
+  return true;
+#else
   pinMode(TP_INT, INPUT_PULLUP);
 
   // Prefer FT3168 @ 0x38 (product docs); fall back to CST816 @ 0x15 (V2 demos).
@@ -4579,31 +4776,46 @@ static bool touchInit() {
   attachInterrupt(digitalPinToInterrupt(TP_INT), onTouchIrq, FALLING);
   Serial.printf("touch @ 0x%02X id=0x%02X irq=GPIO%d\n", touchAddr, id, TP_INT);
   return true;
+#endif
 }
 
 static bool touchPressed() {
+#if defined(BOARD_WS_AMOLED_216)
+  if (!touchReady) return false;
+  return cstPollSample();
+#else
   if (!touchAddr) return false;
   uint8_t n = 0;
   if (!touchRead8(touchAddr, 0x02, &n)) return false;
   return (n & 0x0F) > 0;
+#endif
 }
 
-// Logical deltas under canvas rotation 3 (X ↔ inverted native Y).
+// Logical deltas. 1.8 canvas rotation 3: X ↔ inverted native Y.
 static void touchLogicalDelta(int16_t *dHoriz, int16_t *dVert) {
   const int16_t dNatX = (int16_t)(touchLastX - touchStartX);
   const int16_t dNatY = (int16_t)(touchLastY - touchStartY);
+#if defined(BOARD_WS_AMOLED_216)
+  *dHoriz = dNatX;
+  *dVert = dNatY;
+#else
   *dHoriz = (int16_t)(-dNatY);
   *dVert = dNatX;
+#endif
 }
 
 // Fire navigation on press (like BOOT), not on release — release felt laggy.
 // FT3168 often asserts "down" one poll before XY is readable. We must keep
 // trying until coords arrive; a one-shot edge check drops most taps when
 // serviceUi() samples aggressively during USB waits.
-static Gesture consumeGesture() {
+static UiGesture consumeGesture() {
+#if defined(BOARD_WS_AMOLED_216)
+  if (!touchReady) return GESTURE_NONE;
+#else
   if (!touchAddr) return GESTURE_NONE;
-
+  // FT3168 path polls registers directly; IRQ is a wake hint only.
   if (touchIrq) touchIrq = false;
+#endif
 
   const bool down = touchPressed();
   const uint32_t now = millis();
@@ -4847,24 +5059,103 @@ static void otaBegin() {
   Serial.printf("OTA ready at %s.local\n", OTA_HOSTNAME);
 }
 
-static void pollBootButton() {
-  static bool wasDown = false;
-  static uint32_t lastChange = 0;
-  bool down = digitalRead(BTN_BOOT) == LOW;
-  uint32_t now = millis();
-  if (down == wasDown) return;
-  if (now - lastChange < 40) return;
-  lastChange = now;
-  wasDown = down;
-  if (down) {
-    Serial.println("boot btn");
-    goNextPage();
+// Physical keys.
+//   BOOT          — cycle pages (both boards)
+//   secondary     — on glance: short = cycle lower pane (homeMode); long = force-sync
+//                   on detail: home
+//                   1.8: PWR via TCA EXIO4 (active HIGH)
+//                   2.16: IO18 (left, active LOW)
+//   style (2.16)  — toggle rings↔pace (PWR / SYS_OUT, active HIGH; short only —
+//                   ~4s hold still hardware-powers-off via AXP)
+static bool gpioActive(int pin, bool activeLow) {
+  const bool low = digitalRead(pin) == LOW;
+  return activeLow ? low : !low;
+}
+
+#if !defined(BOARD_WS_AMOLED_216)
+static bool tcaPwrPressed() {
+  // 1.8 PWR = TCA9554 input bit EXIO4, active HIGH while pressed.
+  Wire.beginTransmission(tcaAddr);
+  Wire.write(0x00);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((int)tcaAddr, 1) != 1) return false;
+  const uint8_t in = Wire.read();
+  return (in & (1u << BTN_PWR_TCA_BIT)) != 0;
+}
+#endif
+
+static void pollButtons() {
+  static bool bootWas = false, secWas = false, styleWas = false;
+  static uint32_t bootEdge = 0, secDownAt = 0, styleDownAt = 0;
+  static bool secLongFired = false;
+  const uint32_t now = millis();
+
+  const bool bootDown = gpioActive(BTN_BOOT, true);
+  if (bootDown != bootWas && (now - bootEdge) >= 40) {
+    bootEdge = now;
+    bootWas = bootDown;
+    if (bootDown) {
+      Serial.println("btn BOOT → next");
+      goNextPage();
+    }
   }
+
+#if defined(BOARD_WS_AMOLED_216)
+  const bool secDown = gpioActive(BTN_SECONDARY, BTN_SECONDARY_ACTIVE_LOW);
+#else
+  const bool secDown = tcaPwrPressed();
+#endif
+  if (secDown && !secWas) {
+    secDownAt = now;
+    secLongFired = false;
+  }
+  // Long-press sync while still held on glance (same threshold as touch).
+  if (secDown && page == PAGE_GLANCE && !secLongFired &&
+      (now - secDownAt) >= LONG_PRESS_MS) {
+    secLongFired = true;
+    Serial.println("btn secondary → sync");
+    forceSyncFromDesk();
+  }
+  if (secDown != secWas) {
+    secWas = secDown;
+    if (!secDown) {
+      const uint32_t held = now - secDownAt;
+      if (held >= 40 && !secLongFired) {
+        if (page == PAGE_GLANCE) {
+          Serial.println("btn secondary → lower pane");
+          toggleHomeMode();
+          drawDashboard();
+        } else {
+          Serial.println("btn secondary → home");
+          goHome();
+        }
+      }
+    }
+  }
+
+#if BTN_HAS_STYLE
+  const bool styleDown = gpioActive(BTN_STYLE, BTN_STYLE_ACTIVE_LOW);
+  if (styleDown && !styleWas) styleDownAt = now;
+  if (styleDown != styleWas) {
+    styleWas = styleDown;
+    if (!styleDown) {
+      const uint32_t held = now - styleDownAt;
+      // Ignore holds past 800ms — longer presses are heading for AXP power-off.
+      if (held >= 40 && held < 800) {
+        Serial.println("btn PWR → style");
+        toggleGlanceStyle();
+      }
+    }
+  }
+#else
+  (void)styleWas;
+  (void)styleDownAt;
+#endif
 }
 
 static void handleInput() {
-  pollBootButton();
-  Gesture g = consumeGesture();
+  pollButtons();
+  UiGesture g = consumeGesture();
   if (g == GESTURE_TAP) {
     if (page == PAGE_GLANCE) {
       GlanceHit hit;
@@ -4932,15 +5223,32 @@ void setup() {
 
   powerInit();
   pinMode(BTN_BOOT, INPUT_PULLUP);
+#if defined(BOARD_WS_AMOLED_216)
+  pinMode(BTN_SECONDARY, INPUT_PULLUP);
+  pinMode(BTN_STYLE, INPUT);   // active-HIGH via BSS138; no pull-down needed
+#endif
+#if !defined(BOARD_WS_AMOLED_216)
   bool touchOk = touchInit();
+#else
+  bool touchOk = false;   // after panel bring-up — Waveshare order
+#endif
   homeModeLoad();   // before the first home paint
   glanceStyleLoad();
   effectLoad();
 
   bool pok = panel->begin();
   Serial.printf("panel->begin: %s\n", pok ? "ok" : "FAIL");
+#if defined(BOARD_WS_AMOLED_216)
+  // Panel is physically mounted 90° from native scan; Arduino_CO5300's
+  // setRotation only does X/Y mirror, so write MADCTL (MV+MY) directly.
+  bus->beginWrite();
+  bus->writeC8D8(0x36, 0xA0);
+  bus->endWrite();
+  Serial.println("CO5300 MADCTL 0xA0 sent");
+#else
   sh8601VendorInit();
   Serial.println("sh8601VendorInit sent");
+#endif
   // Wipe GRAM — including the columns past LCD_WIDTH — BEFORE raising
   // brightness. Lighting the panel first shows one frame of power-on garbage,
   // which is the green line that used to flash along the bottom edge.
@@ -4951,8 +5259,12 @@ void setup() {
 
   // Panel already started — skip nested begin inside the canvas.
   bool cok = gfx->begin(GFX_SKIP_OUTPUT_BEGIN);
-  Serial.printf("canvas->begin (landscape %dx%d): %s  psram=%d\n",
+  Serial.printf("canvas->begin (%dx%d): %s  psram=%d\n",
                 scrW(), scrH(), cok ? "ok" : "FAIL", (int)psramFound());
+
+#if defined(BOARD_WS_AMOLED_216)
+  touchOk = touchInit();
+#endif
 
   // Kick STA + known APs before the splash, not after: associating takes about
   // as long as the animation runs, so the show costs ~nothing in time-to-data.

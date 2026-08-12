@@ -10,32 +10,33 @@ Mac host ──Wi-Fi HTTP──▶ board   (preferred)
 Mac host ──USB CDC────▶ board   (hotel / no LAN fallback)
 ```
 
-## Supported board
+## Supported boards
 
-Firmware in this repo targets **one** SKU:
+Firmware targets two Waveshare SKUs (pick the PlatformIO env that matches):
 
-| | |
-|---|---|
-| **Product** | [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm) |
-| **SoC** | ESP32-S3R8 (Wi‑Fi + BLE, 8MB PSRAM, 16MB flash) |
-| **Panel** | 1.8″ AMOLED, **368×448**, SH8601 over QSPI |
-| **Touch** | FT3168 / FT3x68 (some V2 demos use CST816T at `0x15`) |
-| **PMU** | AXP2101 (battery charge + fuel gauge on the MX1.25 header) |
-| **Expander** | TCA9554 (LCD / touch reset + DSI power) — usually `0x20`, some units `0x21` |
-| **Extras** | QMI8658 IMU, PCF85063 RTC, ES8311 audio, BOOT + PWR buttons |
+| | 1.8″ (default `esp32-s3`) | 2.16″ (`esp32-s3-216`) |
+|---|---|---|
+| **Product** | [ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm) | [ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm) |
+| **SoC** | ESP32-S3R8 (Wi‑Fi + BLE, 8MB PSRAM, 16MB flash) | same |
+| **Panel** | 1.8″ AMOLED, **368×448**, SH8601 over QSPI | 2.16″ AMOLED, **480×480**, CO5300 over QSPI |
+| **Touch** | FT3168 / FT3x68 (some V2 demos use CST816T at `0x15`) | CST9220 at `0x5A` (SensorLib ≥0.4.1, IRQ-gated) |
+| **PMU** | AXP2101 | AXP2101 |
+| **Expander** | TCA9554 (LCD / touch reset + DSI power) — usually `0x20`, some units `0x21` | none — `LCD_RST` GPIO39, `TP_RST` GPIO40 |
+| **Extras** | QMI8658 IMU, PCF85063 RTC, ES8311 audio, BOOT + PWR buttons | same family + dual mics / ES7210 |
 
-Pins and bring-up order live in `firmware/src/pin_config.h` and
-`firmware/src/main.cpp`, matched to Waveshare’s Arduino demo for **this**
-board. Sibling Waveshare sizes (1.75″, 2.06″, etc.) are **not** drop-in —
-different resolution, often different panel/PMU wiring.
+Pins and bring-up live in `firmware/src/pin_config.h` and `firmware/src/main.cpp`. Sibling sizes outside this table (1.75″ round, etc.) are **not** drop-in.
 
 Optional 3.7V LiPo on the MX1.25 header; USB-C alone is enough for desk use.
 Bottom-left power glyph reads the AXP2101 (plug on VBUS, cell + % when a
 battery is fitted).
 
-**Black screen?** Try `TCA9554_ADDR = 0x21` in `pin_config.h` (Waveshare issue
+**1.8 black screen?** Try `TCA9554_ADDR = 0x21` in `pin_config.h` (Waveshare issue
 #3). `pio device monitor` and the host’s USB bridge cannot share the port —
-use `./scripts/flash-esp32.sh`, which refuses to race.
+use `./scripts/flash-esp32.sh`, which refuses to race. For the 2.16:
+
+```bash
+cd firmware && pio run -e esp32-s3-216 -t upload --upload-port /dev/cu.usbmodem*
+```
 
 ## Flash
 
@@ -65,12 +66,15 @@ send. A board that gets no providers says so on the glance rather than guessing.
 ## Using it
 
 Wi‑Fi first; USB CDC when LAN fails. **Tap** a glance slot for detail; tap the
-header to cycle the lower pane; **hold** a glance slot to switch the upper
-half between Rings and Pace; **long-press** empty chrome → `POST /sync/refresh`.
-BOOT returns home.
+header (or short-press secondary) to cycle the lower pane; **hold** a glance
+slot to switch the upper half between Rings and Pace; **long-press** empty
+chrome or secondary on glance → `POST /sync/refresh`.
 
-A glance slot answers on release, not on the way down, because the same press
-is what holds. The gap is one fingertip lift — under a tenth of the 400ms hold.
+| Key | 1.8″ | 2.16″ | Action |
+|---|---|---|---|
+| **BOOT** | GPIO0 | GPIO0 (right) | Cycle pages |
+| **PWR / secondary** | PWR via TCA EXIO4 | IO18 (left) | Glance short: cycle lower pane; long: force-sync. Detail: home |
+| **PWR / style** | — | PWR / SYS_OUT GPIO16 (middle) | Short: Rings↔Pace. Hold ≥4s still powers off |
 
 | Corner | Meaning |
 |---|---|
