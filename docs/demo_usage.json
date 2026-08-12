@@ -715,6 +715,68 @@
       }
     ]
   },
+  "coolify": {
+    "ok": true,
+    "configured": true,
+    "error": null,
+    "stale": false,
+    "auth_required": false,
+    "active_count": 2,
+    "failure_count": 1,
+    "history_truncated": false,
+    "active": [
+      {
+        "id": "coolify-live-1",
+        "application_id": "7",
+        "application_uuid": "app-web",
+        "application_name": "Website",
+        "server_name": "Primary",
+        "deployment_uuid": "coolify-live-1",
+        "status": "in_progress",
+        "status_label": "Building",
+        "commit": "abcdef1234567890",
+        "short_commit": "abcdef1",
+        "commit_message": "Polish deployment widget",
+        "created_at": 1786535520,
+        "ago": "2m ago",
+        "url": "https://server.example.com/project/demo"
+      },
+      {
+        "id": "coolify-live-2",
+        "application_id": "8",
+        "application_uuid": "app-worker",
+        "application_name": "Worker",
+        "server_name": "Primary",
+        "deployment_uuid": "coolify-live-2",
+        "status": "queued",
+        "status_label": "Queued",
+        "commit": "1234567890abcdef",
+        "short_commit": "1234567",
+        "commit_message": "Retry background jobs",
+        "created_at": 1786535580,
+        "ago": "1m ago",
+        "url": "https://server.example.com/project/demo"
+      }
+    ],
+    "failures": [
+      {
+        "id": "coolify-failed-1",
+        "application_id": "9",
+        "application_uuid": "app-api",
+        "application_name": "API",
+        "server_name": "Primary",
+        "deployment_uuid": "coolify-failed-1",
+        "status": "failed",
+        "status_label": "Failed",
+        "commit": "fedcba0987654321",
+        "short_commit": "fedcba0",
+        "commit_message": "Update schema",
+        "created_at": 1786532400,
+        "ago": "54m ago",
+        "url": "https://server.example.com/project/demo"
+      }
+    ]
+  },
   "git": {
     "ok": true,
     "error": null,

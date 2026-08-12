@@ -15,6 +15,7 @@ import os
 import sqlite3
 
 import app_config
+import coolify_deployments
 import gemini_usage
 import grok_usage
 import jetbrains_usage
@@ -80,6 +81,10 @@ def vercel_signed_in():
         return bool(blob.get("token") or blob.get("refreshToken"))
     except (OSError, json.JSONDecodeError, TypeError):
         return False
+
+
+def coolify_signed_in():
+    return coolify_deployments.configured()
 
 
 def git_available():
@@ -217,6 +222,7 @@ PROBES = {
     "grok": grok_usage.signed_in,
     "opencode": opencode_usage.signed_in,
     "vercel": vercel_signed_in,
+    "coolify": coolify_signed_in,
     "git": git_available,
     "github": github_signed_in,
     "local": local_available,

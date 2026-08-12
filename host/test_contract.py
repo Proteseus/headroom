@@ -364,6 +364,7 @@ class RollupContractTests(unittest.TestCase):
     def test_rollup_has_the_keys_the_mac_app_decodes(self):
         doc = headroom_server.publish()
         for key in ("updated", "today", "by_day", "codex", "cursor", "vercel",
+                    "coolify",
                     "git", "github", "activity", "local", "supabase",
                     "plausible", "posthog", "claude_status", "sources", "attention",
                     "quota_ok", "session_pct", "week_pct", "integrations_order"):
@@ -427,7 +428,20 @@ DYNAMIC_MAP_PATHS = {
 # to be skipped as "detail nobody decodes", and the moment something decoded it
 # that exemption became the exact trapdoor this file warns about — a host-side
 # rename of `total_cost_usd` would blank the card and pass every test.
-UNDECODED_SUBTREES = set()
+UNDECODED_SUBTREES = {
+    # Standalone Noctalia widget; QML reads the dynamic JSON directly. Native
+    # clients intentionally ignore this additive operational surface.
+    "coolify",
+}
+
+
+class CoolifyFixtureContractTests(unittest.TestCase):
+    def test_demo_fixture_carries_live_and_failure_states(self):
+        coolify = _demo_doc()["coolify"]
+        self.assertTrue(coolify["active"])
+        self.assertTrue(coolify["failures"])
+        self.assertEqual(coolify["active"][0]["status"], "in_progress")
+        self.assertEqual(coolify["failures"][0]["status"], "failed")
 
 # Individual keys the host emits that no Swift client decodes.
 #

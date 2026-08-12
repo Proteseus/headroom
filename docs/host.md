@@ -44,6 +44,11 @@ Seeded from local detection on first run, then written by Settings. Three keys:
 - `accents` — `{id: "#RRGGBB"}` for rows you recolored; delete an entry to
   restore the shipped colour
 
+The Linux systemd unit optionally reads `~/.config/headroom/environment`.
+The standalone Noctalia Coolify widget uses `HEADROOM_COOLIFY_URL` and
+`HEADROOM_COOLIFY_TOKEN` there; the token needs Coolify's read-only `read`
+permission and is never returned by the host.
+
 ## Extra accounts (`~/.headroom/accounts.json`)
 
 Written by **Settings → Providers → Add account**; editable by hand and picked

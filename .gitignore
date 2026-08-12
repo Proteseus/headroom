@@ -13,6 +13,9 @@ __pycache__/
 # Reproducible Node helper dependencies. Keep package.json and the lockfile.
 tools/node_modules/
 
+# Local Noctalia host credentials. Keep the committed .example only.
+noctalia/environment
+
 # macOS / Xcode. project.yml is the source of truth: XcodeGen writes the
 # .xcodeproj on every build, so tracking it only produces UUID churn.
 macos/Headroom.xcodeproj/

@@ -850,6 +850,7 @@ def _compute_doc():
 
     quota = state["claude"]
     vercel = state["vercel"]
+    coolify = state.get("coolify") or {}
     git = state["git"]
     github = state["github"]
     local = state["local"]
@@ -933,6 +934,21 @@ def _compute_doc():
             "error": vercel.get("error"),
             "stale": bool(vercel.get("stale")),
             "deployments": vercel.get("deployments") or [],
+        },
+        # Coolify is deliberately separate from the quota providers and the
+        # mixed Activity feed. The Noctalia deployment widget owns this live
+        # operational surface; older clients ignore the additive block.
+        "coolify": {
+            "ok": bool(coolify.get("ok")),
+            "configured": bool(coolify.get("configured")),
+            "error": coolify.get("error"),
+            "stale": bool(coolify.get("stale")),
+            "auth_required": bool(coolify.get("auth_required")),
+            "active": coolify.get("active") or [],
+            "failures": coolify.get("failures") or [],
+            "active_count": coolify.get("active_count") or 0,
+            "failure_count": coolify.get("failure_count") or 0,
+            "history_truncated": bool(coolify.get("history_truncated")),
         },
         "git": {
             "ok": bool(git.get("ok")),

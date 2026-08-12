@@ -8,6 +8,7 @@ Type=simple
 WorkingDirectory=%h/.local/share/headroom/host
 ExecStart=/usr/bin/python3 %h/.local/share/headroom/host/headroom_server.py --port 8737
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/.config/headroom/environment
 Restart=on-failure
 RestartSec=5
 

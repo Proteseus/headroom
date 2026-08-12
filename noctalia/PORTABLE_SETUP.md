@@ -47,6 +47,33 @@ systemctl --user daemon-reload
 systemctl --user enable --now headroom.service
 ```
 
+### Connect Coolify
+
+Enable API access in Coolify, then create a token with the read-only `read`
+permission. Copy the environment template and paste the token locally; this
+file is outside the repository and must remain private:
+
+```bash
+mkdir -p ~/.config/headroom
+install -m 600 "$HEADROOM_REPO/noctalia/environment.example" \
+  ~/.config/headroom/environment
+${EDITOR:-nano} ~/.config/headroom/environment
+systemctl --user daemon-reload
+systemctl --user restart headroom.service
+```
+
+Enable the source once for an existing Headroom installation. Fresh installs
+detect the configured environment automatically:
+
+```bash
+curl -X POST http://127.0.0.1:8737/sources \
+  -H 'Content-Type: application/json' \
+  --data '{"enabled":{"coolify":true}}'
+```
+
+The token never enters `/usage`, QML settings, or logs. The widget reads the
+normalized Coolify block from the loopback Headroom host.
+
 Verify it with:
 
 ```bash
@@ -56,7 +83,7 @@ systemctl --user status headroom.service
 
 ## Link the Noctalia components
 
-The integration has five source files. Keep the different repository and
+The integration has seven source files. Keep the different repository and
 Noctalia settings paths exactly as shown:
 
 ```bash
@@ -76,12 +103,38 @@ ln -sfn "$HEADROOM_REPO/noctalia/Modules/Panels/Headroom/HeadroomPanelContent.qm
   "$NOCTALIA/Modules/Panels/Headroom/HeadroomPanelContent.qml"
 ln -sfn "$HEADROOM_REPO/noctalia/Modules/Bar/WidgetSettings/HeadroomSettings.qml" \
   "$NOCTALIA/Modules/Panels/Settings/Bar/WidgetSettings/HeadroomSettings.qml"
+ln -sfn "$HEADROOM_REPO/noctalia/Modules/Bar/Widgets/Coolify.qml" \
+  "$NOCTALIA/Modules/Bar/Widgets/Coolify.qml"
+ln -sfn "$HEADROOM_REPO/noctalia/Modules/Bar/WidgetSettings/CoolifySettings.qml" \
+  "$NOCTALIA/Modules/Panels/Settings/Bar/WidgetSettings/CoolifySettings.qml"
 ```
 
 Noctalia's `Services/UI/BarWidgetRegistry.qml` still needs its local Headroom
 registry entries. It belongs to Noctalia and is deliberately not replaced by
 a repository symlink, because replacing that shared file would discard local
 or upstream widget registrations.
+
+Register `Coolify` beside `Headroom` in the same four places:
+
+```qml
+"Coolify": coolifyComponent,
+
+"Coolify": "WidgetSettings/CoolifySettings.qml",
+
+"Coolify": {
+  "allowUserSettings": true,
+  "hostUrl": "http://localhost:8737",
+  "pollInterval": 15
+},
+
+property Component coolifyComponent: Component {
+  Coolify {}
+}
+```
+
+No panel or `MainScreen.qml` changes are needed. The individual deployment
+states live directly in the bar; hover the widget for application, state, and
+age details.
 
 ## OpenCode Go credentials
 

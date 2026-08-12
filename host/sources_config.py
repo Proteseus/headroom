@@ -38,6 +38,7 @@ from typing import Callable, NamedTuple, Optional
 
 import accounts
 import claude_status
+import coolify_deployments
 import codex_usage
 import cursor_usage
 import detect_sources
@@ -324,6 +325,16 @@ def _detail_vercel(payload):
     return payload.get("error")
 
 
+def _detail_coolify(payload):
+    if not payload.get("ok"):
+        return payload.get("error")
+    active = payload.get("active_count") or 0
+    failed = payload.get("failure_count") or 0
+    if failed:
+        return f"{failed} failed · {active} active"
+    return f"{active} active" if active else "queue clear"
+
+
 def _detail_git(payload):
     if not payload.get("ok"):
         return payload.get("error")
@@ -547,6 +558,11 @@ def _summary_vercel(payload):
             f"deploys={len(payload.get('deployments') or [])}")
 
 
+def _summary_coolify(payload):
+    return (f"active={payload.get('active_count') or 0}  "
+            f"failures={payload.get('failure_count') or 0}")
+
+
 def _summary_git(payload):
     return f"commits={len(payload.get('commits') or [])}"
 
@@ -610,6 +626,19 @@ def _summary_axiom(payload):
 
 def _blank_vercel():
     return {"ok": False, "team": None, "deployments": []}
+
+
+def _blank_coolify():
+    return {
+        "ok": False,
+        "configured": False,
+        "error": None,
+        "active": [],
+        "failures": [],
+        "active_count": 0,
+        "failure_count": 0,
+        "history_truncated": False,
+    }
 
 
 def _blank_git():
@@ -906,6 +935,10 @@ BASE_SOURCES = (
     Source("vercel", "Vercel", "Vercel CLI login", 60,
            vercel_builds.fetch_deployments, _detail_vercel, _summary_vercel,
            _blank_vercel),
+    Source("coolify", "Coolify", "Read-only Coolify API token", 30,
+           coolify_deployments.fetch_deployments,
+           detail_fn=_detail_coolify,
+           summary_fn=_summary_coolify, blank_fn=_blank_coolify),
     Source("git", "Git", "Local commits under configured Dev root", 60,
            git_activity.fetch_commits, _detail_git, _summary_git,
            _blank_git),

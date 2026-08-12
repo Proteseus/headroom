@@ -1,9 +1,12 @@
 # Headroom for noctalia-shell
 
 This integration runs Headroom's local Python host as a systemd user service
-and displays its three focused AI quota pools in the noctalia-shell bar. Each
-bar fills upward with quota remaining. An amber or red pip marks Headroom
-attention warnings.
+and supplies two independent noctalia-shell widgets:
+
+- **Headroom** displays the three focused AI quota pools.
+- **Coolify** displays live queued/building deployments and keeps the latest
+  failed deployment per application visible for 24 hours, or until a newer
+  successful deployment replaces it.
 
 ## Requirements
 
@@ -43,7 +46,12 @@ If the checkout lives elsewhere, edit both paths in
 `~/.config/systemd/user/headroom.service`, then run `systemctl --user
 daemon-reload` and restart the service.
 
-## Install the widget
+## Install the widgets
+
+For the canonical linked setup, including the Coolify service environment and
+bar-widget registration, follow [PORTABLE_SETUP.md](PORTABLE_SETUP.md). The
+summary below covers the original Headroom widget; Coolify follows the same
+registry pattern documented there.
 
 Copy the widget and settings component into noctalia-shell:
 
@@ -79,10 +87,9 @@ Headroom in four places alongside the existing widgets:
    }
    ```
 
-Restart noctalia-shell, open its bar settings, and add **Headroom** to the
-desired bar section. The widget settings dialog can change the host URL and
-normal polling interval. Polling switches to 5 seconds while the pill is
-hovered.
+Restart noctalia-shell, open its bar settings, and add **Headroom**, **Coolify**,
+or both to the desired bar section. Each widget has an independent host URL and
+poll interval. Polling switches to 5 seconds while a widget is hovered.
 
 Local `localhost` access does not require a Headroom token. If the host URL is
 changed to another machine, that host's `/usage` authentication policy applies;
