@@ -133,8 +133,10 @@ property Component coolifyComponent: Component {
 ```
 
 No panel or `MainScreen.qml` changes are needed. The individual deployment
-states live directly in the bar; hover the widget for application, state, and
-age details.
+states live directly in the bar. Left-click the compact rail on a horizontal
+bar to expand application names, states, and ages in place; hover for the same
+details in a tooltip, and right-click for settings. Vertical bars retain the
+compact rail and refresh on left-click because they cannot fit readable labels.
 
 ## OpenCode Go credentials
 

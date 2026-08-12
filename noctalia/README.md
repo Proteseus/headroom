@@ -6,7 +6,8 @@ and supplies two independent noctalia-shell widgets:
 - **Headroom** displays the three focused AI quota pools.
 - **Coolify** displays live queued/building deployments and keeps the latest
   failed deployment per application visible for 24 hours, or until a newer
-  successful deployment replaces it.
+  successful deployment replaces it. Click its compact state rail to expand
+  application names, deployment states, and ages directly in the bar.
 
 ## Requirements
 
@@ -89,7 +90,9 @@ Headroom in four places alongside the existing widgets:
 
 Restart noctalia-shell, open its bar settings, and add **Headroom**, **Coolify**,
 or both to the desired bar section. Each widget has an independent host URL and
-poll interval. Polling switches to 5 seconds while a widget is hovered.
+poll interval. Polling switches to 5 seconds while a widget is hovered. On a
+horizontal bar, left-click **Coolify** to expand or collapse its deployment
+details; right-click either widget to open its settings.
 
 Local `localhost` access does not require a Headroom token. If the host URL is
 changed to another machine, that host's `/usage` authentication policy applies;
