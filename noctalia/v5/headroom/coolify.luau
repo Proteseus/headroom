@@ -1,6 +1,6 @@
 --!nonstrict
 
-local Common = require("./common")
+local Common = require("./common.luau")
 
 local snapshot = {}
 local healthy = false

@@ -1,6 +1,6 @@
 --!nonstrict
 
-local Common = require("./common")
+local Common = require("./common.luau")
 
 local snapshot = noctalia.state.get("headroom.snapshot") or {}
 local healthy = noctalia.state.get("headroom.healthy") == true

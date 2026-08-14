@@ -1,6 +1,6 @@
 id = "centaur-labs/headroom"
 name = "Headroom"
-version = "1.1.0"
+version = "1.1.1"
 plugin_api = 3
 author = "Centaur Labs"
 license = "MIT"
