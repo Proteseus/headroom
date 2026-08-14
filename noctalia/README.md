@@ -1,4 +1,17 @@
-# Headroom for noctalia-shell
+# Headroom for Noctalia
+
+This directory carries both Noctalia generations side by side:
+
+| Noctalia | Implementation | Install guide |
+|---|---|---|
+| v5 | Native Luau/TOML plugin in `v5/headroom/` | [v5/README.md](v5/README.md) |
+| v4 and earlier | Quickshell QML components in `Modules/` | This document |
+
+Noctalia v5 is a fresh native-shell install and cannot load the QML components
+below. Likewise, the v5 Luau plugin is not usable by the Quickshell-based v4
+line. Both versions continue to read the same Headroom `/usage` endpoint.
+
+## Noctalia v4 and earlier
 
 This integration runs Headroom's local Python host as a systemd user service
 and supplies two independent noctalia-shell widgets:
@@ -47,7 +60,7 @@ If the checkout lives elsewhere, edit both paths in
 `~/.config/systemd/user/headroom.service`, then run `systemctl --user
 daemon-reload` and restart the service.
 
-## Install the widgets
+## Install the v4 widgets
 
 For the canonical linked setup, including the Coolify service environment and
 bar-widget registration, follow [PORTABLE_SETUP.md](PORTABLE_SETUP.md). The

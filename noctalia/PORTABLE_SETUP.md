@@ -1,5 +1,10 @@
 # Portable Linux + Noctalia setup
 
+This guide's widget-linking section targets the Quickshell-based Noctalia v4
+line. Noctalia v5 uses a native Luau plugin and requires no QML links or registry
+edits; use [v5/README.md](v5/README.md) for its installation steps. The host,
+service, Coolify, and OpenCode setup below is shared by both versions.
+
 This checkout is the canonical source for the Linux host and Noctalia UI.
 The live installation should contain symlinks back to this repository, so a
 pull updates both without copying source files around.
@@ -81,7 +86,7 @@ curl http://127.0.0.1:8737/usage
 systemctl --user status headroom.service
 ```
 
-## Link the Noctalia components
+## Link the Noctalia v4 components
 
 The integration has seven source files. Keep the different repository and
 Noctalia settings paths exactly as shown:
