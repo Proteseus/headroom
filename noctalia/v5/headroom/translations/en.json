@@ -1,0 +1,6 @@
+{
+  "settings.host_url.label": "Headroom host URL",
+  "settings.host_url.description": "Base URL of the Headroom host. Do not include /usage.",
+  "settings.poll_interval.label": "Poll interval",
+  "settings.poll_interval.description": "Refresh interval in seconds when the widget is not hovered."
+}

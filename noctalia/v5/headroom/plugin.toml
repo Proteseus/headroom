@@ -1,0 +1,39 @@
+id = "centaur-labs/headroom"
+name = "Headroom"
+version = "1.0.0"
+plugin_api = 3
+author = "Centaur Labs"
+license = "MIT"
+dependencies = []
+tags = ["ai", "development", "indicator", "productivity"]
+icon = "chart-donut"
+description = "AI quota headroom and Coolify deployment status from the local Headroom host."
+
+[[widget]]
+id = "headroom"
+entry = "headroom.luau"
+
+  [[widget.setting]]
+  key = "host_url"
+  type = "string"
+  label_key = "settings.host_url.label"
+  description_key = "settings.host_url.description"
+  default = "http://localhost:8737"
+
+  [[widget.setting]]
+  key = "poll_interval"
+  type = "int"
+  label_key = "settings.poll_interval.label"
+  description_key = "settings.poll_interval.description"
+  default = 30
+  min = 5
+  max = 3600
+
+[[panel]]
+id = "details"
+entry = "panel.luau"
+width = 390
+height = 420
+placement = "attached"
+position = "auto"
+open_near_click = true
