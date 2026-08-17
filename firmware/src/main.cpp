@@ -1,8 +1,8 @@
 // headroom — Claude / Codex / Cursor / Vercel / Git desk gadget.
-// Waveshare ESP32-S3-Touch-AMOLED-1.8 (368×448 SH8601) or -2.16 (480×480
-// CO5300). Polls the host server's /usage endpoint over Wi-Fi and renders
-// dashboards on the AMOLED. Headroom is home: tap a grid slot to open a
-// detail page; tap (or BOOT / long-press) to return home.
+// Waveshare ESP32-S3 Touch AMOLED: 1.8 (368×448 SH8601), 2.16 (480×480
+// CO5300), or 1.75 round (466×466 CO5300). Polls the host server's /usage
+// endpoint over Wi-Fi and renders dashboards on the AMOLED. Headroom is home:
+// tap a provider to open detail; tap (or BOOT / long-press) to return home.
 //
 // Bring-up order matters: own the I2C bus (one Wire.begin), bring up the
 // AXP2101 rails, release panel/touch reset, THEN start the panel driver.
@@ -83,14 +83,20 @@
 static const uint32_t WDT_TIMEOUT_S = 30;
 
 // ---------------- Display ----------------
-#if defined(BOARD_WS_AMOLED_216)
-// CO5300 480×480: panel is mounted 90° from native scan. Draw 1:1 into a
-// square PSRAM canvas; MADCTL 0xA0 after begin() corrects orientation.
+#if defined(BOARD_DIRECT_CO5300)
+// CO5300 square canvases draw 1:1 into PSRAM. The 2.16 panel needs a MADCTL
+// correction after begin(); the 1.75 round glass is already in native scan.
 // Full-frame blit only — per-row QSPI writes leave this panel black.
 static Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+static Arduino_CO5300 *panel = new Arduino_CO5300(
+    bus, LCD_RST, 0 /* rotation */, LCD_WIDTH, LCD_HEIGHT,
+    LCD_COL_OFFSET, 0, 0, 0);
+#else
 static Arduino_CO5300 *panel = new Arduino_CO5300(
     bus, LCD_RST, 0 /* rotation */, LCD_WIDTH, LCD_HEIGHT);
+#endif
 #else
 // SH8601 has no hardware rotation. Panel stays native portrait (368×448).
 // We draw into a logical landscape PSRAM canvas (448×368) with no per-pixel
@@ -128,10 +134,11 @@ static const uint16_t COL_CRT_BG = RGB565(6, 4, 14);       // = the splash bg
 static const uint16_t COL_CRT_HDR= RGB565(22, 14, 44);     // boot header bar
 static const uint16_t COL_CRT_SCAN= RGB565(12, 8, 26);     // scanlines
 
-#if defined(BOARD_WS_AMOLED_216)
-// Square panel: logical == native. No software rotate, no edge seal.
-static const int16_t LOG_W = LCD_WIDTH;   // 480
-static const int16_t LOG_H = LCD_HEIGHT;  // 480
+#if defined(BOARD_DIRECT_CO5300)
+// Square canvas: logical == native. No software rotate, no edge seal. The
+// physical glass can still be circular; BOARD_ROUND_UI owns that safe area.
+static const int16_t LOG_W = LCD_WIDTH;
+static const int16_t LOG_H = LCD_HEIGHT;
 
 static void sealNativeEdges(uint16_t color) { (void)color; }
 
@@ -785,7 +792,7 @@ static bool sourcesNeedSignIn() {
 }
 
 // ---------------- I2C helpers ----------------
-#if !defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TCA9554)
 static uint8_t tcaAddr = TCA9554_ADDR;   // may be re-detected at boot
 #endif
 
@@ -802,7 +809,7 @@ static void i2cScan() {
   Serial.println(n ? "" : "  (NONE — check SDA=15/SCL=14 wiring)");
 }
 
-#if !defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TCA9554)
 // ---------------- TCA9554 (raw I2C) ----------------
 static void tcaWrite(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(tcaAddr);
@@ -834,9 +841,9 @@ static void powerInit() {
   delay(50);
   i2cScan();
 
-#if defined(BOARD_WS_AMOLED_216)
-  // 2.16: no TCA9554. LCD reset is handled by Arduino_CO5300::begin();
-  // touch reset is handled later by TouchDrvCST92xx::setPins/begin.
+#if defined(BOARD_DIRECT_CO5300)
+  // Direct-reset CO5300 boards need no TCA9554. LCD reset is handled by
+  // Arduino_CO5300::begin(); touch reset is handled later by TouchDrvCST92xx.
 #else
   // The TCA9554 straps at 0x20 on most units, 0x21 on some (repo issue #3).
   if (!i2cPresent(tcaAddr) && i2cPresent(0x21)) tcaAddr = 0x21;
@@ -845,8 +852,28 @@ static void powerInit() {
 #endif
 
   pmuOk = PMU.begin(Wire, AXP2101_ADDR, IIC_SDA, IIC_SCL);
-  Serial.printf("AXP2101 begin: %s\n", pmuOk ? "ok" : "FAIL (display rail off!)");
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+  Serial.printf("AXP2101 begin: %s\n",
+                pmuOk ? "ok" : "FAIL (power glyph unavailable)");
+#else
+  Serial.printf("AXP2101 begin: %s\n",
+                pmuOk ? "ok" : "FAIL (display rail off!)");
+#endif
   if (pmuOk) {
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+    // Match the working round-board references: leave the already-working
+    // rail configuration alone. Only enable battery telemetry and turn the
+    // AXP2101 PEKEY into Headroom's second runtime button. A four-second hold
+    // remains the hardware power-off gesture.
+    PMU.enableBattDetection();
+    PMU.enableBattVoltageMeasure();
+    PMU.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
+    PMU.enableLongPressShutdown();
+    PMU.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
+    PMU.clearIrqStatus();
+    PMU.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ |
+                  XPOWERS_AXP2101_PKEY_LONG_IRQ);
+#else
     PMU.setALDO1Voltage(3300); PMU.enableALDO1();
     PMU.setALDO2Voltage(3300); PMU.enableALDO2();
     PMU.setALDO3Voltage(3300); PMU.enableALDO3();   // ALDO3 = the display rail
@@ -856,8 +883,9 @@ static void powerInit() {
     PMU.enableBattDetection();
     PMU.enableBattVoltageMeasure();
     delay(50);
+#endif
   }
-#if !defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TCA9554)
   panelReset();
 #endif
 }
@@ -2061,11 +2089,42 @@ static const int16_t UI_PAD = 28;
 // moves and no page loses a row.
 static const int16_t UI_TOP = UI_PAD + 10;
 
+#if defined(BOARD_ROUND_UI)
+// The round panel still exposes a square framebuffer. Layout bands are sized
+// from the narrowest circle chord they cross, so nothing important relies on
+// the controller clipping the square's corners. This is the same principle as
+// LoFi Air's radial face, applied to Headroom's rings-and-reading hierarchy.
+static const int16_t ROUND_CX = LOG_W / 2;
+static const int16_t ROUND_CY = LOG_H / 2;
+static const int16_t ROUND_R = (LOG_W < LOG_H ? LOG_W : LOG_H) / 2 - 6;
+
+static int16_t roundChordHalfAt(int16_t y) {
+  const int32_t dy = (int32_t)y - ROUND_CY;
+  const int32_t inside = (int32_t)ROUND_R * ROUND_R - dy * dy;
+  return inside > 0 ? (int16_t)sqrtf((float)inside) : 0;
+}
+
+static void roundBand(int16_t y0, int16_t y1, int16_t inset,
+                      int16_t *x, int16_t *w) {
+  const int16_t h0 = roundChordHalfAt(y0);
+  const int16_t h1 = roundChordHalfAt(y1);
+  int16_t half = (h0 < h1 ? h0 : h1) - inset;
+  if (half < 1) half = 1;
+  *x = (int16_t)(ROUND_CX - half);
+  *w = (int16_t)(half * 2);
+}
+#endif
+
 static void drawStatus(const String &msg, uint16_t col) {
   gfx->clear(COL_CRT_BG);
+#if defined(BOARD_ROUND_UI)
+  gfx->drawCircle(ROUND_CX, ROUND_CY, ROUND_R, COL_CRT_DIM);
+  drawCentered("HEADROOM", 40, 2, COL_CRT);
+#else
   const int16_t pad = UI_PAD;
   gfx->drawRect(pad, pad, scrW() - pad * 2, scrH() - pad * 2, COL_CRT_DIM);
   drawCentered("HEADROOM", pad + 16, 2, COL_CRT);
+#endif
   drawCentered(msg, scrH() / 2, 2, col);
   gfx->flush();
 }
@@ -2074,20 +2133,32 @@ static void drawStatus(const String &msg, uint16_t col) {
 // go poke. Beats "server unreachable" plus a walk to the Mac to guess.
 static void drawNetDiag() {
   gfx->clear(COL_CRT_BG);
+#if defined(BOARD_ROUND_UI)
+  gfx->drawCircle(ROUND_CX, ROUND_CY, ROUND_R, COL_CRT_DIM);
+  drawCentered("NO HOST", 38, 2, COL_CRT_YELLOW);
+  int16_t y = 80;
+#else
   const int16_t pad = UI_PAD;
   gfx->drawRect(pad, pad, scrW() - pad * 2, scrH() - pad * 2, COL_CRT_DIM);
   drawCentered("NO HOST", pad + 10, 2, COL_CRT_YELLOW);
-
-  const bool up = WiFi.status() == WL_CONNECTED;
   int16_t y = pad + 42;
   const int16_t x = pad + 12;
   // Same size 2 and 20px pitch as the boot checklist — this screen is read
   // from across the desk, which is the whole reason it exists.
   const int16_t xv = (int16_t)(x + 6 * 2 * 6);   // widest label is 5 chars + gap
-  const int16_t step = 20;
   const int16_t maxChars = (int16_t)((scrW() - pad - 4 - xv) / (6 * 2));
+#endif
+
+  const bool up = WiFi.status() == WL_CONNECTED;
+  const int16_t step = 20;
 
   auto row = [&](const char *label, const String &value, uint16_t col) {
+#if defined(BOARD_ROUND_UI)
+    int16_t x = 0, rowW = 0;
+    roundBand(y, (int16_t)(y + 15), 10, &x, &rowW);
+    const int16_t xv = (int16_t)(x + 6 * 2 * 6);
+    const int16_t maxChars = (int16_t)((x + rowW - xv) / (6 * 2));
+#endif
     drawTextAt(label, x, y, 2, COL_CRT_DIM);
     // Values run long (an mDNS miss, a wedged-socket message). Clip rather
     // than let Arduino_GFX wrap it into the next row.
@@ -2119,7 +2190,12 @@ static void drawNetDiag() {
   // Size 2 is the minimum display type everywhere else; keep the instruction
   // short enough to remain readable at that size instead of shrinking it.
   drawCentered("START HOST ON MAC, THEN WAIT",
-               scrH() - pad - 24, 2, COL_CRT_DIM);
+#if defined(BOARD_ROUND_UI)
+               390,
+#else
+               scrH() - pad - 24,
+#endif
+               2, COL_CRT_DIM);
   gfx->flush();
 }
 
@@ -2142,16 +2218,31 @@ static BootStatusLine bootStatusLines[BOOT_STATUS_MAX];
 static uint8_t bootStatusN = 0;
 
 static int16_t bootLastY() {
+#if defined(BOARD_ROUND_UI)
+  return 350;
+#else
   return (int16_t)(scrH() - UI_PAD - 48);
+#endif
 }
 
 static uint8_t bootVisibleRows() {
+#if defined(BOARD_ROUND_UI)
+  const int16_t top = 80;
+#else
   const int16_t top = UI_PAD + 42;
+#endif
   if (bootLastY() < top) return 1;
   return (uint8_t)((bootLastY() - top) / BOOT_ROW_STEP + 1);
 }
 
 static void bootScanlines() {
+#if defined(BOARD_ROUND_UI)
+  for (int16_t y = 72; y < 382; y += 3) {
+    int16_t x = 0, w = 0;
+    roundBand(y, y, 5, &x, &w);
+    gfx->drawFastHLine(x, y, w, COL_CRT_SCAN);
+  }
+#else
   const int16_t x0 = UI_PAD + 4;
   const int16_t x1 = scrW() - UI_PAD - 4;
   const int16_t y0 = UI_PAD + 36;
@@ -2159,10 +2250,23 @@ static void bootScanlines() {
   for (int16_t y = y0; y < y1; y += 3) {
     gfx->drawFastHLine(x0, y, (int16_t)(x1 - x0), COL_CRT_SCAN);
   }
+#endif
 }
 
 static void bootChrome() {
   gfx->clear(COL_CRT_BG);
+#if defined(BOARD_ROUND_UI)
+  gfx->drawCircle(ROUND_CX, ROUND_CY, ROUND_R, COL_CRT);
+  gfx->drawCircle(ROUND_CX, ROUND_CY, (int16_t)(ROUND_R - 3), COL_CRT_DIM);
+  int16_t headerX = 0, headerW = 0;
+  roundBand(27, 69, 5, &headerX, &headerW);
+  gfx->fillRect(headerX, 27, headerW, 42, COL_CRT_HDR);
+  drawCentered("HEADROOM", 34, 2, COL_CRT);
+  drawCentered("ROM", 54, 1, COL_CRT_DIM);
+  gfx->drawFastHLine(headerX, 70, headerW, COL_CRT);
+  bootScanlines();
+  bootY = 80;
+#else
   const int16_t pad = UI_PAD;
   const int16_t inner = pad + 3;
   gfx->drawRect(pad, pad, scrW() - pad * 2, scrH() - pad * 2, COL_CRT);
@@ -2174,12 +2278,18 @@ static void bootChrome() {
   gfx->drawFastHLine(inner + 1, pad + 30, scrW() - inner * 2 - 2, COL_CRT);
   bootScanlines();
   bootY = pad + 42;
+#endif
 }
 
 static void bootFlush() {
   bootBlink ^= 1;
+#if defined(BOARD_ROUND_UI)
+  const int16_t cx = (int16_t)(ROUND_CX + 72);
+  const int16_t cy = 52;
+#else
   const int16_t cx = scrW() - UI_PAD - 18;
   const int16_t cy = UI_PAD + 8;
+#endif
   gfx->fillRect(cx, cy, 8, 14, bootBlink ? COL_CRT : COL_CRT_HDR);
   gfx->flush();
 }
@@ -2492,8 +2602,14 @@ static void bootSplash() {
 
 static void bootDrawLineAt(const char *label, const char *status,
                            uint16_t statusCol, int16_t y) {
+#if defined(BOARD_ROUND_UI)
+  int16_t x0 = 0, rowW = 0;
+  roundBand(y, (int16_t)(y + 15), 10, &x0, &rowW);
+  const int16_t xMax = (int16_t)(x0 + rowW);
+#else
   const int16_t x0 = UI_PAD + 10;
   const int16_t xMax = scrW() - UI_PAD - 10;
+#endif
   gfx->setTextSize(2);
   int16_t x1, y1; uint16_t lw, lh, rw, rh, dw, dh;
   gfx->getTextBounds(label, 0, 0, &x1, &y1, &lw, &lh);
@@ -2536,14 +2652,19 @@ static void bootRedrawStatus() {
   bootChrome();
   const uint8_t visible = bootVisibleRows();
   const uint8_t first = bootStatusN > visible ? bootStatusN - visible : 0;
+#if defined(BOARD_ROUND_UI)
+  const int16_t rowTop = 80;
+#else
+  const int16_t rowTop = UI_PAD + 42;
+#endif
   uint8_t shown = 0;
   for (uint8_t i = first; i < bootStatusN; i++) {
     bootDrawLineAt(bootStatusLines[i].label, bootStatusLines[i].status,
                    bootStatusLines[i].color,
-                   (int16_t)(UI_PAD + 42 + shown * BOOT_ROW_STEP));
+                   (int16_t)(rowTop + shown * BOOT_ROW_STEP));
     shown++;
   }
-  bootY = (int16_t)(UI_PAD + 42 + shown * BOOT_ROW_STEP);
+  bootY = (int16_t)(rowTop + shown * BOOT_ROW_STEP);
 }
 
 static void bootLine(const char *label, const char *status, uint16_t statusCol) {
@@ -2574,10 +2695,16 @@ static void bootLine(const char *label, const char *status, uint16_t statusCol) 
 
 // Growing dots after the label, marching toward the right edge (not a 4-dot loop).
 static void bootProgress(const char *label, uint8_t step) {
-  const int16_t x0 = UI_PAD + 10;
   const int16_t y = bootY > bootLastY() ? bootLastY() : bootY;
+#if defined(BOARD_ROUND_UI)
+  int16_t x0 = 0, bw = 0;
+  roundBand(y, (int16_t)(y + 17), 10, &x0, &bw);
+  const int16_t xMax = (int16_t)(x0 + bw);
+#else
+  const int16_t x0 = UI_PAD + 10;
   const int16_t xMax = scrW() - UI_PAD - 10;
   const int16_t bw = (int16_t)(xMax - x0);
+#endif
   gfx->fillRect(x0, y, bw, 18, COL_CRT_BG);
   for (int16_t sy = y; sy < y + 18; sy += 3)
     gfx->drawFastHLine(x0, sy, bw, COL_CRT_SCAN);
@@ -3668,8 +3795,15 @@ static void glanceAddModeHit(int16_t x, int16_t y, int16_t w, int16_t h) {
 }
 
 static void nativeToLogical(int16_t nx, int16_t ny, int16_t *lx, int16_t *ly) {
-#if defined(BOARD_WS_AMOLED_216)
-  // Touch is remapped in touchInit() to match MADCTL 0xA0 / canvas coords.
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+  // CST9217 packets are native panel coordinates. The controller on this
+  // exact no-C board is mounted with both axes reversed.
+  const int16_t x = (int16_t)constrain(nx, 0, LOG_W - 1);
+  const int16_t y = (int16_t)constrain(ny, 0, LOG_H - 1);
+  *lx = (int16_t)(LOG_W - 1 - x);
+  *ly = (int16_t)(LOG_H - 1 - y);
+#elif defined(BOARD_TOUCH_CST92XX)
+  // Direct-panel touch is remapped in touchInit() to canvas coordinates.
   *lx = nx;
   *ly = ny;
 #else
@@ -3690,12 +3824,6 @@ static bool glanceHitAt(int16_t nx, int16_t ny, GlanceHit *out) {
     }
   }
   return false;
-}
-
-static void flashGlanceSlot(const GlanceHit &h) {
-  gfx->fillRect(h.x, h.y, h.w, h.h, COL_WHITE);
-  gfx->flushLogicalRect(h.x, h.y, h.w, h.h);
-  // No delay — next page paint replaces this immediately.
 }
 
 static const Burndown &burnFor(Page p);
@@ -3725,38 +3853,67 @@ static void drawGlanceHistory(int16_t padX, int16_t span, int16_t midY,
   snprintf(summary, sizeof summary, "%u active · %ud streak",
            (unsigned)activityHistory.activeDays,
            (unsigned)activityHistory.currentStreak);
+#if defined(BOARD_ROUND_UI)
+  drawRightAt(summary, (int16_t)(padX + span), (int16_t)(midY + 11), 1,
+              COL_DIM);
+#else
   drawRightAt(summary, (int16_t)(padX + span), (int16_t)(midY + 8), 2, COL_DIM);
+#endif
 
+#if defined(BOARD_ROUND_UI)
+  // A focused twelve-week window reads better on the circular face than the
+  // landscape view's dense 162-day strip. At 20px these become real glanceable
+  // activity marks and fill the lower chord without touching its edge.
+  const int16_t cell = 20;
+  const int16_t gap = 3;
+  const uint8_t visibleDays = 84;
+#else
   const int16_t cell = 14;
   const int16_t gap = 2;
+  const uint8_t visibleDays = MAX_ACTIVITY_DAYS;
+#endif
   // Treat the board strip as a fixed recent window, even when an older host
   // sends fewer days. This keeps today at the right edge instead of centering
   // a short history in the middle of the display; empty leading cells remain
   // true black and therefore disappear naturally.
-  const uint8_t visibleDays = MAX_ACTIVITY_DAYS;
-  const uint8_t leadingDays = visibleDays > activityHistory.n
-                                ? (uint8_t)(visibleDays - activityHistory.n)
-                                : 0;
-  const uint8_t startWeekday = (uint8_t)(activityHistory.startWeekday % 7);
+  const uint8_t historyOffset = activityHistory.n > visibleDays
+                                  ? (uint8_t)(activityHistory.n - visibleDays)
+                                  : 0;
+  const uint8_t shownDays =
+      (uint8_t)(activityHistory.n - historyOffset);
+  const uint8_t leadingDays = (uint8_t)(visibleDays - shownDays);
+  const uint8_t startWeekday = (uint8_t)(
+      (activityHistory.startWeekday + historyOffset) % 7);
   const uint8_t gridStartWeekday = (uint8_t)(
       (startWeekday + 7 - (leadingDays % 7)) % 7);
   const uint8_t cols = (uint8_t)((gridStartWeekday + visibleDays + 6) / 7);
   const int16_t gridW = (int16_t)(cols * cell + (cols - 1) * gap);
-  const int16_t gridX = (int16_t)(padX + span - gridW);
   const int16_t gridY = (int16_t)(midY + 30);
-  for (uint8_t i = 0; i < activityHistory.n; i++) {
+  int16_t gridX = (int16_t)(padX + span - gridW);
+#if defined(BOARD_ROUND_UI)
+  int16_t gridBandX = 0, gridBandW = 0;
+  const int16_t gridBottom =
+      (int16_t)(gridY + 7 * cell + 6 * gap - 1);
+  roundBand(gridY, gridBottom, 8, &gridBandX, &gridBandW);
+  gridX = (int16_t)(gridBandX + (gridBandW - gridW) / 2);
+#endif
+  for (uint8_t i = 0; i < shownDays; i++) {
     const uint16_t slot = (uint16_t)gridStartWeekday + leadingDays + i;
     const uint8_t col = (uint8_t)(slot / 7);
     const uint8_t row = (uint8_t)(slot % 7);
     const int16_t x = (int16_t)(gridX + col * (cell + gap));
     const int16_t y = (int16_t)(gridY + row * (cell + gap));
     gfx->fillRoundRect(x, y, cell, cell, 3,
-                       activityCellColor(activityHistory.levels[i]));
+                       activityCellColor(
+                           activityHistory.levels[historyOffset + i]));
   }
 
   // A thin baseline keeps an entirely empty row legible without stealing a
   // second legend line from the glance pane.
-  gfx->drawFastHLine(padX, lowBottom, span, dimToward(COL_DIM, COL_BG, 0.35f));
+#if !defined(BOARD_ROUND_UI)
+  gfx->drawFastHLine(padX, lowBottom, span,
+                     dimToward(COL_DIM, COL_BG, 0.35f));
+#endif
 }
 
 static String formatUsd(float value) {
@@ -3842,22 +3999,55 @@ static void drawGlanceSpend(int16_t padX, int16_t span, int16_t midY,
     return;
   }
 
-  const int16_t colW = (int16_t)(span / 3);
-  const int16_t captionY = (int16_t)(midY + 24);
-  const int16_t valueY = (int16_t)(midY + 41);
-  const int16_t todayX = padX;
-  const int16_t avgX = (int16_t)(padX + colW);
-  const int16_t totalX = (int16_t)(padX + colW * 2);
-  drawTextAt("today", todayX, captionY, 1, COL_DIM);
-  drawTextAt(formatUsd(spendSummary.today), todayX, valueY, 3, COL_WHITE);
-
-  drawTextAt("per active day", avgX, captionY, 1, COL_DIM);
-  drawTextAt(formatUsd(spendSummary.avg), avgX, valueY, 3, COL_WHITE);
-
-  drawTextAt("month", totalX, captionY, 1, COL_DIM);
-  drawTextAt(formatUsd(spendSummary.total), totalX, valueY, 3, COL_WHITE);
+  int16_t numberX = padX;
+  int16_t numberW = span;
+  int16_t captionY = (int16_t)(midY + 24);
+  int16_t valueY = (int16_t)(midY + 41);
+  uint8_t valueSize = 3;
+#if defined(BOARD_ROUND_UI)
+  // The figures sit near the circle's widest chord, so do not inherit the
+  // narrow footer geometry. Drop them into the visual center and use the
+  // largest common type size that keeps all three columns aligned.
+  captionY = (int16_t)(midY + 60);
+  valueY = (int16_t)(midY + 81);
+  roundBand(captionY, (int16_t)(valueY + 32), 10, &numberX, &numberW);
+  valueSize = 4;
+#endif
+  const int16_t colW = (int16_t)(numberW / 3);
+  const char *captions[3] = {"today", "per active day", "month"};
+  const String values[3] = {
+      formatUsd(spendSummary.today),
+      formatUsd(spendSummary.avg),
+      formatUsd(spendSummary.total),
+  };
+#if defined(BOARD_ROUND_UI)
+  while (valueSize > 2) {
+    bool fits = true;
+    for (uint8_t i = 0; i < 3; i++) {
+      if (textWidth(values[i].c_str(), valueSize) > colW - 8) fits = false;
+    }
+    if (fits) break;
+    valueSize--;
+  }
+#endif
+  for (uint8_t i = 0; i < 3; i++) {
+    const int16_t colX = (int16_t)(numberX + i * colW);
+#if defined(BOARD_ROUND_UI)
+    const int16_t captionX =
+        (int16_t)(colX + (colW - textWidth(captions[i], 1)) / 2);
+    const int16_t valueX = (int16_t)(
+        colX + (colW - textWidth(values[i].c_str(), valueSize)) / 2);
+#else
+    const int16_t captionX = colX;
+    const int16_t valueX = colX;
+#endif
+    drawTextAt(captions[i], captionX, captionY, 1, COL_DIM);
+    drawTextAt(values[i], valueX, valueY, valueSize, COL_WHITE);
+  }
+#if !defined(BOARD_ROUND_UI)
   gfx->drawFastHLine(padX, lowBottom, span,
                      dimToward(COL_DIM, COL_BG, 0.35f));
+#endif
 }
 
 // Lower half, activity reading: what shipped lately.
@@ -4126,8 +4316,6 @@ static void drawOverallSeries(const Burndown &b, uint16_t accent,
 // under the three rings — shared calendar week, no budget diagonal.
 static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
                                int16_t lowBottom) {
-  const int16_t slot = slotN > 0 ? (int16_t)(span / slotN) : span;
-
   uint32_t nowT = 0;
   uint8_t ready = 0;
   for (uint8_t i = 0; i < slotN; i++) {
@@ -4150,8 +4338,14 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
   const int16_t chartY = (int16_t)(midY + 6);
   const int16_t chartH =
       (int16_t)(lowBottom - legendH - axisH - chartY);
-  const int16_t chartX = padX;
-  const int16_t chartW = span;
+  int16_t chartX = padX;
+  int16_t chartW = span;
+#if defined(BOARD_ROUND_UI)
+  // Size the plot for the chord it actually occupies, not for the much
+  // narrower legend rows near the bottom of the circle. This recovers almost
+  // a quarter of the panel width while keeping every plotted pixel inset.
+  roundBand(chartY, (int16_t)(chartY + chartH - 1), 10, &chartX, &chartW);
+#endif
 
   if (ready == 0 || chartH < 40) {
     drawCollectingHistory(chartX + 8,
@@ -4218,9 +4412,11 @@ static void drawGlanceBurndown(int16_t padX, int16_t span, int16_t midY,
 
   // Chart split by slot → provider detail (same left→right order as rings).
   const int16_t chartHitH = (int16_t)(chartY + chartH + axisH - midY);
+  const int16_t chartSlot =
+      slotN > 0 ? (int16_t)(chartW / slotN) : chartW;
   for (uint8_t i = 0; i < slotN; i++) {
-    glanceAddHit((int16_t)(padX + (int16_t)i * slot), midY, slot, chartHitH,
-                 slotPage(i));
+    glanceAddHit((int16_t)(chartX + (int16_t)i * chartSlot), midY,
+                 chartSlot, chartHitH, slotPage(i));
   }
 
   // Legend: ring order, top → bottom. Full width so host verdicts stay intact.
@@ -4252,6 +4448,36 @@ static void drawGlancePage() {
   glanceClearHits();
   const int16_t W = scrW();
   const int16_t H = scrH();
+#if defined(BOARD_ROUND_UI)
+  int16_t padX = 0, span = 0;
+  int16_t ringPadX = 0, ringSpan = 0;
+  int16_t footerX = 0, footerW = 0;
+  const int16_t titleY = 24;
+  const int16_t modeY = 70;
+  const int16_t ringCy = 143;
+  const int16_t ringR = 30;
+  const int16_t midY = 205;
+  const int16_t lowBottom = 397;
+  roundBand((int16_t)(midY + 1), lowBottom, 10, &padX, &span);
+  roundBand((int16_t)(ringCy - ringR - 8),
+            (int16_t)(ringCy + ringR + 24), 8, &ringPadX, &ringSpan);
+  roundBand(418, 436, 8, &footerX, &footerW);
+
+  drawCentered("Headroom", titleY, 3, COL_WHITE);
+  char when[8];
+  if (updatedHHMM(when, sizeof when)) {
+    char updated[20];
+    snprintf(updated, sizeof updated, "UPDATED %s", when);
+    drawCentered(updated, 52, 1, COL_DIM);
+  }
+  const char *modeName = homeModeName(homeMode);
+  const int16_t chipW = (int16_t)(textWidth(modeName, 2) + 16);
+  const int16_t chipX = (int16_t)((W - chipW) / 2);
+  gfx->drawRoundRect(chipX, modeY, chipW, 24, 6, COL_DIM);
+  drawTextAt(modeName, (int16_t)(chipX + 8), (int16_t)(modeY + 6), 2,
+             COL_DIM);
+  glanceAddModeHit(chipX - 12, modeY - 8, chipW + 24, 40);
+#else
   const int16_t padX = UI_PAD;
   // Paid for out of the slack under the ring labels — see UI_TOP.
   const int16_t top = UI_TOP;
@@ -4275,7 +4501,6 @@ static void drawGlancePage() {
 
   // Equal top slots (quota rings) — as many as the host sent, up to three.
   const int16_t span = W - padX * 2;
-  const int16_t slot = slotN > 0 ? (int16_t)(span / slotN) : span;
   const int16_t ringR = 32;
   const int16_t ringCy = top + 74;
   const int16_t midY = ringCy + ringR + 38;  // clear labels under rings
@@ -4283,24 +4508,43 @@ static void drawGlancePage() {
   // link right) — reserve it in both home modes so a long verdict or a sixth
   // port can't run underneath.
   const int16_t lowBottom = (int16_t)(H - bot - LINK_GLYPH_H);
+  const int16_t ringPadX = padX;
+  const int16_t ringSpan = span;
+  const int16_t footerX = padX;
+  const int16_t footerW = span;
+#endif
+  const int16_t slot = slotN > 0 ? (int16_t)(ringSpan / slotN) : ringSpan;
 
   // Hits first and in both styles: a tap still opens the detail page, and a
   // hold on the same band is what switches the style.
   for (uint8_t i = 0; i < slotN; i++) {
-    int16_t colX = padX + (int16_t)i * slot;
-    glanceAddHit(colX, top + 36, slot, (int16_t)(midY - (top + 36)),
+#if defined(BOARD_ROUND_UI)
+    const int16_t hitTop = (int16_t)(ringCy - ringR - 12);
+#else
+    const int16_t hitTop = (int16_t)(top + 36);
+#endif
+    int16_t colX = ringPadX + (int16_t)i * slot;
+    glanceAddHit(colX, hitTop, slot, (int16_t)(midY - hitTop),
                  slotPage(i));
   }
   if (glanceStyle == GLANCE_PACE) {
-    drawPaceGlyph(padX, span, ringCy);
+    drawPaceGlyph(ringPadX, ringSpan, ringCy);
   } else {
     for (uint8_t i = 0; i < slotN; i++) {
-      drawQuotaRing((int16_t)(padX + (int16_t)i * slot + slot / 2), ringCy,
+      drawQuotaRing((int16_t)(ringPadX + (int16_t)i * slot + slot / 2), ringCy,
                     ringR, slots[i].q, slots[i].accent,
                     slots[i].title.c_str());
     }
   }
   if (slotN == 0) {
+#if defined(BOARD_ROUND_UI)
+    drawCentered(providersSeen ? "No coding providers" : "Update the Mac host",
+                 (int16_t)(ringCy - 12), 2, COL_DIM);
+    if (!providersSeen) {
+      drawCentered("host too old for providers", (int16_t)(ringCy + 10), 1,
+                   COL_DIM);
+    }
+#else
     drawTextAt(providersSeen ? "No coding providers enabled"
                              : "Update the Mac host",
                padX, (int16_t)(ringCy - 12), 2, COL_DIM);
@@ -4308,14 +4552,24 @@ static void drawGlancePage() {
       drawTextAt("this host is too old to send providers", padX,
                  (int16_t)(ringCy + 10), 1, COL_DIM);
     }
+#endif
   }
 
+#if !defined(BOARD_ROUND_UI)
   gfx->drawFastHLine(padX, midY, span, COL_DIM);
+#endif
   // The lower pane is a second, much larger mode button. Register it before
   // burndown's provider rows so the same tap gesture works everywhere on the
   // lower half, while the quota rings above remain detail targets.
+#if defined(BOARD_ROUND_UI)
+  // The physical circle already clips the square framebuffer. Let the touch
+  // target cover the whole lower chord, including the wider round-aware plot.
   glanceAddModeHit(0, (int16_t)(midY + 1), W,
                    (int16_t)(lowBottom - midY - 1));
+#else
+  glanceAddModeHit(0, (int16_t)(midY + 1), W,
+                   (int16_t)(lowBottom - midY - 1));
+#endif
 
   if (homeMode != HOME_BURNDOWN || slotN > 0) {
     if (homeMode == HOME_DAILY_BURN) {
@@ -4329,8 +4583,13 @@ static void drawGlancePage() {
     }
   }
 
+#if defined(BOARD_ROUND_UI)
+  drawPowerGlyph(footerX, 436);
+  drawLinkGlyph((int16_t)(footerX + footerW), 436);
+#else
   drawPowerGlyph(padX, (int16_t)(H - bot));
   drawLinkGlyph((int16_t)(W - padX), (int16_t)(H - bot));
+#endif
   present();
 }
 
@@ -4346,9 +4605,16 @@ static void drawQuotaPage() {
   gfx->clear(COL_BG);
   const int16_t W = scrW();
   const int16_t H = scrH();
+#if defined(BOARD_ROUND_UI)
+  int16_t padX = 0, contentW = 0;
+  roundBand(116, 244, 12, &padX, &contentW);
+  const int16_t top = 28;
+  const int16_t bot = (int16_t)(H - 397);
+#else
   const int16_t padX = UI_PAD;
   const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
+#endif
 
   static const ProviderSlot kEmptySlot{};
   const uint8_t index = slotOf(page);
@@ -4357,8 +4623,34 @@ static void drawQuotaPage() {
   const uint16_t accent = s.accent;
   const char *brand = s.title.length() ? s.title.c_str() : "-";
 
-  // Header — provider name in its color, with a crisp white provider mark
-  // owning the top-right corner. Plan copy ends before it so neither collides.
+  // Header — provider name in its color, with a crisp white provider mark.
+#if defined(BOARD_ROUND_UI)
+  const bool hasMark = providerMark(s.id) != nullptr;
+  const int16_t brandW = textWidth(brand, 3);
+  const int16_t groupW = (int16_t)(brandW + (hasMark ? PROVIDER_MARK_W + 10 : 0));
+  const int16_t groupX = (int16_t)((W - groupW) / 2);
+  if (hasMark) drawProviderMark(s.id, groupX, top, COL_WHITE);
+  drawTextAt(brand, (int16_t)(groupX + (hasMark ? PROVIDER_MARK_W + 10 : 0)),
+             top, 3, accent);
+  if (q.plan.length()) drawCentered(q.plan.c_str(), top + 31, 1, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  int16_t metaX = 0, metaW = 0;
+  roundBand(top + 55, top + 68, 12, &metaX, &metaW);
+  drawTextAt(updatedLine, metaX, top + 55, 1, COL_DIM);
+  if (dailyBurnN > 0 && index < slotN) {
+    char todayBuf[24];
+    snprintf(todayBuf, sizeof todayBuf, "Today %.0f%%",
+             dailyBurnDays[dailyBurnN - 1].burns[index]);
+    drawRightAt(todayBuf, (int16_t)(metaX + metaW), top + 55, 1, COL_DIM);
+  }
+  int16_t ruleX = 0, ruleW = 0;
+  roundBand(top + 77, top + 77, 12, &ruleX, &ruleW);
+  gfx->drawFastHLine(ruleX, top + 77, ruleW, COL_DIM);
+#else
+  // Rectangular header: mark owns the top-right corner. Plan copy ends before
+  // it so neither collides.
   drawTextAt(brand, padX, top, 3, accent);
   const int16_t markX = (int16_t)(W - padX - PROVIDER_MARK_W);
   const bool hasMark = drawProviderMark(
@@ -4382,17 +4674,22 @@ static void drawQuotaPage() {
     drawRightAt(todayBuf, W - padX, top + 29, 2, COL_DIM);
   }
   gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
+#endif
 
   // Content below the header rule splits evenly: meters on top, burndown below.
   // Glance rings already carry pct/pace, so the detail page's job is readable
   // full-width bars plus a chart large enough to read at desk distance.
-  const int16_t contentTop = top + 62;
+  const int16_t contentTop =
+#if defined(BOARD_ROUND_UI)
+      116;
+#else
+      top + 62;
+#endif
   // Down to the page inset. There is no footer on this page — the rule that
   // used to sit here was reserving 22px for page dots nothing draws, which put
   // 50px of nothing under the chart against 28 above the header.
   const int16_t contentBot = (int16_t)(H - bot);
-  const int16_t midY =
-      (int16_t)(contentTop + (contentBot - contentTop) / 2);
+  const int16_t midY = (int16_t)(contentTop + (contentBot - contentTop) / 2);
 
   if (q.ok && q.n > 0) {
     // Whatever meters the host sent, in its order. Only rows that fit above
@@ -4418,7 +4715,14 @@ static void drawQuotaPage() {
     // Bottom half: burndown for the provider's longest window.
     const Burndown &burn = burnFor(page);
     int16_t burnY = midY;
-    drawTextAt(LABEL_BURNDOWN, padX, burnY, 2, COL_WHITE);
+#if defined(BOARD_ROUND_UI)
+    int16_t chartPad = 0, chartW = 0;
+    roundBand((int16_t)(burnY + 22), contentBot, 10, &chartPad, &chartW);
+#else
+    const int16_t chartPad = padX;
+    const int16_t chartW = (int16_t)(W - padX * 2);
+#endif
+    drawTextAt(LABEL_BURNDOWN, chartPad, burnY, 2, COL_WHITE);
     // The host's verdict, in the host's words. Falls back to the locally
     // assembled tags only when talking to a server too old to send one.
     if (burn.verdict.length()) {
@@ -4427,19 +4731,21 @@ static void drawQuotaPage() {
       // Host copy can grow, and running under the Burndown label is worse
       // than a smaller face, so measure before committing to size 2.
       const int16_t room =
-          (int16_t)(W - padX * 2 - textWidth(LABEL_BURNDOWN, 2) - 12);
+          (int16_t)(chartW - textWidth(LABEL_BURNDOWN, 2) - 12);
       const bool full = textWidth(burn.verdict.c_str(), 2) <= room;
-      drawRightAt(burn.verdict.c_str(), W - padX,
+      drawRightAt(burn.verdict.c_str(), (int16_t)(chartPad + chartW),
                   full ? burnY : (int16_t)(burnY + 4), full ? 2 : 1, tint);
     } else if (burn.warn || burn.warn2) {
-      drawRightAt("runs out early", W - padX, burnY, 2, COL_DIM);
+      drawRightAt("runs out early", (int16_t)(chartPad + chartW), burnY, 2,
+                  COL_DIM);
     } else if (burn.estimated) {
-      drawRightAt("estimated", W - padX, burnY, 2, COL_DIM);
+      drawRightAt("estimated", (int16_t)(chartPad + chartW), burnY, 2,
+                  COL_DIM);
     }
     burnY += 22;
     const int16_t chartH = (int16_t)(contentBot - burnY);
     if (chartH >= 36) {
-      drawBurndown(burn, padX, burnY, (int16_t)(W - padX * 2), chartH, accent);
+      drawBurndown(burn, chartPad, burnY, chartW, chartH, accent);
     }
   } else {
     char missing[48];
@@ -4454,10 +4760,28 @@ static void drawVercelPage() {
   gfx->clear(COL_BG);
   const int16_t W = scrW();
   const int16_t H = scrH();
+#if defined(BOARD_ROUND_UI)
+  int16_t padX = 0, pageW = 0;
+  roundBand(116, 370, 10, &padX, &pageW);
+  const int16_t top = 30;
+  const int16_t bot = 58;
+#else
   const int16_t padX = UI_PAD;
   const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
+#endif
 
+#if defined(BOARD_ROUND_UI)
+  drawCentered("Vercel", top, 3, COL_VERCEL);
+  if (vercelTeam.length()) drawCentered(vercelTeam.c_str(), top + 31, 1, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawCentered(updatedLine, top + 51, 1, COL_DIM);
+  int16_t ruleX = 0, ruleW = 0;
+  roundBand(top + 75, top + 75, 10, &ruleX, &ruleW);
+  gfx->drawFastHLine(ruleX, top + 75, ruleW, COL_DIM);
+#else
   drawTextAt("Vercel", padX, top, 3, COL_VERCEL);
   if (vercelTeam.length()) {
     drawRightAt(vercelTeam.c_str(), W - padX, top + 6, 2, COL_DIM);
@@ -4467,8 +4791,14 @@ static void drawVercelPage() {
            updatedHHMM(when, sizeof when) ? when : "--");
   drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
+#endif
 
-  int16_t rowY = top + 60;
+  int16_t rowY =
+#if defined(BOARD_ROUND_UI)
+      116;
+#else
+      top + 60;
+#endif
   if (vercelOk && vercelN > 0) {
     for (uint8_t i = 0; i < vercelN; i++) {
       const DeployRow &r = vercelRows[i];
@@ -4497,8 +4827,12 @@ static void drawVercelPage() {
   }
 
   const int16_t footY = H - bot - 10;
+#if defined(BOARD_ROUND_UI)
+  drawCentered((String((int)vercelN) + " recent").c_str(), footY, 2, COL_DIM);
+#else
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)vercelN) + " recent", padX, footY, 2, COL_DIM);
+#endif
   present();
 }
 
@@ -4506,18 +4840,41 @@ static void drawGitPage() {
   gfx->clear(COL_BG);
   const int16_t W = scrW();
   const int16_t H = scrH();
+#if defined(BOARD_ROUND_UI)
+  int16_t padX = 0, pageW = 0;
+  roundBand(116, 370, 10, &padX, &pageW);
+  const int16_t top = 30;
+  const int16_t bot = 58;
+#else
   const int16_t padX = UI_PAD;
   const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
+#endif
 
+#if defined(BOARD_ROUND_UI)
+  drawCentered("Git", top, 3, COL_GIT);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawCentered(updatedLine, top + 42, 1, COL_DIM);
+  int16_t ruleX = 0, ruleW = 0;
+  roundBand(top + 75, top + 75, 10, &ruleX, &ruleW);
+  gfx->drawFastHLine(ruleX, top + 75, ruleW, COL_DIM);
+#else
   drawTextAt("Git", padX, top, 3, COL_GIT);
   char when[8], updatedLine[20];
   snprintf(updatedLine, sizeof updatedLine, "Updated %s",
            updatedHHMM(when, sizeof when) ? when : "--");
   drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
+#endif
 
-  int16_t rowY = top + 60;
+  int16_t rowY =
+#if defined(BOARD_ROUND_UI)
+      116;
+#else
+      top + 60;
+#endif
   if (gitOk && gitN > 0) {
     for (uint8_t i = 0; i < gitN; i++) {
       const CommitRow &r = gitRows[i];
@@ -4538,8 +4895,12 @@ static void drawGitPage() {
   }
 
   const int16_t footY = H - bot - 10;
+#if defined(BOARD_ROUND_UI)
+  drawCentered((String((int)gitN) + " recent").c_str(), footY, 2, COL_DIM);
+#else
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)gitN) + " recent", padX, footY, 2, COL_DIM);
+#endif
   present();
 }
 
@@ -4547,10 +4908,28 @@ static void drawLocalPage() {
   gfx->clear(COL_BG);
   const int16_t W = scrW();
   const int16_t H = scrH();
+#if defined(BOARD_ROUND_UI)
+  int16_t padX = 0, pageW = 0;
+  roundBand(116, 370, 10, &padX, &pageW);
+  const int16_t top = 30;
+  const int16_t bot = 58;
+#else
   const int16_t padX = UI_PAD;
   const int16_t top = UI_TOP;
   const int16_t bot = UI_PAD;
+#endif
 
+#if defined(BOARD_ROUND_UI)
+  drawCentered("Local", top, 3, COL_LOCAL);
+  if (localHost.length()) drawCentered(localHost.c_str(), top + 31, 1, COL_DIM);
+  char when[8], updatedLine[20];
+  snprintf(updatedLine, sizeof updatedLine, "Updated %s",
+           updatedHHMM(when, sizeof when) ? when : "--");
+  drawCentered(updatedLine, top + 51, 1, COL_DIM);
+  int16_t ruleX = 0, ruleW = 0;
+  roundBand(top + 75, top + 75, 10, &ruleX, &ruleW);
+  gfx->drawFastHLine(ruleX, top + 75, ruleW, COL_DIM);
+#else
   drawTextAt("Local", padX, top, 3, COL_LOCAL);
   if (localHost.length()) {
     drawRightAt(localHost.c_str(), W - padX, top + 6, 2, COL_DIM);
@@ -4560,8 +4939,14 @@ static void drawLocalPage() {
            updatedHHMM(when, sizeof when) ? when : "--");
   drawTextAt(updatedLine, padX, top + 29, 2, COL_DIM);
   gfx->drawFastHLine(padX, top + 51, W - padX * 2, COL_DIM);
+#endif
 
-  int16_t rowY = top + 60;
+  int16_t rowY =
+#if defined(BOARD_ROUND_UI)
+      116;
+#else
+      top + 60;
+#endif
   if (localOk && localN > 0) {
     for (uint8_t i = 0; i < localN; i++) {
       const ServerRow &r = localRows[i];
@@ -4586,8 +4971,12 @@ static void drawLocalPage() {
   }
 
   const int16_t footY = H - bot - 10;
+#if defined(BOARD_ROUND_UI)
+  drawCentered((String((int)localN) + " up").c_str(), footY, 2, COL_DIM);
+#else
   gfx->drawFastHLine(padX, footY - 12, W - padX * 2, COL_DIM);
   drawTextAt(String((int)localN) + " up", padX, footY, 2, COL_DIM);
+#endif
   present();
 }
 
@@ -4605,20 +4994,36 @@ static void drawDashboard() {
 
 // ---------------- Touch ----------------
 // 1.8: FT3168 / CST816 via TCA9554 reset + raw I2C.
-// 2.16: CST9220 via SensorLib (TouchDrvCST92xx), GPIO reset.
+// 2.16: CST9220 via SensorLib. 1.75 round: CST9217's native command/read/ack
+// protocol, copied from the working esp32-thinking-orbs target.
 //
 // Gestures: tap slot on Headroom → detail; tap on detail → home;
 // long-press → home; BOOT → next page (cycles through all, then home).
+#if defined(BOARD_TOUCH_CST92XX)
 #if defined(BOARD_WS_AMOLED_216)
 static TouchDrvCST92xx cstTouch;
+#endif
 static bool touchReady = false;
-// CST92xx IRQs are edge pulses. Poll getPoint only on IRQ (or while a finger
-// is already down) — continuous idle polling ACKs empty reads and can leave
-// the chip silent. Waveshare's Touch tutorial uses the same gate.
+#if defined(BOARD_WS_AMOLED_216)
+// The 2.16 CST9220 uses SensorLib's IRQ-gated path.
 static bool cstFingerDown = false;
+#endif
 static uint32_t cstSampleAt = 0;
 static uint8_t cstSampleN = 0;
 static int16_t cstSampleX = 0, cstSampleY = 0;
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+// The CST9217 and AXP2101 share the same I2C bus. The app loop is much faster
+// than a display frame, so polling on every pass only creates bus pressure and
+// makes a single empty/noisy packet look like a complete tap. Two readings at
+// a modest cadence are still quick to a finger while rejecting those gaps.
+static const uint32_t CST9217_POLL_MS = 12;
+static const uint8_t CST9217_STABLE_SAMPLES = 2;
+static uint8_t cstDownSamples = 0;
+static uint8_t cstUpSamples = 0;
+static bool cstStableDown = false;
+static int16_t cstCandidateX = 0, cstCandidateY = 0;
+static uint32_t cstStableDownAt = 0;
+#endif
 #else
 static uint8_t touchAddr = 0;          // 0 = absent
 #endif
@@ -4649,11 +5054,157 @@ static bool gestureTapHit = false;
 
 static void IRAM_ATTR onTouchIrq() { touchIrq = true; }
 
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TOUCH_CST92XX)
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+static bool cst9217WriteThenRead(const uint8_t *w, size_t wn, uint8_t *r,
+                                 size_t rn) {
+  Wire.beginTransmission(CST92XX_ADDR);
+  Wire.write(w, wn);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (rn == 0) return true;
+  if (Wire.requestFrom((int)CST92XX_ADDR, (int)rn) != (int)rn) return false;
+  for (size_t i = 0; i < rn; i++) r[i] = Wire.read();
+  return true;
+}
+
+static bool cst9217Write(const uint8_t *w, size_t wn) {
+  Wire.beginTransmission(CST92XX_ADDR);
+  Wire.write(w, wn);
+  return Wire.endTransmission() == 0;
+}
+
+static bool cst9217Attach() {
+  pinMode(TP_RST, OUTPUT);
+  digitalWrite(TP_RST, LOW);
+  delay(10);
+  digitalWrite(TP_RST, HIGH);
+  delay(30);
+
+  uint8_t buf[8];
+  const uint8_t enterCmd[2] = {0xD1, 0x01};
+  if (!cst9217Write(enterCmd, sizeof enterCmd)) return false;
+  delay(10);
+
+  const uint8_t readCheck[2] = {0xD1, 0xFC};
+  if (!cst9217WriteThenRead(readCheck, sizeof readCheck, buf, 4)) return false;
+  const uint32_t checkcode = ((uint32_t)buf[3] << 24) |
+                             ((uint32_t)buf[2] << 16) |
+                             ((uint32_t)buf[1] << 8) | buf[0];
+
+  const uint8_t readRes[2] = {0xD1, 0xF8};
+  if (!cst9217WriteThenRead(readRes, sizeof readRes, buf, 4)) return false;
+  const uint16_t resX = (uint16_t)((buf[1] << 8) | buf[0]);
+  const uint16_t resY = (uint16_t)((buf[3] << 8) | buf[2]);
+
+  const uint8_t readType[2] = {0xD2, 0x04};
+  if (!cst9217WriteThenRead(readType, sizeof readType, buf, 4)) return false;
+  const uint16_t chipType = (uint16_t)((buf[3] << 8) | buf[2]);
+
+  const uint8_t readVersion[2] = {0xD2, 0x08};
+  if (!cst9217WriteThenRead(readVersion, sizeof readVersion, buf, 8))
+    return false;
+  const uint32_t fwVersion = ((uint32_t)buf[3] << 24) |
+                             ((uint32_t)buf[2] << 16) |
+                             ((uint32_t)buf[1] << 8) | buf[0];
+
+  Serial.printf("CST9217: check=0x%08lX res=%ux%u type=0x%04X fw=0x%08lX\n",
+                (unsigned long)checkcode, resX, resY, chipType,
+                (unsigned long)fwVersion);
+  return fwVersion != 0xA5A5A5A5 &&
+         (checkcode & 0xFFFF0000UL) == 0xCACA0000UL &&
+         (chipType == 0x9220 || chipType == 0x9217);
+}
+
+static bool cst9217Poll(int16_t *x, int16_t *y) {
+  uint8_t buf[15];
+  const uint8_t readCmd[2] = {0xD0, 0x00};
+  if (!cst9217WriteThenRead(readCmd, sizeof readCmd, buf, sizeof buf))
+    return false;
+  const uint8_t ackCmd[3] = {0xD0, 0x00, 0xAB};
+  if (!cst9217Write(ackCmd, sizeof ackCmd) || buf[6] != 0xAB) return false;
+
+  const uint8_t numPoints = buf[5] & 0x7F;
+  const uint8_t id = buf[0] >> 4;
+  const uint8_t event = buf[0] & 0x0F;
+  if (numPoints == 0 || numPoints > 2 || id >= 2 || event != 0x06)
+    return false;
+  *x = (int16_t)(((uint16_t)buf[1] << 4) | (buf[3] >> 4));
+  *y = (int16_t)(((uint16_t)buf[2] << 4) | (buf[3] & 0x0F));
+  return true;
+}
+#endif
+
 static bool cstPollSample() {
   const uint32_t now = millis();
-  if (cstSampleAt == now) return cstSampleN > 0;
 
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+  // CST9217 contact and release share one read/ack transaction. Poll
+  // continuously as the working Thinking Orbs firmware does, but at a bounded
+  // cadence: Headroom's loop is otherwise far faster than that app's frame
+  // loop. Cache the stable state between polls so "not due yet" never becomes
+  // a false release.
+  if (cstSampleAt != 0 && now - cstSampleAt < CST9217_POLL_MS)
+    return cstSampleN > 0;
+  if (touchIrq) touchIrq = false;
+
+  int16_t rawX = 0, rawY = 0;
+  const bool rawDown = cst9217Poll(&rawX, &rawY);
+  cstSampleAt = now;
+
+  if (rawDown) {
+    cstUpSamples = 0;
+    if (cstStableDown) {
+      cstSampleX = rawX;
+      cstSampleY = rawY;
+      cstSampleN = 1;
+      return true;
+    }
+
+    if (cstDownSamples == 0 ||
+        abs(rawX - cstCandidateX) > TAP_MAX_PX ||
+        abs(rawY - cstCandidateY) > TAP_MAX_PX) {
+      cstCandidateX = rawX;
+      cstCandidateY = rawY;
+      cstDownSamples = 1;
+      cstSampleN = 0;
+      return false;
+    }
+
+    if (cstDownSamples < CST9217_STABLE_SAMPLES) cstDownSamples++;
+    if (cstDownSamples < CST9217_STABLE_SAMPLES) {
+      cstSampleN = 0;
+      return false;
+    }
+
+    cstStableDown = true;
+    cstStableDownAt = now;
+    cstDownSamples = 0;
+    cstSampleX = rawX;
+    cstSampleY = rawY;
+    cstSampleN = 1;
+    int16_t logicalX = 0, logicalY = 0;
+    nativeToLogical(rawX, rawY, &logicalX, &logicalY);
+    Serial.printf("touch DOWN raw=%d,%d logical=%d,%d\n", rawX, rawY,
+                  logicalX, logicalY);
+    return true;
+  }
+
+  cstDownSamples = 0;
+  if (cstStableDown) {
+    if (cstUpSamples < CST9217_STABLE_SAMPLES) cstUpSamples++;
+    if (cstUpSamples < CST9217_STABLE_SAMPLES) {
+      cstSampleN = 1;
+      return true;
+    }
+    Serial.printf("touch UP held=%lums\n",
+                  (unsigned long)(now - cstStableDownAt));
+  }
+  cstStableDown = false;
+  cstUpSamples = 0;
+  cstSampleN = 0;
+  return false;
+#else
+  if (cstSampleAt == now) return cstSampleN > 0;
   const bool irq = touchIrq;
   if (irq) touchIrq = false;
   // No edge and no active finger → stay off the bus.
@@ -4673,10 +5224,11 @@ static bool cstPollSample() {
   }
   cstFingerDown = false;
   return false;
+#endif
 }
 #endif
 
-#if !defined(BOARD_WS_AMOLED_216)
+#if !defined(BOARD_TOUCH_CST92XX)
 static bool touchWrite8(uint8_t addr, uint8_t reg, uint8_t val) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -4695,7 +5247,7 @@ static bool touchRead8(uint8_t addr, uint8_t reg, uint8_t *out) {
 #endif
 
 static bool touchReadXY(int16_t *x, int16_t *y) {
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TOUCH_CST92XX)
   if (!touchReady) return false;
   if (!cstPollSample()) return false;
   *x = cstSampleX;
@@ -4721,14 +5273,31 @@ static bool touchReadXY(int16_t *x, int16_t *y) {
 }
 
 static bool touchInit() {
-#if defined(BOARD_WS_AMOLED_216)
-  // Waveshare ESP32-S3-Touch-AMOLED-2.16 Touch tutorial + 05_LVGL_Widgets:
+#if defined(BOARD_TOUCH_CST92XX)
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+  // The working Thinking Orbs target talks to this exact CST9217 directly.
+  // SensorLib's generic CST92xx init completed but produced no live touches
+  // on this unit, so use the controller's own attach and ACK protocol.
+  Wire.setClock(400000);
+  pinMode(TP_INT, INPUT_PULLUP);
+  if (!i2cPresent(CST92XX_ADDR) || !cst9217Attach()) {
+    Serial.println("touch: CST9217 @ 0x5A unavailable — gestures disabled");
+    touchReady = false;
+    return false;
+  }
+  attachInterrupt(digitalPinToInterrupt(TP_INT), onTouchIrq, FALLING);
+  touchReady = true;
+  Serial.printf("touch CST9217 @ 0x%02X irq=GPIO%d raw-ack\n",
+                CST92XX_ADDR, TP_INT);
+  return true;
+#else
+  // Waveshare CST92xx touch examples:
   //   setPins → begin → setMax/Swap/Mirror → INPUT_PULLUP + FALLING IRQ
   // begin()'s getAttribute() enters command mode and never leaves it.
   // SensorLib's CST9217 example resets after begin so REG_READ reports points.
   cstTouch.setPins(TP_RST, TP_INT);
   if (!cstTouch.begin(Wire, CST92XX_SLAVE_ADDRESS, IIC_SDA, IIC_SCL)) {
-    Serial.println("touch: CST9220 @ 0x5A failed — gestures disabled");
+    Serial.println("touch: CST92xx @ 0x5A failed — gestures disabled");
     touchReady = false;
     Wire.setClock(400000);
     return false;
@@ -4737,7 +5306,7 @@ static bool touchInit() {
   delay(50);
   Wire.setClock(400000);   // begin() may have re-init'd Wire without our clock
 
-  // Match Waveshare HelloWorld / MADCTL 0xA0 orientation.
+  // The 2.16 panel is mounted 90° from scan and gets MADCTL 0xA0.
   cstTouch.setMaxCoordinates(LCD_WIDTH, LCD_HEIGHT);
   cstTouch.setSwapXY(true);
   cstTouch.setMirrorXY(true, false);
@@ -4749,6 +5318,7 @@ static bool touchInit() {
                 (unsigned)cstTouch.getResolutionX(),
                 (unsigned)cstTouch.getResolutionY());
   return true;
+#endif
 #else
   pinMode(TP_INT, INPUT_PULLUP);
 
@@ -4780,7 +5350,7 @@ static bool touchInit() {
 }
 
 static bool touchPressed() {
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TOUCH_CST92XX)
   if (!touchReady) return false;
   return cstPollSample();
 #else
@@ -4795,7 +5365,7 @@ static bool touchPressed() {
 static void touchLogicalDelta(int16_t *dHoriz, int16_t *dVert) {
   const int16_t dNatX = (int16_t)(touchLastX - touchStartX);
   const int16_t dNatY = (int16_t)(touchLastY - touchStartY);
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TOUCH_CST92XX)
   *dHoriz = dNatX;
   *dVert = dNatY;
 #else
@@ -4809,7 +5379,7 @@ static void touchLogicalDelta(int16_t *dHoriz, int16_t *dVert) {
 // trying until coords arrive; a one-shot edge check drops most taps when
 // serviceUi() samples aggressively during USB waits.
 static UiGesture consumeGesture() {
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TOUCH_CST92XX)
   if (!touchReady) return GESTURE_NONE;
 #else
   if (!touchAddr) return GESTURE_NONE;
@@ -5060,11 +5630,13 @@ static void otaBegin() {
 }
 
 // Physical keys.
-//   BOOT          — cycle pages (both boards)
+//   BOOT          — cycle pages (all boards)
 //   secondary     — on glance: short = cycle lower pane (homeMode); long = force-sync
 //                   on detail: home
 //                   1.8: PWR via TCA EXIO4 (active HIGH)
 //                   2.16: IO18 (left, active LOW)
+//                   1.75 round: AXP2101 PEKEY short-press IRQ (release event;
+//                   a four-second hold remains hardware power-off)
 //   style (2.16)  — toggle rings↔pace (PWR / SYS_OUT, active HIGH; short only —
 //                   ~4s hold still hardware-powers-off via AXP)
 static bool gpioActive(int pin, bool activeLow) {
@@ -5072,7 +5644,7 @@ static bool gpioActive(int pin, bool activeLow) {
   return activeLow ? low : !low;
 }
 
-#if !defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TCA9554)
 static bool tcaPwrPressed() {
   // 1.8 PWR = TCA9554 input bit EXIO4, active HIGH while pressed.
   Wire.beginTransmission(tcaAddr);
@@ -5081,6 +5653,22 @@ static bool tcaPwrPressed() {
   if (Wire.requestFrom((int)tcaAddr, 1) != 1) return false;
   const uint8_t in = Wire.read();
   return (in & (1u << BTN_PWR_TCA_BIT)) != 0;
+}
+#endif
+
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+static bool roundPwrShortPressed() {
+  if (!pmuOk) return false;
+  // PKEY IRQs persist until cleared, so checking at human-button cadence saves
+  // most of the shared I2C traffic without losing a press.
+  static uint32_t lastPollAt = 0;
+  const uint32_t now = millis();
+  if (lastPollAt != 0 && now - lastPollAt < 25) return false;
+  lastPollAt = now;
+  PMU.getIrqStatus();
+  const bool pressed = PMU.isPekeyShortPressIrq();
+  PMU.clearIrqStatus();
+  return pressed;
 }
 #endif
 
@@ -5100,10 +5688,24 @@ static void pollButtons() {
     }
   }
 
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+  if (roundPwrShortPressed()) {
+    if (page == PAGE_GLANCE) {
+      Serial.println("btn PWR → lower pane");
+      toggleHomeMode();
+    } else {
+      Serial.println("btn PWR → home");
+      goHome();
+    }
+  }
+#endif
+
 #if defined(BOARD_WS_AMOLED_216)
   const bool secDown = gpioActive(BTN_SECONDARY, BTN_SECONDARY_ACTIVE_LOW);
-#else
+#elif defined(BOARD_TCA9554)
   const bool secDown = tcaPwrPressed();
+#else
+  const bool secDown = false;
 #endif
   if (secDown && !secWas) {
     secDownAt = now;
@@ -5167,7 +5769,6 @@ static void handleInput() {
           delay(200);
           drawDashboard();
         } else {
-          flashGlanceSlot(hit);
           goToPage(hit.target, "tap");
         }
       }
@@ -5227,10 +5828,10 @@ void setup() {
   pinMode(BTN_SECONDARY, INPUT_PULLUP);
   pinMode(BTN_STYLE, INPUT);   // active-HIGH via BSS138; no pull-down needed
 #endif
-#if !defined(BOARD_WS_AMOLED_216)
-  bool touchOk = touchInit();
-#else
+#if defined(BOARD_TOUCH_CST92XX)
   bool touchOk = false;   // after panel bring-up — Waveshare order
+#else
+  bool touchOk = touchInit();
 #endif
   homeModeLoad();   // before the first home paint
   glanceStyleLoad();
@@ -5245,7 +5846,7 @@ void setup() {
   bus->writeC8D8(0x36, 0xA0);
   bus->endWrite();
   Serial.println("CO5300 MADCTL 0xA0 sent");
-#else
+#elif !defined(BOARD_DIRECT_CO5300)
   sh8601VendorInit();
   Serial.println("sh8601VendorInit sent");
 #endif
@@ -5262,7 +5863,7 @@ void setup() {
   Serial.printf("canvas->begin (%dx%d): %s  psram=%d\n",
                 scrW(), scrH(), cok ? "ok" : "FAIL", (int)psramFound());
 
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_TOUCH_CST92XX)
   touchOk = touchInit();
 #endif
 

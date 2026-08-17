@@ -1,9 +1,44 @@
 // Board pins. Pick one Waveshare SKU via build flag:
 //   (default)          ESP32-S3-Touch-AMOLED-1.8  — 368×448 SH8601
 //   BOARD_WS_AMOLED_216 ESP32-S3-Touch-AMOLED-2.16 — 480×480 CO5300
+//   BOARD_WS_AMOLED_175_ROUND ESP32-S3-Touch-AMOLED-1.75 — round 466×466 CO5300
 #pragma once
 
-#if defined(BOARD_WS_AMOLED_216)
+#if defined(BOARD_WS_AMOLED_175_ROUND)
+
+// ---- CO5300 AMOLED over QSPI (1.75" round) ----
+// Exact-board values from the working esp32-lofiair `amoled-175c` target and
+// Waveshare's 01_HelloWorld example. CO5300 RAM is wider than the glass.
+#define LCD_SDIO0 4
+#define LCD_SDIO1 5
+#define LCD_SDIO2 6
+#define LCD_SDIO3 7
+#define LCD_SCLK  38
+#define LCD_CS    12
+#define LCD_RST   39
+#define LCD_WIDTH  466
+#define LCD_HEIGHT 466
+#define LCD_COL_OFFSET 6
+
+// ---- Shared I2C bus (PMU, touch, IMU, RTC, codec) ----
+#define IIC_SDA 15
+#define IIC_SCL 14
+
+#define AXP2101_ADDR 0x34
+#define CST92XX_ADDR 0x5A
+#define TP_INT       11
+#define TP_RST       40
+
+#define BTN_BOOT      0
+#define BTN_HAS_STYLE 0
+
+// Common feature flags used by main.cpp. The round target is a direct-reset
+// CO5300 like the 2.16, but has its own orientation and circular composition.
+#define BOARD_DIRECT_CO5300 1
+#define BOARD_TOUCH_CST92XX 1
+#define BOARD_ROUND_UI 1
+
+#elif defined(BOARD_WS_AMOLED_216)
 
 // ---- CO5300 AMOLED over QSPI (2.16" rounded-square) ----
 #define LCD_SDIO0 4
@@ -35,6 +70,9 @@
 #define BTN_STYLE          16     // middle (PWR / SYS_OUT) — rings↔pace
 #define BTN_STYLE_ACTIVE_LOW     0
 #define BTN_HAS_STYLE            1
+
+#define BOARD_DIRECT_CO5300 1
+#define BOARD_TOUCH_CST92XX 1
 
 #else
 
@@ -71,5 +109,7 @@
 #define BTN_BOOT            0
 #define BTN_PWR_TCA_BIT     4     // EXIO4 on the expander
 #define BTN_HAS_STYLE       0     // style stays touch long-press on the 1.8
+
+#define BOARD_TCA9554 1
 
 #endif
