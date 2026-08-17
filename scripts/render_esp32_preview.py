@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a faithful ESP32 Headroom glance preview (logical 448×368).
+"""Render faithful ESP32 Headroom glance previews (448×368 or round 466).
 
 Matches firmware/src/main.cpp drawGlancePage palette + layout closely enough
 for README screenshots. Text goes through gfx_font, which blits the same
@@ -22,9 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "host"))
 import device_view
 
-# Logical landscape canvas (what the board draws into).
+# Logical canvas (what the selected board draws into). main() switches these
+# globals before rendering when --panel round-466 is selected; helpers mirror
+# the firmware and intentionally use the active dimensions.
 W, H = 448, 368
 PAD = 28
+ROUND_PANEL = False
 
 # Mirrors PANEL_SEAL_ROWS in firmware/src/main.cpp: rows the panel edge seal
 # repaints in the frame's own background colour, which no layout can use. Zero
@@ -49,6 +52,20 @@ COL_CRT_BG = (6, 4, 14)
 FONT1 = 1
 FONT2 = 2
 FONT3 = 3
+FONT4 = 4
+
+
+def round_chord_half(y: int) -> int:
+    radius = min(W, H) // 2 - 6
+    dy = y - H // 2
+    inside = radius * radius - dy * dy
+    return int(math.sqrt(inside)) if inside > 0 else 0
+
+
+def round_band(y0: int, y1: int, inset: int) -> tuple[int, int]:
+    half = min(round_chord_half(y0), round_chord_half(y1)) - inset
+    half = max(1, half)
+    return W // 2 - half, half * 2
 
 
 def text_w(draw: ImageDraw.ImageDraw, s: str, font) -> int:
@@ -549,7 +566,10 @@ def draw_glance_burndown(draw, providers, burns, updated, mid_y, low_bottom):
     legend_h = len(providers) * row_h + 2
     chart_y = mid_y + 6
     chart_h = low_bottom - legend_h - axis_h - chart_y
-    chart_x, chart_w = PAD, span
+    chart_x, chart_w = (
+        round_band(chart_y, chart_y + chart_h - 1, 10)
+        if ROUND_PANEL else (PAD, span)
+    )
 
     tz = timezone_offset_seconds(updated)
     local_now = now_t + tz
@@ -651,18 +671,29 @@ def draw_glance_history(draw, device, mid_y, low_bottom):
 
     summary = f"{int(history.get('active_days') or 0)} active · " \
               f"{int(history.get('current_streak') or 0)}d streak"
+    summary_font = FONT1 if ROUND_PANEL else FONT2
+    summary_y = mid_y + 11 if ROUND_PANEL else mid_y + 8
     draw_text(draw, summary,
-              W - PAD - text_w(draw, summary, FONT2), mid_y + 8, FONT2, COL_DIM)
+              W - PAD - text_w(draw, summary, summary_font), summary_y,
+              summary_font, COL_DIM)
 
-    cell, gap = 14, 2
+    cell, gap = ((20, 3) if ROUND_PANEL else (14, 2))
     start_weekday = int(history.get("start_weekday") or 0) % 7
-    visible_days = device_view.MAX_ACTIVITY_DAYS
+    visible_days = 84 if ROUND_PANEL else device_view.MAX_ACTIVITY_DAYS
+    history_offset = max(0, len(levels) - visible_days)
+    levels = levels[history_offset:]
+    start_weekday = (start_weekday + history_offset) % 7
     leading_days = max(0, visible_days - len(levels))
     grid_start_weekday = (start_weekday - leading_days % 7) % 7
     cols = (grid_start_weekday + visible_days + 6) // 7
     grid_w = cols * cell + (cols - 1) * gap
-    grid_x = PAD + (W - PAD * 2 - grid_w)
     grid_y = mid_y + 30
+    if ROUND_PANEL:
+        grid_bottom = grid_y + 7 * cell + 6 * gap - 1
+        grid_band_x, grid_band_w = round_band(grid_y, grid_bottom, 8)
+        grid_x = grid_band_x + (grid_band_w - grid_w) // 2
+    else:
+        grid_x = PAD + (W - PAD * 2 - grid_w)
     for index, level in enumerate(levels):
         slot = grid_start_weekday + leading_days + index
         col, row = slot // 7, slot % 7
@@ -673,8 +704,9 @@ def draw_glance_history(draw, device, mid_y, low_bottom):
             radius=3,
             fill=activity_cell_color(level),
         )
-    draw.line([(PAD, low_bottom), (W - PAD - 1, low_bottom)],
-              fill=dim(COL_DIM, 0.35), width=1)
+    if not ROUND_PANEL:
+        draw.line([(PAD, low_bottom), (W - PAD - 1, low_bottom)],
+                  fill=dim(COL_DIM, 0.35), width=1)
 
 
 def format_usd(value):
@@ -752,21 +784,31 @@ def draw_glance_spend(draw, device, mid_y, low_bottom):
         draw_text(draw, "No spend yet", PAD, mid_y + 45, FONT2, COL_DIM)
         return
 
-    col_w = (W - PAD * 2) // 3
-    caption_y = mid_y + 24
-    value_y = mid_y + 41
-    today_x = PAD
-    avg_x = PAD + col_w
-    total_x = PAD + col_w * 2
-    draw_text(draw, "today", today_x, caption_y, FONT1, COL_DIM)
-    draw_text(draw, format_usd(today), today_x, value_y, FONT3, COL_WHITE)
-    draw_text(draw, "per active day", avg_x, caption_y, FONT1, COL_DIM)
-    draw_text(draw, format_usd(spend.get("avg")), avg_x, value_y,
-              FONT3, COL_WHITE)
-    draw_text(draw, "month", total_x, caption_y, FONT1, COL_DIM)
-    draw_text(draw, format_usd(total), total_x, value_y, FONT3, COL_WHITE)
-    draw.line([(PAD, low_bottom), (W - PAD - 1, low_bottom)],
-              fill=dim(COL_DIM, 0.35), width=1)
+    caption_y = mid_y + (60 if ROUND_PANEL else 24)
+    value_y = mid_y + (81 if ROUND_PANEL else 41)
+    number_x, number_w = (
+        round_band(caption_y, value_y + 32, 10)
+        if ROUND_PANEL else (PAD, W - PAD * 2)
+    )
+    col_w = number_w // 3
+    captions = ("today", "per active day", "month")
+    values = (format_usd(today), format_usd(spend.get("avg")),
+              format_usd(total))
+    value_font = FONT4 if ROUND_PANEL else FONT3
+    while value_font > FONT2 and any(
+            text_w(draw, value, value_font) > col_w - 8 for value in values):
+        value_font -= 1
+    for index, (caption, value) in enumerate(zip(captions, values)):
+        col_x = number_x + index * col_w
+        caption_x = (col_x + (col_w - text_w(draw, caption, FONT1)) // 2
+                     if ROUND_PANEL else col_x)
+        value_x = (col_x + (col_w - text_w(draw, value, value_font)) // 2
+                   if ROUND_PANEL else col_x)
+        draw_text(draw, caption, caption_x, caption_y, FONT1, COL_DIM)
+        draw_text(draw, value, value_x, value_y, value_font, COL_WHITE)
+    if not ROUND_PANEL:
+        draw.line([(PAD, low_bottom), (W - PAD - 1, low_bottom)],
+                  fill=dim(COL_DIM, 0.35), width=1)
 
 
 def seal_edges(img: Image.Image, bg) -> Image.Image:
@@ -796,39 +838,53 @@ def render_glance(
 
     img = Image.new("RGB", (W, H), COL_BG)
     draw = ImageDraw.Draw(img)
-    # Home takes more air above the wordmark than the page inset — see `top` in
-    # drawGlancePage(). Paid for out of the slack under the ring labels.
-    top = PAD + 10
-    draw_text(draw, "Headroom", PAD, top, FONT3, COL_WHITE)
-
     mode_name = {"daily": "Daily burn", "burndown": "Burndown",
                  "history": "History", "spend": "Spend"}.get(
                      home_mode, "Daily burn")
-    chip_x = PAD + 152
-    chip_w = text_w(draw, mode_name, FONT2) + 16
-    draw.rounded_rectangle(
-        [chip_x - 8, top + 2, chip_x - 8 + chip_w - 1, top + 25],
-        radius=6,
-        outline=COL_DIM,
-    )
-    draw_text(draw, mode_name, chip_x, top + 6, FONT2, COL_DIM)
-
     when = updated[11:16] if len(updated) >= 16 else ""
-    if when:
-        draw_text(
-            draw,
-            when,
-            W - PAD - text_w(draw, when, FONT2),
-            top + 6,
-            FONT2,
-            COL_DIM,
+    if ROUND_PANEL:
+        draw_centered(draw, "Headroom", 24, FONT3, COL_WHITE)
+        if when:
+            updated_label = f"UPDATED {when}"
+            draw_centered(draw, updated_label, 52, FONT1, COL_DIM)
+        chip_w = text_w(draw, mode_name, FONT2) + 16
+        chip_x = (W - chip_w) // 2
+        draw.rounded_rectangle(
+            [chip_x, 70, chip_x + chip_w - 1, 93], radius=6, outline=COL_DIM
         )
+        draw_text(draw, mode_name, chip_x + 8, 76, FONT2, COL_DIM)
+        ring_pad, ring_span = round_band(105, 197, 8)
+        ring_r, ring_cy = 30, 143
+        mid_y, low_bottom = 205, 397
+    else:
+        # Home takes more air above the wordmark than the page inset.
+        top = PAD + 10
+        draw_text(draw, "Headroom", PAD, top, FONT3, COL_WHITE)
+        chip_x = PAD + 152
+        chip_w = text_w(draw, mode_name, FONT2) + 16
+        draw.rounded_rectangle(
+            [chip_x - 8, top + 2, chip_x - 8 + chip_w - 1, top + 25],
+            radius=6,
+            outline=COL_DIM,
+        )
+        draw_text(draw, mode_name, chip_x, top + 6, FONT2, COL_DIM)
+        if when:
+            draw_text(
+                draw,
+                when,
+                W - PAD - text_w(draw, when, FONT2),
+                top + 6,
+                FONT2,
+                COL_DIM,
+            )
+        ring_pad, ring_span = PAD, W - PAD * 2
+        ring_r = 32
+        ring_cy = top + 74
+        mid_y = ring_cy + ring_r + 38
+        low_bottom = H - PAD - 15
+
     span = W - PAD * 2
-    slot = span // len(providers) if providers else span
-    ring_r = 32
-    ring_cy = top + 74
-    mid_y = ring_cy + ring_r + 38
-    low_bottom = H - PAD - 15
+    slot = ring_span // len(providers) if providers else ring_span
 
     columns = []
     for provider in providers:
@@ -844,12 +900,12 @@ def render_glance(
         ))
 
     if glance_style == "pace":
-        draw_pace_glyph(draw, PAD, span, ring_cy, columns)
+        draw_pace_glyph(draw, ring_pad, ring_span, ring_cy, columns)
     else:
         for index, (layers, accent, label) in enumerate(columns):
             draw_quota_ring(
                 draw,
-                PAD + index * slot + slot // 2,
+                ring_pad + index * slot + slot // 2,
                 ring_cy,
                 ring_r,
                 layers,
@@ -857,8 +913,9 @@ def render_glance(
                 label,
             )
 
-    draw.line([(PAD, mid_y), (PAD + span - 1, mid_y)],
-              fill=COL_DIM, width=1)
+    if not ROUND_PANEL:
+        draw.line([(PAD, mid_y), (PAD + span - 1, mid_y)],
+                  fill=COL_DIM, width=1)
     if home_mode == "daily":
         draw_glance_daily_burn(draw, device, mid_y, low_bottom)
     elif home_mode == "history":
@@ -870,17 +927,20 @@ def render_glance(
             draw, providers, burns, updated, mid_y, low_bottom
         )
 
+    footer_x, footer_w = (round_band(418, 436, 8)
+                          if ROUND_PANEL else (PAD, span))
+    footer_y = 436 if ROUND_PANEL else H - PAD
     draw_link_glyph(
         draw,
-        W - PAD,
-        H - PAD,
+        footer_x + footer_w,
+        footer_y,
         link_via=link_via,
         error_minutes=link_error_minutes,
     )
     draw_power_glyph(
         draw,
-        PAD,
-        H - PAD,
+        footer_x,
+        footer_y,
         power=power,
         battery_percent=battery_percent,
     )
@@ -1058,8 +1118,35 @@ def render_no_host() -> Image.Image:
 
 
 def frame_device(panel: Image.Image, scale: int = 3) -> Image.Image:
-    """Drop the landscape panel into a rounded AMOLED-style bezel."""
+    """Drop the selected panel into an AMOLED-style bezel."""
     panel = panel.resize((W * scale, H * scale), Image.Resampling.NEAREST)
+    if ROUND_PANEL:
+        bezel = 14 * scale
+        outer = panel.width + bezel * 2
+        canvas = Image.new("RGBA", (outer + 56, outer + 64), (0, 0, 0, 0))
+        shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        ImageDraw.Draw(shadow).ellipse(
+            [28, 32, 28 + outer - 1, 32 + outer - 1], fill=(0, 0, 0, 76)
+        )
+        canvas = Image.alpha_composite(canvas, shadow)
+
+        device = Image.new("RGBA", (outer, outer), (0, 0, 0, 0))
+        dd = ImageDraw.Draw(device)
+        dd.ellipse([0, 0, outer - 1, outer - 1], fill=(8, 8, 8, 255))
+        dd.ellipse(
+            [bezel - 4, bezel - 4, outer - bezel + 3, outer - bezel + 3],
+            fill=(0, 0, 0, 255),
+        )
+        mask = Image.new("L", panel.size, 0)
+        ImageDraw.Draw(mask).ellipse(
+            [0, 0, panel.width - 1, panel.height - 1], fill=255
+        )
+        face = panel.convert("RGBA")
+        face.putalpha(mask)
+        device.paste(face, (bezel, bezel), face)
+        canvas.paste(device, (20, 16), device)
+        return canvas
+
     bezel = 18 * scale
     radius = 28 * scale
     outer_w = panel.width + bezel * 2
@@ -1103,6 +1190,7 @@ def frame_device(panel: Image.Image, scale: int = 3) -> Image.Image:
 
 
 def main():
+    global W, H, PAD, ROUND_PANEL
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="Path to /usage JSON (glance state)")
     parser.add_argument("--out", help="Output PNG path")
@@ -1156,9 +1244,22 @@ def main():
         default="rings",
         help="Home upper-half glyph: quota rings, or the menu bar's pace mark",
     )
+    parser.add_argument(
+        "--panel",
+        choices=("landscape", "round-466"),
+        default="landscape",
+        help="ESP32 display geometry to preview",
+    )
     parser.add_argument("--raw", action="store_true", help="Skip device bezel")
     parser.add_argument("--scale", type=int, default=3)
     args = parser.parse_args()
+
+    if args.panel == "round-466":
+        W = H = 466
+        ROUND_PANEL = True
+        # Narrowest chord of the lower reading pane, matching roundBand()
+        # in drawGlancePage. Helpers use PAD as that pane's left edge.
+        PAD, _ = round_band(206, 397, 10)
 
     if args.write_shaped_fixture:
         if not args.input:

@@ -12,19 +12,30 @@ Mac host ──USB CDC────▶ board   (hotel / no LAN fallback)
 
 ## Supported boards
 
-Firmware targets two Waveshare SKUs (pick the PlatformIO env that matches):
+Firmware targets three Waveshare SKUs (pick the PlatformIO env that matches):
 
-| | 1.8″ (default `esp32-s3`) | 2.16″ (`esp32-s3-216`) |
-|---|---|---|
-| **Product** | [ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm) | [ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm) |
-| **SoC** | ESP32-S3R8 (Wi‑Fi + BLE, 8MB PSRAM, 16MB flash) | same |
-| **Panel** | 1.8″ AMOLED, **368×448**, SH8601 over QSPI | 2.16″ AMOLED, **480×480**, CO5300 over QSPI |
-| **Touch** | FT3168 / FT3x68 (some V2 demos use CST816T at `0x15`) | CST9220 at `0x5A` (SensorLib ≥0.4.1, IRQ-gated) |
-| **PMU** | AXP2101 | AXP2101 |
-| **Expander** | TCA9554 (LCD / touch reset + DSI power) — usually `0x20`, some units `0x21` | none — `LCD_RST` GPIO39, `TP_RST` GPIO40 |
-| **Extras** | QMI8658 IMU, PCF85063 RTC, ES8311 audio, BOOT + PWR buttons | same family + dual mics / ES7210 |
+| | 1.8″ (default `esp32-s3`) | 2.16″ (`esp32-s3-216`) | 1.75″ round (`esp32-s3-175-round`) |
+|---|---|---|---|
+| **Product** | [ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm) | [ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm) | ESP32-S3-Touch-AMOLED-1.75 |
+| **SoC** | ESP32-S3R8 (Wi‑Fi + BLE, 8MB PSRAM, 16MB flash) | same | same |
+| **Panel** | 1.8″ AMOLED, **368×448**, SH8601 over QSPI | 2.16″ AMOLED, **480×480**, CO5300 over QSPI | round AMOLED, **466×466**, CO5300 over QSPI |
+| **Touch** | FT3168 / FT3x68 (some V2 demos use CST816T at `0x15`) | CST9220 at `0x5A` (SensorLib ≥0.4.1, IRQ-gated) | CST9217 at `0x5A` (native command/read/ACK protocol) |
+| **PMU** | AXP2101 | AXP2101 | AXP2101 |
+| **Expander** | TCA9554 (LCD / touch reset + DSI power) — usually `0x20`, some units `0x21` | none — `LCD_RST` GPIO39, `TP_RST` GPIO40 | none — `LCD_RST` GPIO39, `TP_RST` GPIO40 |
+| **Extras** | QMI8658 IMU, PCF85063 RTC, ES8311 audio, BOOT + PWR buttons | same family + dual mics / ES7210 | same family + ES8311 audio; Headroom uses BOOT + PWR + touch |
 
-Pins and bring-up live in `firmware/src/pin_config.h` and `firmware/src/main.cpp`. Sibling sizes outside this table (1.75″ round, etc.) are **not** drop-in.
+Pins and bring-up live in `firmware/src/pin_config.h` and `firmware/src/main.cpp`. Other sibling sizes are **not** drop-in.
+
+The 1.75″ target shares its proven panel offset, pins, and PMU restraint with
+the working `amoled-175c` target in the sibling `esp32-lofiair` project. Touch
+uses the direct CST9217 protocol validated by the sibling
+`esp32-thinking-orbs` project. Its Headroom layout is not a cropped square: every
+horizontal band is sized from the circle chord it actually occupies. The title
+occupies the top wedge, rings use the wide middle, the burndown expands across
+its local chord while its verdict rows taper near the bottom, and the
+power/link marks mirror each other below them.
+
+![Headroom on the 466px round AMOLED](screenshots/esp32-round-glance.png)
 
 Optional 3.7V LiPo on the MX1.25 header; USB-C alone is enough for desk use.
 Bottom-left power glyph reads the AXP2101 (plug on VBUS, cell + % when a
@@ -32,10 +43,12 @@ battery is fitted).
 
 **1.8 black screen?** Try `TCA9554_ADDR = 0x21` in `pin_config.h` (Waveshare issue
 #3). `pio device monitor` and the host’s USB bridge cannot share the port —
-use `./scripts/flash-esp32.sh`, which refuses to race. For the 2.16:
+use `./scripts/flash-esp32.sh`, which refuses to race. Select a non-default
+target with `-e`:
 
 ```bash
-cd firmware && pio run -e esp32-s3-216 -t upload --upload-port /dev/cu.usbmodem*
+./scripts/flash-esp32.sh -e esp32-s3-216
+./scripts/flash-esp32.sh -e esp32-s3-175-round
 ```
 
 ## Flash
@@ -70,11 +83,15 @@ header (or short-press secondary) to cycle the lower pane; **hold** a glance
 slot to switch the upper half between Rings and Pace; **long-press** empty
 chrome or secondary on glance → `POST /sync/refresh`.
 
-| Key | 1.8″ | 2.16″ | Action |
-|---|---|---|---|
-| **BOOT** | GPIO0 | GPIO0 (right) | Cycle pages |
-| **PWR / secondary** | PWR via TCA EXIO4 | IO18 (left) | Glance short: cycle lower pane; long: force-sync. Detail: home |
-| **PWR / style** | — | PWR / SYS_OUT GPIO16 (middle) | Short: Rings↔Pace. Hold ≥4s still powers off |
+| Key | 1.8″ | 2.16″ | 1.75″ round | Action |
+|---|---|---|---|---|
+| **BOOT** | GPIO0 | GPIO0 (right) | GPIO0 | Cycle pages |
+| **PWR / secondary** | PWR via TCA EXIO4 | IO18 (left) | AXP2101 PEKEY | Glance short: cycle lower pane; long: force-sync where supported. Detail: home |
+| **PWR / style** | — | PWR / SYS_OUT GPIO16 (middle) | — | Short: Rings↔Pace. Hold ≥4s still powers off |
+
+On the round board, PWR is delivered as a release-time PMU event: a short press
+cycles the lower pane (or returns home from detail), while a four-second hold
+still powers the device off. Long-press sync remains available through touch.
 
 | Corner | Meaning |
 |---|---|
@@ -104,10 +121,13 @@ all three slots, which it can afford at 18pt; at 448px the same rail read as a
 shared scale, and the three slots do not share one — each pill is its own
 provider against its own window.
 
-Preview both without a reflash:
+Preview either style without a reflash. Add `--panel round-466` for the round
+target:
 
 ```bash
 .venv-shots/bin/python scripts/render_esp32_preview.py --input docs/demo_usage.json --glance-style pace --raw --out /tmp/pace.png
+
+.venv-shots/bin/python scripts/render_esp32_preview.py --input docs/demo_usage.json --panel round-466 --out /tmp/headroom-round.png
 ```
 
 ## Reset celebration
