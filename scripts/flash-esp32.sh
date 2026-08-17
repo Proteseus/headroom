@@ -12,6 +12,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PIO="${PIO:-$(command -v pio || echo "$HOME/.platformio/penv/bin/pio")}"
+PIO_ENV="${HEADROOM_PIO_ENV:-esp32-s3}"
+
+if [[ ${1:-} == "-e" || ${1:-} == "--environment" ]]; then
+  [[ $# -ge 2 ]] || { echo "error: $1 needs an environment" >&2; exit 2; }
+  PIO_ENV="$2"
+  shift 2
+fi
+
+case "$PIO_ENV" in
+  esp32-s3|esp32-s3-216|esp32-s3-175-round) ;;
+  *)
+    echo "error: unsupported Headroom environment: $PIO_ENV" >&2
+    exit 2
+    ;;
+esac
 
 if [[ ! -x "$PIO" ]]; then
   echo "error: pio not found. Set PIO=/path/to/pio" >&2
@@ -59,4 +74,4 @@ EOF
 fi
 
 cd "$ROOT/firmware"
-exec "$PIO" run -e esp32-s3 -t upload "$@"
+exec "$PIO" run -e "$PIO_ENV" -t upload "$@"
