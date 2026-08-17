@@ -153,6 +153,10 @@ There is one ESP32 on one desk and it takes one owner at a time. Before you
 touch it, **check that nothing else is using it, and stop if something is.**
 Do not kill the holder to get your turn.
 
+Known Headroom hardware: the 466×466 Waveshare 1.75″ round unit is
+`a4:cb:8f:d6:55:4c` and uses `esp32-s3-175-round`. Its pre-Headroom 16 MB flash
+backup is `/Users/mz/Dev/esp32-backups/waveshare-175-a4cb8fd6554c-pre-headroom-20260817.bin`.
+
 ```bash
 ./scripts/flash-esp32.sh
 ```
