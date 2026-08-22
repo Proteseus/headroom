@@ -33,6 +33,9 @@ ENABLE_ENV = "HEADROOM_ENABLE_USB"
 
 _USB_PORT_OFF = {"", "/dev/null", "none", "off", "0", "false"}
 
+_status_lock = threading.Lock()
+_active_port = None
+
 
 def enabled():
     """Whether the host should claim a USB serial port.
@@ -92,6 +95,23 @@ def candidate_ports(override=None):
         p for p in glob.glob("/dev/cu.usbserial*") if p not in ports
     )
     return ports
+
+
+def status_payload():
+    """Return transport state for the local macOS Settings surface."""
+    with _status_lock:
+        active = _active_port
+    return {
+        "enabled": enabled(),
+        "ports": candidate_ports(),
+        "active_port": active,
+    }
+
+
+def _set_active_port(path):
+    global _active_port
+    with _status_lock:
+        _active_port = path
 
 
 def _configure_tty(fd, baud=BAUD):
@@ -267,10 +287,12 @@ def run(get_usage, on_sync_refresh, port=None, stop_event=None,
             if announced != path:
                 print(f"usb_bridge listening on {path}", flush=True)
                 announced = path
+            _set_active_port(path)
             try:
                 _serve_fd(fd, get_usage, on_sync_refresh, stop_event,
                           on_device)
             finally:
+                _set_active_port(None)
                 try:
                     os.close(fd)
                 except OSError:

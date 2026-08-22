@@ -143,6 +143,7 @@ final class HostProcess: @unchecked Sendable {
         // Finder does not get a login shell's PATH.
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        environment[HeadroomUSB.environmentKey] = HeadroomUSB.isEnabled ? "1" : "0"
         process.environment = environment
         // The same two files launchd redirects to, so docs/troubleshooting.md
         // stays true in both modes.

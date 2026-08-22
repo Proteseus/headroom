@@ -1813,6 +1813,7 @@ def _health_payload():
         "uptime_s": int(max(0, time.time() - BOOT_T0)),
         "updated": doc.get("updated"),
         "built_age_s": int(max(0, time.time() - built)),
+        "usb": usb_bridge.status_payload(),
         # The board's own account of what it is running, absent until one
         # reports in. A board that never populates this is either offline or
         # predates build stamping.

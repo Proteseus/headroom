@@ -35,6 +35,7 @@
 #include "boot_max.h"  // generated — see scripts/render_esp32_boot.py
 #include "provider_marks.h"
 #include "config.h"   // copy config_example.h -> config.h
+#include "wifi_provisioning.h"
 
 // Older config.h files predate these — keep them building.
 #ifndef HOST_TOKEN
@@ -1147,6 +1148,7 @@ static const char *fmtPct(char *buf, size_t n, float p) {
 static WiFiMulti wifiMulti;
 static String resolvedHost = "";   // cached IP (or hostname) of the Mac
 static bool mdnsUp = false;
+static uint32_t wifiDisconnectedSinceMs = 0;
 
 // Why the last fetch failed, short enough for the panel and worth reading on
 // Serial. "server unreachable" on its own sends you hunting the wrong half of
@@ -1169,7 +1171,11 @@ static void setNetErr(const String &why) {
 }
 
 static void connectWifi() {
+  // Credential ownership lives in provisioning NVS. Keep the Arduino Wi-Fi
+  // layer from writing another copy when WiFiMulti tries an AP.
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  wifiProvisioningAddStoredNetwork(wifiMulti);
   for (auto &n : WIFI_NETWORKS) wifiMulti.addAP(n.ssid, n.pass);
 }
 
@@ -5821,6 +5827,7 @@ void setup() {
   delay(1500);   // let native USB-CDC re-enumerate so the boot log isn't lost
   Serial.printf("headroom firmware %s\n", fwVersion().c_str());
   Serial.println("\n=== headroom booting ===");
+  wifiProvisioningBegin();
 
   powerInit();
   pinMode(BTN_BOOT, INPUT_PULLUP);
@@ -5969,6 +5976,10 @@ void setup() {
         }
         if (n <= 0) Serial.println("  (none — antenna or radio problem)");
         WiFi.scanDelete();
+        wifiProvisioningStartPortal();
+        bootLine("SETUP AP", wifiProvisioningApName(), COL_CRT);
+        bootLine("AP PASS", wifiProvisioningApPassword(), COL_CRT);
+        bootLine("PORTAL", "192.168.4.1", COL_CRT);
         bootLine("HOST", "USB", COL_CRT_DIM);
       }
 
@@ -6037,21 +6048,38 @@ void loop() {
   // Input first, every pass — never starve BOOT/touch behind Wi-Fi or USB.
   handleInput();
 
+  // The portal is deliberately non-blocking. USB CDC remains the preferred
+  // offline transport while a phone is connected to the setup AP.
+  wifiProvisioningLoop();
+
   if (otaUp) ArduinoOTA.handle();
 
   // WiFiMulti.run() blocks for seconds while hunting APs. Call it rarely when
   // disconnected; when associated just poke it occasionally. lastWifi==0 means
   // try on the first loop pass (USB-fast boot left associate pending).
   static uint32_t lastWifi = 0;
-  const uint32_t wifiEvery =
-      (WiFi.status() == WL_CONNECTED) ? 10000u : 20000u;
-  if (lastWifi == 0 || millis() - lastWifi >= wifiEvery) {
-    lastWifi = millis();
-    uint8_t st = wifiMulti.run();
-    if (st == WL_CONNECTED) {
-      if (!mdnsUp) mdnsUp = MDNS.begin(OTA_HOSTNAME);
-      otaBegin();
-      ntpEnsureStarted();
+  const bool wifiUp = WiFi.status() == WL_CONNECTED;
+  if (wifiUp) {
+    wifiDisconnectedSinceMs = 0;
+  } else if (!wifiProvisioningActive()) {
+    if (wifiDisconnectedSinceMs == 0) wifiDisconnectedSinceMs = millis();
+    // A USB-fast boot does not wait for Wi-Fi. Give association a fair window,
+    // then expose the same setup path without taking USB away from the host.
+    if (millis() - wifiDisconnectedSinceMs >= 20000) {
+      wifiProvisioningStartPortal();
+    }
+  }
+
+  if (!wifiProvisioningActive()) {
+    const uint32_t wifiEvery = wifiUp ? 10000u : 20000u;
+    if (lastWifi == 0 || millis() - lastWifi >= wifiEvery) {
+      lastWifi = millis();
+      uint8_t st = wifiMulti.run();
+      if (st == WL_CONNECTED) {
+        if (!mdnsUp) mdnsUp = MDNS.begin(OTA_HOSTNAME);
+        otaBegin();
+        ntpEnsureStarted();
+      }
     }
   }
 

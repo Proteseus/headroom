@@ -270,6 +270,37 @@ extension SettingsView {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                Toggle(HeadroomCopy.usbFallback, isOn: Binding(
+                    get: { usbFallbackEnabled },
+                    set: { setUSBFallback($0) }
+                ))
+                .disabled(usbTransportBusy || hostLifecycleBusy)
+                Text(usbFallbackEnabled
+                     ? HeadroomCopy.usbFallbackOn
+                     : HeadroomCopy.usbFallbackOff)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent(HeadroomCopy.usbDevice) {
+                    Text(HeadroomUSB.detectedPortLabel)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let usb = hostHealth?.usb {
+                    LabeledContent(HeadroomCopy.usbBridge) {
+                        Text(usbStatusLabel(usb))
+                            .foregroundStyle(
+                                usb.enabled
+                                    ? AnyShapeStyle(HeadroomPalette.green)
+                                    : AnyShapeStyle(.secondary)
+                            )
+                    }
+                }
+                if let usbTransportMessage {
+                    Text(usbTransportMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 // Only when there is one to remove. The plist outlives the app
                 // if someone deletes Headroom without leaving first, and then
                 // launchd respawns a host from a bundle that is gone.
@@ -417,6 +448,41 @@ extension SettingsView {
             await reloadHostHealth()
             hostLifecycleBusy = false
         }
+    }
+
+    /// Reinstall or respawn the current host so the transport environment is
+    /// applied immediately. The preference is shared by launchd and the
+    /// app-owned child; only the supervisor changes when this switch changes.
+    func setUSBFallback(_ enabled: Bool) {
+        usbFallbackEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: HeadroomUSB.defaultsKey)
+        usbTransportBusy = true
+        usbTransportMessage = nil
+        Task {
+            let outcome = await HostLifecycleCoordinator.shared.apply(
+                HostLifecycle.current)
+            switch outcome.readiness {
+            case .ready:
+                usbTransportMessage = nil
+            case let .foreign(build):
+                usbTransportMessage = "Another host already owns :8737\(build.map { " (\($0))" } ?? "")."
+            case .silent:
+                usbTransportMessage = outcome.errorMessage ?? HeadroomCopy.hostUnavailable
+            }
+            await reloadHostHealth()
+            usbTransportBusy = false
+        }
+    }
+
+    func usbStatusLabel(_ usb: USBHealth) -> String {
+        guard usb.enabled else { return HeadroomCopy.usbDisabled }
+        if let activePort = usb.activePort {
+            return "Active · \(activePort)"
+        }
+        if let port = usb.ports.first {
+            return "Enabled · waiting on \(port)"
+        }
+        return HeadroomCopy.usbWaiting
     }
 
     func hostUptimeLabel(_ seconds: Int?) -> String {

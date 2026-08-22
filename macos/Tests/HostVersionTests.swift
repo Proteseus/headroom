@@ -110,7 +110,7 @@ final class HostSkewTests: XCTestCase {
     private func report(version: String?, build: String?) -> HealthReport {
         HealthReport(
             ok: true, uptimeS: 1, updated: nil, sources: [:],
-            version: version, build: build)
+            version: version, build: build, usb: nil)
     }
 
     /// A host that answers /health without a build is older than the handshake,

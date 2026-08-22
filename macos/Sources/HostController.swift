@@ -166,7 +166,7 @@ enum HostController {
             return (try? JSONDecoder().decode(HealthReport.self, from: data))
                 ?? HealthReport(
                     ok: true, uptimeS: nil, updated: nil, sources: [:],
-                    version: nil, build: nil)
+                    version: nil, build: nil, usb: nil)
         } catch {
             return nil
         }
@@ -224,6 +224,8 @@ enum HostController {
           <dict>
             <key>PATH</key>
             <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+            <key>\(HeadroomUSB.environmentKey)</key>
+            <string>\(HeadroomUSB.isEnabled ? "1" : "0")</string>
           </dict>
         </dict>
         </plist>

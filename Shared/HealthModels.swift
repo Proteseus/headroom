@@ -13,10 +13,23 @@ struct HealthReport: Decodable, Sendable {
     /// Absent on hosts older than the version handshake — see HostVersion.
     var version: String?
     var build: String?
+    /// USB transport state, absent on hosts older than the USB settings UI.
+    var usb: USBHealth?
 
     enum CodingKeys: String, CodingKey {
-        case ok, updated, sources, version, build
+        case ok, updated, sources, version, build, usb
         case uptimeS = "uptime_s"
+    }
+}
+
+struct USBHealth: Decodable, Sendable {
+    var enabled: Bool
+    var ports: [String]
+    var activePort: String?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, ports
+        case activePort = "active_port"
     }
 }
 

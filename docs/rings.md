@@ -68,7 +68,7 @@ That is a different indicator, not a ring variant: it spends the whole glyph on
 the arc-to-dot distance and says nothing about how much is gone. Nothing above
 applies to it, and `Shared/MenuBarIconStyle.swift` owns its curve.
 The app icon is the same glyph — three bands in process CMY (yellow / cyan /
-magenta) at 80 / 85 / 90 percent outside-in, carrying pace dots at 30 / 60 / 90,
+magenta), each at 90 percent outside-in, carrying pace dots at 30 / 60 / 90,
 rendered by `scripts/render_icon.py` into both asset catalogs and the App Store
 PNG. Live rings keep each provider's brand accent; the icon uses CMY so the arcs
 stay distinct at small sizes.

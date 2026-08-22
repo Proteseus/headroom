@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the Headroom app icon and write every size the catalogs reference.
 
-The icon is the ring glyph itself: three provider bands at 80 / 85 / 90 percent
+The icon is the ring glyph itself: three provider bands, each at 90 percent
 carrying pace dots at 30 / 60 / 90, same 20% tinted track, round-ended usage arc
 and white pace disc as `Shared/HeadroomRings.swift` and `drawPaceRing()` in the
 firmware. No pace ticks — at icon sizes a hairline reads as a defect.
@@ -48,14 +48,13 @@ SQUIRCLE_EXPONENT = 5.0
 # distinct at every catalog size instead of collapsing into muddy terracotta /
 # teal / periwinkle.
 #
-# Usage climbs 80 / 85 / 90 inward and pace climbs 30 / 60 / 90 with it, so
-# every ring is ahead of pace by a shrinking margin. The innermost is ahead by
-# nothing: its dot lands on its own arc cap and reads as a notch at the end of
-# the magenta rather than a mark on the track. Deliberate.
+# Completeness is fixed at 90% on every band so the three circles have the same
+# visual weight. Pace still climbs 30 / 60 / 90 inward, leaving the dots as the
+# changing part of the glyph.
 # Yellow is a shade off pure process so the white pace disc still reads on it.
 BANDS = [
-    ((230, 190, 0), 80.0, 30.0),    # Yellow
-    ((0, 200, 220), 85.0, 60.0),    # Cyan
+    ((230, 190, 0), 90.0, 30.0),    # Yellow
+    ((0, 200, 220), 90.0, 60.0),    # Cyan
     ((230, 45, 140), 90.0, 90.0),   # Magenta
 ]
 

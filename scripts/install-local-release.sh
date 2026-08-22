@@ -46,7 +46,7 @@ echo "Stopping LaunchAgent…"
 launchctl bootout "$LABEL" 2>/dev/null || true
 sleep 2
 
-echo "Installing to $DEST…"
+echo "Installing to ${DEST}…"
 rm -rf "$DEST"
 # ditto carries the signature across, so there is nothing to re-sign — and
 # re-signing here is what used to throw the team away.

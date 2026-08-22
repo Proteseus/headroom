@@ -171,6 +171,9 @@ struct SettingsView: View {
     @State var hostLifecycleMessage: String?
     @State var hostHasLaunchAgent = HostController.hasLaunchAgent
     @State var hostRemoveConfirming = false
+    @State var usbFallbackEnabled = HeadroomUSB.isEnabled
+    @State var usbTransportBusy = false
+    @State var usbTransportMessage: String?
     @State var selection: SettingsDestination? = .general
     /// The pushed leaf under the selected root (one
     /// integration under Integrations/Coding agents). A `NavigationStack`

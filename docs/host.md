@@ -90,6 +90,18 @@ The served document is rebuilt once per poll tick and cached as bytes.
 `attention.level` is `ok` | `warn` | `critical` — acknowledgement is stored by
 fingerprint so clearing on one surface clears the same warning everywhere.
 
+## ESP32 USB fallback
+
+Wi-Fi is the normal board transport. To use the ESP32 over its USB CDC serial
+connection, open **Headroom → Settings → General → Host** and enable **Use USB
+fallback for the ESP32**. Headroom restarts the current host supervisor with
+`HEADROOM_ENABLE_USB=1`, then reports the detected and active `/dev/cu.*` device
+in the same section.
+
+USB is deliberately opt-in because the bridge reserves the serial port. Turn
+it off before flashing firmware or opening a serial monitor; either operation
+needs exclusive access to the same device.
+
 ## Who owns the host process
 
 Two modes, same `headroom_server.py` on the same port. **Settings → General →

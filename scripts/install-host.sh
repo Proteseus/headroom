@@ -126,6 +126,16 @@ if [[ -x /usr/bin/python3 ]]; then
   PYTHON_BIN=/usr/bin/python3
 fi
 
+# Keep the LaunchAgent in sync with the app's USB fallback preference. The
+# app-owned supervisor writes the same value directly; this path is used by
+# the local-release installer and must not silently turn USB back off.
+USB_ENABLED=0
+USB_PREF="$(defaults read com.centaur-labs.headroom.macos headroomUSBFallbackEnabled 2>/dev/null || true)"
+USB_PREF_LOWER="$(printf '%s' "$USB_PREF" | tr '[:upper:]' '[:lower:]')"
+case "$USB_PREF_LOWER" in
+  1|true|yes|on) USB_ENABLED=1 ;;
+esac
+
 if [[ "$FOREGROUND" -eq 1 ]]; then
   echo "Starting host in the foreground on :$PORT (Ctrl-C to stop)…"
   echo "  $PYTHON_BIN $SERVER --port $PORT"
@@ -144,6 +154,7 @@ sed \
   -e "s|/usr/bin/python3|$PYTHON_BIN|g" \
   -e "s|<string>8737</string>|<string>${PORT}</string>|g" \
   "$PLIST_SRC" >"$tmp"
+/usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:HEADROOM_ENABLE_USB $USB_ENABLED" "$tmp"
 mv "$tmp" "$PLIST_DST"
 chmod 644 "$PLIST_DST"
 echo "Installed $PLIST_DST (host=$HOST_DIR)"
@@ -159,7 +170,15 @@ rm -f "$LEGACY_PLIST"
 if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
   launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
 fi
-launchctl bootstrap "$DOMAIN" "$PLIST_DST"
+bootstrapped=0
+for _ in 1 2 3; do
+  if launchctl bootstrap "$DOMAIN" "$PLIST_DST"; then
+    bootstrapped=1
+    break
+  fi
+  sleep 1
+done
+[[ "$bootstrapped" -eq 1 ]] || die "launchctl could not bootstrap $PLIST_DST"
 launchctl enable "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
 launchctl kickstart -k "$DOMAIN/$LABEL"
 

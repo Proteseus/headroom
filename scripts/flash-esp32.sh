@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PIO="${PIO:-$(command -v pio || echo "$HOME/.platformio/penv/bin/pio")}"
-PIO_ENV="${HEADROOM_PIO_ENV:-esp32-s3}"
+PIO_ENV="${HEADROOM_PIO_ENV:-esp32-s3-18}"
 
 if [[ ${1:-} == "-e" || ${1:-} == "--environment" ]]; then
   [[ $# -ge 2 ]] || { echo "error: $1 needs an environment" >&2; exit 2; }
@@ -21,7 +21,7 @@ if [[ ${1:-} == "-e" || ${1:-} == "--environment" ]]; then
 fi
 
 case "$PIO_ENV" in
-  esp32-s3|esp32-s3-216|esp32-s3-175-round) ;;
+  esp32-s3-18|esp32-s3-216|esp32-s3-175-round) ;;
   *)
     echo "error: unsupported Headroom environment: $PIO_ENV" >&2
     exit 2

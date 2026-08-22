@@ -46,6 +46,8 @@
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HEADROOM_ENABLE_USB</key>
+    <string>0</string>
   </dict>
   <key>WorkingDirectory</key>
   <string>REPLACE_WITH_HOME/.headroom</string>

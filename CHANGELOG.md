@@ -19,6 +19,18 @@ tag a version that has no entry.
   whether the burn is ahead or behind and nothing else. Rings stay the default,
   the board keeps its own choice in NVS, and a tap still opens the detail page.
 
+## 2.0.7 — 2026-08-21
+
+### Added
+
+- **First-boot Wi-Fi setup for the ESP32.** When no saved network can be
+  reached, the board starts a `Headroom-XXXX` setup network with a captive
+  portal, scans nearby networks, saves the selected credentials in NVS, and
+  reconnects after setup.
+- **USB fallback controls in the Mac app.** Settings now exposes the detected
+  USB serial device, lets the user enable USB when Wi-Fi is unavailable, and
+  reports whether the host is waiting for or actively using the board.
+
 ## 2.0.6 — 2026-08-11
 
 ### Added

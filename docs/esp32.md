@@ -14,7 +14,7 @@ Mac host ──USB CDC────▶ board   (hotel / no LAN fallback)
 
 Firmware targets three Waveshare SKUs (pick the PlatformIO env that matches):
 
-| | 1.8″ (default `esp32-s3`) | 2.16″ (`esp32-s3-216`) | 1.75″ round (`esp32-s3-175-round`) |
+| | 1.8″ (default `esp32-s3-18`) | 2.16″ (`esp32-s3-216`) | 1.75″ round (`esp32-s3-175-round`) |
 |---|---|---|---|
 | **Product** | [ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm) | [ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm) | ESP32-S3-Touch-AMOLED-1.75 |
 | **SoC** | ESP32-S3R8 (Wi‑Fi + BLE, 8MB PSRAM, 16MB flash) | same | same |
@@ -55,8 +55,9 @@ target with `-e`:
 
 Needs [PlatformIO](https://platformio.org/).
 
-1. `cp firmware/src/config_example.h firmware/src/config.h` — Wi‑Fi SSIDs +
-   Mac hostname (`scutil --get LocalHostName`) or fallback IP.
+1. `cp firmware/src/config_example.h firmware/src/config.h` — Mac hostname
+   (`scutil --get LocalHostName`) or fallback IP, plus the host token and any
+   optional build-time Wi‑Fi networks.
 2. Paste the **host token** into `HOST_TOKEN` (`~/.headroom/token` after first
    host start — **not** the mobile token).
 3. Prefer `./scripts/flash-esp32.sh` (checks the serial port is free). Or:
@@ -71,6 +72,20 @@ launchctl bootout gui/$(id -u)/com.centaur-labs.headroom
 ./scripts/flash-esp32.sh
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.centaur-labs.headroom.plist
 ```
+
+### Wi‑Fi provisioning
+
+If the board has no saved Wi‑Fi credentials, or cannot reach its configured
+networks during startup, it creates a temporary setup access point named
+`Headroom-XXXX` with password `headroom`. Connect from a phone; the captive
+portal should open automatically. If it does not, visit `http://192.168.4.1`,
+choose the home network, and save. The credentials are stored in the board's
+NVS and it restarts into normal station mode. USB CDC remains available while
+the setup portal is running, so a Mac connection is not lost during
+provisioning.
+
+The portal configures Wi‑Fi only. `HOST_NAME`, `HOST_FALLBACK_IP`, `HOST_TOKEN`,
+OTA settings, and display settings still come from `firmware/src/config.h`.
 
 Update the Mac host before flashing: the board reads its three providers from
 `/usage?view=device` → `providers[]`, which a host older than 1.0.9 does not
