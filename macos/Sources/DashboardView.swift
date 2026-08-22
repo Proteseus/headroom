@@ -51,6 +51,9 @@ struct DashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if !needsSetup {
+                modeSwitcher
+            }
             Divider()
             if let serviceDetail {
                 serviceDetailPane(serviceDetail)
@@ -65,7 +68,6 @@ struct DashboardView: View {
                             if let skew = store.hostSkew {
                                 HostSkewBanner(skew: skew, store: store)
                             }
-                            modeSwitcher
                             if selectedMode == .attention {
                                 AttentionSection(
                                     store: store,
@@ -428,6 +430,8 @@ struct DashboardView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Dashboard mode")
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private var header: some View {
